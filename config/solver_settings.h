@@ -1,14 +1,12 @@
 #pragma once
 
-
 /*******************************************************************************
  *                           SQP Settings                               *
  *******************************************************************************/
 
 /* time_linsys = 1 to record linear system solve times. 
 time_linsys = 0 to record number of sqp iterations. 
-In both cases, the tracking error will also be recorded. 
-Note: should be 0 when using constant update frequency */
+In both cases, the tracking error will also be recorded. */
 #ifndef TIME_LINSYS
 #define TIME_LINSYS 1
 #endif
@@ -87,7 +85,7 @@ typedef float linsys_t;
 // 		#else
 // #define PCG_MAX_ITER 200	
 // 		#endif	
-		#define PCG_MAX_ITER 173
+		#define PCG_MAX_ITER 173 // TODO: knot points are now defined in gato.cuh
 	#else 
 #define PCG_MAX_ITER -1
 #define PCG_EXIT_TOL -1 

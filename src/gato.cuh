@@ -39,7 +39,6 @@ namespace gato {
 
         void *d_dynMem_const; // GRiD constant memory (to be initialized in main)
 
-
         // ---------- Everything below here is defined in _plant.cuh ----------
         // --------------------------------------------------------------------
 

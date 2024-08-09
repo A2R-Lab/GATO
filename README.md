@@ -1,7 +1,14 @@
-## gato: GPU-Accelerated Trajectory Optimization  
+# gato
+GPU-Accelerated Trajectory Optimization for Robotics.
 
-### Directory structure:
+
+
+
+## Directory structure:
 - config/: Settings
+    - cost_settings.cuh: cost function settings
+    - sim_settings.cuh: mpc simulation settings
+    - solver_settings.cuh: solver settings
 - data/: Data (e.g. trajectories)
 - docs/: Documentation
 - dynamics/: Dynamics (plant files/grid files)
@@ -13,17 +20,14 @@
     - solvers/: Trjactory optimization solvers
     - utils/: Utilities
     - gato.cuh: header file for gato toolbox
-    - cost_settings.cuh: cost function settings
-    - sim_settings.cuh: mpc simulation settings
-    - solver_settings.cuh: solver settings
 - tests/: Tests
 - tools/: Tools
 
-### Settings:
+## Settings:
 Tweak settings in config/
 
 
-### Building:
+## Building:
 ```
 git clone https://github.com/A2R-Lab/gato.git
 cd gato
@@ -32,7 +36,7 @@ git submodule update --init --recursive
 ./build_MPCGPU.sh
 ```
 
-### Running:
+## Running:
 Single mpc simulation:
 ```
 ./examples/build/pcg

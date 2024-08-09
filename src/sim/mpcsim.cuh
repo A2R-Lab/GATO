@@ -16,7 +16,7 @@
 #include <time.h>
 
 #include "gato.cuh"
-#include "utils/simulator.cuh"
+#include "simulator.cuh"
 #include "utils/io.cuh"
 #include "utils/experiment.cuh"
 

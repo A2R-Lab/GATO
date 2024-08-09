@@ -1,1 +1,1 @@
-Documentation should go here.
+Documentation goes here.

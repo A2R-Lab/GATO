@@ -1,6 +1,10 @@
 #pragma once
 
-//TODO: Select between different cost functions
+/*******************************************************************************
+ *                           Cost Settings                               *
+ *******************************************************************************/
+
+//TODO: Add selection between different cost functions
 
 // control effort penalty
 #ifndef R_COST
@@ -11,7 +15,7 @@
 	#endif
 #endif
 
-// penalty for error in derivative of state
+// penalty for state
 #ifndef QD_COST
 #define QD_COST .0001 
 #endif

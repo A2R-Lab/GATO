@@ -1,0 +1,1 @@
+Configuration files and settings for gato.
