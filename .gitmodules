@@ -1,0 +1,12 @@
+[submodule "external/GBD-PCG"]
+	path = external/GBD-PCG
+	url = git@github.com:A2R-Lab/GBD-PCG.git
+[submodule "external/GLASS"]
+	path = external/GLASS
+	url = git@github.com:A2R-Lab/GLASS.git
+[submodule "external/qdldl"]
+	path = external/qdldl
+	url = https://github.com/osqp/qdldl.git
+[submodule "external/GRiD"]
+	path = external/GRiD
+	url = git@github.com:A2R-Lab/GRiD.git
