@@ -1,4 +1,4 @@
-# gato
+# GATO
 GPU-Accelerated Trajectory Optimization for Robotics.
 
 
