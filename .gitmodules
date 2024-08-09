@@ -13,3 +13,6 @@
 [submodule "external/TrajoptMPCReference"]
 	path = external/TrajoptMPCReference
 	url = git@github.com:A2R-Lab/TrajoptMPCReference.git
+[submodule "external/pybind11"]
+	path = external/pybind11
+	url = https://github.com/pybind/pybind11.git
