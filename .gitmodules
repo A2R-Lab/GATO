@@ -10,3 +10,6 @@
 [submodule "external/GRiD"]
 	path = external/GRiD
 	url = git@github.com:A2R-Lab/GRiD.git
+[submodule "external/TrajoptMPCReference"]
+	path = external/TrajoptMPCReference
+	url = git@github.com:A2R-Lab/TrajoptMPCReference.git

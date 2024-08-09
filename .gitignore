@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+
+# Ignore build directories
+**/build/
+
+# Ignore CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+
+.vscode/

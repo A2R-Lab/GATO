@@ -2,6 +2,7 @@
 
 SRC = ../../src
 EXTERNAL = ../../external
+CONFIG = ../../config
 
 
 # Compiler and compiler flags
@@ -10,10 +11,12 @@ NVCC = nvcc
 CFLAGS = --compiler-options -Wall -O3 \
 		-I../../ \
 		-I$(SRC) \
+		-I$(CONFIG) \
 		-I$(EXTERNAL) \
 		-I$(EXTERNAL)/GLASS \
 		-lqdldl \
 		-I$(EXTERNAL)/qdldl/include \
+		-I$(EXTERNAL)/qdldl/build/include \
 		-L$(EXTERNAL)/qdldl/build/out \
 		-lcublas \
 		-G
@@ -23,9 +26,9 @@ DEPS = $(SRC)/sim/mpcsim.cuh \
 		$(SRC)/solvers/sqp/sqp_pcg.cuh \
 		$(SRC)/solvers/sqp/sqp_qdldl.cuh \
 		$(SRC)/gato.cuh \
-		$(SRC)/sim_settings.h \
-		$(SRC)/solver_settings.h \
-		$(SRC)/cost_settings.h 
+		$(CONFIG)/sim_settings.h \
+		$(CONFIG)/solver_settings.h \
+		$(CONFIG)/cost_settings.h 
 
 
 # Default target
@@ -38,7 +41,7 @@ qdldl.exe: ./track_iiwa_qdldl.cu
 	$(NVCC) $(CFLAGS) -DLINSYS_SOLVE=0 $< -o $@ 
 
 build_qdldl:
-	cd ../../external/qdldl && mkdir -p build && cd build && cmake -DQDLDL_FLOAT=true -DQDLDL_LONG=false .. && cmake --build . && cd ../../../experiments/MPCGPU
+	cd ../../external/qdldl && mkdir -p build && cd build && cmake -DQDLDL_FLOAT=true -DQDLDL_LONG=false .. && cmake --build . && cd ../../../
 
 clean:
 	rm -f $(TARGET) $(OBJECTS) *.exe

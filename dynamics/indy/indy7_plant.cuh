@@ -37,6 +37,8 @@
 // #define RANDOM_STDEV 0.001
 // std::default_random_engine randEng(time(0)); //seed
 // std::normal_distribution<double> randDist(RANDOM_MEAN, RANDOM_STDEV); //mean followed by stdiv
+//TODO: modify to be like iiwa14_plant.cuh
+
 
 namespace gato_plant{
 

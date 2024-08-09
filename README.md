@@ -1,14 +1,13 @@
-# GPU-Accelerated Trajectory Optimization for Robotics
+## gato: GPU-Accelerated Trajectory Optimization  
 
-
-## Directory structure:
+### Directory structure:
+- config/: Settings
 - data/: Data (e.g. trajectories)
 - docs/: Documentation
 - dynamics/: Dynamics (plant files/grid files)
 - examples/: Examples
 - experiments/: Experiments for papers
 - external/: External libraries and submodules
-- include/: Public headers
 - src/: Sources and private headers
     - sim/: Simulation
     - solvers/: Trjactory optimization solvers
@@ -20,8 +19,31 @@
 - tests/: Tests
 - tools/: Tools
 
+### Settings:
+Tweak settings in config/
 
-## Namespace:
 
-- gato
-  - plant
+### Building:
+```
+git clone https://github.com/A2R-Lab/gato.git
+cd gato
+git submodule update --init --recursive
+./build_examples.sh
+./build_MPCGPU.sh
+```
+
+### Running:
+Single mpc simulation:
+```
+./examples/build/pcg
+```
+
+Track with iiwa14 (pcg):
+```
+./experiments/MPCGPU/sqp_pcg
+```
+
+Track with iiwa14 (qdldl):
+```
+./experiments/MPCGPU/sqp_qdldl
+```
