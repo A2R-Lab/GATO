@@ -30,7 +30,7 @@
 
 
 #ifndef SIMULATION_PERIOD // how long to simulate the system during mpcsim loop (us) if CONST_UPDATE_FREQ == 1, otherwise uses last sqp solve time
-#define SIMULATION_PERIOD 2500
+#define SIMULATION_PERIOD 200000
 #endif
 
 #ifndef REMOVE_JITTERS // run sqp solver a bunch of times before starting to track

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "gato.cuh"
-#include "glass.cuh"
 #include "utils/utils.cuh"
 
 //TODO: this

@@ -6,14 +6,7 @@
 #include "external/GBD-PCG/include/utils.cuh" // TODO: GBD-PCG utils include fix
 
 /**
- * @brief Performs matrix-vector multiplication A^T * x
- *
- * @tparam T The data type of the matrix and vector elements
- * @param out The output vector
- * @param mat The input matrix (stored in column-major order)
- * @param vec The input vector
- * @param m The number of rows in the matrix
- * @param n The number of columns in the matrix
+ * @brief Performs matrix-vector multiplication A^T * x.
  */
 template <typename T>
 __device__
@@ -34,13 +27,7 @@ void gato_ATx(T *out, T *mat, T *vec, int m, int n){
 }
 
 /**
- * @brief Computes the element-wise difference between two vectors
- *
- * @tparam T The data type of the vector elements
- * @param out The output vector
- * @param vec1 The first input vector
- * @param vec2 The second input vector
- * @param size The size of the vectors
+ * @brief Computes the element-wise difference between two vectors.
  */
 template <typename T>
 __device__
@@ -51,13 +38,7 @@ void gato_vec_dif(T *out, T *vec1, T *vec2, int size){
 }
 
 /**
- * @brief Computes the element-wise sum of two vectors
- *
- * @tparam T The data type of the vector elements
- * @param out The output vector
- * @param vec1 The first input vector
- * @param vec2 The second input vector
- * @param size The size of the vectors
+ * @brief Computes the element-wise sum of two vectors.
  */
 template <typename T>
 __device__
@@ -68,14 +49,7 @@ void gato_vec_sum(T *out, T *vec1, T *vec2, int size){
 }
 
 /**
- * @brief Performs matrix-vector multiplication
- *
- * @tparam T The data type of the matrix and vector elements
- * @param MAT_ROWS The number of rows in the matrix
- * @param MAT_COLS The number of columns in the matrix
- * @param mat The input matrix (stored in column-major order)
- * @param vec The input vector
- * @param out The output vector
+ * @brief Matrix-vector multiplication.
  */
 template <typename T>
 __device__
@@ -91,12 +65,7 @@ void mat_vec_prod(unsigned MAT_ROWS, unsigned MAT_COLS, T *mat, T *vec, T *out){
 }
 
 /**
- * @brief Adds a scaled identity matrix to an existing matrix
- *
- * @tparam T The data type of the matrix elements
- * @param A The input/output matrix
- * @param dim The dimension of the square matrix
- * @param factor The scaling factor for the identity matrix
+ * @brief Add a scaled identity matrix to an existing matrix
  */
 template <typename T>
 __device__
@@ -105,7 +74,6 @@ void add_identity(T *A, unsigned dim, T factor){
         if(i/dim == i%dim){ A[i] += factor; }
     }
 }
-
 
 
 // load identity in so memory is [A | I]

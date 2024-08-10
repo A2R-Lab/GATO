@@ -9,5 +9,4 @@
 #include "integrator_host.cuh"
 #include "io.cuh"
 #include "matrix.cuh"
-#include "simulator.cuh"
 

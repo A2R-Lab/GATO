@@ -13,12 +13,11 @@
 #include <time.h>
 
 #include "gato.cuh"
-
-#include "kernels/setup_kkt_kernel.cuh"
+#include "kernels/setup_kkt.cuh"
 #include "kernels/setup_schur_pcg.cuh"
 #include "external/GBD-PCG/include/pcg.cuh"
 #include "kernels/compute_dz.cuh"
-#include "kernels/compute_merit_kernel.cuh"
+#include "kernels/compute_merit.cuh"
 
 
 

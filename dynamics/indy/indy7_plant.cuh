@@ -40,7 +40,7 @@
 //TODO: modify to be like iiwa14_plant.cuh
 
 
-namespace gato_plant{
+namespace gato::plant{
 
 
 	const unsigned SUGGESTED_THREADS = grid::SUGGESTED_THREADS;
@@ -107,7 +107,7 @@ namespace gato_plant{
     	grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float> *) d_dynMem_const, s_temp);
     	__syncthreads();
 
-    	grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato_plant::GRAVITY<T>());
+    	grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato::plant::GRAVITY<T>());
 		
 		// grid::forward_dynamics_device<T>(s_qdd,s_q,s_qd,s_u,(grid::robotModel<T>*)d_dynMem_const,GRAVITY<T>());
 	}

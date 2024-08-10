@@ -5,13 +5,13 @@
 
 
 /**
-* @brief Executes integration and computes error
+* @brief Execute integration to get next state and compute error.
 * @tparam T Data type
 * @tparam INTEGRATOR_TYPE Type of integrator (0: Euler, 1: Semi-Implicit Euler)
 * @tparam ANGLE_WRAP Whether to wrap angles
-* @param state_size Size of the state vector
+* @param state_size Size of state vector
 * @param s_err Output error
-* @param s_qkp1, s_qdkp1 Next state
+* @param s_qkp1, s_qdkp1 Next state input
 * @param s_q, s_qd, s_qdd Current state and acceleration
 * @param dt Time step
 * @param block Thread block
@@ -53,8 +53,10 @@ void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1,
     }
 }
 
+// ---------- Error for Merit Function ----------
+
 /**
- * @brief Computes error after integrating the system
+ * @brief Integrate to get next state and compute error.
  * 
  * s_temp of size: (3*state_size/2 + DYNAMICS_TEMP)
  *
@@ -95,6 +97,6 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
     // finish off forming the error
     glass::reduce<T>(state_size, s_err);
     block.sync();
-    // if(GATO_LEAD_THREAD){printf("in integratorError with reduced error of [%f]\n",s_err[0]);}
+    
     return s_err[0];
 }

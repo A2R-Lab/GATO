@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <stdio.h>
 #include <iostream>
 #include <numeric>
 #include <algorithm>
@@ -12,9 +13,60 @@
 
 // ---------- Experiment Utils ----------
 
-// difference between two timespec structs in microseconds
+/**
+ * @brief Difference between two timespec structs in microseconds.
+ */
 #define time_delta_us_timespec(start,end) (1e6*static_cast<double>(end.tv_sec - start.tv_sec)+1e-3*static_cast<double>(end.tv_nsec - start.tv_nsec))
 
+
+/**
+ * @brief Get current timestamp in format YYYYMMDD_HHMMSS.
+ */
+ std::string getCurrentTimestamp() {
+   time_t rawtime;
+   struct tm * timeinfo;
+   char buffer[80];
+   time(&rawtime);
+   timeinfo = localtime(&rawtime);
+   strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", timeinfo);
+   return std::string(buffer);
+}
+
+
+/**
+ * @brief Prints properties of all CUDA devices in the system
+ */
+ void printCudaDeviceProperties() {
+
+   int nDevices;
+   cudaGetDeviceCount(&nDevices);
+
+   printf("Number of devices: %d\n", nDevices);
+
+   for (int i = 0; i < nDevices; i++) {
+   cudaDeviceProp prop;
+   cudaGetDeviceProperties(&prop, i);
+   printf("Device Number: %d\n", i);
+   printf("  Device name: %s\n", prop.name);
+   printf("  Memory Clock Rate (MHz): %d\n",
+           prop.memoryClockRate/1024);
+   printf("  Memory Bus Width (bits): %d\n",
+           prop.memoryBusWidth);
+   printf("  Peak Memory Bandwidth (GB/s): %.1f\n",
+           2.0*prop.memoryClockRate*(prop.memoryBusWidth/8)/1.0e6);
+   printf("  Total global memory (Gbytes) %.1f\n",(float)(prop.totalGlobalMem)/1024.0/1024.0/1024.0);
+   printf("  Shared memory per block (Kbytes) %.1f\n",(float)(prop.sharedMemPerBlock)/1024.0);
+   printf("  minor-major: %d-%d\n", prop.minor, prop.major);
+   printf("  Warp-size: %d\n", prop.warpSize);
+   printf("  Concurrent kernels: %s\n", prop.concurrentKernels ? "yes" : "no");
+   printf("  Concurrent computation/communication: %s\n\n",prop.deviceOverlap ? "yes" : "no");
+   }
+}
+
+
+/**
+ * @brief Print current configuration of experiment.
+ */
 void print_test_config() {
    std::cout << "Knot points: " << gato::KNOT_POINTS << "\n";
    std::cout << "State size: " << gato::STATE_SIZE << "\n";
@@ -38,33 +90,28 @@ void print_test_config() {
    std::cout << "Jitters: " << (REMOVE_JITTERS ? "ON" : "OFF") << "\n\n\n";
 }
 
-std::string getCurrentTimestamp() {
-   time_t rawtime;
-   struct tm * timeinfo;
-   char buffer[80];
-   time(&rawtime);
-   timeinfo = localtime(&rawtime);
-   strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", timeinfo);
-   return std::string(buffer);
-}
 
+/**
+ * @brief Print statistics for a vector.
+ * @param data Vector of data to print statistics for.
+ */
 template<bool PRINT_DISTRIBUTION = true>
-void printStats(std::vector<double> *times) {
-   double sum = std::accumulate(times->begin(), times->end(), 0.0);
-   double mean = sum/static_cast<double>(times->size());
-   std::vector<double> diff(times->size());
-   std::transform(times->begin(), times->end(), diff.begin(), [mean](double x) {return x - mean;});
+void printStats(std::vector<double> *data) {
+   double sum = std::accumulate(data->begin(), data->end(), 0.0);
+   double mean = sum/static_cast<double>(data->size());
+   std::vector<double> diff(data->size());
+   std::transform(data->begin(), data->end(), diff.begin(), [mean](double x) {return x - mean;});
    double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
-   double stdev = std::sqrt(sq_sum / times->size());
-   std::vector<double>::iterator minInd = std::min_element(times->begin(), times->end());
-   std::vector<double>::iterator maxInd = std::max_element(times->begin(), times->end());
-   double min = times->at(std::distance(times->begin(), minInd)); 
-   double max = times->at(std::distance(times->begin(), maxInd));
+   double stdev = std::sqrt(sq_sum / data->size());
+   std::vector<double>::iterator minInd = std::min_element(data->begin(), data->end());
+   std::vector<double>::iterator maxInd = std::max_element(data->begin(), data->end());
+   double min = data->at(std::distance(data->begin(), minInd)); 
+   double max = data->at(std::distance(data->begin(), maxInd));
    printf("Average[%fus] Std Dev [%fus] Min [%fus] Max [%fus] \n",mean,stdev,min,max);
    if (PRINT_DISTRIBUTION){
       double hist[] = {0,0,0,0,0,0,0};
-      for(int i = 0; i < times->size(); i++){
-         double value = times->at(i);
+      for(int i = 0; i < data->size(); i++){
+         double value = data->at(i);
          if (value < mean - stdev){
             if (value < mean - 2*stdev){
                if (value < mean - 3*stdev){hist[0] += 1.0;}
@@ -81,36 +128,42 @@ void printStats(std::vector<double> *times) {
          }
          else{hist[3] += 1.0;}
       }
-      for(int i = 0; i < 7; i++){hist[i] = (hist[i]/static_cast<double>(times->size()))*100;}
+      for(int i = 0; i < 7; i++){hist[i] = (hist[i]/static_cast<double>(data->size()))*100;}
       printf("    Distribution |  -3  |  -2  |  -1  |   0  |   1  |   2  |   3  |\n");
       printf("    (X std dev)  | %2.2f | %2.2f | %2.2f | %2.2f | %2.2f | %2.2f | %2.2f |\n",
                                 hist[0],hist[1],hist[2],hist[3],hist[4],hist[5],hist[6]);
-      std::sort(times->begin(), times->end()); 
+      std::sort(data->begin(), data->end()); 
       printf("    Percentiles |  50   |  60   |  70   |  75   |  80   |  85   |  90   |  95   |  99   |\n");
       printf("                | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |\n",
-                              times->at(times->size()/2),times->at(times->size()/5*3),times->at(times->size()/10*7),
-                              times->at(times->size()/4*3),times->at(times->size()/5*4),times->at(times->size()/20*17),
-                              times->at(times->size()/10*9),times->at(times->size()/20*19),times->at(times->size()/100*99));
+                              data->at(data->size()/2),data->at(data->size()/5*3),data->at(data->size()/10*7),
+                              data->at(data->size()/4*3),data->at(data->size()/5*4),data->at(data->size()/20*17),
+                              data->at(data->size()/10*9),data->at(data->size()/20*19),data->at(data->size()/100*99));
       bool onePer = false; bool twoPer = false; bool fivePer = false; bool tenPer = false;
-      for(int i = 0; i < times->size(); i++){
-         if(!onePer && times->at(i) >= mean * 1.01){ onePer = true;
-            printf("    More than 1 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(times->size())*100.0);
+      for(int i = 0; i < data->size(); i++){
+         if(!onePer && data->at(i) >= mean * 1.01){ onePer = true;
+            printf("    More than 1 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(data->size())*100.0);
          }
-         if(!twoPer && times->at(i) >= mean * 1.02){ twoPer = true;
-            printf("    More than 2 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(times->size())*100.0);
+         if(!twoPer && data->at(i) >= mean * 1.02){ twoPer = true;
+            printf("    More than 2 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(data->size())*100.0);
          }
-         if(!fivePer && times->at(i) >= mean * 1.05){ fivePer = true;
-            printf("    More than 5 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(times->size())*100.0);
+         if(!fivePer && data->at(i) >= mean * 1.05){ fivePer = true;
+            printf("    More than 5 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(data->size())*100.0);
          }
-         if(!tenPer && times->at(i) >= mean * 1.10){ tenPer = true;
-            printf("    More than 10 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(times->size())*100.0);
+         if(!tenPer && data->at(i) >= mean * 1.10){ tenPer = true;
+            printf("    More than 10 Percent above mean at [%2.2f] Percentile\n",static_cast<double>(i)/static_cast<double>(data->size())*100.0);
          }
       }
    }
 }
 
+/**
+ * @brief Print formatted string with statistics for a vector of data.
+ * @param data  Vector of data
+ * @param prefix
+ * @return Formatted string with statistics.
+ */
 template<typename T>
-std::string printStats(std::vector<T> *data, std::string prefix) {
+std::string printStats(std::vector<T> *data, std::string prefix = "data") {
    T sum = std::accumulate(data->begin(), data->end(), static_cast<T>(0));
    float mean = sum/static_cast<double>(data->size());
    std::vector<T> diff(data->size());

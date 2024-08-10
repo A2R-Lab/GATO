@@ -34,11 +34,11 @@ typedef float linsys_t;
 #endif
 
 #ifndef CONST_UPDATE_FREQ //exits sqp solver early to reach a constant update frequency
-#define CONST_UPDATE_FREQ 1
+#define CONST_UPDATE_FREQ 0
 #endif
 
 #ifndef SQP_MAX_TIME_US //max time to run sqp solver, if CONST_UPDATE_FREQ == 1 (us). think about matching with SIMULATION_PERIOD in sim_settings.h
-#define SQP_MAX_TIME_US 2500 
+#define SQP_MAX_TIME_US 200000 
 #endif
 
 /*******************************************************************************
@@ -50,7 +50,7 @@ typedef float linsys_t;
 #endif
 
 #ifndef SCHUR_THREADS
-#define SCHUR_THREADS 128
+#define SCHUR_THREADS 32
 #endif
 
 #ifndef PCG_NUM_THREADS

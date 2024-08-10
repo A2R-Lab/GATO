@@ -4,12 +4,12 @@
 
 
 /**
-* @brief Execute integration and finds gradients of next state wrt current state and control
+* @brief Execute integration and find gradients of next state wrt current state and control
 * @tparam T Data type
 * @tparam INTEGRATOR_TYPE Type of integrator (0: Euler, 1: Semi-Implicit Euler)
-* @param state_size Size of the state vector
-* @param control_size Size of the control vector
-* @param s_Ak, s_Bk df
+* @param state_size Size of state vector
+* @param control_size Size of control vector
+* @param s_Ak, s_Bk Gradient matrices
 * @param s_dqdd Acceleration gradient
 * @param dt Time step
 * @param block Thread block
@@ -54,50 +54,50 @@ void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_A
             }
         }
     }
-    else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+    else {printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
 }
 
 // ---------- Integrator and gradients for KKT system ----------
 
 /**
- * @brief Integrates to find next state and computes the gradient of next state wrt current state and control
+ * @brief Integrate to compute the gradient of next state wrt current state and control.
  * @tparam T Data type
  * @tparam INTEGRATOR_TYPE Type of integrator
  * @tparam ANGLE_WRAP Whether to wrap angles
  * @tparam COMPUTE_INTEGRATOR_ERROR Whether to compute integrator error
- * @param state_size Size of the state vector
- * @param control_size Size of the control vector
+ * @param state_size Size of state vector
+ * @param control_size Size of control vector
  * @param s_xux Input state and control
- * @param s_Ak, s_Bk Output matrices
+ * @param s_Ak, s_Bk Output Gradient matrices
  * @param s_xnew_err Output new state or error
  * @param s_temp Temporary storage, size: (state_size/2*(state_size + control_size + 1) + DYNAMICS_TEMP)
  * @param d_dynMem_const Dynamics memory
  * @param dt Time step
  * @param block Thread block
  */
- template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
- __device__ __forceinline__
- void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cgrps::thread_block block){
-     
-     T *s_q = s_xux; 	
-     T *s_qd = s_q + state_size/2; 		
-     T *s_u = s_qd + state_size/2;
-     
-     T *s_qdd = s_temp; // linearized acceleration
-     T *s_dqdd = s_qdd + state_size/2;
-     T *s_extra_temp = s_dqdd + (state_size/2)*(state_size+control_size);
- 
-     // first compute qdd and dqdd
-     gato::plant::forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
-     block.sync();
- 
-     // then compute xnew or error
-     if (COMPUTE_INTEGRATOR_ERROR){
-         exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xux[state_size+control_size], &s_xux[state_size+control_size+state_size/2], s_q, s_qd, s_qdd, dt, block);
-     } else {
-         exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xnew_err[state_size/2], s_q, s_qd, s_qdd, dt, block);
-     }
-     
-     // then compute gradients to form Ak and Bk
-     exec_integrator_gradient<T,INTEGRATOR_TYPE>(state_size, control_size, s_Ak, s_Bk, s_dqdd, dt, block);
- }
+template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
+__device__ __forceinline__
+void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cgrps::thread_block block){
+    
+    T *s_q = s_xux; 	
+    T *s_qd = s_q + state_size/2; 		
+    T *s_u = s_qd + state_size/2;
+    
+    T *s_qdd = s_temp; // linearized acceleration
+    T *s_dqdd = s_qdd + state_size/2;
+    T *s_extra_temp = s_dqdd + (state_size/2)*(state_size+control_size);
+
+    // first compute qdd and dqdd
+    gato::plant::forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+    block.sync();
+
+    // then compute xnew or error
+    if (COMPUTE_INTEGRATOR_ERROR){
+        exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xux[state_size+control_size], &s_xux[state_size+control_size+state_size/2], s_q, s_qd, s_qdd, dt, block);
+    } else {
+        exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xnew_err[state_size/2], s_q, s_qd, s_qdd, dt, block);
+    }
+    
+    // then compute gradients to form Ak and Bk
+    exec_integrator_gradient<T,INTEGRATOR_TYPE>(state_size, control_size, s_Ak, s_Bk, s_dqdd, dt, block);
+}

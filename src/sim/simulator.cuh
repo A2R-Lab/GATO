@@ -25,7 +25,7 @@
 /**
  * @brief Kernel to integrate system based on x_k+1 = f(x_k,u_k,dt)
  *
- * shared memory size: sizeof(T)*(2*state_size + control_size + state_size/2 + gato_plant::forwardDynamics_TempMemSize_Shared())
+ * shared memory size: sizeof(T)*(2*state_size + control_size + state_size/2 + gato::plant::forwardDynamics_TempMemSize_Shared())
  * x_k+1 (state_size) , xu_k (state_size + control_size), joint accelerations (state_size/2), 
  *
  * @tparam T Data type

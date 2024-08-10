@@ -12,7 +12,9 @@
 
 // ---------- IO Utils ----------
 
-// parameters for logging for MPCGPU experiments
+/**
+ * @brief Struct to hold logging parameters for MPC experiments.
+ */
 struct MPCLogParams {
     int start_state_index;
     int goal_state_index;
@@ -20,6 +22,22 @@ struct MPCLogParams {
     std::string test_output_prefix;
 };
 
+
+/**
+ * @brief Dump tracking data to a file.
+ * @tparam T Data type
+ * @param pcg_iters PCG iterations vector
+ * @param pcg_exits PCG exit status vector
+ * @param linsys_times Linear system solve times vector
+ * @param sqp_times SQP solve times vector
+ * @param sqp_iters SQP iterations vector
+ * @param sqp_exits SQP exit status vector
+ * @param tracking_errors Tracking errors vector
+ * @param tracking_path Tracking path matrix
+ * @param timesteps_taken Number of timesteps taken
+ * @param control_updates_taken Number of control updates taken
+ * @param mpc_log_params Logging parameters
+ */
 template <typename T>
 void dump_tracking_data(
     const std::vector<int>& pcg_iters, 
@@ -84,7 +102,12 @@ void dump_tracking_data(
     statsfile.close();
 }
 
-// read a CSV file into a vector of vectors
+/**
+ * @brief Read a CSV file into a vector of vectors.
+ * @tparam T Data type
+ * @param filename File name
+ * @return Vector of vectors
+ */
 template <typename T>
 std::vector<std::vector<T>> readCSVToVecVec(const std::string& filename) {
 
@@ -109,7 +132,12 @@ std::vector<std::vector<T>> readCSVToVecVec(const std::string& filename) {
     return data;
 }
 
-// read a CSV file into a vector
+/**
+ * @brief Read a CSV file into a vector.
+ * @tparam T Data type
+ * @param filename File name
+ * @return Vector
+ */
 template <typename T>
 std::vector<T> readCSVToVec(const std::string& filename) {
 
@@ -132,7 +160,12 @@ std::vector<T> readCSVToVec(const std::string& filename) {
     return data;
 }
 
-// Format stats string values into CSV format
+/**
+ * @brief Get a CSV formatted string from a string.
+ * @tparam T Data type
+ * @param statsString Stats string
+ * @return CSV formatted string
+ */
 std::string getStatsString(const std::string& statsString) {
 
     std::stringstream ss(statsString);
@@ -146,11 +179,16 @@ std::string getStatsString(const std::string& statsString) {
             csvFormattedString += token;
         }
     }
-    
     return csvFormattedString;
  }
 
- // Write experiment results to a CSV file
+/**
+ * @brief Write experiment results to a CSV file.
+ * @param filename File name
+ * @param trackingStats Tracking stats
+ * @param linsysOrSqpStats Linear system or SQP statistics
+ * @return 0 if successful, 1 otherwise
+ */
 int writeResultsToCSV(const std::string& filename, const std::string& trackingStats, const std::string& linsysOrSqpStats){
 
    std::ofstream csvFile(filename);
