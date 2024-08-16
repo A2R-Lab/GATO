@@ -34,17 +34,24 @@ def solve_sqp_pcg_n(solve_count, eePos_goal_traj, xu_traj, pcg_exit_tol=1e-5, pc
     return result
 
 
-# Example usage
 if __name__ == "__main__":
-    # Load your data here (example shapes, adjust as needed)
-    solve_count = 1
+    solve_count = 20
     rho_init = 1e-3
     rho_reset = 1e-3
     pcg_max_iter = 173
     pcg_exit_tol = 1e-5
 
-    eePos_goal_traj = np.random.rand(solve_count, 32, 6).astype(np.float32)  # Example shape
-    xu_traj = np.random.rand(solve_count, 32, 18).astype(np.float32)
+    eePos_goal_traj = np.loadtxt("../../../data/trajfiles/0_0_eepos.traj", delimiter=",")
+    xu_traj = np.loadtxt("../../../data/trajfiles/0_0_traj.csv", delimiter=",")
+    
+    #cut to 32 knots
+    eePos_goal_traj = eePos_goal_traj[:32*6]
+    xu_traj = xu_traj[:((14 + 7) * 32 - 7)]
+    
+    #copy for each solve
+    eePos_goal_traj = np.tile(eePos_goal_traj, (solve_count, 1))
+    xu_traj = np.tile(xu_traj, (solve_count, 1))
+    
 
     result = solve_sqp_pcg_n(
         solve_count,
