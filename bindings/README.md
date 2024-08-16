@@ -1,4 +1,4 @@
-Python bindings/wrappers.
+# Python bindings for GATO
 
 To build, run "bindings.sh" in tools/:
 ```

@@ -28,7 +28,7 @@
 // 3. solve the system using PCG
 // 4. line search to ensure descent
 // 5. apply update step to trajectory (d_xu)
-template <typename T>
+template <typename T> //TODO: convert function name to camel case
 auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
                  T *d_xu, //input state/control trajectory
                  T *d_lambda, 
