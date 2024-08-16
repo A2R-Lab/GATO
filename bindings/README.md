@@ -7,10 +7,10 @@ To build, run "bindings.sh" in tools/:
 
 Then source the "setup_gato_env.sh" script to include the bindings in your environment:
 ```
-source <path to setup_gato_env.sh>
+source <../../../tools/setup_gato_env.sh>
 ```
 
 You can now use the bindings in Python!
 ```
-python3 sqp_pcg.py
+python3 sqp_pcg_n.py
 ```
