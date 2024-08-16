@@ -31,7 +31,7 @@ include_directories(
 
 link_directories(${DEPENDENCIES_DIR}/qdldl/build/out)
 
-# Common compile options for CUDA targets
+
 set(CUDA_COMPILE_OPTIONS
     --compiler-options -Wall
     -O3
