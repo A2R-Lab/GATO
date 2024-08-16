@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #include "gato.cuh"
-#include "external/GBD-PCG/include/pcg.cuh"
+#include "GBD-PCG/include/pcg.cuh"
 
 /**
  * @brief Batched preconditioned conjugate gradient solver.

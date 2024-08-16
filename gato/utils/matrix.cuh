@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "gato.cuh"
-#include "external/GBD-PCG/include/utils.cuh" // TODO: GBD-PCG utils include fix
+#include "GBD-PCG/include/utils.cuh" // TODO: GBD-PCG utils include fix
 
 /**
  * @brief Performs matrix-vector multiplication A^T * x.

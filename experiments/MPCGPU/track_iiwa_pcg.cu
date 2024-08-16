@@ -8,7 +8,7 @@
 #include "sim/mpcsim.cuh"
 #include "gato.cuh"
 #include "utils/utils.cuh"
-#include "external/GBD-PCG/include/pcg.cuh"
+#include "GBD-PCG/include/pcg.cuh"
 
 
 int main(){
@@ -25,7 +25,7 @@ int main(){
 
     print_test_config();
     // where to store test results — manually create this directory
-    std::string output_directory_path = "tmp/results/";
+    std::string output_directory_path = "build/results/";
 
     const uint32_t recorded_states = 5;
     const uint32_t start_goal_combinations = recorded_states*recorded_states;
@@ -84,10 +84,10 @@ int main(){
 			for (uint32_t single_traj_test_iter = 0; single_traj_test_iter < traj_test_iters; single_traj_test_iter++){
 
 				// read in traj
-				snprintf(eePos_traj_file_name, sizeof(eePos_traj_file_name), "../../data/trajfiles/%d_%d_eepos.traj", start_state, goal_state);
+				snprintf(eePos_traj_file_name, sizeof(eePos_traj_file_name), "data/trajfiles/%d_%d_eepos.traj", start_state, goal_state);
 				std::vector<std::vector<linsys_t>> eePos_traj2d = readCSVToVecVec<linsys_t>(eePos_traj_file_name);
 				
-				snprintf(xu_traj_file_name, sizeof(xu_traj_file_name), "../../data/trajfiles/%d_%d_traj.csv", start_state, goal_state);
+				snprintf(xu_traj_file_name, sizeof(xu_traj_file_name), "data/trajfiles/%d_%d_traj.csv", start_state, goal_state);
 				std::vector<std::vector<linsys_t>> xu_traj2d = readCSVToVecVec<linsys_t>(xu_traj_file_name);
 				
 				if(eePos_traj2d.size() < knot_points){std::cout << "precomputed traj length < knotpoints, not implemented\n"; continue; }

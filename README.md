@@ -3,19 +3,23 @@ GPU-Accelerated Trajectory Optimization for Robotics.
 
 
 
+**CURRENTLY UNDER CONSTRUCTION**
+
+
 
 ## Directory structure:
+- bindings/: Python bindings
 - config/: Settings
     - cost_settings.cuh: cost function settings
     - sim_settings.cuh: mpc simulation settings
     - solver_settings.cuh: solver settings
 - data/: Data (e.g. trajectories)
+- dependencies/: External libraries and submodules
 - docs/: Documentation
 - dynamics/: Dynamics (plant files/grid files)
 - examples/: Examples
 - experiments/: Experiments for papers
-- external/: External libraries and submodules
-- src/: Sources and private headers
+- gato/: Library source
     - sim/: Simulation
     - solvers/: Trjactory optimization solvers
     - utils/: Utilities
@@ -32,22 +36,28 @@ Tweak settings in config/
 git clone https://github.com/A2R-Lab/gato.git
 cd gato
 git submodule update --init --recursive
-./build_examples.sh
-./build_MPCGPU.sh
+chmod +x tools/build.sh
+chmod +x tools/cleanup.sh
+./tools/build.sh
 ```
 
 ## Running:
 Single mpc simulation:
 ```
-./examples/build/pcg
+./build/mpc
+```
+
+Batched sqp solve:
+```
+./build/multi-sqp
 ```
 
 Track with iiwa14 (pcg):
 ```
-./experiments/MPCGPU/sqp_pcg
+./build/MPCGPU-pcg
 ```
 
 Track with iiwa14 (qdldl):
 ```
-./experiments/MPCGPU/sqp_qdldl
+./build/MPCGPU-qdldl
 ```

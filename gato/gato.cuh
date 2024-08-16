@@ -20,7 +20,7 @@ namespace gato {
     // define constants
     const uint32_t STATE_SIZE = grid::NUM_JOINTS * 2; // joints and velocities
     const uint32_t CONTROL_SIZE = grid::NUM_JOINTS;
-    const uint32_t KNOT_POINTS = 32;
+    const uint32_t KNOT_POINTS = 32; //move this to a settings file in config/
     
     const float TIMESTEP = 0.015625; // 1/64 TODO: add to settings.h
 

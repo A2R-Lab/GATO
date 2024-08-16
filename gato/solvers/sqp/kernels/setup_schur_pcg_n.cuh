@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include "gpuassert.cuh"
+#include "GBD-PCG/include/gpuassert.cuh"
 #include "glass.cuh"
 #include "utils/matrix.cuh"
 #include "setup_schur_pcg.cuh"

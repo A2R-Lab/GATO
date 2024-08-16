@@ -31,8 +31,8 @@
 *.out
 *.app
 
-# Ignore build directories
-**/build/
+# Ignore build directory
+/build/
 
 # Ignore CMake generated files
 CMakeCache.txt
@@ -42,3 +42,4 @@ Makefile
 
 
 .vscode/
+
