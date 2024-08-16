@@ -1,7 +1,12 @@
 # Python bindings for GATO
 
-To build, run "bindings.sh" in tools/:
 ```
+cd python/gato
+```
+
+To build python bindings, run "bindings.sh" in tools/:
+```
+#from bindings/python/gato
 ../../../tools/bindings.sh
 ```
 
