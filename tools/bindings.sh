@@ -42,10 +42,10 @@ else
 fi
 
 # Create a shell script to set up the environment
-ENV_SETUP_SCRIPT="${ROOT_DIR}/setup_gato_env.sh"
+ENV_SETUP_SCRIPT="${ROOT_DIR}/tools/setup_gato_env.sh"
 cat > "${ENV_SETUP_SCRIPT}" << EOL
 #!/bin/bash
-export PYTHONPATH="\${PYTHONPATH}:${BUILD_DIR}"
+export PYTHONPATH="\${PYTHONPATH}:${BINDINGS_DIR}/build"
 echo "GATO environment set up. You can now use the library in Python."
 EOL
 

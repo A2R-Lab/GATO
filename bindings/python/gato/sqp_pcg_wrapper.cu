@@ -4,6 +4,7 @@
 #include <vector>
 #include <tuple>
 #include "solvers/sqp/sqp_pcg.cuh"
+#include "gato.cuh"
 
 namespace py = pybind11;
 

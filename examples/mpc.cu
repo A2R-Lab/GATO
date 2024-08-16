@@ -25,8 +25,8 @@ int main(){
     // ----------------- input trajectory stuff -----------------
     //read in precomputed end effector position
 
-    auto eePos_traj2d = readCSVToVecVec<linsys_t>("../data/trajfiles/0_0_eepos.traj"); 
-    auto xu_traj2d = readCSVToVecVec<linsys_t>("../data/trajfiles/0_0_traj.csv");
+    auto eePos_traj2d = readCSVToVecVec<linsys_t>("data/trajfiles/0_0_eepos.traj"); 
+    auto xu_traj2d = readCSVToVecVec<linsys_t>("data/trajfiles/0_0_traj.csv");
     if(eePos_traj2d.size() < knot_points){ std::cout << "precomputed traj length < knotpoints, not implemented\n"; exit(1); }
     std::vector<linsys_t> h_eePos_traj, h_xu_traj;
     for (const auto& vec : eePos_traj2d) { h_eePos_traj.insert(h_eePos_traj.end(), vec.begin(), vec.end()); } //flatten 2D vector into 1D vector

@@ -38,7 +38,7 @@ typedef float linsys_t;
 #endif
 
 #ifndef SQP_MAX_TIME_US //max time to run sqp solver, if CONST_UPDATE_FREQ == 1 (us). think about matching with SIMULATION_PERIOD in sim_settings.h
-#define SQP_MAX_TIME_US 200000 
+#define SQP_MAX_TIME_US 5000 
 #endif
 
 /*******************************************************************************

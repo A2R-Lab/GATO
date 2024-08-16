@@ -2,7 +2,7 @@
 GPU-Accelerated Trajectory Optimization for Robotics.
 
 
-**CURRENTLY UNDER CONSTRUCTION**
+**---CURRENTLY UNDER CONSTRUCTION---**
 
 
 ## Directory structure:

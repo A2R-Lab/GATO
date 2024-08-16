@@ -30,7 +30,9 @@ include_directories(
 )
 
 cuda_add_library(gato SHARED
-    sqp_pcg_wrapper.cu)
+    sqp_pcg_n_wrapper.cu)
+    #sqp_pcg_wrapper.cu
+    
 
 #target_include_directories(gpu_library PUBLIC ${Python3_INCLUDE_DIRS})
 target_include_directories(gato PUBLIC)
