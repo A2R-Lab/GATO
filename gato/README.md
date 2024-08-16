@@ -25,13 +25,14 @@ Within solvers/sqp, you can find GPU-accelerated solvers for sequential quadrati
 
 In our examples and experiments, we can call these functions:
 - to directly solve a trajectory optimization problem from main()
-    - examples/sqp_n.cu
 - for MPC through simulation
-    - experiments/MPCGPU/track_iiwa_pcg.cu
-    - sim/mpcsim.cuh
 - in Python with pybind11 bindings
-    - bindings/python/gato/sqp_pcg.py
-    - bindings/python/gato/sqp_pcg_wrapper.cu
+
+In batched SQP, we introduce a new parameter "solve_count", which is the number of trajectories to solve in parallel. Device memory for each trajectory is allocated contiguously, and kernels are modified to parallelize across another grid dimension and use the correct device pointers for each respective trajectory. 
+
+Examples for batched trajectory optimization:
+- examples/sqp_n.cu
+- examples/mpc_n.cu
 
 ### solvers/kernels/
 
@@ -50,8 +51,6 @@ We split the SQP solver into the following kernels:
     - compute_merit.cuh/compute_merit_n.cuh
 6. Line search to find best alpha
     - line_search_n.cuh (only implemented for batched SQP)
-
-In batched SQP, we introduce a new parameter "solve_count", which is the number of trajectories to solve in parallel. Device memory for each trajectory is allocated contiguously, and kernels are modified to parallelize across another grid dimension and use the correct device pointers for each respective trajectory. 
 
 ### sim/
 

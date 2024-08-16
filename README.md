@@ -2,12 +2,12 @@
 GPU-Accelerated Trajectory Optimization for Robotics.
 
 
-
 **CURRENTLY UNDER CONSTRUCTION**
 
 
-
 ## Directory structure:
+Read notes on SQP solvers and source code structure in [gato/](gato).
+
 - bindings/: Python bindings
 - config/: Settings
     - cost_settings.cuh: cost function settings
