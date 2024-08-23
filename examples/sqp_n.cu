@@ -14,11 +14,11 @@ int main(){
     printCudaDeviceProperties();
     printf("\n\n-----");
     // ----------------- Constants -----------------
-    const uint32_t solve_count = 8;
-    constexpr uint32_t state_size = grid::NUM_JOINTS*2;
-    constexpr uint32_t control_size = grid::NUM_JOINTS;
-    constexpr uint32_t knot_points = 32;
-    const linsys_t timestep = .015625; // 1/64 s
+    const uint32_t solve_count = 512;
+    constexpr uint32_t state_size = gato::STATE_SIZE;
+    constexpr uint32_t control_size = gato::CONTROL_SIZE;
+    constexpr uint32_t knot_points = gato::KNOT_POINTS;
+    const linsys_t timestep = gato::TIMESTEP; // 1/64 s
     const uint32_t traj_size = (state_size + control_size) * knot_points - control_size;
 
     pcg_config<linsys_t> config;

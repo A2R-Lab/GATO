@@ -10,7 +10,8 @@
  * @brief Kernel to form Schur system for a batch of trajectories.
  */
 template <typename T>
-__global__ void form_schur_system_kernel_n(uint32_t state_size,
+__global__ void form_schur_system_kernel_n(uint32_t solve_count,
+                                        uint32_t state_size,
                                         uint32_t control_size,
                                         uint32_t knot_points,
                                         T *d_G_dense,
@@ -24,7 +25,7 @@ __global__ void form_schur_system_kernel_n(uint32_t state_size,
 
     extern __shared__ T s_temp[];
 
-    int traj_id = blockIdx.x;
+    int traj_idx = blockIdx.x;
     int knot_id = blockIdx.y;
 
     // Calculate offsets for this trajectory
@@ -36,30 +37,34 @@ __global__ void form_schur_system_kernel_n(uint32_t state_size,
     uint32_t Pinv_size = 3 * state_size * state_size * knot_points;
     uint32_t gamma_size = state_size * knot_points;
 
-    T *traj_G = d_G_dense + traj_id * G_size;
-    T *traj_C = d_C_dense + traj_id * C_size;
-    T *traj_g = d_g + traj_id * g_size;
-    T *traj_c = d_c + traj_id * c_size;
-    T *traj_S = d_S + traj_id * S_size;
-    T *traj_Pinv = d_Pinv + traj_id * Pinv_size;
-    T *traj_gamma = d_gamma + traj_id * gamma_size;
+    for (int traj_id = traj_idx; traj_id < solve_count; traj_id += gridDim.x) {
+        T *traj_G = d_G_dense + traj_id * G_size;
+        T *traj_C = d_C_dense + traj_id * C_size;
+        T *traj_g = d_g + traj_id * g_size;
+        T *traj_c = d_c + traj_id * c_size;
+        T *traj_S = d_S + traj_id * S_size;
+        T *traj_Pinv = d_Pinv + traj_id * Pinv_size;
+        T *traj_gamma = d_gamma + traj_id * gamma_size;
 
-    T rho = d_rhos[traj_id];
+        T rho = d_rhos[traj_id];
 
-    form_S_gamma_and_jacobi_Pinv_blockrow<T>(
-        state_size, control_size, knot_points,
-        traj_G, traj_C, traj_g, traj_c,
-        traj_S, traj_Pinv, traj_gamma,
-        rho, s_temp, knot_id
-    );
+        form_S_gamma_and_jacobi_Pinv_blockrow<T>(
+            state_size, control_size, knot_points,
+            traj_G, traj_C, traj_g, traj_c,
+            traj_S, traj_Pinv, traj_gamma,
+            rho, s_temp, knot_id
+        );
 
-    __syncthreads();
+        __syncthreads();
 
-    complete_SS_Pinv_blockrow<T>(
-        state_size, knot_points,
-        traj_S, traj_Pinv, traj_gamma,
-        s_temp, knot_id
-    );
+        complete_SS_Pinv_blockrow<T>(
+            state_size, knot_points,
+            traj_S, traj_Pinv, traj_gamma,
+            s_temp, knot_id
+        );
+
+        __syncthreads();
+    }
 }
 
 
@@ -93,10 +98,10 @@ void form_schur_system_n(uint32_t solve_count,
                                             3);
 
     dim3 blockDim(SCHUR_THREADS);
-    dim3 gridDim(solve_count, knot_points);
+    dim3 gridDim(min(solve_count, 32u), knot_points);
 
     form_schur_system_kernel_n<<<gridDim, blockDim, s_temp_size>>>(
-        state_size, control_size, knot_points,
+        solve_count, state_size, control_size, knot_points,
         d_G_dense, d_C_dense, d_g, d_c,
         d_S, d_Pinv, d_gamma, d_rhos
     );
