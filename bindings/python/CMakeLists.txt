@@ -12,16 +12,16 @@ find_package(CUDA REQUIRED)
 set(Python3_FIND_VIRTUALENV "STANDARD")
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
-set(SRC_DIR ${CMAKE_SOURCE_DIR}/../../../gato)
-set(DEPENDENCIES_DIR ${CMAKE_SOURCE_DIR}/../../../dependencies)
-set(CONFIG_DIR ${CMAKE_SOURCE_DIR}/../../../config)
-set(DATA_DIR ${CMAKE_SOURCE_DIR}/../../../data)
+set(SRC_DIR ${CMAKE_SOURCE_DIR}/../../gato)
+set(DEPENDENCIES_DIR ${CMAKE_SOURCE_DIR}/../../dependencies)
+set(CONFIG_DIR ${CMAKE_SOURCE_DIR}/../../config)
+set(DATA_DIR ${CMAKE_SOURCE_DIR}/../../data)
 
 
 include_directories(
     ${SRC_DIR}
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/../../..
+    ${CMAKE_SOURCE_DIR}/../..
     ${CONFIG_DIR}
     ${DATA_DIR}
     ${DEPENDENCIES_DIR}
@@ -30,8 +30,7 @@ include_directories(
 )
 
 cuda_add_library(gato SHARED
-    sqp_pcg_n_wrapper.cu)
-    #sqp_pcg_wrapper.cu
+    gato_wrapper.cu)
     
 
 #target_include_directories(gpu_library PUBLIC ${Python3_INCLUDE_DIRS})

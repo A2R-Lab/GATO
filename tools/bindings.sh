@@ -18,7 +18,7 @@ print_color() {
 
 # Get the bindings directory
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BINDINGS_DIR="${ROOT_DIR}/bindings/python/gato"
+BINDINGS_DIR="${ROOT_DIR}/bindings/python"
 
 # Create and enter build directory
 print_color "Creating build directory..." "$YELLOW"

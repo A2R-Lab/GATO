@@ -35,7 +35,7 @@ def solve_sqp_pcg_n(solve_count, eePos_goal_traj, xu_traj, pcg_exit_tol=1e-5, pc
 
 
 if __name__ == "__main__":
-    solve_count = 20
+    solve_count = 1
     rho_init = 1e-3
     rho_reset = 1e-3
     pcg_max_iter = 173
