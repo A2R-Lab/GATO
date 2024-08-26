@@ -40,6 +40,7 @@ cd gato
 git submodule update --init --recursive
 chmod +x tools/build.sh
 chmod +x tools/cleanup.sh
+chmod +x tools/bindings.sh
 ./tools/build.sh
 ```
 
