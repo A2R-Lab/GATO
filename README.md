@@ -28,7 +28,7 @@ Read notes on SQP solvers and source code structure in [gato/](gato).
 - [tools/](tools/): Tools
 
 ## Settings:
-Tweak settings in [config/](config/)
+Tweak settings in [config/](config/) and [gato/gato.cuh](gato/gato.cuh)
 
 ## Python bindings:
 See [bindings](bindings) to build and use Python bindings

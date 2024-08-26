@@ -35,14 +35,14 @@ def solve_sqp_pcg_n(solve_count, eePos_goal_traj, xu_traj, pcg_exit_tol=1e-5, pc
 
 
 if __name__ == "__main__":
-    solve_count = 1
+    solve_count = 512
     rho_init = 1e-3
     rho_reset = 1e-3
     pcg_max_iter = 173
     pcg_exit_tol = 1e-5
 
-    eePos_goal_traj = np.loadtxt("../../../data/trajfiles/0_0_eepos.traj", delimiter=",")
-    xu_traj = np.loadtxt("../../../data/trajfiles/0_0_traj.csv", delimiter=",")
+    eePos_goal_traj = np.loadtxt("../data/trajfiles/0_0_eepos.traj", delimiter=",")
+    xu_traj = np.loadtxt("../data/trajfiles/0_0_traj.csv", delimiter=",")
     
     #cut to 32 knots
     eePos_goal_traj = eePos_goal_traj[:32*6]
