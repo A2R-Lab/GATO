@@ -59,6 +59,7 @@ add_cuda_executable(multi-sqp ${EXAMPLES_DIR}/sqp_n.cu)
 add_cuda_executable(multi-mpc ${EXAMPLES_DIR}/mpc_n.cu)
 
 # Targets from experiments/MPCGPU/CMakeLists.txt
+add_cuda_executable(MPCGPU-pend ${MPCGPU_DIR}/swing_up_pend.cu)
 add_cuda_executable(MPCGPU-pcg ${MPCGPU_DIR}/track_iiwa_pcg.cu)
 add_cuda_executable(MPCGPU-qdldl ${MPCGPU_DIR}/track_iiwa_qdldl.cu)
 target_compile_definitions(MPCGPU-qdldl PRIVATE LINSYS_SOLVE=0)
