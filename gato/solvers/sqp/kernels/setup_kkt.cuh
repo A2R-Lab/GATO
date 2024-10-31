@@ -40,7 +40,7 @@ void setup_kkt_kernel(T *d_G_dense,
     extern __shared__ T s_temp[];
     T *s_xux = s_temp;
     T *s_eePos_traj = s_xux + 2*gato::STATE_SIZE + gato::CONTROL_SIZE;
-    T *s_Qk = s_eePos_traj + grid::EE_POS_SIZE;
+    T *s_Qk = s_eePos_traj + 2*grid::EE_POS_SIZE;
     T *s_Rk = s_Qk + gato::STATES_SQ;
     T *s_qk = s_Rk + gato::CONTROLS_SQ;
     T *s_rk = s_qk + gato::STATE_SIZE;

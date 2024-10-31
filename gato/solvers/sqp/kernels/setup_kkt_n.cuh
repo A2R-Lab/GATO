@@ -35,7 +35,7 @@ void setup_kkt_kernel_n(int solve_count, int knot_points,
 
     T *s_xux = s_temp;
     T *s_eePos_traj = s_xux + 2*state_size + control_size;
-    T *s_Qk = s_eePos_traj + grid::EE_POS_SIZE;
+    T *s_Qk = s_eePos_traj + 2*grid::EE_POS_SIZE;
     T *s_Rk = s_Qk + states_sq;
     T *s_qk = s_Rk + controls_sq;
     T *s_rk = s_qk + state_size;
