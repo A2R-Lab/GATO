@@ -33,7 +33,7 @@ void initial_merit_kernel_n(uint32_t solve_count,
 
     T *s_xux_k = s_mem;
     T *s_eePos_k_traj = s_xux_k + 2 * state_size + control_size;
-    T *s_temp = s_eePos_k_traj + 6;
+    T *s_temp = s_eePos_k_traj + grid::EE_POS_SIZE;
 
     T Jk, ck, pointmerit;
     for(unsigned solve = blockIdx.y; solve < solve_count; solve += gridDim.y){
@@ -41,8 +41,8 @@ void initial_merit_kernel_n(uint32_t solve_count,
             // Load data into shared memory
             for(int i = thread_id; i < state_size+(knot < knot_points-1)*(states_s_controls); i+=num_threads){
                 s_xux_k[i] = d_xu[solve*traj_len + knot*states_s_controls + i];
-                if (i < 6){
-                    s_eePos_k_traj[i] = d_eePos_traj[solve*knot_points*6 + knot*6 + i];                          
+                if (i < grid::EE_POS_SIZE){
+                    s_eePos_k_traj[i] = d_eePos_traj[solve*knot_points*grid::EE_POS_SIZE + knot*grid::EE_POS_SIZE + i];                          
                 }
             }
         
@@ -100,14 +100,14 @@ void compute_ls_merit_kernel_n(uint32_t solve_count,
     extern __shared__ T s_mem[];
     T *s_xux_k = s_mem;
     T *s_eePos_k_traj = s_xux_k + 2*state_size+control_size;
-    T *s_temp = s_eePos_k_traj + 6;
+    T *s_temp = s_eePos_k_traj + grid::EE_POS_SIZE;
     T *s_alpha_merits = s_temp + max(2 * state_size + control_size, state_size + gato::plant::forwardDynamics_TempMemSize_Shared());
 
     // Load data into shared memory
     for(int i = thread_id; i < state_size+(knot_id < knot_points-1)*(states_s_controls); i+=num_threads){
         s_xux_k[i] = d_xu[knot_id*states_s_controls+i];
-        if (i < 6){
-            s_eePos_k_traj[i] = d_eePos_traj[knot_id*6+i];                            
+        if (i < grid::EE_POS_SIZE){
+            s_eePos_k_traj[i] = d_eePos_traj[knot_id*grid::EE_POS_SIZE+i];                            
         }
     }
     block.sync();

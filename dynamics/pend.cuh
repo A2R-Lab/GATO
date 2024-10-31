@@ -13,6 +13,8 @@
 
 namespace grid {
     const int NUM_JOINTS = 1;
+	const int EE_POS_SIZE = 2;
+	const int EE_POS_SIZE_COST = 2;
     const int EE_POS_SHARED_MEM_COUNT = 0;
     const int DEE_POS_SHARED_MEM_COUNT = 0;
     template <typename T>
@@ -159,10 +161,12 @@ namespace gato {
 											T *s_rk,
 											T *s_temp,
 											void *d_robotModel)
-		{	
+		{
 			T *s_xg = s_eePos_traj; // abuse this and pass in xg somehow
 			if (threadIdx.x == 0){
 				s_Qk[0] = Q_COST;
+				s_Qk[1] = 0;
+				s_Qk[2] = 0;
 				s_Qk[3] = COST_QD<T>();
 				s_qk[0] = Q_COST * (s_xu[0] - s_xg[0]);
 				s_qk[1] = COST_QD<T>() * s_xu[1];
@@ -192,7 +196,7 @@ namespace gato {
 		{
 			trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const);
 			__syncthreads();
-			trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
+			trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[grid::EE_POS_SIZE], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
 			__syncthreads();
 		}
 	}

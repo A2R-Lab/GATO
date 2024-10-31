@@ -102,9 +102,9 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
     gpuErrchk(cudaMalloc(&d_lambda, state_size*knot_points*sizeof(T)));
     gpuErrchk(cudaMalloc(&d_xu, traj_len*sizeof(T)));
     gpuErrchk(cudaMalloc(&d_xu_old, traj_len*sizeof(T)));
-    gpuErrchk(cudaMalloc(&d_eePos_goal, 6*knot_points*sizeof(T)));
+    gpuErrchk(cudaMalloc(&d_eePos_goal, grid::EE_POS_SIZE*knot_points*sizeof(T)));
     gpuErrchk(cudaMemset(d_lambda, 0, state_size*knot_points*sizeof(T)));
-    gpuErrchk(cudaMemcpy(d_eePos_goal, d_eePos_traj, 6*knot_points*sizeof(T), cudaMemcpyDeviceToDevice));
+    gpuErrchk(cudaMemcpy(d_eePos_goal, d_eePos_traj, grid::EE_POS_SIZE*knot_points*sizeof(T), cudaMemcpyDeviceToDevice));
     gpuErrchk(cudaMemcpy(d_xu_old, d_xu_traj, traj_len*sizeof(T), cudaMemcpyDeviceToDevice));
     gpuErrchk(cudaMemcpy(d_xu, d_xu_traj, traj_len*sizeof(T), cudaMemcpyDeviceToDevice));
 
@@ -116,13 +116,13 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
     gpuErrchk(cudaMemcpy(h_xs, d_xs, state_size*sizeof(T), cudaMemcpyDeviceToHost));
     tracking_path.push_back(std::vector<T>(h_xs, &h_xs[state_size]));    
     gpuErrchk(cudaPeekAtLastError());
-    T h_eePos[6];
-    T h_eePos_goal[6];
+    T h_eePos[grid::EE_POS_SIZE];
+    T h_eePos_goal[grid::EE_POS_SIZE];
 
 
     // temp device memory
     T *d_eePos;
-    gpuErrchk(cudaMalloc(&d_eePos, 6*sizeof(T)));
+    gpuErrchk(cudaMalloc(&d_eePos, grid::EE_POS_SIZE*sizeof(T)));
 
 #if LINSYS_SOLVE == 1
     pcg_config<T> config;
@@ -170,9 +170,9 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
 
 #if LIVE_PRINT_PATH
         grid::end_effector_positions_kernel<T><<<1,128>>>(d_eePos, d_xs, grid::NUM_JOINTS, (grid::robotModel<T> *) d_dynMem_const, 1);
-        gpuErrchk(cudaMemcpy(h_eePos, d_eePos, 6*sizeof(T), cudaMemcpyDeviceToHost));
-        for (uint32_t i = 0; i < 6; i++){
-            std::cout << h_eePos[i] << (i < 5 ? " " : "\n");
+        gpuErrchk(cudaMemcpy(h_eePos, d_eePos, grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToHost));
+        for (uint32_t i = 0; i < grid::EE_POS_SIZE; i++){
+            std::cout << h_eePos[i] << (i < grid::EE_POS_SIZE-1 ? " " : "\n");
         }
 #endif // #if LIVE_PRINT_PATH
         
@@ -213,10 +213,10 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
             
             // record tracking error
             grid::end_effector_positions_kernel<T><<<1,128>>>(d_eePos, d_xs, grid::NUM_JOINTS, (grid::robotModel<T> *) d_dynMem_const, 1);
-            gpuErrchk(cudaMemcpy(h_eePos, d_eePos, 6*sizeof(T), cudaMemcpyDeviceToHost));
-            gpuErrchk(cudaMemcpy(h_eePos_goal, d_eePos_goal, 6*sizeof(T), cudaMemcpyDeviceToHost));
+            gpuErrchk(cudaMemcpy(h_eePos, d_eePos, grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToHost));
+            gpuErrchk(cudaMemcpy(h_eePos_goal, d_eePos_goal, grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToHost));
             cur_tracking_error = 0.0;
-            for(uint32_t i=0; i < 3; i++){
+            for(uint32_t i=0; i < grid::EE_POS_SIZE_COST; i++){
                 cur_tracking_error += abs(h_eePos[i] - h_eePos_goal[i]);
             }
             // std::cout << cur_tracking_error << std::endl;;
@@ -238,13 +238,13 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
             }
             
             // shift goal
-            just_shift(6, 0, d_eePos_goal);
+            just_shift(grid::EE_POS_SIZE, 0, d_eePos_goal);
             if (traj_offset + knot_points < traj_steps){
-                gpuErrchk(cudaMemcpy(&d_eePos_goal[(knot_points-1)*(6)], &d_eePos_traj[(traj_offset+knot_points-1) * (6)], 6*sizeof(T), cudaMemcpyDeviceToDevice));
+                gpuErrchk(cudaMemcpy(&d_eePos_goal[(knot_points-1)*grid::EE_POS_SIZE], &d_eePos_traj[(traj_offset+knot_points-1) * grid::EE_POS_SIZE], grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToDevice));
             }
             else{
                 // fill in last goal state with goal state and zero velocity
-                gpuErrchk(cudaMemcpy(&d_eePos_goal[(knot_points-1)*(6)], &d_eePos_traj[(traj_steps-1)*(6)], (6)*sizeof(T), cudaMemcpyDeviceToDevice));
+                gpuErrchk(cudaMemcpy(&d_eePos_goal[(knot_points-1)*grid::EE_POS_SIZE], &d_eePos_traj[(traj_steps-1)*grid::EE_POS_SIZE], grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToDevice));
                 // gpuErrchk(cudaMemset(&d_eePos_goal[(knot_points-1)*(6) + state_size / 2], 0, (state_size/2) * sizeof(T)));
             }
             
@@ -318,10 +318,10 @@ simulateMPC(const uint32_t traj_steps, T *d_eePos_traj, T *d_xu_traj, T *d_xs, T
     
 
     grid::end_effector_positions_kernel<T><<<1,128>>>(d_eePos, d_xs, grid::NUM_JOINTS, (grid::robotModel<T> *) d_dynMem_const, 1);
-    gpuErrchk(cudaMemcpy(h_eePos, d_eePos, 6*sizeof(T), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(h_eePos_goal, d_eePos_goal, 6*sizeof(T), cudaMemcpyDeviceToHost));
+    gpuErrchk(cudaMemcpy(h_eePos, d_eePos, grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToHost));
+    gpuErrchk(cudaMemcpy(h_eePos_goal, d_eePos_goal, grid::EE_POS_SIZE*sizeof(T), cudaMemcpyDeviceToHost));
     cur_tracking_error = 0.0;
-    for(uint32_t i=0; i < 3; i++){
+    for(uint32_t i=0; i < grid::EE_POS_SIZE_COST; i++){
         cur_tracking_error += abs(h_eePos[i] - h_eePos_goal[i]);
     }
 

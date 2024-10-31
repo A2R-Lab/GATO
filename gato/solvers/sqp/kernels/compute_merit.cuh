@@ -59,15 +59,15 @@ void ls_compute_merit_kernel(T *d_xs,
 
     T alpha = -1.0 / (1 << alpha_multiplier);   // alpha sign
     T *s_eePos_k_traj = s_xux_k + 2*state_size+control_size;
-    T *s_temp = s_eePos_k_traj + 6;
+    T *s_temp = s_eePos_k_traj + grid::EE_POS_SIZE;
 
 
     for(unsigned knot = block_id; knot < knot_points; knot += num_blocks){
 
         for(int i = thread_id; i < state_size+(knot < knot_points-1)*(states_s_controls); i+=num_threads){
             s_xux_k[i] = d_xu[knot*states_s_controls+i] + alpha * d_dz[knot*states_s_controls+i];  
-            if (i < 6){
-                s_eePos_k_traj[i] = d_eePos_traj[knot*6+i];                            
+            if (i < grid::EE_POS_SIZE){
+                s_eePos_k_traj[i] = d_eePos_traj[knot*grid::EE_POS_SIZE+i];                            
             }
         }
         block.sync();
@@ -139,14 +139,14 @@ void compute_merit_kernel(T *d_xu, T *d_eePos_traj, T mu, T dt, void *d_dynMem_c
 
     T Jk, ck, pointmerit;
     T *s_eePos_k_traj = s_xux_k + 2 * state_size + control_size;
-    T *s_temp = s_eePos_k_traj + 6;
+    T *s_temp = s_eePos_k_traj + grid::EE_POS_SIZE;
 
     for(unsigned knot = block_id; knot < knot_points; knot += gridDim.x){
 
         for(int i = thread_id; i < state_size+(knot < knot_points-1)*(states_s_controls); i+=num_threads){
             s_xux_k[i] = d_xu[knot*states_s_controls+i];  
-            if (i < 6){
-                s_eePos_k_traj[i] = d_eePos_traj[knot*6+i];                            
+            if (i < grid::EE_POS_SIZE){
+                s_eePos_k_traj[i] = d_eePos_traj[knot*grid::EE_POS_SIZE+i];                            
             }
         }
 

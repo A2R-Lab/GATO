@@ -110,6 +110,8 @@
   */
  namespace grid {
      const int NUM_JOINTS = 6;
+     const int EE_POS_SIZE = 6;
+	 const int EE_POS_SIZE_COST = 3;
      const int NUM_EES = 1;
      const int ID_DYNAMIC_SHARED_MEM_COUNT = 660;
      const int MINV_DYNAMIC_SHARED_MEM_COUNT = 1170;
