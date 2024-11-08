@@ -13,11 +13,8 @@
 int main(){
 
     constexpr uint32_t state_size = 2;
-    constexpr uint32_t control_size = 1; // not used
     constexpr uint32_t knot_points = gato::KNOT_POINTS;
-    const linsys_t timestep = 0.1; // not used
     const uint32_t total_trajsteps = 1000;
-
     const uint32_t traj_test_iters = TEST_ITERS;
 
     // checks GPU space for pcg
