@@ -13,7 +13,7 @@ size_t get_kkt_kernel_smem_size() {
                                     3 * gato::CONTROL_SIZE + 
                                     gato::STATES_P_CONTROLS + 
                                     max(grid::EE_POS_SHARED_MEM_COUNT, grid::DEE_POS_SHARED_MEM_COUNT) + 
-                                    max((gato::STATE_SIZE/2)*(gato::STATES_S_CONTROLS + 1) + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared(), 3 + (gato::STATE_SIZE/2)*6));
+                                    max((gato::STATE_SIZE/2)*(gato::STATES_S_CONTROLS + 1) + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared(), 3 + (gato::STATE_SIZE/2)*grid::EE_POS_SIZE));
 
     return smem_size;
 }
@@ -40,7 +40,7 @@ void setup_kkt_kernel(T *d_G_dense,
     extern __shared__ T s_temp[];
     T *s_xux = s_temp;
     T *s_eePos_traj = s_xux + 2*gato::STATE_SIZE + gato::CONTROL_SIZE;
-    T *s_Qk = s_eePos_traj + 6;
+    T *s_Qk = s_eePos_traj + 2*grid::EE_POS_SIZE;
     T *s_Rk = s_Qk + gato::STATES_SQ;
     T *s_qk = s_Rk + gato::CONTROLS_SQ;
     T *s_rk = s_qk + gato::STATE_SIZE;
@@ -49,7 +49,7 @@ void setup_kkt_kernel(T *d_G_dense,
     for(unsigned k = block_id; k < gato::KNOT_POINTS-1; k += num_blocks) {
 
         glass::copy<T>(2*gato::STATE_SIZE + gato::CONTROL_SIZE, &d_xu[k*gato::STATES_S_CONTROLS], s_xux);
-        glass::copy<T>(2 * 6, &d_eePos_traj[k*6], s_eePos_traj);
+        glass::copy<T>(2 * grid::EE_POS_SIZE, &d_eePos_traj[k*grid::EE_POS_SIZE], s_eePos_traj);
         
         __syncthreads();    
 

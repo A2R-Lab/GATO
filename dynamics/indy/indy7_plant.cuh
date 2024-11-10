@@ -402,7 +402,7 @@ namespace gato::plant{
 	{
 		trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const);
 		__syncthreads();
-		trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
+		trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[grid::EE_POS_SIZE], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
 		__syncthreads();
 	}
 

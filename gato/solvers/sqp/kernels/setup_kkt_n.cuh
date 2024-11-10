@@ -35,7 +35,7 @@ void setup_kkt_kernel_n(int solve_count, int knot_points,
 
     T *s_xux = s_temp;
     T *s_eePos_traj = s_xux + 2*state_size + control_size;
-    T *s_Qk = s_eePos_traj + 6;
+    T *s_Qk = s_eePos_traj + 2*grid::EE_POS_SIZE;
     T *s_Rk = s_Qk + states_sq;
     T *s_qk = s_Rk + controls_sq;
     T *s_rk = s_qk + state_size;
@@ -46,14 +46,14 @@ void setup_kkt_kernel_n(int solve_count, int knot_points,
     d_C_dense += traj_id * C_size;
     d_g += traj_id * traj_size;
     d_c += traj_id * state_size * knot_points;
-    d_eePos_traj += traj_id * 6 * knot_points;
+    d_eePos_traj += traj_id * grid::EE_POS_SIZE * knot_points;
     d_xs += traj_id * state_size;
     d_xu += traj_id * traj_size;
 
     for (unsigned knot_id = blockIdx.x + blockIdx.y * gridDim.x; knot_id < knot_points-1; knot_id+=num_blocks) {
         
         glass::copy<T>(2 * state_size + control_size, &d_xu[knot_id * states_s_controls], s_xux);
-        glass::copy<T>(2 * 6, &d_eePos_traj[knot_id * 6], s_eePos_traj);
+        glass::copy<T>(2 * grid::EE_POS_SIZE, &d_eePos_traj[knot_id * grid::EE_POS_SIZE], s_eePos_traj);
 
         block.sync();
 

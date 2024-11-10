@@ -51,7 +51,7 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     const uint32_t state_size = gato::STATE_SIZE;
     const uint32_t control_size = gato::CONTROL_SIZE;
     const uint32_t knot_points = gato::KNOT_POINTS;       
-    const uint32_t timestep = gato::TIMESTEP;  
+    const float timestep = gato::TIMESTEP;  
     const uint32_t states_sq = state_size*state_size;
     const uint32_t states_p_controls = state_size * control_size;
     const uint32_t controls_sq = control_size * control_size;

@@ -95,6 +95,8 @@ void printMat(const T *A, int lda){
  */
 namespace grid {
     const int NUM_JOINTS = 7;
+    const int EE_POS_SIZE = 6;
+	const int EE_POS_SIZE_COST = 3;
     const int NUM_EES = 1;
     const int ID_DYNAMIC_SHARED_MEM_COUNT = 770;
     const int MINV_DYNAMIC_SHARED_MEM_COUNT = 1395;
