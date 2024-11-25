@@ -38,7 +38,7 @@ typedef float linsys_t;
 #endif
 
 #ifndef SQP_MAX_TIME_US //max time to run sqp solver, if CONST_UPDATE_FREQ == 1 (us). think about matching with SIMULATION_PERIOD in sim_settings.h
-#define SQP_MAX_TIME_US 5000 
+#define SQP_MAX_TIME_US 2000
 #endif
 
 /*******************************************************************************
@@ -69,23 +69,23 @@ typedef float linsys_t;
  *                           PCG Settings                               *
  *******************************************************************************/
 
+#define PCG_MAX_ITER 173 // TODO: knot points are now defined in gato.cuh
 // Values found using experiments
 #ifndef PCG_MAX_ITER
 	#if LINSYS_SOLVE
-// 		#if KNOT_POINTS == 32
-// #define PCG_MAX_ITER 173 
-// 		#elif KNOT_POINTS == 64
-// #define PCG_MAX_ITER 167
-// 		#elif KNOT_POINTS == 128
-// #define PCG_MAX_ITER 167
-// 		#elif KNOT_POINTS == 256
-// #define PCG_MAX_ITER 118
-// 		#elif KNOT_POINTS == 512
-// #define PCG_MAX_ITER 67
-// 		#else
-// #define PCG_MAX_ITER 200	
-// 		#endif	
-		#define PCG_MAX_ITER 173 // TODO: knot points are now defined in gato.cuh
+		#if KNOT_POINTS == 32
+#define PCG_MAX_ITER 173 
+		#elif KNOT_POINTS == 64
+#define PCG_MAX_ITER 167
+		#elif KNOT_POINTS == 128
+#define PCG_MAX_ITER 167
+		#elif KNOT_POINTS == 256
+#define PCG_MAX_ITER 118
+		#elif KNOT_POINTS == 512
+#define PCG_MAX_ITER 67
+		#else
+#define PCG_MAX_ITER 200	
+		#endif	
 	#else 
 #define PCG_MAX_ITER -1
 #define PCG_EXIT_TOL -1 

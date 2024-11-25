@@ -18,10 +18,7 @@
 #include "GBD-PCG/include/pcg.cuh"
 #include "kernels/compute_dz.cuh"
 #include "kernels/compute_merit.cuh"
-
-
-
-
+#include "kernels/pcg_n.cuh"
 // Direct trajectory optimization through sequential quadratic programming using preconditioned conjugate gradient
 // 1. compute gradients and form KKT matrices
 // 2. form Schur complement system
@@ -84,7 +81,6 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     if (cublasCreate(&handle) != CUBLAS_STATUS_SUCCESS) { printf ("CUBLAS initialization failed\n"); exit(13); }
     gpuErrchk(cudaPeekAtLastError());
 
-
     uint32_t sqp_iter = 0;
 
     T *d_merit_initial, *d_merit_news, *d_merit_temp,
@@ -93,14 +89,10 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
           *d_dz,
           *d_xs;
 
-    
     T drho = 1.0; //penalty param update
     T rho_factor = RHO_FACTOR;
     T rho_max = RHO_MAX;
     T rho_min = RHO_MIN;
-
-    
-
 
     gpuErrchk(cudaMalloc(&d_G_dense,  KKT_G_DENSE_SIZE_BYTES));
     gpuErrchk(cudaMalloc(&d_C_dense,  KKT_C_DENSE_SIZE_BYTES));
@@ -112,7 +104,6 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     gpuErrchk(cudaMalloc(&d_gamma, state_size*knot_points*sizeof(T)));
     gpuErrchk(cudaPeekAtLastError());
 
-    
     gpuErrchk(cudaMalloc(&d_dz,       DZ_SIZE_BYTES));
     gpuErrchk(cudaMalloc(&d_xs,       state_size*sizeof(T)));
     gpuErrchk(cudaMemcpy(d_xs, d_xu,  state_size*sizeof(T), cudaMemcpyDeviceToDevice));
@@ -121,45 +112,24 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
 
     gpuErrchk(cudaMalloc(&d_merit_initial, sizeof(T)));
     gpuErrchk(cudaMemset(d_merit_initial, 0, sizeof(T)));
-    
 
     // pcg things
     T *d_Pinv;
     gpuErrchk(cudaMalloc(&d_Pinv, 3*states_sq*knot_points*sizeof(T)));
-    
+
     /*   PCG vars   */
     T  *d_r, *d_p, *d_v_temp, *d_eta_new_temp;// *d_r_tilde, *d_upsilon;
     gpuErrchk(cudaMalloc(&d_r, state_size*knot_points*sizeof(T)));
     gpuErrchk(cudaMalloc(&d_p, state_size*knot_points*sizeof(T)));
     gpuErrchk(cudaMalloc(&d_v_temp, knot_points*sizeof(T)));
     gpuErrchk(cudaMalloc(&d_eta_new_temp, knot_points*sizeof(T)));
-    
-    
-    
-    void *pcg_kernel = (void *) pcg<T, gato::STATE_SIZE, gato::KNOT_POINTS>;
+
     uint32_t pcg_iters;
     uint32_t *d_pcg_iters;
     gpuErrchk(cudaMalloc(&d_pcg_iters, sizeof(uint32_t)));
     bool pcg_exit;
     bool *d_pcg_exit;
     gpuErrchk(cudaMalloc(&d_pcg_exit, sizeof(bool)));
-    
-    void *pcgKernelArgs[] = {
-        (void *)&d_S,
-        (void *)&d_Pinv,
-        (void *)&d_gamma, 
-        (void *)&d_lambda,
-        (void *)&d_r,
-        (void *)&d_p,
-        (void *)&d_v_temp,
-        (void *)&d_eta_new_temp,
-        (void *)&d_pcg_iters,
-        (void *)&d_pcg_exit,
-        (void *)&config.pcg_max_iter,
-        (void *)&config.pcg_exit_tol
-    };
-    size_t pcg_kernel_smem_size = pcgSharedMemSize<T>(state_size, knot_points);
-
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -178,7 +148,6 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     auto sqpTimecheck = [&]() { return false; };
 #endif
 
-
     ///TODO: atomic race conditions here aren't fixed but don't seem to be problematic
     compute_merit_kernel<T><<<knot_points, MERIT_THREADS, merit_smem_size>>>(
         d_xu, 
@@ -189,6 +158,8 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
         d_merit_initial);
     gpuErrchk(cudaMemcpyAsync(&h_merit_initial, d_merit_initial, sizeof(T), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaPeekAtLastError());
+    
+
     //
     //      SQP LOOP
     //
@@ -227,7 +198,24 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
         clock_gettime(CLOCK_MONOTONIC,&linsys_start);
     #endif // #if TIME_LINSYS
 
-        gpuErrchk(cudaLaunchCooperativeKernel(pcg_kernel, knot_points, PCG_NUM_THREADS, pcgKernelArgs, pcg_kernel_smem_size));    
+        // Use the batched PCG solver
+        pcg_n<T>(
+            1, // single solve
+            state_size,
+            knot_points,
+            d_S,
+            d_Pinv,
+            d_gamma,
+            d_lambda,
+            d_r,
+            d_p,
+            d_v_temp,
+            d_eta_new_temp,
+            d_pcg_iters,
+            d_pcg_exit,
+            &config
+        );
+
         gpuErrchk(cudaMemcpy(&pcg_iters, d_pcg_iters, sizeof(uint32_t), cudaMemcpyDeviceToHost));
         gpuErrchk(cudaMemcpy(&pcg_exit, d_pcg_exit, sizeof(bool), cudaMemcpyDeviceToHost));
         gpuErrchk(cudaPeekAtLastError());
@@ -295,7 +283,7 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
 
         if(min_merit == h_merit_initial){
             // line search failure
-            //printf("line search failure\n");
+            printf("line search failure\n");
             drho = max(drho*rho_factor, rho_factor);
             rho = max(rho*drho, rho_min);
             sqp_iter++;
@@ -306,13 +294,12 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
             }
             continue;
         }
-        //printf("line search accepted, value: %f\n", min_merit);
+        printf("line search accepted, value: %f\n", min_merit);
         // std::cout << "line search accepted\n";
         alphafinal = -1.0 / (1 << line_search_step);        // alpha sign
 
         drho = min(drho/rho_factor, 1/rho_factor);
         rho = max(rho*drho, rho_min);
-        
 
 #if USE_DOUBLES
         cublasDaxpy(
@@ -338,10 +325,8 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
 
         if (sqpTimecheck()){ break; }
 
-
         delta_merit_iter = h_merit_initial - min_merit;
         delta_merit_total += delta_merit_iter;
-        
 
         h_merit_initial = min_merit;
     }
@@ -355,9 +340,6 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     for(uint32_t st=0; st < num_alphas; st++){
         gpuErrchk(cudaStreamDestroy(streams[st]));
     }
-
-
-
 
     gpuErrchk(cudaFree(d_merit_initial));
     gpuErrchk(cudaFree(d_merit_news));
@@ -377,8 +359,6 @@ auto sqpSolvePcg(T *d_eePos_goal_traj, //eePos goal trajectory
     gpuErrchk(cudaFree(d_p));
     gpuErrchk(cudaFree(d_v_temp));
     gpuErrchk(cudaFree(d_eta_new_temp));
-
-
 
     double sqp_solve_time = time_delta_us_timespec(sqp_solve_start, sqp_solve_end);
 

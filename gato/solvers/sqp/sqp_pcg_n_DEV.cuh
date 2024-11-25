@@ -103,8 +103,8 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
     T *d_r, *d_p, *d_v_temp, *d_eta_new_temp;
     gpuErrchk(cudaMalloc(&d_r, solve_count * state_size * knot_points * sizeof(T)));
     gpuErrchk(cudaMalloc(&d_p, solve_count * state_size * knot_points * sizeof(T)));
-    gpuErrchk(cudaMalloc(&d_v_temp, solve_count * knot_points * sizeof(T)));
-    gpuErrchk(cudaMalloc(&d_eta_new_temp, solve_count * knot_points * sizeof(T)));
+    gpuErrchk(cudaMalloc(&d_v_temp, solve_count * (knot_points + 1) * sizeof(T)));
+    gpuErrchk(cudaMalloc(&d_eta_new_temp, solve_count * (knot_points + 1) * sizeof(T)));
 
     uint32_t *d_pcg_iters; // number of PCG iterations for each solve (return value)
     bool *d_pcg_exit; // whether PCG converged for each solve (return value)
@@ -182,38 +182,19 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
 
     // ------------------ Compute Initial Merit --------------
 
-    // initial_merit_n<T>(solve_count, state_size, control_size, knot_points, d_xu_tensor, 
-    //     d_eePos_goal_tensor, static_cast<T>(10), timestep, d_dynMem_const, d_merit_initial);
-
-    for (uint32_t i = 0; i < solve_count; ++i) {
-        compute_merit_kernel<T><<<knot_points, MERIT_THREADS, merit_smem_size>>>(
-            d_xu_tensor + i * traj_size, 
-            d_eePos_goal_tensor + i * 6 * knot_points, 
-            static_cast<T>(10), 
-            timestep, 
-            d_dynMem_const,
-            d_merit_initial + i
-        );
-    }
-
-
-    //print merit initial
+    initial_merit_n<T>(solve_count, state_size, control_size, knot_points, d_xu_tensor, 
+        d_eePos_goal_tensor, static_cast<T>(10), timestep, d_dynMem_const, d_merit_initial);
+    
     gpuErrchk(cudaMemcpy(&h_merit_initial, d_merit_initial, solve_count*sizeof(T), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
-
-    // //printf("merit initial: \n");
-    // for (uint32_t i = 0; i < solve_count; ++i) {
-    //     printf("%f ", h_merit_initial[i]);
-    // }
-    // printf("\n");
 
     // ------------------ SQP loop --------------
 
     for (uint32_t iter = 0; iter < SQP_MAX_ITER; ++iter) {
         // ------------------ KKT Matrices --------------
         // cudaEventRecord(kkt_start);
-        //printf("setup kkt\n");
+
         setup_kkt_n<T>(solve_count, knot_points, state_size, control_size, d_G_dense, d_C_dense, 
             d_g, d_c, d_dynMem_const, timestep, d_eePos_goal_tensor, d_xs, d_xu_tensor);
         
@@ -225,7 +206,7 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
         if (sqpTimecheck()){ break; }
         // ------------------ Schur Matrices --------------
         // cudaEventRecord(schur_start);
-        //printf("form schur\n");
+
         form_schur_system_n<T>(solve_count, state_size, control_size, knot_points, 
             d_G_dense, d_C_dense, d_g, d_c, d_S, d_Pinv, d_gamma, d_rhos);
 
@@ -238,7 +219,7 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
         if (sqpTimecheck()){ break; }
         // ------------------ PCG --------------
         // cudaEventRecord(pcg_start);
-        //printf("pcg\n");
+
         pcg_n(solve_count, state_size, knot_points, d_S, d_Pinv, d_gamma, d_lambdas, 
             d_r, d_p, d_v_temp, d_eta_new_temp, d_pcg_iters, d_pcg_exit, &config);
 
@@ -257,7 +238,7 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
         if (sqpTimecheck()){ break; }
         // ------------------ Recover dz --------------
         // cudaEventRecord(dz_start);
-        //printf("recover dz\n");
+
         //TODO: batch this
         for (uint32_t i = 0; i < solve_count; ++i) {
             compute_dz<T>(d_G_dense + i * G_size, d_C_dense + i * C_size, 
@@ -295,8 +276,8 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
             uint32_t line_search_step = h_line_search_step[i];
             T min_merit = h_min_merit[i];
             if (min_merit == h_merit_initial[i]) {
+                printf("Solve %d: line search failure\n", i);
                 // No improvement
-                //printf("No improvement in merit function, value: %f\n", min_merit);
                 drho_vec[i] = std::max(drho_vec[i] * rho_factor, rho_factor);
                 rhos[i] = std::max(rhos[i] * drho_vec[i], rho_min);
                 sqp_iterations_vec[i]++;
@@ -306,8 +287,7 @@ auto sqpSolvePcgN(const uint32_t solve_count, const uint32_t state_size, const u
                 }   
                 continue;
             }
-            //printf("Improvement in merit function\n");
-
+            printf("Solve %d: line search accepted, value: %f\n", i, min_merit);
             T alphafinal = -1.0 / (1 << line_search_step);
 
             // Update drho and rho

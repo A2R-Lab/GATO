@@ -16,3 +16,6 @@
 [submodule "external/pybind11"]
 	path = dependencies/pybind11
 	url = https://github.com/pybind/pybind11.git
+[submodule "dependencies/MPCGPU"]
+	path = dependencies/MPCGPU
+	url = git@github.com:A2R-Lab/MPCGPU.git

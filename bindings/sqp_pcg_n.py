@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import gato
 
 def solve_sqp_pcg_n(solve_count, eePos_goal_traj, xu_traj, pcg_exit_tol=1e-5, pcg_max_iter=1000, rho_init=1e-3, rho_reset=1e-3):
@@ -35,7 +36,7 @@ def solve_sqp_pcg_n(solve_count, eePos_goal_traj, xu_traj, pcg_exit_tol=1e-5, pc
 
 
 if __name__ == "__main__":
-    solve_count = 512
+    solve_count = 32
     rho_init = 1e-3
     rho_reset = 1e-3
     pcg_max_iter = 173
@@ -53,6 +54,7 @@ if __name__ == "__main__":
     xu_traj = np.tile(xu_traj, (solve_count, 1))
     
 
+    start_time = time.time()
     result = solve_sqp_pcg_n(
         solve_count,
         eePos_goal_traj,
@@ -62,8 +64,11 @@ if __name__ == "__main__":
         rho_init,
         rho_reset
     )
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000  # Convert to milliseconds
+    print(f"\n\nPython time taken for solve_sqp_pcg_n: {elapsed_time:.4f} ms")
 
-    print("SQP solve time:", result.sqp_solve_time)
-    print("SQP iterations:", result.sqp_iterations_vec)
+    print("CUDA SQP solve time:", result.sqp_solve_time/1000, "ms")
+    #print("SQP iterations:", result.sqp_iterations_vec)
     print("PCG iterations matrix shape:", np.array(result.pcg_iters_matrix).shape)
     print("PCG times vector length:", len(result.pcg_times_vec))

@@ -15,6 +15,8 @@ set(DEPENDENCIES_DIR ${CMAKE_SOURCE_DIR}/dependencies)
 set(CONFIG_DIR ${CMAKE_SOURCE_DIR}/config)
 set(DATA_DIR ${CMAKE_SOURCE_DIR}/data)
 set(MPCGPU_DIR ${CMAKE_SOURCE_DIR}/experiments/MPCGPU)
+set(MULTISOLVE_DIR ${CMAKE_SOURCE_DIR}/experiments/multisolve)
+
 
 
 # Include directories
@@ -64,6 +66,10 @@ add_cuda_executable(MPCGPU-qdldl ${MPCGPU_DIR}/track_iiwa_qdldl.cu)
 target_compile_definitions(MPCGPU-qdldl PRIVATE LINSYS_SOLVE=0)
 target_link_libraries(MPCGPU-qdldl qdldl)
 
+# Targets from experiments/multisolve/CMakeLists.txt
+add_cuda_executable(multisolve-sqp ${MULTISOLVE_DIR}/test_sqp_n.cu)  
+add_cuda_executable(multisolve-sqp-single ${MULTISOLVE_DIR}/test_sqp_single.cu)  
+
 # Custom targets for dependencies
 add_custom_target(deps DEPENDS 
     ${SRC_DIR}/sim/mpcsim.cuh
@@ -83,6 +89,8 @@ add_dependencies(multi-sqp deps)
 add_dependencies(multi-mpc deps)
 add_dependencies(MPCGPU-pcg deps)
 add_dependencies(MPCGPU-qdldl deps)
+add_dependencies(multisolve-sqp deps)
+add_dependencies(multisolve-sqp-single deps)
 
 # Build QDLDL library
 add_custom_target(build_qdldl
