@@ -58,6 +58,7 @@ add_cuda_executable(mpc ${EXAMPLES_DIR}/mpc.cu)
 add_cuda_executable(multi-sqp ${EXAMPLES_DIR}/sqp_n.cu)
 add_cuda_executable(multi-mpc ${EXAMPLES_DIR}/mpc_n.cu)
 add_cuda_executable(swing-up-pend ${EXAMPLES_DIR}/swing_up_pend.cu)
+add_cuda_executable(point-mass ${EXAMPLES_DIR}/point_mass.cu)
 
 # Targets from experiments/MPCGPU/CMakeLists.txt
 add_cuda_executable(MPCGPU-pcg ${MPCGPU_DIR}/track_iiwa_pcg.cu)
