@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cgrps = cooperative_groups;
+namespace cg = cooperative_groups;
 #include "config/plant.h"
 #include "GLASS/glass.cuh"
 
@@ -20,7 +20,7 @@ T angleWrap(T input){
 
 template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __device__ 
-void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cgrps::thread_block b, bool absval = false){
+void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cg::thread_block b, bool absval = false){
     T new_qkp1; T new_qdkp1;
     for (unsigned ind = threadIdx.x; ind < state_size/2; ind += blockDim.x){
         // euler xk = xk + dt *dxk
@@ -57,7 +57,7 @@ void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1,
 
 template <typename T, unsigned INTEGRATOR_TYPE = 0>
 __device__
-void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_Ak, T *s_Bk, T *s_dqdd, T dt, cgrps::thread_block b){
+void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_Ak, T *s_Bk, T *s_dqdd, T dt, cg::thread_block b){
         
     const uint32_t thread_id = threadIdx.x;
     const uint32_t block_dim = blockDim.x;
@@ -101,7 +101,7 @@ void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_A
 
 template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __device__ 
-void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cgrps::thread_block b){
+void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cg::thread_block b){
 
     const uint32_t thread_id = threadIdx.x;
     const uint32_t block_dim = blockDim.x;
@@ -131,7 +131,7 @@ void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd
 // s_temp of size state_size/2*(state_size + control_size + 1) + DYNAMICS_TEMP
 template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
 __device__ __forceinline__
-void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cgrps::thread_block b){
+void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
 
     
     // first compute qdd and dqdd
@@ -159,7 +159,7 @@ void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux,
 // s_temp of size 3*state_size/2 + DYNAMICS_TEMP
 template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __device__ 
-T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt, cgrps::thread_block b){
+T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
 
     // first compute qdd
     T *s_q = s_xuk; 					
@@ -195,7 +195,7 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
 
 template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __device__ 
-void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cgrps::thread_block b){
+void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
     // first compute qdd
     T *s_q = s_xuk; 					T *s_qd = s_q + state_size/2; 				T *s_u = s_qd + state_size/2;
     T *s_qkp1 = s_xkp1; 				T *s_qdkp1 = s_qkp1 + state_size/2;
@@ -215,8 +215,8 @@ void integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_xkp1, T 
     T *s_xkp1 = s_smem;
     T *s_xuk = s_xkp1 + state_size; 
     T *s_temp = s_xuk + state_size + control_size;
-    cgrps::thread_block b = cgrps::this_thread_block();	  
-    cgrps::grid_group grid = cgrps::this_grid();
+    cg::thread_block b = cg::this_thread_block();	  
+    cg::grid_group grid = cg::this_grid();
     for (unsigned ind = threadIdx.x; ind < state_size + control_size; ind += blockDim.x){
         s_xuk[ind] = d_xuk[ind];
     }
@@ -271,8 +271,8 @@ void simple_integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_x
     T *s_xkp1 = s_mem;
     T *s_xuk = s_xkp1 + state_size; 
     T *s_temp = s_xuk + state_size + control_size;
-    cgrps::thread_block b = cgrps::this_thread_block();	  
-    cgrps::grid_group grid = cgrps::this_grid();
+    cg::thread_block b = cg::this_thread_block();	  
+    cg::grid_group grid = cg::this_grid();
     for (unsigned ind = threadIdx.x; ind < state_size + control_size; ind += blockDim.x){
         if(ind < state_size){
             s_xuk[ind] = d_x[ind];
