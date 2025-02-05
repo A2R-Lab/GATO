@@ -3,7 +3,7 @@ NVCC_FLAGS = -std=c++17 -O3 --compiler-options '-Wall' # -Wextra -Wpedantic
 
 INCLUDES = -I. -I./gato -I./dependencies
 
-TARGET = examples/single_sqp
+TARGET = examples/single_sqp.exe
 SRC = examples/single_sqp.cu
 
 $(TARGET): $(SRC)
