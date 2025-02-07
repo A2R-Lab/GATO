@@ -127,26 +127,26 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
             }
             d_step_size_batch[solve_idx] = -1;
             d_iterations_batch[solve_idx] += 1;
-            return; // no need to update xu_traj since no merit improvement
+        } else {
+            // Compute step size and store in shared memory for all threads to use
+            s_merit[0] = 1.0 / (T)(1 << s_step_idx[0]);
+            d_merit_initial_batch[solve_idx] = min_merit;
+            d_step_size_batch[solve_idx] = s_merit[0];
+            d_iterations_batch[solve_idx] += 1;
         }
-
-        // Compute step size and store in shared memory for all threads to use
-        s_merit[0] = 1.0 / (T)(1 << s_step_idx[0]);  // Reuse s_merit[0] for step size
-        d_merit_initial_batch[solve_idx] = min_merit;
-        d_step_size_batch[solve_idx] = s_merit[0];
-    } else { //TODO: this is
-        return;
     }
     __syncthreads();
-    return;
-    const T step_size = s_merit[0];
-    T *d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
-    T *d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
-    #pragma unroll
-    for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) {
-        d_xu_traj[i] -= step_size * d_dz[i];
+
+    // Only proceed with trajectory update if line search was successful
+    if (line_search_success) {
+        const T step_size = s_merit[0];
+        T *d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
+        T *d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
+        #pragma unroll
+        for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) {
+            d_xu_traj[i] -= step_size * d_dz[i];
+        }
     }
-    if (tid == 0) { d_iterations_batch[solve_idx] += 1; }
 }
 
 template <typename T, uint32_t BatchSize, uint32_t NumAlphas>
