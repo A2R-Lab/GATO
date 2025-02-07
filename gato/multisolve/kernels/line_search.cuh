@@ -121,7 +121,10 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
         d_rho_penalty_batch[solve_idx] = max(d_rho_penalty_batch[solve_idx] * rho_multiplier, RHO_MIN);
 
         if (!line_search_success) {
-            d_rho_max_reached_batch[solve_idx] = 1 * (d_rho_penalty_batch[solve_idx] > RHO_MAX);
+            if (d_rho_penalty_batch[solve_idx] > RHO_MAX) {
+                d_rho_max_reached_batch[solve_idx] = 1;
+                d_rho_penalty_batch[solve_idx] = RHO_INIT; //reset rho for next sqp solve
+            }
             d_step_size_batch[solve_idx] = -1;
             d_iterations_batch[solve_idx] += 1;
             return; // no need to update xu_traj since no merit improvement
@@ -131,11 +134,11 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
         s_merit[0] = 1.0 / (T)(1 << s_step_idx[0]);  // Reuse s_merit[0] for step size
         d_merit_initial_batch[solve_idx] = min_merit;
         d_step_size_batch[solve_idx] = s_merit[0];
-    } else {
+    } else { //TODO: this is
         return;
     }
     __syncthreads();
-
+    return;
     const T step_size = s_merit[0];
     T *d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
     T *d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);

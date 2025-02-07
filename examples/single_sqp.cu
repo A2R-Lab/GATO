@@ -3,7 +3,7 @@
 #include <chrono>
 #include <vector>
 
-#include "multisolve/batch_sqp.cuh"
+#include "multisolve/batch_sqp_solver.cuh"
 #include "utils/types.cuh"
 #include "utils/utils.h"
 
@@ -17,25 +17,23 @@ int main() {
     gpuErrchk(cudaMemcpy(d_xu_traj, h_xu_traj.data(), TRAJ_SIZE * sizeof(T), cudaMemcpyHostToDevice));
     //gpuErrchk(cudaMemset(d_xu_traj, 0, TRAJ_SIZE * sizeof(T)));
 
-    T *d_lambda;
-    gpuErrchk(cudaMalloc(&d_lambda, VEC_SIZE_PADDED * sizeof(T)));
-    gpuErrchk(cudaMemset(d_lambda, 0, VEC_SIZE_PADDED * sizeof(T)));
-
     ProblemInputs<T, 1> inputs;
+    
     inputs.timestep = static_cast<T>(TIMESTEP);
+
     gpuErrchk(cudaMalloc(&inputs.d_x_s_batch, STATE_SIZE * sizeof(T)));
     gpuErrchk(cudaMemcpy(inputs.d_x_s_batch, h_xu_traj.data(), STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice));
+
     gpuErrchk(cudaMalloc(&inputs.d_reference_traj_batch, REFERENCE_TRAJ_SIZE * sizeof(T)));
     gpuErrchk(cudaMemcpy(inputs.d_reference_traj_batch, h_ee_pos_traj.data(), REFERENCE_TRAJ_SIZE * sizeof(T), cudaMemcpyHostToDevice));
-    inputs.d_GRiD_mem = gato::plant::initializeDynamicsConstMem<T>();
-    
-    T rho_penalty = static_cast<T>(1e-3);
 
-    SQPStats<T, 1> stats = solveSQPBatched<T, 1>(
+    inputs.d_GRiD_mem = gato::plant::initializeDynamicsConstMem<T>();
+
+    SQPSolver<T, 1> solver;
+
+    SQPStats<T, 1> stats = solver.solve(
         d_xu_traj,
-        d_lambda,
-        inputs,
-        rho_penalty
+        inputs
     );
 
     std::cout << "SQP solve time: " << stats.solve_time_us << " us" << std::endl;
@@ -59,7 +57,6 @@ int main() {
     }
 
     gpuErrchk(cudaFree(d_xu_traj));
-    gpuErrchk(cudaFree(d_lambda));
     gpuErrchk(cudaFree(inputs.d_x_s_batch));
     gpuErrchk(cudaFree(inputs.d_reference_traj_batch));
     gato::plant::freeDynamicsConstMem<T>(inputs.d_GRiD_mem);
