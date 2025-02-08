@@ -20,10 +20,11 @@ class SQPSolver {
 public:
     SQPSolver() {
         allocateMemory();
+        T h_rho_penalty_batch_init[BatchSize];
         for (uint32_t i = 0; i < BatchSize; i++) {
             h_drho_batch_init_[i] = static_cast<T>(1.0);
+            h_rho_penalty_batch_init[i] = static_cast<T>(RHO_INIT);
         }
-        T h_rho_penalty_batch_init[BatchSize] = {static_cast<T>(RHO_INIT)};
         gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
         gpuErrchk(cudaDeviceSynchronize());
     }
@@ -178,6 +179,7 @@ private:
         gpuErrchk(cudaFree(schur_system_batch_.d_gamma_batch));
 
         // Free other memory
+        gpuErrchk(cudaFree(d_lambda_batch_));
         gpuErrchk(cudaFree(d_dz_batch_));
         gpuErrchk(cudaFree(d_rho_penalty_batch_));
         gpuErrchk(cudaFree(d_drho_batch_));

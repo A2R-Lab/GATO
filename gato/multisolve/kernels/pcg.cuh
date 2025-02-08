@@ -72,6 +72,8 @@ void solvePCGBatchedKernel(
 
     block::zeroSharedMemory<T, 5 * VEC_SIZE_PADDED>(s_mem);
 
+    __syncthreads();
+
     // get A, M_inv, b, x pointers for current batch
     T *d_A_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_A_batch, solve_idx, 0);
     T *d_M_inv_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_M_inv_batch, solve_idx, 0);
@@ -100,6 +102,7 @@ void solvePCGBatchedKernel(
     // rho = r^T * z
     block::dot<T>(&s_rho, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED); //TODO: need to make sure that vector padding is not included in dot product
     __syncthreads();
+    
 
     // ----- PCG Loop -----
     for (uint32_t i = 0; i < PCG_MAX_ITER; i++) {
@@ -139,6 +142,7 @@ void solvePCGBatchedKernel(
             converged = true;
             break;
         }
+        __syncthreads();
 
         // beta = rho_new / rho
         // rho = rho_new
@@ -170,7 +174,7 @@ template <typename T>
 __host__
 size_t getSolvePCGBatchedSMemSize() {
     size_t size = sizeof(T) * (
-        5 * VEC_SIZE_PADDED + 32 + 4 + PCG_THREADS
+        5 * VEC_SIZE_PADDED + 32 + 4 + PCG_THREADS //TODO: check if this is correct
     );
     return size;
 }

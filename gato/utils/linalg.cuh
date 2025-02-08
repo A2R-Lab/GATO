@@ -382,98 +382,98 @@ void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, con
 // }
 
 
-/**
-* @brief Computes the dot product of two vectors within one thread block
-* 
-* @tparam T Data type
-* 
-* @param[out] result Output scalar result
-* @param[in] s_a First input vector in shared memory
-* @param[in] s_b Second input vector in shared memory
-* @param[in] s_scratch Shared memory workspace for warp-level reduction
-*                    (size: ceil(blockDim.x/32) elements)
-* @param[in] size Length of input vectors
-* 
-* @note Requires blockDim.x to be a multiple of 32 (warp size)
-* @note s_scratch array must be in shared memory
-*/
-template <typename T>
-__device__ __forceinline__
-void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size) {
-    #ifndef NDEBUG
-        assert(blockDim.x % WARP_SIZE == 0 && "blockDim.x must be a multiple of 32 (warp size)");
-    #endif
-
-    const uint32_t tid = threadIdx.x;
-    const uint32_t lane_idx = tid & 31; // threadIdx.x % 32 (thread in warp)
-    const uint32_t warp_idx = tid >> 5; // threadIdx.x / 32
-    const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
-
-    T sum = T(0.0);
-
-    // partial sum for each thread
-    #pragma unroll
-    for (uint32_t i = tid; i < size; i += blockDim.x) {
-        sum += s_a[i] * s_b[i];
-    }
-    __syncthreads();
-
-    // sum within each warp
-    #pragma unroll
-    for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-        sum += __shfl_down_sync(FULL_MASK, sum, offset);
-    }
-
-    // lane 0 of each warp writes to shared memory
-    if (lane_idx == 0) {
-        s_scratch[warp_idx] = sum;
-    }
-    __syncthreads();
-
-    // copy warp sums to first warp, and reduce again
-    if (tid < WARP_SIZE) {
-        // only use valid warp sums (blockDim.x / 32) valid warps
-        sum = (tid < warps_per_block) ? s_scratch[tid] : T(0.0);
-
-        #pragma unroll
-        for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-            sum += __shfl_down_sync(FULL_MASK, sum, offset);
-        }
-
-        if (tid == 0) {
-            *result = sum;
-        }
-    }
-}
-
+// /**
+// * @brief Computes the dot product of two vectors within one thread block
+// * 
+// * @tparam T Data type
+// * 
+// * @param[out] result Output scalar result
+// * @param[in] s_a First input vector in shared memory
+// * @param[in] s_b Second input vector in shared memory
+// * @param[in] s_scratch Shared memory workspace for warp-level reduction
+// *                    (size: ceil(blockDim.x/32) elements)
+// * @param[in] size Length of input vectors
+// * 
+// * @note Requires blockDim.x to be a multiple of 32 (warp size)
+// * @note s_scratch array must be in shared memory
+// */
 // template <typename T>
 // __device__ __forceinline__
 // void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size) {
-//     // Initialize partial sum
-//     T sum = 0;
+//     #ifndef NDEBUG
+//         assert(blockDim.x % WARP_SIZE == 0 && "blockDim.x must be a multiple of 32 (warp size)");
+//     #endif
 
-//     // Compute partial dot product
-//     for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) {
+//     const uint32_t tid = threadIdx.x;
+//     const uint32_t lane_idx = tid & 31; // threadIdx.x % 32 (thread in warp)
+//     const uint32_t warp_idx = tid >> 5; // threadIdx.x / 32
+//     const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
+
+//     T sum = T(0.0);
+
+//     // partial sum for each thread
+//     #pragma unroll
+//     for (uint32_t i = tid; i < size; i += blockDim.x) {
 //         sum += s_a[i] * s_b[i];
 //     }
-
-//     // Store partial sums in shared memory
-//     s_scratch[threadIdx.x] = sum;
 //     __syncthreads();
 
-//     // Perform reduction in shared memory
-//     for (uint32_t stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-//         if (threadIdx.x < stride) {
-//             s_scratch[threadIdx.x] += s_scratch[threadIdx.x + stride];
-//         }
-//         __syncthreads();
+//     // sum within each warp
+//     #pragma unroll
+//     for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+//         sum += __shfl_down_sync(FULL_MASK, sum, offset);
 //     }
 
-//     // Write the result from the first thread
-//     if (threadIdx.x == 0) {
-//         *result = s_scratch[0];
+//     // lane 0 of each warp writes to shared memory
+//     if (lane_idx == 0) {
+//         s_scratch[warp_idx] = sum;
+//     }
+//     __syncthreads();
+
+//     // copy warp sums to first warp, and reduce again
+//     if (tid < WARP_SIZE) {
+//         // only use valid warp sums (blockDim.x / 32) valid warps
+//         sum = (tid < warps_per_block) ? s_scratch[tid] : T(0.0);
+
+//         #pragma unroll
+//         for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+//             sum += __shfl_down_sync(FULL_MASK, sum, offset);
+//         }
+
+//         if (tid == 0) {
+//             *result = sum;
+//         }
 //     }
 // }
+
+template <typename T>
+__device__ __forceinline__
+void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size) {
+    // Initialize partial sum
+    T sum = 0;
+
+    // Compute partial dot product
+    for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) {
+        sum += s_a[i] * s_b[i];
+    }
+    
+    // Store partial sums in shared memory
+    s_scratch[threadIdx.x] = sum;
+    __syncthreads();
+
+    // Perform reduction in shared memory
+    for (uint32_t stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride) {
+            s_scratch[threadIdx.x] += s_scratch[threadIdx.x + stride];
+        }
+        __syncthreads();
+    }
+
+    // Write the result from the first thread
+    if (threadIdx.x == 0) {
+        *result = s_scratch[0];
+    }
+}
 
 
 /**

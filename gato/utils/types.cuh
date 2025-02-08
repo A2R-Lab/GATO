@@ -46,13 +46,18 @@ struct SQPStats {
     double solve_time_us; // using std::chrono::high_resolution_clock
 
     // for each solve
-    std::vector<int> sqp_iterations{BatchSize}; 
-    std::vector<int> rho_max_reached{BatchSize}; // 1 if reached, 0 if not
-    std::vector<double> pcg_solve_times{BatchSize};
+    std::vector<int> sqp_iterations; 
+    std::vector<int> rho_max_reached; // 1 if reached, 0 if not
+    std::vector<double> pcg_solve_times; //TODO: not used
     
     // for each SQP iteration
     std::vector<PCGStats> pcg_stats;
     std::vector<LineSearchStats<T>> line_search_stats;
+
+    SQPStats() :
+        sqp_iterations(BatchSize, 0),
+        rho_max_reached(BatchSize, 0),
+        pcg_solve_times(BatchSize, 0.0) {}
 };
 
 // --------------------------------------------------
