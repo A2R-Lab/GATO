@@ -7,29 +7,8 @@
 #include "utils/types.cuh"
 #include "utils/utils.h"
 
-
-template<typename T, uint32_t BatchSize>
-bool checkIfBatchTrajsMatch(T* d_xu_traj_batch) {
-    std::vector<T> h_xu_traj_batch(TRAJ_SIZE * BatchSize);
-    gpuErrchk(cudaMemcpy(h_xu_traj_batch.data(), d_xu_traj_batch, 
-        TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-
-    // Compare each trajectory to the first one
-    for (uint32_t i = 1; i < BatchSize; i++) {
-        for (uint32_t j = 0; j < TRAJ_SIZE; j++) {
-            if (std::abs(h_xu_traj_batch[j] - h_xu_traj_batch[i * TRAJ_SIZE + j]) > 1e-10) {
-                std::cout << "Mismatch found at trajectory " << i << ", index " << j << std::endl;
-                std::cout << "Expected: " << h_xu_traj_batch[j] 
-                         << ", Got: " << h_xu_traj_batch[i * TRAJ_SIZE + j] << std::endl;
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 int main() {
-    constexpr int BATCH_SIZE = 128;
+    constexpr int BATCH_SIZE = 16;
     
     //setL2PersistingAccess(1); //TODO play with this param
     //resetL2PersistingAccess();
@@ -60,27 +39,44 @@ int main() {
 
     SQPSolver<T, BATCH_SIZE> solver;
 
+    // warm up run
     SQPStats<T, BATCH_SIZE> stats = solver.solve(
         d_xu_traj_batch,
         inputs
     );
+
+    solver.reset();
 
     stats = solver.solve(
         d_xu_traj_batch,
         inputs
     );
 
-    //bool trajectories_equal = checkIfBatchTrajsMatch<T, BATCH_SIZE>(d_xu_traj_batch);
-    //std::cout << "All trajectories equal: " << (trajectories_equal ? "true" : "false") << std::endl;
+    std::cout << "***** Stats *****" << std::endl;
+    bool trajectories_equal = checkIfBatchTrajsMatch<T, BATCH_SIZE>(d_xu_traj_batch);
+    std::cout << "All trajectories equal: " << (trajectories_equal ? "true" : "false") << std::endl;
+    std::cout << "SQP num iterations: ";
+    for (int i = 0; i < std::min(BATCH_SIZE, 10); i++) {
+        std::cout << stats.sqp_iterations[i] << " ";
+    }
+    if (BATCH_SIZE > 10) std::cout << "...";
+    std::cout << std::endl;
+    std::cout << "SQP solve time (us): " << stats.solve_time_us << std::endl;
+    std::cout << "PCG num iterations: " << std::endl;
+    for (unsigned i = 0; i < stats.pcg_stats.size(); i++) {
+        std::cout << "  SQP iteration " << i << ": ";
+        for (int j = 0; j < std::min(BATCH_SIZE, 10); j++) {
+            std::cout << stats.pcg_stats[i].num_iterations[j] << " ";
+        }
+        if (BATCH_SIZE > 10) std::cout << "...";
+        std::cout << std::endl;
+    }
+    std::cout << "PCG solve times (us): ";
+    for (unsigned i = 0; i < stats.pcg_stats.size(); i++) {
+        std::cout << stats.pcg_stats[i].solve_time_us << " ";
+    }
+    std::cout << std::endl;
 
-    std::cout << "\nSQP solve time: " << stats.solve_time_us << " us" << std::endl;
-    // for (int i = 0; i < BATCH_SIZE; i++) {
-    //     std::cout << "\nBatch " << i << " statistics:" << std::endl;
-    //     std::cout << "SQP iterations: " << stats.sqp_iterations[i] << std::endl;
-    //     std::cout << "Rho max reached: " << (stats.rho_max_reached[i] ? "true" : "false") << std::endl;
-    // }
-
-    // Cleanup
     gpuErrchk(cudaFree(d_xu_traj_batch));
     gpuErrchk(cudaFree(inputs.d_x_s_batch));
     gpuErrchk(cudaFree(inputs.d_reference_traj_batch));

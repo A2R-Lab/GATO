@@ -36,25 +36,11 @@ int main() {
         inputs
     );
 
+    std::cout << "***** Stats *****" << std::endl;
+    std::cout << "SQP num iterations: " << stats.sqp_iterations[0] << std::endl;
     std::cout << "SQP solve time: " << stats.solve_time_us << " us" << std::endl;
-    std::cout << "SQP iterations: " << stats.sqp_iterations[0] << std::endl;
-    std::cout << "PCG solve time: " << stats.pcg_solve_times[0] << " us" << std::endl;
-    std::cout << "Rho max reached: " << (stats.rho_max_reached[0] ? "true" : "false") << std::endl;
-
-    std::cout << "\nPCG stats per iteration:" << std::endl;
-    for (size_t i = 0; i < stats.pcg_stats.size(); i++) {
-        std::cout << "Iteration " << i << ":" << std::endl;
-        std::cout << "  Solve time: " << stats.pcg_stats[i].solve_time_us << " us" << std::endl;
-        std::cout << "  Num iterations: " << stats.pcg_stats[i].num_iterations[0] << std::endl;
-        std::cout << "  Converged: " << (stats.pcg_stats[i].converged[0] ? "true" : "false") << std::endl;
-    }
-
-    std::cout << "\nLine search stats per iteration:" << std::endl; 
-    for (size_t i = 0; i < stats.line_search_stats.size(); i++) {
-        std::cout << "Iteration " << i << ":" << std::endl;
-        std::cout << "  Step size: " << stats.line_search_stats[i].step_size[0] << std::endl;
-        std::cout << "  Min merit: " << stats.line_search_stats[i].min_merit[0] << std::endl;
-    }
+    std::cout << "PCG num iterations: " << stats.pcg_stats[0].num_iterations[0] << std::endl;
+    std::cout << "PCG solve time: " << stats.pcg_stats[0].solve_time_us << " us" << std::endl;
 
     gpuErrchk(cudaFree(d_xu_traj));
     gpuErrchk(cudaFree(inputs.d_x_s_batch));
