@@ -29,9 +29,11 @@ bool checkIfBatchTrajsMatch(T* d_xu_traj_batch) {
 }
 
 int main() {
-    constexpr int BATCH_SIZE = 16;
+    constexpr int BATCH_SIZE = 128;
     
-    setL2PersistingAccess(1); //TODO play with this param
+    //setL2PersistingAccess(1); //TODO play with this param
+    //resetL2PersistingAccess();
+    
     std::vector<T> h_ee_pos_traj = readCSVToVec<T>("examples/trajfiles/ee_pos_traj.csv");
     std::vector<T> h_xu_traj = readCSVToVec<T>("examples/trajfiles/xu_traj.csv");
 
@@ -63,15 +65,20 @@ int main() {
         inputs
     );
 
-    bool trajectories_equal = checkIfBatchTrajsMatch<T, BATCH_SIZE>(d_xu_traj_batch);
-    std::cout << "All trajectories equal: " << (trajectories_equal ? "true" : "false") << std::endl;
+    stats = solver.solve(
+        d_xu_traj_batch,
+        inputs
+    );
+
+    //bool trajectories_equal = checkIfBatchTrajsMatch<T, BATCH_SIZE>(d_xu_traj_batch);
+    //std::cout << "All trajectories equal: " << (trajectories_equal ? "true" : "false") << std::endl;
 
     std::cout << "\nSQP solve time: " << stats.solve_time_us << " us" << std::endl;
-    for (int i = 0; i < BATCH_SIZE; i++) {
-        std::cout << "\nBatch " << i << " statistics:" << std::endl;
-        std::cout << "SQP iterations: " << stats.sqp_iterations[i] << std::endl;
-        std::cout << "Rho max reached: " << (stats.rho_max_reached[i] ? "true" : "false") << std::endl;
-    }
+    // for (int i = 0; i < BATCH_SIZE; i++) {
+    //     std::cout << "\nBatch " << i << " statistics:" << std::endl;
+    //     std::cout << "SQP iterations: " << stats.sqp_iterations[i] << std::endl;
+    //     std::cout << "Rho max reached: " << (stats.rho_max_reached[i] ? "true" : "false") << std::endl;
+    // }
 
     // Cleanup
     gpuErrchk(cudaFree(d_xu_traj_batch));
