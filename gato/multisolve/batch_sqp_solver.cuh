@@ -20,12 +20,11 @@ class SQPSolver {
 public:
     SQPSolver() {
         allocateMemory();
-        T h_rho_penalty_batch_init[BatchSize];
         for (uint32_t i = 0; i < BatchSize; i++) {
             h_drho_batch_init_[i] = static_cast<T>(1.0);
-            h_rho_penalty_batch_init[i] = static_cast<T>(RHO_INIT);
+            h_rho_penalty_batch_init_[i] = static_cast<T>(RHO_INIT);
         }
-        gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+        gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
         gpuErrchk(cudaDeviceSynchronize());
     }
 
@@ -33,8 +32,13 @@ public:
         freeMemory();
     }
 
-    void resetLambda() {
+    void reset() {
+        gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
         gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BatchSize * sizeof(T)));
+    }
+
+    void setLambdas(T *h_lambda_batch, uint32_t solve_idx) {
+        gpuErrchk(cudaMemcpy(d_lambda_batch_ + solve_idx * VEC_SIZE_PADDED + STATE_SIZE, h_lambda_batch, STATE_P_KNOTS * sizeof(T), cudaMemcpyHostToDevice));
     }
 
     void warmStart() {
@@ -56,20 +60,9 @@ public:
 
         auto solve_start_time = std::chrono::high_resolution_clock::now();
 
-        // Reset drho batch 
-        gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
-
-        // Reset other arrays
-        gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
-        gpuErrchk(cudaMemset(d_merit_initial_batch_, 0, BatchSize * sizeof(T)));
-        gpuErrchk(cudaMemset(d_merit_batch_, 0, NUM_ALPHAS * BatchSize * sizeof(T)));
-        gpuErrchk(cudaMemset(d_step_size_batch_, 0, BatchSize * sizeof(T)));
-        gpuErrchk(cudaMemset(d_all_rho_max_reached_, 0, sizeof(int32_t)));
-        gpuErrchk(cudaMemset(d_rho_max_reached_batch_, 0, BatchSize * sizeof(int32_t)));
-        gpuErrchk(cudaMemset(d_iterations_batch_, 0, BatchSize * sizeof(uint32_t)));
-
         computeMeritBatched<T, BatchSize, 1>(
             d_merit_initial_batch_,
+            d_merit_batch_temp_,
             d_dz_batch_,
             d_xu_traj_batch,
             inputs
@@ -77,7 +70,6 @@ public:
 
         // SQP Loop
         for (uint32_t i = 0; i < SQP_MAX_ITER; i++) {
-            std::cout << "\nIteration " << i << ":\n";
             
             setupKKTSystemBatched<T, BatchSize>(
                 kkt_system_batch_,
@@ -105,7 +97,6 @@ public:
             
             float pcg_time_ms;
             gpuErrchk(cudaEventElapsedTime(&pcg_time_ms, pcg_start, pcg_stop));
-            std::cout << "PCG solve time: " << pcg_time_ms * 1000 << " us\n";
         
             gpuErrchk(cudaMemcpy(pcg_stats.converged.data(), d_pcg_converged_, sizeof(int32_t) * BatchSize, cudaMemcpyDeviceToHost));
             gpuErrchk(cudaMemcpy(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
@@ -116,14 +107,15 @@ public:
                 d_lambda_batch_,
                 kkt_system_batch_
             );
-
+            
             computeMeritBatched<T, BatchSize, NUM_ALPHAS>(
                 d_merit_batch_,
+                d_merit_batch_temp_,
                 d_dz_batch_,
                 d_xu_traj_batch,
                 inputs
             );
-
+            
             lineSearchAndUpdateBatched<T, BatchSize, NUM_ALPHAS>(
                 d_xu_traj_batch,
                 d_dz_batch_,
@@ -148,10 +140,20 @@ public:
         gpuErrchk(cudaDeviceSynchronize());
         auto solve_end_time = std::chrono::high_resolution_clock::now();
 
-        // Populate stats
         sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(solve_end_time - solve_start_time).count();
         gpuErrchk(cudaMemcpy(sqp_stats.sqp_iterations.data(), d_iterations_batch_, BatchSize * sizeof(uint32_t), cudaMemcpyDeviceToHost));
         gpuErrchk(cudaMemcpy(sqp_stats.rho_max_reached.data(), d_rho_max_reached_batch_, BatchSize * sizeof(int32_t), cudaMemcpyDeviceToHost));
+
+        // Reset drho batch 
+        gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+
+        // Reset other arrays
+        gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
+        gpuErrchk(cudaMemset(d_merit_initial_batch_, 0, BatchSize * sizeof(T)));
+        gpuErrchk(cudaMemset(d_step_size_batch_, 0, BatchSize * sizeof(T)));
+        gpuErrchk(cudaMemset(d_all_rho_max_reached_, 0, sizeof(int32_t)));
+        gpuErrchk(cudaMemset(d_rho_max_reached_batch_, 0, BatchSize * sizeof(int32_t)));
+        gpuErrchk(cudaMemset(d_iterations_batch_, 0, BatchSize * sizeof(uint32_t)));
 
         gpuErrchk(cudaEventDestroy(pcg_start));
         gpuErrchk(cudaEventDestroy(pcg_stop));
@@ -188,6 +190,7 @@ private:
         gpuErrchk(cudaMalloc(&d_pcg_iterations_, sizeof(uint32_t) * BatchSize));
         gpuErrchk(cudaMalloc(&d_merit_initial_batch_, BatchSize * sizeof(T)));
         gpuErrchk(cudaMalloc(&d_merit_batch_, NUM_ALPHAS * BatchSize * sizeof(T)));
+        gpuErrchk(cudaMalloc(&d_merit_batch_temp_, NUM_ALPHAS * BatchSize * KNOT_POINTS * sizeof(T)));
         gpuErrchk(cudaMalloc(&d_step_size_batch_, BatchSize * sizeof(T)));
         gpuErrchk(cudaMalloc(&d_all_rho_max_reached_, sizeof(int32_t)));
         gpuErrchk(cudaMalloc(&d_rho_max_reached_batch_, BatchSize * sizeof(int32_t)));
@@ -217,6 +220,7 @@ private:
         gpuErrchk(cudaFree(d_rho_max_reached_batch_));
         gpuErrchk(cudaFree(d_merit_initial_batch_));
         gpuErrchk(cudaFree(d_merit_batch_));
+        gpuErrchk(cudaFree(d_merit_batch_temp_));
         gpuErrchk(cudaFree(d_iterations_batch_));
     }
 
@@ -226,6 +230,7 @@ private:
     T *d_lambda_batch_;
     T *d_dz_batch_;
     T *d_rho_penalty_batch_;
+    T h_rho_penalty_batch_init_[BatchSize];
     T h_drho_batch_init_[BatchSize];
     T *d_drho_batch_;
     // PCG
@@ -234,6 +239,7 @@ private:
     // Merit
     T *d_merit_initial_batch_;
     T *d_merit_batch_;
+    T *d_merit_batch_temp_;
     // Line search
     T *d_step_size_batch_;
     int32_t *d_all_rho_max_reached_;
