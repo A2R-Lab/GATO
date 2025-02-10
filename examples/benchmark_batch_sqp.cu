@@ -67,14 +67,14 @@
 
 int main() {
     //setL2PersistingAccess(1); //TODO play with this param
-    //resetL2PersistingAccess();
+    resetL2PersistingAccess();
 
     constexpr int BATCH_SIZES[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
     constexpr int NUM_BATCH_SIZES = sizeof(BATCH_SIZES) / sizeof(BATCH_SIZES[0]);
     
-    std::vector<std::vector<T>> ee_pos_trajs = readCSVToVecVec<T>("examples/trajfiles/8_ee_pos_trajs.csv");
-    std::vector<std::vector<T>> xu_trajs = readCSVToVecVec<T>("examples/trajfiles/8_xu_trajs.csv");
-    std::vector<std::vector<T>> lambda_trajs = readCSVToVecVec<T>("examples/trajfiles/8_lambda_trajs.csv");
+    std::vector<std::vector<T>> ee_pos_trajs = readCSVToVecVec<T>("examples/trajfiles/" + std::to_string(sqp::KNOT_POINTS) + "_ee_pos_trajs.csv");
+    std::vector<std::vector<T>> xu_trajs = readCSVToVecVec<T>("examples/trajfiles/" + std::to_string(sqp::KNOT_POINTS) + "_xu_trajs.csv");
+    std::vector<std::vector<T>> lambda_trajs = readCSVToVecVec<T>("examples/trajfiles/" + std::to_string(sqp::KNOT_POINTS) + "_lambda_trajs.csv");
 
     std::vector<float> SQP_solve_times;
     std::vector<float> PCG_solve_times;
@@ -186,9 +186,10 @@ int main() {
     std::filesystem::create_directories("benchmark_results");
 
     // Save statistics to CSV file
-    std::ofstream outfile("benchmark_results/benchmark_stats.csv");
+    std::string filename = "benchmark_results/" + std::to_string(sqp::KNOT_POINTS) + "_benchmark_stats.csv";
+    std::ofstream outfile(filename);
     if (!outfile.is_open()) {
-        std::cerr << "Failed to open benchmark_results/benchmark_stats.csv for writing" << std::endl;
+        std::cerr << "Failed to open " << filename << " for writing" << std::endl;
         return 1;
     }
 

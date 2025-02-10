@@ -11,13 +11,13 @@ namespace sqp {
 // half supported by CUDA but not C++ https://www.reddit.com/r/gcc/comments/1dv1l8e/support_for_half_precision_data_types_fp16_and/
 using T = float;
 
-constexpr uint32_t KNOT_POINTS = 8;
+constexpr uint32_t KNOT_POINTS = 128;
 constexpr T TIMESTEP = 0.015625; // 1/64 s
 
 constexpr uint32_t SQP_MAX_ITER = 1;
 constexpr uint32_t PCG_MAX_ITER = 100;
 
-constexpr T PCG_TOLERANCE = static_cast<T>(1e-5);
+constexpr T PCG_TOLERANCE = static_cast<T>(1e-4);
 
 constexpr uint32_t NUM_ALPHAS = 8;
 
