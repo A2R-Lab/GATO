@@ -6,6 +6,8 @@
 
 - [ ] Benchmark with >1 SQP iterations
 - [ ] Add more Python examples
+- [ ] Import pendulum, point mass examples from main-deprecated
+- [ ] Relicate MPCGPU track_iiwa with GATO
 - [ ] Add Parallel DDP interface
  
 ## Low Priority
