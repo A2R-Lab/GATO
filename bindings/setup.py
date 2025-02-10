@@ -8,8 +8,6 @@ cuda_include = Path(CUDA_HOME) / 'include'
 cuda_lib = Path(CUDA_HOME) / 'lib64'
 torch_lib_path = Path(torch.__file__).parent
 
-
-
 setup(
     name='batch_sqp',
     ext_modules=[
@@ -19,6 +17,7 @@ setup(
         include_dirs=[
             '.',
             '../gato',
+            '../config',
             '../dependencies',
             str(cuda_include),
         ],

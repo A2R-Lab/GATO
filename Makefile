@@ -3,24 +3,32 @@ NVCC_FLAGS = -use_fast_math -std=c++17 -O3 --compiler-options '-Wall'# -Wextra -
 
 INCLUDES = -I./gato -I./config -I./dependencies
 
-TARGETS = examples/single_sqp.exe examples/batch_sqp.exe examples/benchmark_batch_sqp.exe
+HEADERS = $(wildcard gato/*.cuh config/*.h dependencies/*.h)
 
-examples/single_sqp.exe: examples/single_sqp.cu
+TARGETS := single_sqp batch_sqp benchmark_batch_sqp
+
+build/%: examples/%.cu $(HEADERS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o $@ $<
 
-examples/batch_sqp.exe: examples/batch_sqp.cu
-	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o $@ $<
+.PHONY: build build-single build-batch build-benchmark build-bindings clean
 
-examples/benchmark_batch_sqp.exe: examples/benchmark_batch_sqp.cu
-	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o $@ $<
+build: build-single build-batch build-benchmark build-bindings
 
-.PHONY: all clean bindings
+build-single: examples/single_sqp.cu $(HEADERS)
+	@mkdir -p build
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o build/single_sqp examples/single_sqp.cu
 
-all: $(TARGETS)
+build-batch: examples/batch_sqp.cu $(HEADERS)
+	@mkdir -p build
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o build/batch_sqp examples/batch_sqp.cu
 
-bindings:
+build-benchmark: examples/benchmark_batch_sqp.cu $(HEADERS)
+	@mkdir -p build
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o build/benchmark_batch_sqp examples/benchmark_batch_sqp.cu
+
+build-bindings:
 	cd bindings && pip install -e .
 
 clean:
-	rm -f $(TARGETS)
+	rm -rf build
 	rm -rf bindings/build
