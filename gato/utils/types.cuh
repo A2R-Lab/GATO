@@ -20,23 +20,32 @@ struct ProblemInputs {
 
 // --------------------------------------------------
 
+template <uint32_t BatchSize>
 struct PCGStats { //TODO: use template
     double solve_time_us; // using cudaEventElapsedTime
 
     // if rho_max_reached for a solve, num_iterations = 0, converged = false
     std::vector<int> num_iterations;
     std::vector<int> converged; // 1 if converged, 0 if not
+
+    PCGStats() :
+        num_iterations(BatchSize, 0),
+        converged(BatchSize, 0) {}
 };
 
 // --------------------------------------------------
 
-template <typename T>
+template <typename T, uint32_t BatchSize>
 struct LineSearchStats {
     bool all_rho_max_reached;
 
     // if rho_max_reached for a solve, step_size = -1
     std::vector<T> min_merit; //min merit
     std::vector<T> step_size; //argmin of line search
+
+    LineSearchStats() :
+        min_merit(BatchSize, 0.0),
+        step_size(BatchSize, 0.0) {}
 };
 
 // --------------------------------------------------
@@ -51,8 +60,8 @@ struct SQPStats {
     std::vector<double> pcg_solve_times; //TODO: not used
     
     // for each SQP iteration
-    std::vector<PCGStats> pcg_stats;
-    std::vector<LineSearchStats<T>> line_search_stats;
+    std::vector<PCGStats<BatchSize>> pcg_stats;
+    std::vector<LineSearchStats<T, BatchSize>> line_search_stats;
 
     SQPStats() :
         sqp_iterations(BatchSize, 0),

@@ -29,12 +29,12 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
     T *d_dz_batch,
     T *d_merit_batch,
     T *d_merit_initial_batch,
-    T *d_step_size_batch,
     T *d_rho_penalty_batch,
     T *d_drho_batch,
+    T *d_step_size_batch,
+    int32_t *d_all_rho_max_reached,
     int32_t *d_rho_max_reached_batch,
-    uint32_t *d_iterations_batch,
-    int32_t *d_all_rho_max_reached
+    uint32_t *d_iterations_batch
 ) {
     // launched with batch_size blocks
     const uint32_t solve_idx = blockIdx.x;
@@ -77,7 +77,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
     // Each thread handles multiple alphas if needed
     for (uint32_t i = tid; i < NumAlphas; i += blockDim.x) {
         T merit = d_merit_batch[solve_idx * NumAlphas + i];
-        printf("alpha: %d, merit: %4f  ", tid, merit);
+        //printf("alpha: %d, merit: %4f  ", tid, merit);
         d_merit_batch[solve_idx * NumAlphas + i] = 0; // reset merit to 0
         if (merit < local_min_merit) {
             local_min_merit = merit;
@@ -110,7 +110,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
 
     // Thread 0 handles step size computation and rho update
     if (tid == 0) {
-        printf("\nLast min merit: %f, line search success: %d\n", d_merit_initial_batch[solve_idx], line_search_success);
+        //printf("\nLast min merit: %f, line search success: %d\n", d_merit_initial_batch[solve_idx], line_search_success);
 
         // Update rho
         T rho_multiplier = line_search_success ? 
@@ -151,50 +151,32 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
 
 template <typename T, uint32_t BatchSize, uint32_t NumAlphas>
 __host__
-LineSearchStats<T> lineSearchAndUpdateBatched(
+void lineSearchAndUpdateBatched(
     T *d_xu_traj_batch,
     T *d_dz_batch,
     T *d_merit_batch,
     T *d_merit_initial_batch,
     T *d_rho_penalty_batch,
     T *d_drho_batch,
+    T *d_step_size_batch,
+    int32_t *d_all_rho_max_reached,
     int32_t *d_rho_max_reached_batch,
     uint32_t *d_iterations_batch
 ) {
-    T *d_step_size_batch;
-    gpuErrchk(cudaMalloc(&d_step_size_batch, sizeof(T) * BatchSize));
-    gpuErrchk(cudaMemset(d_step_size_batch, 0, sizeof(T) * BatchSize));
-
-    int32_t *d_all_rho_max_reached;
-    gpuErrchk(cudaMalloc(&d_all_rho_max_reached, sizeof(int32_t)));
-    gpuErrchk(cudaMemset(d_all_rho_max_reached, 0, sizeof(int32_t)));
-
     dim3 grid(BatchSize);
     dim3 thread_block(LINE_SEARCH_THREADS);
-    size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas;
+    size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas + sizeof(bool);
 
     lineSearchAndUpdateBatchedKernel<T, BatchSize, NumAlphas><<<grid, thread_block, s_mem_size>>>(
         d_xu_traj_batch,
         d_dz_batch,
         d_merit_batch,
         d_merit_initial_batch,
-        d_step_size_batch,
         d_rho_penalty_batch,
         d_drho_batch,
+        d_step_size_batch,
+        d_all_rho_max_reached,
         d_rho_max_reached_batch,
-        d_iterations_batch,
-        d_all_rho_max_reached
+        d_iterations_batch
     );
-
-    LineSearchStats<T> stats;
-    stats.min_merit.resize(BatchSize);
-    stats.step_size.resize(BatchSize);
-    gpuErrchk(cudaMemcpyAsync(stats.min_merit.data(), d_merit_initial_batch, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpyAsync(stats.step_size.data(), d_step_size_batch, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpyAsync(&stats.all_rho_max_reached, d_all_rho_max_reached, sizeof(int32_t), cudaMemcpyDeviceToHost));
-    
-    gpuErrchk(cudaFree(d_step_size_batch));
-    gpuErrchk(cudaFree(d_all_rho_max_reached));
-
-    return stats;
 }

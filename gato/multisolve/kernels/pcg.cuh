@@ -71,7 +71,6 @@ void solvePCGBatchedKernel(
     uint32_t iterations = 0;
 
     block::zeroSharedMemory<T, 5 * VEC_SIZE_PADDED>(s_mem);
-
     __syncthreads();
 
     // get A, M_inv, b, x pointers for current batch
@@ -181,24 +180,14 @@ size_t getSolvePCGBatchedSMemSize() {
 
 template <typename T, uint32_t BatchSize>
 __host__
-PCGStats solvePCGBatched(
+void solvePCGBatched(
     T *d_lambda_batch,
     SchurSystem<T, BatchSize> schur,
     T epsilon,
-    int32_t *d_rho_max_reached_batch
+    int32_t *d_rho_max_reached_batch,
+    int32_t *d_converged,
+    uint32_t *d_iterations
 ) {
-    // allocate memory for stats
-    int32_t *d_converged;
-    uint32_t *d_iterations;
-    cudaMalloc(&d_converged, sizeof(int32_t) * BatchSize);
-    cudaMalloc(&d_iterations, sizeof(uint32_t) * BatchSize);
-
-    // timing
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start);
-
     dim3 grid(BatchSize);
     dim3 thread_block(PCG_THREADS);
     const uint32_t s_mem_size = getSolvePCGBatchedSMemSize<T>();
@@ -213,28 +202,4 @@ PCGStats solvePCGBatched(
         epsilon,
         d_rho_max_reached_batch
     );
-    //cudaDeviceSynchronize();
-
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    float solve_time_ms;
-    cudaEventElapsedTime(&solve_time_ms, start, stop);
-    
-    // copy stats to host
-    int32_t *h_converged = new int32_t[BatchSize];
-    uint32_t *h_iterations = new uint32_t[BatchSize];
-    gpuErrchk(cudaMemcpyAsync(h_converged, d_converged, sizeof(int32_t) * BatchSize, cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpyAsync(h_iterations, d_iterations, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
-
-    PCGStats stats;
-    stats.solve_time_us = solve_time_ms * 1000.0; // convert to microseconds
-    stats.converged.assign(h_converged, h_converged + BatchSize);
-    stats.num_iterations.assign(h_iterations, h_iterations + BatchSize);
-
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
-    cudaFree(d_converged);
-    cudaFree(d_iterations);
-
-    return stats;
 }
