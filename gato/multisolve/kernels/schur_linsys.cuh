@@ -45,7 +45,7 @@ void computeDzBatched()
 
 template <typename T, uint32_t BatchSize>
 __global__
-void formSchurSystemBatchedKernel(
+void formSchurSystemBatchedKernel1(
     T *d_S_batch,
     T *d_P_inv_batch,
     T *d_gamma_batch,
@@ -247,53 +247,64 @@ void formSchurSystemBatchedKernel(
         T *d_gamma_k = getOffsetStatePadded<T, BatchSize>(d_gamma_batch, solve_idx, 0);
         block::copy<T, STATE_SIZE>(d_gamma_k, s_gamma_k, static_cast<T>(-1));
     }
+}
 
-    // --------------------------------------------------
-    // wait for theta_k_inv to be saved in P_inv
-    cooperative_groups::this_grid().sync();
 
-    if (knot_idx < KNOT_POINTS - 1) { // all except last knot
+template <typename T, uint32_t BatchSize>
+__global__
+void formSchurSystemBatchedKernel2(
+    T *d_S_batch,
+    T *d_P_inv_batch
+) {
+    // launched with grid of (KNOT_POINTS - 1, solve_idx)
+    uint32_t knot_idx = blockIdx.x;
+    uint32_t solve_idx = blockIdx.y;
 
-        // reassign shared mem pointers for clarity
-        T *s_theta_km1_inv = s_Q_k_inv;
-        T *s_scratch = s_Q_kp1_inv;
-        
-        // theta_k_inv already computed before grid sync 
-        
-        // load theta_km1_inv from global memory (saved in d_P_inv_batch earlier)
-        // P_inv_k is row-major
-        T *d_P_inv_km1 = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx) + STATE_SIZE;
-        #pragma unroll
-        for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
-            uint32_t x = i % STATE_SIZE;
-            uint32_t y = i / STATE_SIZE;
-            s_theta_km1_inv[x * STATE_SIZE + y] = -d_P_inv_km1[y * BLOCK_ROW_R_DIM + x];
-        }
-        __syncthreads();
+    extern __shared__ T s_mem[];
 
-        // left diag = - theta_k_inv * phi_k * theta_km1_inv (store in s_theta_km1_inv)
-        block::matMul<T, STATE_SIZE, STATE_SIZE, STATE_SIZE>(s_scratch, s_A_Q_inv, s_theta_km1_inv);
-        __syncthreads();
-        block::matMul<T, STATE_SIZE, STATE_SIZE, STATE_SIZE>(s_theta_km1_inv, s_theta_k_inv, s_scratch);
-        __syncthreads();
+    T *s_theta_k_inv = s_mem;
+    T *s_theta_km1_inv = s_theta_k_inv + STATE_SIZE_SQ;
+    T *s_phi_k = s_theta_km1_inv + STATE_SIZE_SQ;
+    T *s_scratch = s_phi_k + STATE_SIZE_SQ;
 
-        // Save left and right diagonals into P_inv (row-major)
-        T *d_P_inv_k_right = d_P_inv_km1 + STATE_SIZE;
-        T *d_P_inv_k_left = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx + 1);
-        #pragma unroll
-        for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
-            uint32_t x = i % STATE_SIZE;
-            uint32_t y = i / STATE_SIZE; 
-            uint32_t block_matrix_offset = y * BLOCK_ROW_R_DIM + x;
-            d_P_inv_k_right[block_matrix_offset] = -s_theta_km1_inv[i]; // right_diag = left_diag^T
-            d_P_inv_k_left[block_matrix_offset] = -s_theta_km1_inv[x * STATE_SIZE + y]; // left_diag
-        }
+    // load theta_k_inv, theta_km1_inv from P_inv, phi_k from S
+    T *d_P_inv_k_main = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx + 1) + STATE_SIZE;
+    T *d_P_inv_km1_main = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx) + STATE_SIZE;
+    T *d_S_k_left = getOffsetBlockRowPadded<T, BatchSize>(d_S_batch, solve_idx, knot_idx + 1);
+    #pragma unroll
+    for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
+        uint32_t x = i % STATE_SIZE;
+        uint32_t y = i / STATE_SIZE;
+        uint32_t matrix_offset = x * STATE_SIZE + y;
+        uint32_t block_matrix_offset = y * BLOCK_ROW_R_DIM + x;
+        s_theta_k_inv[matrix_offset] = d_P_inv_k_main[block_matrix_offset];
+        s_theta_km1_inv[matrix_offset] = d_P_inv_km1_main[block_matrix_offset];
+        s_phi_k[matrix_offset] = d_S_k_left[block_matrix_offset];
+    }
+    __syncthreads();
+
+    // left diag = - theta_k_inv * phi_k * theta_km1_inv
+    block::matMul<T, STATE_SIZE, STATE_SIZE, STATE_SIZE>(s_scratch, s_phi_k, s_theta_km1_inv);
+    __syncthreads();
+    block::matMul<T, STATE_SIZE, STATE_SIZE, STATE_SIZE>(s_theta_km1_inv, s_theta_k_inv, s_scratch);
+    __syncthreads();
+
+    // Save left and right diagonals into P_inv (row-major)
+    T *d_P_inv_k_right = d_P_inv_km1_main + STATE_SIZE;
+    T *d_P_inv_k_left = d_P_inv_k_main - STATE_SIZE;
+    #pragma unroll
+    for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
+        uint32_t x = i % STATE_SIZE;
+        uint32_t y = i / STATE_SIZE; 
+        uint32_t block_matrix_offset = y * BLOCK_ROW_R_DIM + x;
+        d_P_inv_k_right[block_matrix_offset] = -s_theta_km1_inv[i]; // right_diag = left_diag^T
+        d_P_inv_k_left[block_matrix_offset] = -s_theta_km1_inv[x * STATE_SIZE + y]; // left_diag
     }
 }
 
 template <typename T>
 __host__
-size_t getFormSchurSystemBatchedSMemSize() {
+size_t getFormSchurSystemBatched1SMemSize() {
     size_t size = sizeof(T) * (
         STATE_SIZE_SQ + // Q_k
         STATE_SIZE_SQ + // Q_k_inv
@@ -317,6 +328,13 @@ size_t getFormSchurSystemBatchedSMemSize() {
     return size;
 }
 
+template <typename T>
+__host__
+size_t getFormSchurSystemBatched2SMemSize() {
+    size_t size = sizeof(T) * (4 * STATE_SIZE_SQ);
+    return size;
+}
+
 template <typename T, uint32_t BatchSize>
 __host__
 void formSchurSystemBatched(
@@ -324,26 +342,30 @@ void formSchurSystemBatched(
     KKTSystem<T, BatchSize> kkt,
     T *d_rho_penalty_batch
 ) {
-    dim3 grid(KNOT_POINTS, BatchSize);
+    dim3 grid1(KNOT_POINTS, BatchSize);
+    dim3 grid2(KNOT_POINTS - 1, BatchSize);
     dim3 thread_block(SCHUR_THREADS);
-    const uint32_t s_mem_size = getFormSchurSystemBatchedSMemSize<T>();
+    const uint32_t s_mem_size1 = getFormSchurSystemBatched1SMemSize<T>();
+    const uint32_t s_mem_size2 = getFormSchurSystemBatched2SMemSize<T>();
 
-    void *kernel = (void *) formSchurSystemBatchedKernel<T, BatchSize>;
-    void *args[] = {
-        (void *)&schur.d_S_batch,
-        (void *)&schur.d_P_inv_batch,
-        (void *)&schur.d_gamma_batch,
-        (void *)&kkt.d_Q_batch,
-        (void *)&kkt.d_R_batch,
-        (void *)&kkt.d_q_batch,
-        (void *)&kkt.d_r_batch,
-        (void *)&kkt.d_A_batch,
-        (void *)&kkt.d_B_batch,
-        (void *)&kkt.d_c_batch,
-        (void *)&d_rho_penalty_batch
-    };
+    formSchurSystemBatchedKernel1<T, BatchSize><<<grid1, thread_block, s_mem_size1>>>(
+        schur.d_S_batch,
+        schur.d_P_inv_batch,
+        schur.d_gamma_batch,
+        kkt.d_Q_batch,
+        kkt.d_R_batch,
+        kkt.d_q_batch,
+        kkt.d_r_batch,
+        kkt.d_A_batch,
+        kkt.d_B_batch,
+        kkt.d_c_batch,
+        d_rho_penalty_batch
+    );
 
-    gpuErrchk(cudaLaunchCooperativeKernel(kernel, grid, thread_block, args, s_mem_size));
+    formSchurSystemBatchedKernel2<T, BatchSize><<<grid2, thread_block, s_mem_size2>>>(
+        schur.d_S_batch,
+        schur.d_P_inv_batch
+    );
 }
 
 // --------------------------------------------------
