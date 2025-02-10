@@ -1,11 +1,10 @@
 #pragma once
 
 #include <cstdint>
-#include "config/settings.h"
-#include "config/constants.h"
+#include "settings.h"
+#include "constants.h"
 #include "utils/cuda_utils.cuh"
 #include "utils/linalg.cuh"
-#include "utils/types.cuh"
 
 using namespace sqp;
 using namespace gato;

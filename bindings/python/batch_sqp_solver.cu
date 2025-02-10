@@ -3,7 +3,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include "multisolve/batch_sqp_solver.cuh"
-#include "utils/types.cuh"
+#include "types.cuh"
 #include "utils/utils.h"
 
 namespace py = pybind11;

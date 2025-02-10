@@ -5,7 +5,7 @@
 
 #include "iiwa14_grid.cuh"
 #include "GLASS/glass.cuh"
-#include "config/settings.h"
+#include "settings.h"
 
 namespace cg = cooperative_groups;
 using namespace sqp;

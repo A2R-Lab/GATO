@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <chrono>
 
-#include "config/settings.h"
-#include "config/constants.h"
-#include "utils/types.cuh"
+#include "settings.h"
+#include "constants.h"
+#include "types.cuh"
 #include "kernels/setup_kkt.cuh"
 #include "kernels/schur_linsys.cuh"
 #include "kernels/pcg.cuh"

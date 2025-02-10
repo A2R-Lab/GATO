@@ -9,7 +9,7 @@
 #include <iomanip>
 
 #include "multisolve/batch_sqp_solver.cuh"
-#include "utils/types.cuh"
+#include "types.cuh"
 #include "utils/utils.h"
 
 // Define a macro to run benchmark for a specific batch size

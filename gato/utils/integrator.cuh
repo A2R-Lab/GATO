@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace cg = cooperative_groups;
-#include "config/plant.h"
+#include "settings.h"
 #include "GLASS/glass.cuh"
 
 

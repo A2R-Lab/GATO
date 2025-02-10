@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include "config/settings.h"
-#include "config/constants.h"
+#include "settings.h"
+#include "constants.h"
 #include "utils/cuda_utils.cuh"
 #include "utils/linalg.cuh"
 

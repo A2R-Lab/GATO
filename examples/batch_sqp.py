@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-import batch_sqp
+import bindings.batch_sqp as batch_sqp
 import time
 
 def read_csv_to_array(filename):
@@ -8,10 +8,11 @@ def read_csv_to_array(filename):
 
 def main():
     BATCH_SIZE = 64
+    # knot points should be set to 32 for this example
     
     # Read trajectory files
-    ee_pos_trajs = read_csv_to_array("../examples/trajfiles/32_ee_pos_trajs.csv")
-    xu_trajs = read_csv_to_array("../examples/trajfiles/32_xu_trajs.csv")
+    ee_pos_trajs = read_csv_to_array("examples/trajfiles/32_ee_pos_trajs.csv")
+    xu_trajs = read_csv_to_array("examples/trajfiles/32_xu_trajs.csv")
     
     xu_traj = xu_trajs[0]
     ee_pos_traj = ee_pos_trajs[0]

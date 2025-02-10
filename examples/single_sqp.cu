@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "multisolve/batch_sqp_solver.cuh"
-#include "utils/types.cuh"
+#include "types.cuh"
 #include "utils/utils.h"
 
 int main() {

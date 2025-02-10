@@ -4,19 +4,20 @@ import os
 import torch
 from pathlib import Path
 
-# Get paths
 cuda_include = Path(CUDA_HOME) / 'include'
 cuda_lib = Path(CUDA_HOME) / 'lib64'
 torch_lib_path = Path(torch.__file__).parent
+
+
 
 setup(
     name='batch_sqp',
     ext_modules=[
         CUDAExtension('batch_sqp', [
-            'batch_sqp_solver.cu',  # Path from root directory
+            'python/batch_sqp_solver.cu', 
         ],
         include_dirs=[
-            '..',
+            '.',
             '../gato',
             '../dependencies',
             str(cuda_include),
@@ -39,6 +40,6 @@ setup(
         })
     ],
     cmdclass={
-        'build_ext': BuildExtension.with_options(use_ninja=True)
-    }
+        'build_ext': BuildExtension.with_options(use_ninja=True, build_dir='build')
+    },
 )

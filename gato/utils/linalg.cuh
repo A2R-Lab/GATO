@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include "config/settings.h"
-#include "config/constants.h"
+#include "settings.h"
+#include "constants.h"
 
 using namespace sqp;
 using namespace gato::constants;
@@ -303,125 +303,6 @@ void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, con
         }
     }
 }
-
-// /**
-//  * @brief Performs a block-tridiagonal matrix-vector multiplication in CUDA shared memory with a single thread block
-//  * 
-//  * 
-//  * @tparam T Data type
-//  * @tparam NumBlockRows Number of diagonal blocks in the matrix
-//  * @tparam BlockSize Size of each square block (number of rows)
-//  * 
-//  * @param[out] s_output Output vector shared memory 
-//  *                     (size: (NumBlockRows + 2) * BlockSize)
-//  * @param[in] s_matrix Block-tridiagonal matrix shared memory (row-major order)
-//  *                     (size: NumBlockRows * 3 * BlockSize * BlockSize)
-//  * @param[in] s_vector Input vector shared memory 
-//  *                     (size: (NumBlockRows + 2) * BlockSize)
-//  *  
-//  * @note Uses warp-level primitives for efficient reduction operations
-//  */
-// template <typename T, uint32_t NumBlockRows, uint32_t BlockSize>
-// __device__ __forceinline__ 
-// void btdMatrixVectorProduct(T* s_output, const T* s_matrix, const T* s_vector) {
-//     // bitwise operations are faster
-//     const uint32_t lane_idx = threadIdx.x & 31; // threadIdx.x % 32 (thread in warp)
-//     const uint32_t warp_idx = threadIdx.x >> 5; // threadIdx.x / 32 
-//     const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
-//     const uint32_t BlockRowLength = 3 * BlockSize;
-
-//     // each warp handles a block row matrix
-//     #pragma unroll
-//     for (uint32_t block_row = warp_idx; block_row < NumBlockRows; block_row += warps_per_block) {
-//         const T* block = s_matrix + block_row * BlockRowLength * BlockSize;
-//         const T* vec = s_vector + block_row * BlockSize;
-
-//         // temp storage for each thread's sum
-//         T thread_sums[BlockSize] = { T(0.0) }; //TODO: consider making this a shared memory array if BlockSize (StateSize) is too big
-
-//         // Each lane handles a column
-//         #pragma unroll
-//         for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
-//             // broadcast vector value to all currently active threads in warp
-//             T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
-
-//             // compute contribution to each row
-//             #pragma unroll
-//             for (uint32_t row = 0; row < BlockSize; row++) {
-//                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
-//             }
-//         }
-
-//         // warp-level reduction for each row
-//         #pragma unroll
-//         for (uint32_t row = 0; row < BlockSize; row++) {
-//             T sum = thread_sums[row];
-
-//             // from https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
-//             #pragma unroll
-//             for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-//                 sum += __shfl_down_sync(FULL_MASK, sum, offset);
-//             }
-//             // write to output
-//             if (lane_idx == 0) {
-//                 s_output[(block_row + 1) * BlockSize + row] = sum; //account for padding
-//             }
-//         }
-//     }
-// }
-
-// // overloaded for 2 output vectors, otherwise same as above
-// template <typename T, uint32_t NumBlockRows, uint32_t BlockSize>
-// __device__ __forceinline__ 
-// void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, const T* s_vector) {
-//     // bitwise operations are faster
-//     const uint32_t lane_idx = threadIdx.x & 31; // threadIdx.x % 32 (thread in warp)
-//     const uint32_t warp_idx = threadIdx.x >> 5; // threadIdx.x / 32 
-//     const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
-//     const uint32_t BlockRowLength = 3 * BlockSize;
-
-//     // each warp handles a block row matrix
-//     #pragma unroll
-//     for (uint32_t block_row = warp_idx; block_row < NumBlockRows; block_row += warps_per_block) {
-//         const T* block = s_matrix + block_row * BlockRowLength * BlockSize;
-//         const T* vec = s_vector + block_row * BlockSize;
-
-//         // temp storage for each thread's sum
-//         T thread_sums[BlockSize] = { T(0.0) }; //TODO: consider making this a shared memory array if BlockSize (StateSize) is too big
-
-//         // Each lane handles a column
-//         #pragma unroll
-//         for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
-//             // broadcast vector value to all currently active threads in warp
-//             T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
-
-//             // compute contribution to each row
-//             #pragma unroll
-//             for (uint32_t row = 0; row < BlockSize; row++) {
-//                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
-//             }
-//         }
-
-//         // warp-level reduction for each row
-//         #pragma unroll
-//         for (uint32_t row = 0; row < BlockSize; row++) {
-//             T sum = thread_sums[row];
-            
-//             // from https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
-//             #pragma unroll
-//             for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-//                 sum += __shfl_down_sync(FULL_MASK, sum, offset);
-//             }
-
-//             // write to output
-//             if (lane_idx == 0) {
-//                 s_output_1[(block_row + 1) * BlockSize + row] = sum; //account for padding
-//                 s_output_2[(block_row + 1) * BlockSize + row] = sum;
-//             }
-//         }
-//     }
-// }
-
 
 // /**
 // * @brief Computes the dot product of two vectors within one thread block

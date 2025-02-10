@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include "settings.h"
-#include "plant.h"
 
 namespace gato {
 namespace constants {
