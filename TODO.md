@@ -6,16 +6,19 @@
 
 - [ ] Benchmark with >1 SQP iterations
 - [ ] Add more Python examples
-
+- [ ] Add Parallel DDP interface
+ 
 ## Low Priority
 
 - [ ] Switch to CMake from Makefile
 - [ ] Experiment with number of loop unrolls
+- [ ] Github Actions
 - [ ] Plant codegen
 - [ ] GRiD codegen
 - [ ] Cost func codegen
 - [ ] Remove GLASS dependencies
 - [ ] Matrix inverse using chol decomp
+- [ ] Add Yang's QP changes
 
 - More CUDA [optimizations](https://stackoverflow.com/questions/43706755/how-can-i-get-the-nvcc-cuda-compiler-to-optimize-more)
 
