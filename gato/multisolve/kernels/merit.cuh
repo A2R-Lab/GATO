@@ -31,8 +31,8 @@ void computeMeritBatched()
 
 template <typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __global__
-void computeMeritKernelBatched(
-    T *d_merit_batch,
+void computeMeritBatchedKernel1(
+    T *d_merit_batch_temp,
     T *d_dz_batch,
     T *d_xu_traj_batch, 
     T *d_x_initial_batch, 
@@ -62,31 +62,19 @@ void computeMeritKernelBatched(
     T *d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
 
     if (knot_idx == KNOT_POINTS - 1) {
+        #pragma unroll
         for(int i = threadIdx.x; i < STATE_SIZE; i += blockDim.x){
             s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i];
         }
     } else {
+        #pragma unroll
         for(int i = threadIdx.x; i < STATE_SIZE + STATE_S_CONTROL; i += blockDim.x){
             s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i];
         }
     }
     
-    
-
     T *d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
     block::copy<T, grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
-    __syncthreads();
-
-    // cost function
-    cost_k = gato::plant::trackingcost<T>(
-        STATE_SIZE, 
-        CONTROL_SIZE, 
-        KNOT_POINTS, 
-        s_xux_k, 
-        s_reference_traj_k, 
-        s_temp, 
-        d_robot_model
-    );
     __syncthreads();
 
     // constraint error
@@ -103,6 +91,17 @@ void computeMeritKernelBatched(
     } else {
         constraint_k = 0;
     }
+
+        // cost function
+    cost_k = gato::plant::trackingcost<T>(
+        STATE_SIZE, 
+        CONTROL_SIZE, 
+        KNOT_POINTS, 
+        s_xux_k, 
+        s_reference_traj_k, 
+        s_temp, 
+        d_robot_model
+    );
     __syncthreads();
 
     // initial state constraint error
@@ -120,10 +119,30 @@ void computeMeritKernelBatched(
 
     // compute merit
     if (threadIdx.x == 0) {
-        merit_k = cost_k + mu * constraint_k;
-        atomicAdd(d_merit_batch + solve_idx * gridDim.z + alpha_idx, merit_k); //TODO: kernel could be slow because of this
+        d_merit_batch_temp[solve_idx * gridDim.z * gridDim.x + alpha_idx * gridDim.x + knot_idx] = cost_k + mu * constraint_k;
     }
+}
+
+template <typename T, uint32_t NumAlphas>
+__global__
+void computeMeritBatchedKernel2(
+    T *d_merit_batch,
+    T *d_merit_batch_temp
+) {
+    const uint32_t solve_idx = blockIdx.x;
+    const uint32_t alpha_idx = blockIdx.y;
+
+    extern __shared__ T s_mem[];
+
+    block::copy<T, KNOT_POINTS>(s_mem, d_merit_batch_temp + solve_idx * NumAlphas * KNOT_POINTS + alpha_idx * KNOT_POINTS);
     __syncthreads();
+
+    glass::reduce<T>(KNOT_POINTS, s_mem);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        d_merit_batch[solve_idx * NumAlphas + alpha_idx] = s_mem[0];
+    }
 }
 
 template <typename T>
@@ -142,16 +161,18 @@ template <typename T, uint32_t BatchSize, uint32_t NumAlphas>
 __host__
 void computeMeritBatched(
     T *d_merit_batch,
+    T *d_merit_batch_temp,
     T *d_dz_batch,
     T *d_xu_traj_batch, 
     ProblemInputs<T, BatchSize> inputs
 ) {
-    dim3 grid(KNOT_POINTS, BatchSize, NumAlphas);
+    dim3 grid1(KNOT_POINTS, BatchSize, NumAlphas);
+    dim3 grid2(BatchSize, NumAlphas);
     dim3 thread_block(MERIT_THREADS);
     size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
 
-    computeMeritKernelBatched<T, BatchSize><<<grid, thread_block, s_mem_size>>>(
-        d_merit_batch,
+    computeMeritBatchedKernel1<T, BatchSize><<<grid1, thread_block, s_mem_size>>>(
+        d_merit_batch_temp,
         d_dz_batch,
         d_xu_traj_batch, 
         inputs.d_x_s_batch,
@@ -160,5 +181,9 @@ void computeMeritBatched(
         static_cast<T>(10.0), //TODO: tweak this
         inputs.timestep
     );
-    
+
+    computeMeritBatchedKernel2<T, NumAlphas><<<grid2, thread_block, KNOT_POINTS * sizeof(T)>>>(
+        d_merit_batch,
+        d_merit_batch_temp
+    );
 }
