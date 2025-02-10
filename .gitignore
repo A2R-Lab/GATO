@@ -42,3 +42,4 @@ Makefile
 
 .vscode/
 
+bindings/batch_sqp.egg-info/
