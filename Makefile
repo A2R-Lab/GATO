@@ -1,5 +1,5 @@
 NVCC = nvcc
-NVCC_FLAGS = -g -lineinfo -std=c++17 -O3 --compiler-options '-Wall'# -Wextra -Wpedantic -use_fast_math
+NVCC_FLAGS = -use_fast_math -std=c++17 -O3 --compiler-options '-Wall'# -Wextra -Wpedantic
 
 INCLUDES = -I. -I./gato -I./dependencies
 

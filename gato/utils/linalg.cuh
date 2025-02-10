@@ -199,32 +199,53 @@ template <typename T, uint32_t NumBlockRows, uint32_t BlockSize>
 __device__ __forceinline__ 
 void btdMatrixVectorProduct(T* s_output, const T* s_matrix, const T* s_vector) {
     const uint32_t BlockRowLength = 3 * BlockSize;
+    
+    // Get warp and lane indices
+    const uint32_t lane_idx = threadIdx.x & 31;  // threadIdx.x % 32
+    const uint32_t warp_idx = threadIdx.x >> 5;  // threadIdx.x / 32
+    const uint32_t warps_per_block = blockDim.x >> 5;  // blockDim.x / 32
 
-    // each thread handles a block row matrix
+    // each warp handles a block row matrix
     #pragma unroll
-    for (uint32_t block_row = threadIdx.x; block_row < NumBlockRows; block_row += blockDim.x) {
+    for (uint32_t block_row = warp_idx; block_row < NumBlockRows; block_row += warps_per_block) {
         const T* block = s_matrix + block_row * BlockRowLength * BlockSize;
         const T* vec = s_vector + block_row * BlockSize;
 
         // temp storage for each thread's sums
         T thread_sums[BlockSize] = { T(0.0) };
 
-        // compute contribution to each row
+        // Each lane handles a column
         #pragma unroll
-        for (uint32_t col = 0; col < BlockRowLength; col++) {
-            T vec_val = vec[col];
+        for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
+            // broadcast vector value to all currently active threads in warp
+            T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
             
+            // compute contribution to each row
             #pragma unroll
             for (uint32_t row = 0; row < BlockSize; row++) {
                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
             }
         }
+        __syncwarp(); // Ensure all threads in warp complete their computations
 
-        // write results to output
+        // warp-level reduction for each row
         #pragma unroll
         for (uint32_t row = 0; row < BlockSize; row++) {
-            s_output[(block_row + 1) * BlockSize + row] = thread_sums[row];
+            T sum = thread_sums[row];
+            
+            // Warp-wide reduction using shuffle with active mask
+            const unsigned active_mask = __activemask();
+            #pragma unroll
+            for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+                sum += __shfl_down_sync(active_mask, sum, offset);
+            }
+
+            // First lane writes result
+            if (lane_idx == 0) {
+                s_output[(block_row + 1) * BlockSize + row] = sum;
+            }
         }
+        __syncwarp(); // Ensure warp synchronization before next iteration
     }
 }
 
@@ -233,32 +254,52 @@ template <typename T, uint32_t NumBlockRows, uint32_t BlockSize>
 __device__ __forceinline__ 
 void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, const T* s_vector) {
     const uint32_t BlockRowLength = 3 * BlockSize;
+    
+    // Get warp and lane indices
+    const uint32_t lane_idx = threadIdx.x & 31;  // threadIdx.x % 32
+    const uint32_t warp_idx = threadIdx.x >> 5;  // threadIdx.x / 32
+    const uint32_t warps_per_block = blockDim.x >> 5;  // blockDim.x / 32
 
-    // each thread handles a block row matrix
+    // each warp handles a block row matrix
     #pragma unroll
-    for (uint32_t block_row = threadIdx.x; block_row < NumBlockRows; block_row += blockDim.x) {
+    for (uint32_t block_row = warp_idx; block_row < NumBlockRows; block_row += warps_per_block) {
         const T* block = s_matrix + block_row * BlockRowLength * BlockSize;
         const T* vec = s_vector + block_row * BlockSize;
 
         // temp storage for each thread's sums
         T thread_sums[BlockSize] = { T(0.0) };
 
-        // compute contribution to each row
+        // Each lane handles a column
         #pragma unroll
-        for (uint32_t col = 0; col < BlockRowLength; col++) {
-            T vec_val = vec[col];
+        for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
+            // broadcast vector value to all currently active threads in warp
+            T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
             
+            // compute contribution to each row
             #pragma unroll
             for (uint32_t row = 0; row < BlockSize; row++) {
                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
             }
         }
+        __syncwarp(); // Ensure all threads in warp complete their computations
 
-        // write results to output
+        // warp-level reduction for each row
         #pragma unroll
         for (uint32_t row = 0; row < BlockSize; row++) {
-            s_output_1[(block_row + 1) * BlockSize + row] = thread_sums[row];
-            s_output_2[(block_row + 1) * BlockSize + row] = thread_sums[row];
+            T sum = thread_sums[row];
+            
+            // Warp-wide reduction using shuffle with active mask
+            const unsigned active_mask = __activemask();
+            #pragma unroll
+            for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+                sum += __shfl_down_sync(active_mask, sum, offset);
+            }
+
+            // First lane writes result
+            if (lane_idx == 0) {
+                s_output_1[(block_row + 1) * BlockSize + row] = sum;
+                s_output_2[(block_row + 1) * BlockSize + row] = sum;
+            }
         }
     }
 }
@@ -397,81 +438,52 @@ void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, con
 // * @note Requires blockDim.x to be a multiple of 32 (warp size)
 // * @note s_scratch array must be in shared memory
 // */
-// template <typename T>
-// __device__ __forceinline__
-// void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size) {
-//     #ifndef NDEBUG
-//         assert(blockDim.x % WARP_SIZE == 0 && "blockDim.x must be a multiple of 32 (warp size)");
-//     #endif
-
-//     const uint32_t tid = threadIdx.x;
-//     const uint32_t lane_idx = tid & 31; // threadIdx.x % 32 (thread in warp)
-//     const uint32_t warp_idx = tid >> 5; // threadIdx.x / 32
-//     const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
-
-//     T sum = T(0.0);
-
-//     // partial sum for each thread
-//     #pragma unroll
-//     for (uint32_t i = tid; i < size; i += blockDim.x) {
-//         sum += s_a[i] * s_b[i];
-//     }
-//     __syncthreads();
-
-//     // sum within each warp
-//     #pragma unroll
-//     for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-//         sum += __shfl_down_sync(FULL_MASK, sum, offset);
-//     }
-
-//     // lane 0 of each warp writes to shared memory
-//     if (lane_idx == 0) {
-//         s_scratch[warp_idx] = sum;
-//     }
-//     __syncthreads();
-
-//     // copy warp sums to first warp, and reduce again
-//     if (tid < WARP_SIZE) {
-//         // only use valid warp sums (blockDim.x / 32) valid warps
-//         sum = (tid < warps_per_block) ? s_scratch[tid] : T(0.0);
-
-//         #pragma unroll
-//         for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-//             sum += __shfl_down_sync(FULL_MASK, sum, offset);
-//         }
-
-//         if (tid == 0) {
-//             *result = sum;
-//         }
-//     }
-// }
-
 template <typename T>
 __device__ __forceinline__
 void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size) {
-    // Initialize partial sum
-    T sum = 0;
+    #ifndef NDEBUG
+        assert(blockDim.x % WARP_SIZE == 0 && "blockDim.x must be a multiple of 32 (warp size)");
+    #endif
 
-    // Compute partial dot product
-    for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) {
+    const uint32_t tid = threadIdx.x;
+    const uint32_t lane_idx = tid & 31; // threadIdx.x % 32 (thread in warp)
+    const uint32_t warp_idx = tid >> 5; // threadIdx.x / 32
+    const uint32_t warps_per_block = blockDim.x >> 5; // blockDim.x / 32
+
+    T sum = T(0.0);
+
+    // partial sum for each thread
+    #pragma unroll
+    for (uint32_t i = tid; i < size; i += blockDim.x) {
         sum += s_a[i] * s_b[i];
     }
-    
-    // Store partial sums in shared memory
-    s_scratch[threadIdx.x] = sum;
     __syncthreads();
 
-    // Perform reduction in shared memory
-    for (uint32_t stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride) {
-            s_scratch[threadIdx.x] += s_scratch[threadIdx.x + stride];
-        }
-        __syncthreads();
+    // sum within each warp
+    #pragma unroll
+    for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        sum += __shfl_down_sync(__activemask(), sum, offset);
     }
 
-    // Write the result from the first thread
-    if (threadIdx.x == 0) {
-        *result = s_scratch[0];
+    // lane 0 of each warp writes to shared memory
+    if (lane_idx == 0) {
+        s_scratch[warp_idx] = sum;
+    }
+    __syncthreads();
+
+    // copy warp sums to first warp, and reduce again
+    if (tid < WARP_SIZE) {
+        // only use valid warp sums (blockDim.x / 32) valid warps
+        sum = (tid < warps_per_block) ? s_scratch[tid] : T(0.0);
+
+        #pragma unroll
+        for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            sum += __shfl_down_sync(__activemask(), sum, offset);
+        }
+
+        if (tid == 0) {
+            *result = sum;
+        }
     }
 }
 
