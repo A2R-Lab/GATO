@@ -31,6 +31,8 @@
 *.out
 *.app
 
+*.pyc
+
 # Ignore build directory
 /build/
 
