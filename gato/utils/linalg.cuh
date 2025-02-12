@@ -214,11 +214,13 @@ void btdMatrixVectorProduct(T* s_output, const T* s_matrix, const T* s_vector) {
         // temp storage for each thread's sums
         T thread_sums[BlockSize] = { T(0.0) };
 
+        T vec_val;
+
         // Each lane handles a column
         #pragma unroll
         for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
             // broadcast vector value to all currently active threads in warp
-            T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
+            vec_val = vec[col];
             
             // compute contribution to each row
             #pragma unroll
@@ -226,7 +228,7 @@ void btdMatrixVectorProduct(T* s_output, const T* s_matrix, const T* s_vector) {
                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
             }
         }
-        __syncwarp(); // Ensure all threads in warp complete their computations
+        __syncwarp();
 
         // warp-level reduction for each row
         #pragma unroll
@@ -245,7 +247,6 @@ void btdMatrixVectorProduct(T* s_output, const T* s_matrix, const T* s_vector) {
                 s_output[(block_row + 1) * BlockSize + row] = sum;
             }
         }
-        __syncwarp(); // Ensure warp synchronization before next iteration
     }
 }
 
@@ -268,12 +269,13 @@ void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, con
 
         // temp storage for each thread's sums
         T thread_sums[BlockSize] = { T(0.0) };
+        T vec_val;
 
         // Each lane handles a column
         #pragma unroll
         for (uint32_t col = lane_idx; col < BlockRowLength; col += WARP_SIZE) {
             // broadcast vector value to all currently active threads in warp
-            T vec_val = __shfl_sync(__activemask(), vec[col], col & 31);
+            vec_val = vec[col];
             
             // compute contribution to each row
             #pragma unroll
@@ -281,7 +283,7 @@ void btdMatrixVectorProduct(T* s_output_1, T* s_output_2, const T* s_matrix, con
                 thread_sums[row] += block[row * BlockRowLength + col] * vec_val;
             }
         }
-        __syncwarp(); // Ensure all threads in warp complete their computations
+        __syncwarp();
 
         // warp-level reduction for each row
         #pragma unroll
