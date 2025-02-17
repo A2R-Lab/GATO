@@ -147,7 +147,7 @@ void computeMeritBatchedKernel2(
 template <typename T>
 __host__
 size_t getComputeMeritBatchedSMemSize() {
-    size_t size = sizeof(T) * (
+    size_t size = sizeof(T) * 2 *(
         2 * STATE_SIZE + CONTROL_SIZE + // xux_k
         grid::EE_POS_SIZE + // reference_traj_k
         grid::EE_POS_SHARED_MEM_COUNT +
