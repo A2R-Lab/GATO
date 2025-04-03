@@ -18,7 +18,7 @@ T angleWrap(T input){
 }
 
 
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
 void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cg::thread_block b, bool absval = false){
     T new_qkp1; T new_qdkp1;
@@ -55,7 +55,7 @@ void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1,
     }
 }
 
-template <typename T, unsigned INTEGRATOR_TYPE = 0>
+template <typename T, unsigned INTEGRATOR_TYPE = 1>
 __device__
 void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_Ak, T *s_Bk, T *s_dqdd, T dt, cg::thread_block b){
         
@@ -99,7 +99,7 @@ void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_A
 }
 
 
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
 void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cg::thread_block b){
 
@@ -129,7 +129,7 @@ void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd
 }
 
 // s_temp of size state_size/2*(state_size + control_size + 1) + DYNAMICS_TEMP
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
 __device__ __forceinline__
 void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
 
@@ -157,7 +157,7 @@ void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux,
 
 
 // s_temp of size 3*state_size/2 + DYNAMICS_TEMP
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
 T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
 
@@ -193,7 +193,7 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
 
 
 
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
 void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
     // first compute qdd
@@ -208,7 +208,7 @@ void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dyn
 
 
 
-template <typename T, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __global__
 void integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_xkp1, T *d_xuk, void *d_dynMem_const, T dt){
     extern __shared__ T s_smem[];
@@ -283,7 +283,7 @@ void simple_integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_x
     }
 
     b.sync();
-    integrator<T,0,0>(state_size, s_xkp1, s_xuk, s_temp, d_dynMem_const, dt, b);
+    integrator<T,1,0>(state_size, s_xkp1, s_xuk, s_temp, d_dynMem_const, dt, b);
     b.sync();
 
     for (unsigned ind = threadIdx.x; ind < state_size; ind += blockDim.x){
