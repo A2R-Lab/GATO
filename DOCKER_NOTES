@@ -1,0 +1,8 @@
+docker build -t gato .
+docker run --gpus all -it -v $(pwd):/app gato
+
+
+--------
+docker-compose up -d
+docker-compose exec dev bash
+docker-compose down
