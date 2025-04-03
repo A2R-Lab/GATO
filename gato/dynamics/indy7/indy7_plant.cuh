@@ -53,7 +53,7 @@ namespace gato{
 		constexpr T PI() {return static_cast<T>(3.14159);}
 		template<class T>
 		__host__ __device__
-		constexpr T GRAVITY() {return static_cast<T>(-9.81);}
+		constexpr T GRAVITY() {return static_cast<T>(9.81);}
 		
 		template<class T>
 		__host__ __device__
@@ -62,6 +62,10 @@ namespace gato{
 		template<class T>
 		__host__ __device__
 		constexpr T COST_R() {return static_cast<T>(CONTROL_COST);}
+
+		template<class T>
+		__host__ __device__
+		constexpr T COST_TERMINAL() {return static_cast<T>(TERMINAL_COST);}
 
 		template <typename T>
 		void *initializeDynamicsConstMem(){
@@ -248,6 +252,7 @@ namespace gato{
 			// const T Q_cost = COST_Q1<T>();
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
+			const T TERMINAL_cost = COST_TERMINAL<T>();
 			
 			T err;
 			T val = 0;
@@ -266,6 +271,11 @@ namespace gato{
 				if(i < state_size/2){
 					err = s_xu[i + state_size/2];
 					val = QD_cost * err * err;
+					// Add terminal cost for position states at final knot point
+					if (blockIdx.x == KNOT_POINTS - 1) {
+						err = s_xu[i];
+						val += TERMINAL_cost * err * err;
+					}
 				}
 				else{
 					err = s_xu[i+state_size/2];
@@ -312,6 +322,7 @@ namespace gato{
 			// const T Q_cost = COST_Q1<T>();
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
+			const T TERMINAL_cost = COST_TERMINAL<T>();
 
 			T *s_eePos = s_temp;
 			T *s_eePos_grad = s_eePos + 6;
@@ -341,6 +352,12 @@ namespace gato{
 						z_err = (s_eePos[2] - s_eePos_traj[2]);
 
 						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + s_eePos_grad[6 * i + 1] * y_err + s_eePos_grad[6 * i + 2] * z_err;
+						
+						// Add terminal cost gradient for position states at final knot point
+						if (blockIdx.x == KNOT_POINTS - 1) {
+							err = s_xu[i];
+							s_qk[i] += TERMINAL_cost * err;
+						}
 					}
 					else{
 						err = s_xu[i];
@@ -365,6 +382,10 @@ namespace gato{
 					for(int j = 0; j < state_size; j++){
 						if(j < state_size / 2 && i < state_size / 2){
 							s_Qk[i*state_size + j] = s_qk[i] * s_qk[j];
+							// Add terminal cost hessian for position states at final knot point
+							if (blockIdx.x == KNOT_POINTS - 1) {
+								s_Qk[i*state_size + j] += (i == j) ? TERMINAL_cost : static_cast<T>(0);
+							}
 						}
 						else{
 							s_Qk[i*state_size + j] = (i == j) ? QD_cost : static_cast<T>(0);
