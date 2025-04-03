@@ -84,6 +84,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
             local_step_idx = i;
         }
     }
+    __syncthreads();
     
     // Store to shared memory
     if (tid < NumAlphas) {
@@ -93,11 +94,12 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
     __syncthreads();
     
     // Parallel reduction in shared memory
-    for (uint32_t s = NumAlphas/2; s > 0; s >>= 1) {
-        if (tid < s) {
-            if (s_merit[tid + s] < s_merit[tid]) {
-                s_merit[tid] = s_merit[tid + s];
-                s_step_idx[tid] = s_step_idx[tid + s];
+    for (uint32_t s = 1; s < NumAlphas; s *= 2) {
+        uint32_t index = 2 * s * tid;
+        if (index + s < NumAlphas) {
+            if (s_merit[index + s] < s_merit[index]) {
+                s_merit[index] = s_merit[index + s];
+                s_step_idx[index] = s_step_idx[index + s];
             }
         }
         __syncthreads();
@@ -110,7 +112,6 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
 
     // Thread 0 handles step size computation and rho update
     if (tid == 0) {
-        //printf("\nLast min merit: %f, line search success: %d\n", d_merit_initial_batch[solve_idx], line_search_success);
 
         // Update rho
         T rho_multiplier = line_search_success ? 
@@ -128,6 +129,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
             d_step_size_batch[solve_idx] = -1;
             d_iterations_batch[solve_idx] += 1;
         } else {
+            // printf("\nLast min merit: %f, line search success: %d\n", d_merit_initial_batch[solve_idx], line_search_success);
             // Compute step size and store in shared memory for all threads to use
             s_merit[0] = 1.0 / (T)(1 << s_step_idx[0]);
             d_merit_initial_batch[solve_idx] = min_merit;
@@ -144,7 +146,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
         T *d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
         #pragma unroll
         for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) {
-            d_xu_traj[i] -= step_size * d_dz[i];
+            d_xu_traj[i] += step_size * d_dz[i];
         }
     }
 }
@@ -165,7 +167,7 @@ void lineSearchAndUpdateBatched(
 ) {
     dim3 grid(BatchSize);
     dim3 thread_block(LINE_SEARCH_THREADS);
-    size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas + sizeof(bool);
+    size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas + sizeof(int32_t); //TODO: verify this
 
     lineSearchAndUpdateBatchedKernel<T, BatchSize, NumAlphas><<<grid, thread_block, s_mem_size>>>(
         d_xu_traj_batch,

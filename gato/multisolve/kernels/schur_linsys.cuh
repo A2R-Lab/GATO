@@ -112,7 +112,7 @@ void formSchurSystemBatchedKernel1(
         T *d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);
         block::copy<T, STATE_SIZE_SQ>(s_A_k, d_A_k);
         block::copy<T, STATE_P_CONTROL>(s_B_k, d_B_k);
-        block::copy<T, STATE_SIZE>(s_gamma_k, d_c_k);
+        block::copy<T, STATE_SIZE>(s_gamma_k, d_c_k, static_cast<T>(-1));
         __syncthreads();
 
         // ----- Compute theta_k, phi_k, and gamma_k -----
@@ -239,12 +239,12 @@ void formSchurSystemBatchedKernel1(
         }
 
         // gamma_0 = - Q_0_inv * q_0 (c_0 is already in s_gamma_0)
-        block::matMulSum<T, STATE_SIZE, STATE_SIZE, 1>(s_gamma_k, s_Q_k_inv, s_q_k);
+        block::matMulSum<T, STATE_SIZE, STATE_SIZE, 1>(s_gamma_k, s_Q_k_inv, s_q_k, true);
         __syncthreads();
 
         // save gamma_0
         T *d_gamma_k = getOffsetStatePadded<T, BatchSize>(d_gamma_batch, solve_idx, 0);
-        block::copy<T, STATE_SIZE>(d_gamma_k, s_gamma_k, static_cast<T>(-1));
+        block::copy<T, STATE_SIZE>(d_gamma_k, s_gamma_k);
     }
 }
 
@@ -415,9 +415,9 @@ void computeDzBatchedKernel(
             for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
                 sum = static_cast<T>(0);
                 for (uint32_t j = 0; j < STATE_SIZE; j++) {
-                    sum += s_A_k[i * STATE_SIZE + j] * d_lambda_kp1[j];
+                    sum += -s_A_k[i * STATE_SIZE + j] * d_lambda_kp1[j];
                 }
-                s_scratch[i] = -sum;
+                s_scratch[i] = sum;
             }
             
             //block::matMul<T, 1, STATE_SIZE, STATE_SIZE>(s_scratch, d_lambda_kp1, s_A_k, true);
@@ -456,7 +456,7 @@ void computeDzBatchedKernel(
 
         // store to dz
         T *d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
-        block::copy<T, STATE_SIZE>(d_dz_k, s_scratch);
+        block::copy<T, STATE_SIZE>(d_dz_k, s_scratch, static_cast<T>(-1));
 
     } else { // control row (R_inv_k, B_k, r_k)
 
@@ -480,7 +480,7 @@ void computeDzBatchedKernel(
         for (uint32_t i = threadIdx.x; i < CONTROL_SIZE; i += blockDim.x) {
             sum = static_cast<T>(0);
             for (uint32_t j = 0; j < STATE_SIZE; j++) {
-                sum += s_B_k[i * STATE_SIZE + j] * d_lambda_kp1[j]; //TODO: used shared mem
+                sum += -s_B_k[i * STATE_SIZE + j] * d_lambda_kp1[j]; //TODO: used shared mem
             }
             s_scratch[i] = sum;
         }
@@ -488,7 +488,7 @@ void computeDzBatchedKernel(
         __syncthreads();
 
         T *d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
-        block::vecSum<T, CONTROL_SIZE>(s_scratch, d_r_k);
+        block::vecSub<T, CONTROL_SIZE>(s_scratch, d_r_k, s_scratch);
         __syncthreads();
 
         // R_inv_k * scratch, store in s_B_k
@@ -505,7 +505,7 @@ void computeDzBatchedKernel(
 
         // store to dz
         T *d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx) + STATE_SIZE;
-        block::copy<T, CONTROL_SIZE>(d_dz_k, s_B_k);
+        block::copy<T, CONTROL_SIZE>(d_dz_k, s_B_k, static_cast<T>(-1));
     }
 }
 

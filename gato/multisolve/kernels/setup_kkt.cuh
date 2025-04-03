@@ -27,7 +27,7 @@ void setupKKTSystemBatched()
 
 */
 
-template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __global__
 void setupKKTSystemBatchedKernel(
     T *d_Q_batch,
@@ -124,9 +124,9 @@ void setupKKTSystemBatchedKernel(
             T *d_xu_0 = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
             block::vecSub<T, STATE_SIZE>(
                 d_c_0, 
-                d_x_s_batch + solve_idx * STATE_SIZE,
-                d_xu_0 
-            ); //TODO: absolute value — is this order correct?
+                d_xu_0,
+                d_x_s_batch + solve_idx * STATE_SIZE
+            );
             __syncthreads();
 
             block::copy<T, STATE_SIZE_SQ>(d_Q_k + STATE_SIZE_SQ, s_Q_last);

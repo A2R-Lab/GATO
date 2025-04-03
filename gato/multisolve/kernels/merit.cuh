@@ -28,7 +28,7 @@ void computeMeritBatched()
 
 */
 
-template <typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __global__
 void computeMeritBatchedKernel1(
     T *d_merit_batch_temp,
@@ -47,7 +47,7 @@ void computeMeritBatchedKernel1(
     const uint32_t solve_idx = blockIdx.y;
     const uint32_t knot_idx = blockIdx.x;
     const uint32_t alpha_idx = blockIdx.z;
-    T alpha = -1.0 / (T)(1 << alpha_idx);
+    T alpha = 1.0 / (1 << alpha_idx);
     
     T cost_k, constraint_k, merit_k; // cost function, constraint error, per-point merit
 
@@ -59,6 +59,7 @@ void computeMeritBatchedKernel1(
     
     T *d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
     T *d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
+    T *d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
 
     if (knot_idx == KNOT_POINTS - 1) {
         #pragma unroll
@@ -76,21 +77,6 @@ void computeMeritBatchedKernel1(
     block::copy<T, grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
     __syncthreads();
 
-    // constraint error
-    if (knot_idx < KNOT_POINTS - 1) { // not last knot
-        constraint_k = integratorError<T>(
-            STATE_SIZE, 
-            s_xux_k, 
-            &s_xux_k[STATE_SIZE + CONTROL_SIZE], 
-            s_temp, 
-            d_robot_model, 
-            timestep,
-            cooperative_groups::this_thread_block()
-        );
-    } else {
-        constraint_k = 0;
-    }
-
         // cost function
     cost_k = gato::plant::trackingcost<T>(
         STATE_SIZE, 
@@ -103,18 +89,41 @@ void computeMeritBatchedKernel1(
     );
     __syncthreads();
 
-    // initial state constraint error
-    if (knot_idx == 0) {
+        // constraint error
+    if (knot_idx < KNOT_POINTS - 1) { // not last knot
+        constraint_k = integratorError<T>(
+            STATE_SIZE, 
+            s_xux_k, 
+            &s_xux_k[STATE_SIZE + CONTROL_SIZE], 
+            s_temp, 
+            d_robot_model, 
+            timestep,
+            cooperative_groups::this_thread_block()
+        );
+    } else {
         #pragma unroll
         for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
-            s_temp[i] = abs(s_xux_k[i] - d_x_initial_batch[i]);
+            s_temp[i] =  abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  //initial state constraint error
         }
         __syncthreads();
         glass::reduce<T>(STATE_SIZE, s_temp); //TODO: use warp reduce instead
         __syncthreads();
-        constraint_k += s_temp[0];
+        constraint_k = s_temp[0];
     }
     __syncthreads();
+
+    // // initial state constraint error
+    // if (knot_idx == 0) {
+    //     #pragma unroll
+    //     for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
+    //         s_temp[i] =  abs(d_x_initial_batch[i] - s_xux_k[i]); //TODO: need to flip?
+    //     }
+    //     __syncthreads();
+    //     glass::reduce<T>(STATE_SIZE, s_temp); //TODO: use warp reduce instead
+    //     __syncthreads();
+    //     constraint_k += s_temp[0];
+    // }
+    // __syncthreads();
 
     // compute merit
     if (threadIdx.x == 0) {
@@ -147,7 +156,7 @@ void computeMeritBatchedKernel2(
 template <typename T>
 __host__
 size_t getComputeMeritBatchedSMemSize() {
-    size_t size = sizeof(T) * 2 *(
+    size_t size = sizeof(T) * 2 * (
         2 * STATE_SIZE + CONTROL_SIZE + // xux_k
         grid::EE_POS_SIZE + // reference_traj_k
         grid::EE_POS_SHARED_MEM_COUNT +
