@@ -114,7 +114,7 @@ void lineSearchAndUpdateBatchedKernel( //TODO: reorder params so outputs come fi
     if (tid == 0) {
 
         // Update rho
-        T rho_multiplier = line_search_success ? 
+        T rho_multiplier = line_search_success ? //1 / RHO_FACTOR : RHO_FACTOR;
         min(d_drho_batch[solve_idx] / RHO_FACTOR, 1 / RHO_FACTOR) :  // decrease on success
         max(d_drho_batch[solve_idx] * RHO_FACTOR, RHO_FACTOR);       // increase on failure
 
