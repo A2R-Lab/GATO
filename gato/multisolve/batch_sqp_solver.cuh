@@ -33,8 +33,33 @@ public:
     }
 
     void reset() {
+        // Reset penalty parameters
         gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+        gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+        
+        // Reset Lagrange multipliers
         gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BatchSize * sizeof(T)));
+        
+        // Reset step direction
+        gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
+        
+        // Reset merit function values
+        gpuErrchk(cudaMemset(d_merit_initial_batch_, 0, BatchSize * sizeof(T)));
+        
+        // Reset line search variables
+        gpuErrchk(cudaMemset(d_step_size_batch_, 0, BatchSize * sizeof(T)));
+        
+        // Reset rho max reached flags
+        gpuErrchk(cudaMemset(d_all_rho_max_reached_, 0, sizeof(int32_t)));
+        gpuErrchk(cudaMemset(d_rho_max_reached_batch_, 0, BatchSize * sizeof(int32_t)));
+        
+        // Reset iteration counters
+        gpuErrchk(cudaMemset(d_iterations_batch_, 0, BatchSize * sizeof(uint32_t)));
+        
+        // Reset PCG state if needed
+        gpuErrchk(cudaMemset(d_pcg_converged_, 0, sizeof(int32_t) * BatchSize));
+        gpuErrchk(cudaMemset(d_pcg_iterations_, 0, sizeof(uint32_t) * BatchSize));
+        gpuErrchk(cudaDeviceSynchronize());
     }
 
     void setLambdas(T *h_lambda_batch, uint32_t solve_idx) {
