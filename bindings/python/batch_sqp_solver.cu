@@ -102,6 +102,13 @@ public:
         solver_.reset();
     }
 
+    void resetRho(){
+        solver_.resetRho();
+    }
+
+    void resetLambda(){
+        solver_.resetLambda();
+    }
 private:
     SQPSolver<T, BatchSize> solver_;
 };
@@ -110,45 +117,63 @@ PYBIND11_MODULE(batch_sqp, m) {
     py::class_<PySQPSolver<float, 1>>(m, "SQPSolverfloat_1")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 1>::solve)
-        .def("reset", &PySQPSolver<float, 1>::reset);
+        .def("reset", &PySQPSolver<float, 1>::reset)
+        .def("resetRho", &PySQPSolver<float, 1>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 1>::resetLambda);
 
     py::class_<PySQPSolver<float, 2>>(m, "SQPSolverfloat_2")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 2>::solve)
-        .def("reset", &PySQPSolver<float, 2>::reset);
+        .def("reset", &PySQPSolver<float, 2>::reset)
+        .def("resetRho", &PySQPSolver<float, 2>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 2>::resetLambda);
 
     py::class_<PySQPSolver<float, 4>>(m, "SQPSolverfloat_4")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 4>::solve)
-        .def("reset", &PySQPSolver<float, 4>::reset);
+        .def("reset", &PySQPSolver<float, 4>::reset)
+        .def("resetRho", &PySQPSolver<float, 4>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 4>::resetLambda);
 
     py::class_<PySQPSolver<float, 8>>(m, "SQPSolverfloat_8")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 8>::solve)
-        .def("reset", &PySQPSolver<float, 8>::reset);
+        .def("reset", &PySQPSolver<float, 8>::reset)
+        .def("resetRho", &PySQPSolver<float, 8>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 8>::resetLambda);
 
     py::class_<PySQPSolver<float, 16>>(m, "SQPSolverfloat_16")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 16>::solve)
-        .def("reset", &PySQPSolver<float, 16>::reset);
+        .def("reset", &PySQPSolver<float, 16>::reset)
+        .def("resetRho", &PySQPSolver<float, 16>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 16>::resetLambda);
 
     py::class_<PySQPSolver<float, 32>>(m, "SQPSolverfloat_32")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 32>::solve)
-        .def("reset", &PySQPSolver<float, 32>::reset);
+        .def("reset", &PySQPSolver<float, 32>::reset)
+        .def("resetRho", &PySQPSolver<float, 32>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 32>::resetLambda);
 
     py::class_<PySQPSolver<float, 64>>(m, "SQPSolverfloat_64")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 64>::solve)
-        .def("reset", &PySQPSolver<float, 64>::reset);
+        .def("reset", &PySQPSolver<float, 64>::reset)
+        .def("resetRho", &PySQPSolver<float, 64>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 64>::resetLambda);
 
     py::class_<PySQPSolver<float, 128>>(m, "SQPSolverfloat_128")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 128>::solve)
-        .def("reset", &PySQPSolver<float, 128>::reset);
+        .def("reset", &PySQPSolver<float, 128>::reset)
+        .def("resetRho", &PySQPSolver<float, 128>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 128>::resetLambda);
 
     py::class_<PySQPSolver<float, 256>>(m, "SQPSolverfloat_256")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 256>::solve)
-        .def("reset", &PySQPSolver<float, 256>::reset);
+        .def("reset", &PySQPSolver<float, 256>::reset)
+        .def("resetRho", &PySQPSolver<float, 256>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 256>::resetLambda);
 } 
