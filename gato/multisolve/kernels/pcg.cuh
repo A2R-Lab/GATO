@@ -64,7 +64,7 @@ void solvePCGBatchedKernel(
     T *s_scratch = s_p_vector + VEC_SIZE_PADDED;
 
     // scalars
-    __shared__ T s_rho, s_rho_new, s_alpha, s_beta;
+    __shared__ T s_rho, s_rho_new, s_alpha, s_beta, s_initial_rho;
 
     bool converged = false;
     uint32_t iterations = 0;
@@ -98,9 +98,14 @@ void solvePCGBatchedKernel(
     __syncthreads();
 
     // rho = r^T * z
-    block::dot<T>(&s_rho, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED); //TODO: need to make sure that vector padding is not included in dot product
+    block::dot<T>(&s_rho, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
     __syncthreads();
     
+    // initial residual norm for relative tolerance
+    if (threadIdx.x == 0) {
+        s_initial_rho = abs(s_rho);
+    }
+    __syncthreads();
 
     // ----- PCG Loop -----
     for (uint32_t i = 0; i < PCG_MAX_ITER; i++) {
@@ -135,8 +140,8 @@ void solvePCGBatchedKernel(
         block::dot<T>(&s_rho_new, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
         __syncthreads();
 
-        // check for convergence
-        if (abs(s_rho_new) < epsilon) {
+        // check for convergence using relative tolerance
+        if (abs(s_rho_new) / s_initial_rho < epsilon) {
             converged = true;
             break;
         }
