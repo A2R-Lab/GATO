@@ -79,6 +79,16 @@ public:
         }
         result["pcg_stats"] = pcg_stats_list;
 
+        py::list line_search_stats_list;
+        for (const auto& line_search_stat : stats.line_search_stats) {
+            py::dict line_search_dict;
+            line_search_dict["min_merit"] = line_search_stat.min_merit;
+            line_search_dict["step_size"] = line_search_stat.step_size;
+            line_search_dict["all_rho_max_reached"] = line_search_stat.all_rho_max_reached;
+            line_search_stats_list.append(line_search_dict);
+        }
+        result["line_search_stats"] = line_search_stats_list;
+
         // Cleanup
         gpuErrchk(cudaFree(d_xu_traj_batch));
         gpuErrchk(cudaFree(inputs.d_x_s_batch));
