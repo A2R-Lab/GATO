@@ -12,26 +12,24 @@ namespace sqp {
 using T = float;
 
 constexpr uint32_t KNOT_POINTS = 32;
-constexpr T TIMESTEP = 0.015625; // 1/64 s
+constexpr T TIMESTEP = 0.01; // 1/64 s
 
-constexpr uint32_t SQP_MAX_ITER = 1;
-constexpr uint32_t PCG_MAX_ITER = 100;
+constexpr uint32_t SQP_MAX_ITER = 10;
+constexpr uint32_t PCG_MAX_ITER = 250;
 
-constexpr T PCG_TOLERANCE = static_cast<T>(1e-4);
+constexpr T PCG_TOLERANCE = static_cast<T>(1e-6);
 
 constexpr uint32_t NUM_ALPHAS = 8;
-
 
 // TODO: SQP max time (const frequency)
 
 // ----- Cost -----
-
-constexpr float CONTROL_COST = 0.0001;
-constexpr float VELOCITY_COST = 0.0001;
+constexpr float CONTROL_COST = 1e-5;
+constexpr float VELOCITY_COST = 0.01;
 
 constexpr float RHO_INIT = 1e-3;
 constexpr float RHO_FACTOR = 1.2;
-constexpr float RHO_MAX = 10.0;
+constexpr float RHO_MAX = 5.0;
 constexpr float RHO_MIN = 1e-10;
 
 // ----- Kernels -----
@@ -40,11 +38,12 @@ constexpr uint32_t KKT_THREADS = 128;
 constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
 constexpr uint32_t DZ_THREADS = 128;
-constexpr uint32_t MERIT_THREADS = 96;
+constexpr uint32_t MERIT_THREADS = 128;
 constexpr uint32_t LINE_SEARCH_THREADS = 128;
 
 } // namespace sqp
 
 // ----- Plant -----
-#include "dynamics/iiwa14/iiwa14_plant.cuh"
+//#include "dynamics/iiwa14/iiwa14_plant.cuh"
+#include "dynamics/indy7/indy7_plant.cuh"
 // TODO: add other plants
