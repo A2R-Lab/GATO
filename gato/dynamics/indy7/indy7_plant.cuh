@@ -67,6 +67,26 @@ namespace gato{
 		__host__ __device__
 		constexpr T COST_TERMINAL() {return static_cast<T>(TERMINAL_COST);}
 
+		template<class T>
+		__host__ __device__
+		constexpr T COST_BARRIER() {return static_cast<T>(BARRIER_COST);}
+
+		__host__ __device__
+		constexpr float JOINT_LIMITS_DATA[6][2] = {
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 0
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 1
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 2
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 3
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 4
+			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 5
+		};
+
+		template<class T>
+		__host__ __device__
+		constexpr const float (&JOINT_LIMITS())[6][2] {
+			return JOINT_LIMITS_DATA;
+		}
+
 		template <typename T>
 		void *initializeDynamicsConstMem(){
 			grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
@@ -75,6 +95,15 @@ namespace gato{
 		template <typename T>
 		void freeDynamicsConstMem(void *d_dynMem_const){
 			grid::free_robotModel((grid::robotModel<T>*) d_dynMem_const);
+		}
+
+		template<class T>
+		__device__
+		T jointBarrier(T q, T q_min, T q_max) {
+			const T margin = static_cast<T>(0.1);
+			T dist_min = q - (q_min + margin);
+			T dist_max = (q_max - margin) - q;
+			return -log(dist_min) - log(dist_max);
 		}
 
 		// Start at q = [0,0,-0.25*PI,0,0.25*PI,0.5*PI,0] with small random for qd, u, lambda
@@ -253,12 +282,13 @@ namespace gato{
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
 			const T TERMINAL_cost = COST_TERMINAL<T>();
+			const T BARRIER_cost = COST_BARRIER<T>();
 			
 			T err;
 			T val = 0;
 			
 			// QD and R penalty
-			const uint32_t threadsNeeded = state_size/2 + control_size * (blockIdx.x < knot_points - 1);
+			const uint32_t threadsNeeded = state_size + control_size * (blockIdx.x < knot_points - 1);
 			
 			T *s_cost_vec = s_temp;
 			T *s_eePos_cost = s_cost_vec + threadsNeeded + 3;
@@ -276,6 +306,8 @@ namespace gato{
 						err = s_xu[i];
 						val += TERMINAL_cost * err * err;
 					}
+				} else if (i < state_size){
+					val = BARRIER_cost * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i-state_size/2][0], JOINT_LIMITS<T>()[i-state_size/2][1]);
 				}
 				else{
 					err = s_xu[i+state_size/2];
@@ -323,10 +355,14 @@ namespace gato{
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
 			const T TERMINAL_cost = COST_TERMINAL<T>();
+			const T BARRIER_cost = COST_BARRIER<T>();
 
 			T *s_eePos = s_temp;
 			T *s_eePos_grad = s_eePos + 6;
 			T *s_scratch = s_eePos_grad + 6 * state_size/2;
+
+			T q, q_min, q_max, dist_min, dist_max;
+			const T margin = static_cast<T>(0.1);
 
 			const uint32_t threads_needed = state_size + control_size*computeR;
 			uint32_t offset;
@@ -351,7 +387,18 @@ namespace gato{
 						y_err = (s_eePos[1] - s_eePos_traj[1]);
 						z_err = (s_eePos[2] - s_eePos_traj[2]);
 
-						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + s_eePos_grad[6 * i + 1] * y_err + s_eePos_grad[6 * i + 2] * z_err;
+						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + 
+								  s_eePos_grad[6 * i + 1] * y_err + 
+								  s_eePos_grad[6 * i + 2] * z_err;
+
+						q = s_xu[i];
+						q_min = static_cast<T>(JOINT_LIMITS<T>()[i][0]);
+						q_max = static_cast<T>(JOINT_LIMITS<T>()[i][1]);
+						
+						// Gradient of barrier function
+						dist_min = q - (q_min + margin);
+						dist_max = (q_max - margin) - q;
+						s_qk[i] += BARRIER_cost * (-static_cast<T>(1.0)/dist_min + static_cast<T>(1.0)/dist_max);
 						
 						// Add terminal cost gradient for position states at final knot point
 						if (blockIdx.x == KNOT_POINTS - 1) {
@@ -382,6 +429,14 @@ namespace gato{
 					for(int j = 0; j < state_size; j++){
 						if(j < state_size / 2 && i < state_size / 2){
 							s_Qk[i*state_size + j] = s_qk[i] * s_qk[j];
+							
+							q = s_xu[i];
+							q_min = static_cast<T>(JOINT_LIMITS<T>()[i][0]);
+							q_max = static_cast<T>(JOINT_LIMITS<T>()[i][1]);
+							dist_min = q - (q_min + margin);
+							dist_max = (q_max - margin) - q;
+							s_Qk[i*state_size + j] += BARRIER_cost * (static_cast<T>(1.0)/(dist_min*dist_min) - static_cast<T>(1.0)/(dist_max*dist_max));
+							
 							// Add terminal cost hessian for position states at final knot point
 							if (blockIdx.x == KNOT_POINTS - 1) {
 								s_Qk[i*state_size + j] += (i == j) ? TERMINAL_cost : static_cast<T>(0);
