@@ -177,7 +177,7 @@ template <typename T>
 __host__
 size_t getSolvePCGBatchedSMemSize() {
     size_t size = sizeof(T) * (
-        5 * VEC_SIZE_PADDED + 32 + 4 + PCG_THREADS //TODO: check if this is correct
+        5 * VEC_SIZE_PADDED + 32 + 5 + PCG_THREADS //TODO: check if this is correct
     );
     return size;
 }
