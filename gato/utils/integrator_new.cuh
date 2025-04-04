@@ -15,6 +15,36 @@ T angleWrap(T input){
     return input;
 }
 
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+__device__ 
+void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt){
+
+    const uint32_t thread_id = threadIdx.x;
+    const uint32_t block_dim = blockDim.x;
+
+    for (unsigned ind = thread_id; ind < state_size/2; ind += block_dim){
+        // euler xk = xk + dt *dxk
+        if (INTEGRATOR_TYPE == 0){
+            s_qkp1[ind] = s_q[ind] + dt*s_qd[ind];
+            s_qdkp1[ind] = s_qd[ind] + dt*s_qdd[ind];
+        }
+        // semi-inplicit euler
+        // qdkp1 = qdk + dt*qddk
+        // qkp1 = qk  + dt*qdkp1
+        else if (INTEGRATOR_TYPE == 1){
+            s_qdkp1[ind] = s_qd[ind] + dt*s_qdd[ind];
+            s_qkp1[ind] = s_q[ind] + dt*s_qdkp1[ind];
+        }
+        else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+
+        //TODO: Implement RK2 integrator
+
+        // wrap angles if needed
+        if(ANGLE_WRAP){
+            s_qkp1[ind] = angleWrap(s_qkp1[ind]);
+        }
+    }
+}
 
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
@@ -40,7 +70,7 @@ void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1,
             new_qkp1 = angleWrap(new_qkp1);
         }
 
-        // then computre error
+        // then compute error
         if(absval){
             s_err[ind] = abs(s_qkp1[ind] - new_qkp1);
             s_err[ind + state_size/2] = abs(s_qdkp1[ind] - new_qdkp1);    
@@ -96,42 +126,52 @@ void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_A
     else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
 }
 
+// template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+// __device__ 
+// void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt){
+//     T *s_q = s_xuk; 					
+//     T *s_qd = s_q + state_size/2; 				
+//     T *s_u = s_qd + state_size/2;
+//     T *s_qkp1 = s_xkp1; 				
+//     T *s_qdkp1 = s_qkp1 + state_size/2;
+//     T *s_qdd = s_temp; 					
+//     T *s_extra_temp = s_qdd + state_size/2;
+//     gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+//     __syncthreads();
+//     exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt);
+// }
 
+// used for integrator error in merit function
+// s_temp of size 3*state_size/2 + DYNAMICS_TEMP
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
-void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt){
+T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt){
+    T *s_q = s_xuk; 					
+    T *s_qd = s_q + state_size/2; 				
+    T *s_u = s_qd + state_size/2;
+    T *s_qkp1 = s_xkp1; 				
+    T *s_qdkp1 = s_qkp1 + state_size/2;
+    T *s_qdd = s_temp; 					
+    T *s_err = s_qdd + state_size/2;
+    T *s_extra_temp = s_err + state_size/2;
+    
+    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
 
-    const uint32_t thread_id = threadIdx.x;
-    const uint32_t block_dim = blockDim.x;
+    // then apply the integrator and compute error
+    exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_err, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, true);
+    __syncthreads();
 
-    for (unsigned ind = thread_id; ind < state_size/2; ind += block_dim){
-        // euler xk = xk + dt *dxk
-        if (INTEGRATOR_TYPE == 0){
-            s_qkp1[ind] = s_q[ind] + dt*s_qd[ind];
-            s_qdkp1[ind] = s_qd[ind] + dt*s_qdd[ind];
-        }
-        // semi-inplicit euler
-        // qdkp1 = qdk + dt*qddk
-        // qkp1 = qk  + dt*qdkp1
-        else if (INTEGRATOR_TYPE == 1){
-            s_qdkp1[ind] = s_qd[ind] + dt*s_qdd[ind];
-            s_qkp1[ind] = s_q[ind] + dt*s_qdkp1[ind];
-        }
-        else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+    glass::reduce<T>(state_size, s_err);
+    __syncthreads();
 
-        // wrap angles if needed
-        if(ANGLE_WRAP){
-            s_qkp1[ind] = angleWrap(s_qkp1[ind]);
-        }
-    }
+    return s_err[0];
 }
 
+// used for A, B matrices, and integrator error (c)
 // s_temp of size state_size/2*(state_size + control_size + 1) + DYNAMICS_TEMP
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
 __device__ __forceinline__
 void integratorGradientAndError(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt){
-
-    
     // first compute qdd and dqdd
     T *s_qdd = s_temp; 	
     T *s_dqdd = s_qdd + state_size/2;	
@@ -140,7 +180,6 @@ void integratorGradientAndError(uint32_t state_size, uint32_t control_size, T *s
     T *s_qd = s_q + state_size/2; 		
     T *s_u = s_qd + state_size/2;
     gato::plant::forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
-    __syncthreads();
     // first compute xnew or error
     if (COMPUTE_INTEGRATOR_ERROR){
         exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xux[state_size+control_size], &s_xux[state_size+control_size+state_size/2], s_q, s_qd, s_qdd, dt);
@@ -151,78 +190,4 @@ void integratorGradientAndError(uint32_t state_size, uint32_t control_size, T *s
     
     // then compute gradient
     exec_integrator_gradient<T,INTEGRATOR_TYPE>(state_size, control_size, s_Ak, s_Bk, s_dqdd, dt);
-    __syncthreads();
-}
-
-
-// s_temp of size 3*state_size/2 + DYNAMICS_TEMP
-template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
-__device__ 
-T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt){
-
-    // first compute qdd
-    T *s_q = s_xuk; 					
-    T *s_qd = s_q + state_size/2; 				
-    T *s_u = s_qd + state_size/2;
-    T *s_qkp1 = s_xkp1; 				
-    T *s_qdkp1 = s_qkp1 + state_size/2;
-    T *s_qdd = s_temp; 					
-    T *s_err = s_qdd + state_size/2;
-    T *s_extra_temp = s_err + state_size/2;
-    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
-    __syncthreads();
-    // if(blockIdx.x == 0 && threadIdx.x==0){
-    //     printf("\n");
-    //     for(int i = 0; i < state_size/2; i++){
-    //         printf("%f ", s_qdd[i]);
-    //     }
-    //     printf("\n");
-    // }
-    // b.sync();
-    // then apply the integrator and compute error
-    exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_err, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt);
-    __syncthreads();
-
-    // finish off forming the error
-    glass::reduce<T>(state_size, s_err);
-    __syncthreads();
-    // if(GATO_LEAD_THREAD){printf("in integratorError with reduced error of [%f]\n",s_err[0]);}
-    return s_err[0];
-}
-
-
-
-template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
-__device__ 
-void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt){
-    // first compute qdd
-    T *s_q = s_xuk; 					T *s_qd = s_q + state_size/2; 				T *s_u = s_qd + state_size/2;
-    T *s_qkp1 = s_xkp1; 				T *s_qdkp1 = s_qkp1 + state_size/2;
-    T *s_qdd = s_temp; 					T *s_extra_temp = s_qdd + state_size/2;
-    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
-    __syncthreads();
-    exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt);
-}
-
-
-
-
-template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
-__global__
-void integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_xkp1, T *d_xuk, void *d_dynMem_const, T dt){
-    extern __shared__ T s_smem[];
-    T *s_xkp1 = s_smem;
-    T *s_xuk = s_xkp1 + state_size; 
-    T *s_temp = s_xuk + state_size + control_size;
-    for (unsigned ind = threadIdx.x; ind < state_size + control_size; ind += blockDim.x){
-        s_xuk[ind] = d_xuk[ind];
-    }
-
-    __syncthreads();
-    integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xkp1, s_xuk, s_temp, d_dynMem_const, dt);
-    __syncthreads();
-
-    for (unsigned ind = threadIdx.x; ind < state_size; ind += blockDim.x){
-        d_xkp1[ind] = s_xkp1[ind];
-    }
 }

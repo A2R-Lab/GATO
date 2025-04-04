@@ -26,8 +26,10 @@ constexpr uint32_t NUM_ALPHAS = 8;
 // ----- Cost -----
 constexpr float CONTROL_COST = 1e-7;
 constexpr float VELOCITY_COST = 1e-2;
-constexpr float TERMINAL_COST = 10.0;
+constexpr float EE_POS_COST = 1.0;
+constexpr float EE_POS_TERMINAL_COST = 10.0;
 constexpr float BARRIER_COST = 0.005;
+constexpr float JOINT_BARRIER_MARGIN = 0.1;
 
 constexpr float RHO_INIT = 1e-5;
 constexpr float RHO_FACTOR = 1.2;

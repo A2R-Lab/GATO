@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <cooperative_groups.h>
 
 #include "settings.h"
 #include "constants.h"

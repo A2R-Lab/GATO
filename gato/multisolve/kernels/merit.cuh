@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <cooperative_groups.h>
 #include "settings.h"
 #include "constants.h"
 #include "utils/cuda_utils.cuh"
@@ -77,11 +76,10 @@ void computeMeritBatchedKernel1(
     block::copy<T, grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
     __syncthreads();
 
-        // cost function
-    cost_k = gato::plant::trackingcost<T>(
+    // cost function
+    cost_k = gato::plant::trackingCost<T>(
         STATE_SIZE, 
         CONTROL_SIZE, 
-        KNOT_POINTS, 
         s_xux_k, 
         s_reference_traj_k, 
         s_temp, 
@@ -89,7 +87,7 @@ void computeMeritBatchedKernel1(
     );
     __syncthreads();
 
-        // constraint error
+    // constraint error
     if (knot_idx < KNOT_POINTS - 1) { // not last knot
         constraint_k = integratorError<T>(
             STATE_SIZE, 
@@ -97,8 +95,7 @@ void computeMeritBatchedKernel1(
             &s_xux_k[STATE_SIZE + CONTROL_SIZE], 
             s_temp, 
             d_robot_model, 
-            timestep,
-            cooperative_groups::this_thread_block()
+            timestep
         );
     } else {
         #pragma unroll
@@ -160,7 +157,7 @@ size_t getComputeMeritBatchedSMemSize() {
         2 * STATE_SIZE + CONTROL_SIZE + // xux_k
         grid::EE_POS_SIZE + // reference_traj_k
         grid::EE_POS_SHARED_MEM_COUNT +
-        2 * STATE_SIZE + gato::plant::forwardDynamics_TempMemSize_Shared()
+        2 * STATE_SIZE + gato::plant::forwardDynamicsSMemSize()
     ); //TODO: verify this
     return size;
 }

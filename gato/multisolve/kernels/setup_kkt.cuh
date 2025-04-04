@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <cooperative_groups.h>
 #include "settings.h"
 #include "constants.h"
 #include "utils/linalg.cuh"
@@ -13,7 +12,7 @@ using namespace gato::constants;
 
 /*
 
-template <typename T, uint32_t INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
+template <typename T, uint32_t INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __global__
 void setupKKTSystemBatchedKernel()
 
@@ -77,14 +76,13 @@ void setupKKTSystemBatchedKernel(
         block::copy<T, 2 * grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k); //TODO: is this correct?
         __syncthreads();
 
-        integratorAndGradient<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(
+        integratorGradientAndError<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(
             STATE_SIZE, CONTROL_SIZE,
             s_xux_k,
             s_A_k, s_B_k, s_c_k,
             s_temp,
             d_GRiD_mem,
-            timestep,
-            cooperative_groups::this_thread_block()
+            timestep
         );
         __syncthreads();
 
@@ -156,7 +154,7 @@ size_t getSetupKKTSystemBatchedSMemSize() {
         STATE_SIZE_SQ + // Q_last
         STATE_SIZE + // q_last
         max(grid::EE_POS_SHARED_MEM_COUNT, grid::DEE_POS_SHARED_MEM_COUNT) + 
-        max((STATE_SIZE/2)*(STATE_S_CONTROL + 1) + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared(), 3 + (STATE_SIZE/2)*6)
+        max((STATE_SIZE/2)*(STATE_S_CONTROL + 1) + gato::plant::forwardDynamicsAndGradientSMemSize(), 3 + (STATE_SIZE/2)*6)
     );
     return size;
 }

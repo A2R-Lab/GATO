@@ -65,7 +65,7 @@ namespace gato{
 
 		template<class T>
 		__host__ __device__
-		constexpr T COST_TERMINAL() {return static_cast<T>(TERMINAL_COST);}
+		constexpr T COST_TERMINAL() {return static_cast<T>(EE_POS_COST);}
 
         		template<class T>
 		__host__ __device__
@@ -146,7 +146,7 @@ namespace gato{
 
 		template <typename T>
 		__device__
-		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const, cooperative_groups::thread_block block){
+		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const){
 
 			T *s_XImats = s_XITemp; T *s_temp = &s_XITemp[864];
 			grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float> *) d_dynMem_const, s_temp);
@@ -158,7 +158,7 @@ namespace gato{
 		}
 
 		__host__ __device__
-		constexpr unsigned forwardDynamics_TempMemSize_Shared(){return grid::FD_DYNAMIC_SHARED_MEM_COUNT;}
+		constexpr unsigned forwardDynamicsSMemSize(){return grid::FD_DYNAMIC_SHARED_MEM_COUNT;}
 
 		// template <typename T>
 		// __device__
@@ -202,6 +202,7 @@ namespace gato{
 					s_df_du[ind + 72] = s_Minv[index];
 				}
 			}
+            __syncthreads();
 		}
 
 
@@ -279,18 +280,18 @@ namespace gato{
 
 
 		__host__ __device__
-		constexpr unsigned forwardDynamicsAndGradient_TempMemSize_Shared(){return grid::FD_DU_MAX_SHARED_MEM_COUNT;}
+		constexpr unsigned forwardDynamicsAndGradientSMemSize(){return grid::FD_DU_MAX_SHARED_MEM_COUNT;}
 
 
 		__host__
-		unsigned trackingcost_TempMemCt_Shared(uint32_t state_size, uint32_t control_size, uint32_t knot_points){
+		unsigned trackingCostSMemSize(uint32_t state_size, uint32_t control_size){
 			return state_size/2 + control_size + 3 + 6 + grid::EE_POS_SHARED_MEM_COUNT;
 		}
 
 		///TODO: get rid of divergence
 			template <typename T>
 		__device__
-		T trackingcost(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T *s_xu, T *s_eePos_traj, T *s_temp, const grid::robotModel<T> *d_robotModel){
+		T trackingCost(uint32_t state_size, uint32_t control_size, T *s_xu, T *s_eePos_traj, T *s_temp, const grid::robotModel<T> *d_robotModel){
 			
 			// const T Q_cost = COST_Q1<T>();
 			const T QD_cost = COST_QD<T>();
@@ -300,7 +301,7 @@ namespace gato{
 			T val = 0;
 			
 			// QD and R penalty
-			const uint32_t threadsNeeded = state_size/2 + control_size * (blockIdx.x < knot_points - 1);
+			const uint32_t threadsNeeded = state_size/2 + control_size * (blockIdx.x < KNOT_POINTS - 1);
 			
 			T *s_cost_vec = s_temp;
 			T *s_eePos_cost = s_cost_vec + threadsNeeded + 3;

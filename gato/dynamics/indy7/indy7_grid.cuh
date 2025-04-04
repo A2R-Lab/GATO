@@ -70,22 +70,6 @@
  // single kernel timing helper code
  #define time_delta_us_timespec(start,end) (1e6*static_cast<double>(end.tv_sec - start.tv_sec)+1e-3*static_cast<double>(end.tv_nsec - start.tv_nsec))
  
- /**
-  * Check for runtime errors using the CUDA API
-  *
-  * Notes:
-  *   Adapted from https://stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-api
-  *
-  */
-// __host__
-//  void gpuAssert(cudaError_t code, const char *file, const int line, bool abort=true){
-//      if (code != cudaSuccess){
-//          fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-//          if (abort){cudaDeviceReset(); exit(code);}
-//      }
-//  }
-//  #define gpuErrchk(err) {gpuAssert(err, __FILE__, __LINE__);}
- 
  template <typename T, int M, int N>
  __host__ __device__
  void printMat(T *A, int lda){
