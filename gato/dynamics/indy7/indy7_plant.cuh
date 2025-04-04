@@ -67,18 +67,22 @@ namespace gato{
 		__host__ __device__
 		constexpr T COST_TERMINAL() {return static_cast<T>(TERMINAL_COST);}
 
-		template<class T>
+        		template<class T>
 		__host__ __device__
 		constexpr T COST_BARRIER() {return static_cast<T>(BARRIER_COST);}
 
+		template<class T>
 		__host__ __device__
-		constexpr float JOINT_LIMITS_DATA[6][2] = {
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 0
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 1
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 2
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 3
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 4
-			{-2.0f * 3.14f, 2.0f * 3.14f}, // joint 5
+		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(0.1);}
+
+		__host__ __device__
+		constexpr float JOINT_LIMITS_DATA[6][2] = { // from indy7.urdf
+			{-3.0543f, 3.0543f}, // joint 0
+			{-3.0543f, 3.0543f}, // joint 1
+			{-3.0543f, 3.0543f}, // joint 2
+			{-3.0543f, 3.0543f}, // joint 3
+			{-3.0543f, 3.0543f}, // joint 4
+			{-3.7520f, 3.7520f}, // joint 5
 		};
 
 		template<class T>
@@ -97,13 +101,23 @@ namespace gato{
 			grid::free_robotModel((grid::robotModel<T>*) d_dynMem_const);
 		}
 
+
 		template<class T>
 		__device__
 		T jointBarrier(T q, T q_min, T q_max) {
-			const T margin = static_cast<T>(0.1);
+			const T margin = JOINT_LIMIT_MARGIN<T>();
 			T dist_min = q - (q_min + margin);
 			T dist_max = (q_max - margin) - q;
 			return -log(dist_min) - log(dist_max);
+		}
+
+		template<class T>
+		__device__
+		T jointBarrierGradient(T q, T q_min, T q_max) {
+			const T margin = JOINT_LIMIT_MARGIN<T>();
+			T dist_min = q - (q_min + margin);
+			T dist_max = (q_max - margin) - q;
+			return -1/dist_min + 1/dist_max;
 		}
 
 		// Start at q = [0,0,-0.25*PI,0,0.25*PI,0.5*PI,0] with small random for qd, u, lambda
@@ -281,14 +295,12 @@ namespace gato{
 			// const T Q_cost = COST_Q1<T>();
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
-			const T TERMINAL_cost = COST_TERMINAL<T>();
-			const T BARRIER_cost = COST_BARRIER<T>();
 			
 			T err;
 			T val = 0;
 			
 			// QD and R penalty
-			const uint32_t threadsNeeded = state_size + control_size * (blockIdx.x < knot_points - 1);
+			const uint32_t threadsNeeded = state_size/2 + control_size * (blockIdx.x < knot_points - 1);
 			
 			T *s_cost_vec = s_temp;
 			T *s_eePos_cost = s_cost_vec + threadsNeeded + 3;
@@ -301,13 +313,7 @@ namespace gato{
 				if(i < state_size/2){
 					err = s_xu[i + state_size/2];
 					val = QD_cost * err * err;
-					// Add terminal cost for position states at final knot point
-					if (blockIdx.x == KNOT_POINTS - 1) {
-						err = s_xu[i];
-						val += TERMINAL_cost * err * err;
-					}
-				} else if (i < state_size){
-					val = BARRIER_cost * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i-state_size/2][0], JOINT_LIMITS<T>()[i-state_size/2][1]);
+                    val += COST_BARRIER<T>() * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
 				}
 				else{
 					err = s_xu[i+state_size/2];
@@ -326,7 +332,12 @@ namespace gato{
 
 			for(int i = threadIdx.x; i < 3; i+=blockDim.x){
 				err = s_eePos_cost[i] - s_eePos_traj[i];
-				s_cost_vec[threadsNeeded + i] = static_cast<T>(0.5) * err * err;
+                if (blockIdx.x == KNOT_POINTS - 1){
+                    s_cost_vec[threadsNeeded + i] = COST_TERMINAL<T>() * err * err;
+                }
+                else{
+                    s_cost_vec[threadsNeeded + i] = static_cast<T>(0.5) * err * err;
+                }
 			}
 			__syncthreads();
 			glass::reduce<T>(3 + threadsNeeded, s_cost_vec);
@@ -354,15 +365,10 @@ namespace gato{
 			// const T Q_cost = COST_Q1<T>();
 			const T QD_cost = COST_QD<T>();
 			const T R_cost = COST_R<T>();
-			const T TERMINAL_cost = COST_TERMINAL<T>();
-			const T BARRIER_cost = COST_BARRIER<T>();
 
 			T *s_eePos = s_temp;
 			T *s_eePos_grad = s_eePos + 6;
 			T *s_scratch = s_eePos_grad + 6 * state_size/2;
-
-			T q, q_min, q_max, dist_min, dist_max;
-			const T margin = static_cast<T>(0.1);
 
 			const uint32_t threads_needed = state_size + control_size*computeR;
 			uint32_t offset;
@@ -387,24 +393,12 @@ namespace gato{
 						y_err = (s_eePos[1] - s_eePos_traj[1]);
 						z_err = (s_eePos[2] - s_eePos_traj[2]);
 
-						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + 
-								  s_eePos_grad[6 * i + 1] * y_err + 
-								  s_eePos_grad[6 * i + 2] * z_err;
+						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + s_eePos_grad[6 * i + 1] * y_err + s_eePos_grad[6 * i + 2] * z_err;
+                        if (blockIdx.x == KNOT_POINTS - 1){
+                            s_qk[i] *= COST_TERMINAL<T>();
+                        }
 
-						q = s_xu[i];
-						q_min = static_cast<T>(JOINT_LIMITS<T>()[i][0]);
-						q_max = static_cast<T>(JOINT_LIMITS<T>()[i][1]);
-						
-						// Gradient of barrier function
-						dist_min = q - (q_min + margin);
-						dist_max = (q_max - margin) - q;
-						s_qk[i] += BARRIER_cost * (-static_cast<T>(1.0)/dist_min + static_cast<T>(1.0)/dist_max);
-						
-						// Add terminal cost gradient for position states at final knot point
-						if (blockIdx.x == KNOT_POINTS - 1) {
-							err = s_xu[i];
-							s_qk[i] += TERMINAL_cost * err;
-						}
+                        s_qk[i] += COST_BARRIER<T>() * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
 					}
 					else{
 						err = s_xu[i];
@@ -428,18 +422,19 @@ namespace gato{
 					//hessian
 					for(int j = 0; j < state_size; j++){
 						if(j < state_size / 2 && i < state_size / 2){
-							s_Qk[i*state_size + j] = s_qk[i] * s_qk[j];
-							
-							q = s_xu[i];
-							q_min = static_cast<T>(JOINT_LIMITS<T>()[i][0]);
-							q_max = static_cast<T>(JOINT_LIMITS<T>()[i][1]);
-							dist_min = q - (q_min + margin);
-							dist_max = (q_max - margin) - q;
-							s_Qk[i*state_size + j] += BARRIER_cost * (static_cast<T>(1.0)/(dist_min*dist_min) - static_cast<T>(1.0)/(dist_max*dist_max));
-							
-							// Add terminal cost hessian for position states at final knot point
-							if (blockIdx.x == KNOT_POINTS - 1) {
-								s_Qk[i*state_size + j] += (i == j) ? TERMINAL_cost : static_cast<T>(0);
+							s_Qk[i*state_size + j] = s_eePos_grad[6 * i + 0] * s_eePos_grad[6 * j + 0] + 
+													s_eePos_grad[6 * i + 1] * s_eePos_grad[6 * j + 1] + 
+													s_eePos_grad[6 * i + 2] * s_eePos_grad[6 * j + 2];
+
+                            if (blockIdx.x == KNOT_POINTS - 1){
+                                s_Qk[i*state_size + j] *= COST_TERMINAL<T>();
+                            }
+
+                            if (i == j){
+                                const T margin = JOINT_LIMIT_MARGIN<T>();
+								T dist_min = s_xu[i] - (JOINT_LIMITS<T>()[i][0] + margin);
+								T dist_max = (JOINT_LIMITS<T>()[i][1] - margin) - s_xu[i];
+								s_Qk[i*state_size + j] += COST_BARRIER<T>() * (1/(dist_min*dist_min) + 1/(dist_max*dist_max));
 							}
 						}
 						else{
