@@ -32,6 +32,14 @@ public:
         freeMemory();
     }
 
+    void set_external_wrench(T *h_f_ext_batch, uint32_t solve_idx) {
+        gpuErrchk(cudaMemcpy(d_f_ext_batch_ + solve_idx * 6, h_f_ext_batch, 6 * sizeof(T), cudaMemcpyHostToDevice));
+    }
+
+    void set_external_wrench_batch(T *h_f_ext_batch) {
+        gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_batch, 6 * BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+    }
+
     void reset() {
         // Reset penalty parameters
         // gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
@@ -99,6 +107,7 @@ public:
             d_merit_batch_temp_,
             d_dz_batch_,
             d_xu_traj_batch,
+            d_f_ext_batch_,
             inputs
         );
 
@@ -108,7 +117,8 @@ public:
             setupKKTSystemBatched<T, BatchSize>(
                 kkt_system_batch_,
                 inputs,
-                d_xu_traj_batch
+                d_xu_traj_batch,
+                d_f_ext_batch_
             );
             
             formSchurSystemBatched<T, BatchSize>(
@@ -147,6 +157,7 @@ public:
                 d_merit_batch_temp_,
                 d_dz_batch_,
                 d_xu_traj_batch,
+                d_f_ext_batch_,
                 inputs
             );
             
@@ -231,6 +242,8 @@ private:
         gpuErrchk(cudaMalloc(&d_all_rho_max_reached_, sizeof(int32_t)));
         gpuErrchk(cudaMalloc(&d_rho_max_reached_batch_, BatchSize * sizeof(int32_t)));
         gpuErrchk(cudaMalloc(&d_iterations_batch_, BatchSize * sizeof(uint32_t)));
+        gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * BatchSize * sizeof(T)));
+        gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * BatchSize * sizeof(T)));
     }
 
     void freeMemory() {
@@ -258,6 +271,7 @@ private:
         gpuErrchk(cudaFree(d_merit_batch_));
         gpuErrchk(cudaFree(d_merit_batch_temp_));
         gpuErrchk(cudaFree(d_iterations_batch_));
+        gpuErrchk(cudaFree(d_f_ext_batch_));
     }
 
     // Member variables
@@ -281,4 +295,5 @@ private:
     int32_t *d_all_rho_max_reached_;
     int32_t *d_rho_max_reached_batch_;
     uint32_t *d_iterations_batch_;
+    T *d_f_ext_batch_;
 };

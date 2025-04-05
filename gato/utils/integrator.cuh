@@ -155,6 +155,33 @@ void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux,
     exec_integrator_gradient<T,INTEGRATOR_TYPE>(state_size, control_size, s_Ak, s_Bk, s_dqdd, dt, b);
 }
 
+// add external wrench
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
+__device__ __forceinline__
+void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b, T *d_f_ext){
+
+    
+    // first compute qdd and dqdd
+    T *s_qdd = s_temp; 	
+    T *s_dqdd = s_qdd + state_size/2;	
+    T *s_extra_temp = s_dqdd + state_size/2*(state_size+control_size);
+    T *s_q = s_xux; 	
+    T *s_qd = s_q + state_size/2; 		
+    T *s_u = s_qd + state_size/2;
+    gato::plant::forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
+    b.sync();
+    // first compute xnew or error
+    if (COMPUTE_INTEGRATOR_ERROR){
+        exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xux[state_size+control_size], &s_xux[state_size+control_size+state_size/2], s_q, s_qd, s_qdd, dt, b);
+    }
+    else{
+        exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xnew_err, &s_xnew_err[state_size/2], s_q, s_qd, s_qdd, dt, b);
+    }
+    
+    // then compute gradient
+    exec_integrator_gradient<T,INTEGRATOR_TYPE>(state_size, control_size, s_Ak, s_Bk, s_dqdd, dt, b);
+}
+
 
 // s_temp of size 3*state_size/2 + DYNAMICS_TEMP
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
@@ -192,133 +219,51 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
 }
 
 
-
+// add external wrench
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
-void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
+T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b, T *d_f_ext){
+
     // first compute qdd
-    T *s_q = s_xuk; 					T *s_qd = s_q + state_size/2; 				T *s_u = s_qd + state_size/2;
-    T *s_qkp1 = s_xkp1; 				T *s_qdkp1 = s_qkp1 + state_size/2;
-    T *s_qdd = s_temp; 					T *s_extra_temp = s_qdd + state_size/2;
-    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, b);
+    T *s_q = s_xuk; 					
+    T *s_qd = s_q + state_size/2; 				
+    T *s_u = s_qd + state_size/2;
+    T *s_qkp1 = s_xkp1; 				
+    T *s_qdkp1 = s_qkp1 + state_size/2;
+    T *s_qdd = s_temp; 					
+    T *s_err = s_qdd + state_size/2;
+    T *s_extra_temp = s_err + state_size/2;
+    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, b, d_f_ext);
     b.sync();
-    exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, b);
-}
-
-
-
-
-template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
-__global__
-void integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_xkp1, T *d_xuk, void *d_dynMem_const, T dt){
-    extern __shared__ T s_smem[];
-    T *s_xkp1 = s_smem;
-    T *s_xuk = s_xkp1 + state_size; 
-    T *s_temp = s_xuk + state_size + control_size;
-    cg::thread_block b = cg::this_thread_block();	  
-    cg::grid_group grid = cg::this_grid();
-    for (unsigned ind = threadIdx.x; ind < state_size + control_size; ind += blockDim.x){
-        s_xuk[ind] = d_xuk[ind];
-    }
-
-    b.sync();
-    integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_xkp1, s_xuk, s_temp, d_dynMem_const, dt, b);
+    // if(blockIdx.x == 0 && threadIdx.x==0){
+    //     printf("\n");
+    //     for(int i = 0; i < state_size/2; i++){
+    //         printf("%f ", s_qdd[i]);
+    //     }
+    //     printf("\n");
+    // }
+    // b.sync();
+    // then apply the integrator and compute error
+    exec_integrator_error<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_err, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, b, true);
     b.sync();
 
-    for (unsigned ind = threadIdx.x; ind < state_size; ind += blockDim.x){
-        d_xkp1[ind] = s_xkp1[ind];
-    }
-}
-
-// We take start state from h_xs, and control input from h_xu, and update h_xs
-template <typename T>
-void integrator_host(uint32_t state_size, uint32_t control_size, T *d_xs, T *d_xu, void *d_dynMem_const, T dt){
-    // T *d_xu;
-    // T *d_xs_new;
-    // gpuErrchk(cudaMalloc(&d_xu, xu_size));
-    // gpuErrchk(cudaMalloc(&d_xs_new, xs_size));
-
-    // gpuErrchk(cudaMemcpy(d_xu, h_xs, state_size*sizeof(T), cudaMemcpyHostToDevice));
-    // gpuErrchk(cudaMemcpy(d_xu + state_size, h_xu + state_size, control_size*sizeof(T), cudaMemcpyHostToDevice));
-    //TODO: needs sync?
-
-    const size_t integrator_kernel_smem_size = sizeof(T)*(2*state_size + control_size + state_size/2 + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared());
-    //TODO: one b one thread? Why?
-    integrator_kernel<T><<<1,1, integrator_kernel_smem_size>>>(state_size, control_size, d_xs, d_xu, d_dynMem_const, dt);
-
-    //TODO: needs sync?
-    // gpuErrchk(cudaMemcpy(h_xs, d_xs_new, xs_size, cudaMemcpyDeviceToHost));
-
-    // gpuErrchk(cudaFree(d_xu));
-    // gpuErrchk(cudaFree(d_xs_new));
-}
-
-template <typename T>
-void just_shift(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T *d_xu){
-    for (uint32_t knot = 0; knot < knot_points-1; knot++){
-        uint32_t stepsize = (state_size+(knot<knot_points-2)*control_size);
-        gpuErrchk(cudaMemcpy(&d_xu[knot*(state_size+control_size)], &d_xu[(knot+1)*(state_size+control_size)], stepsize*sizeof(T), cudaMemcpyDeviceToDevice));
-    }
-}
-
-
-template <typename T>
-__global__
-void simple_integrator_kernel(uint32_t state_size, uint32_t control_size, T *d_x, T *d_u, void *d_dynMem_const, T dt){
-
-
-    extern __shared__ T s_mem[];
-    T *s_xkp1 = s_mem;
-    T *s_xuk = s_xkp1 + state_size; 
-    T *s_temp = s_xuk + state_size + control_size;
-    cg::thread_block b = cg::this_thread_block();	  
-    cg::grid_group grid = cg::this_grid();
-    for (unsigned ind = threadIdx.x; ind < state_size + control_size; ind += blockDim.x){
-        if(ind < state_size){
-            s_xuk[ind] = d_x[ind];
-        }
-        else{
-            s_xuk[ind] = d_u[ind-state_size];
-        }
-    }
-
+    // finish off forming the error
+    glass::reduce<T>(state_size, s_err);
     b.sync();
-    integrator<T,1,0>(state_size, s_xkp1, s_xuk, s_temp, d_dynMem_const, dt, b);
-    b.sync();
-
-    for (unsigned ind = threadIdx.x; ind < state_size; ind += blockDim.x){
-        d_x[ind] = s_xkp1[ind];
-    }
+    // if(GATO_LEAD_THREAD){printf("in integratorError with reduced error of [%f]\n",s_err[0]);}
+    return s_err[0];
 }
 
-template <typename T>
-void simple_simulate(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T *d_xs, T *d_xu, void *d_dynMem_const, double timestep, double time_offset_us, double sim_time_us, unsigned long long = 123456){
-
-    // std::cout << "simulating for " << sim_time_us * 1e-6 << " seconds\n";
 
 
-    double time_offset = time_offset_us * 1e-6;
-    double sim_time = sim_time_us * 1e-6;
-
-    const T sim_step_time = 2e-4;
-    const size_t simple_integrator_kernel_smem_size = sizeof(T)*(2*state_size + control_size + state_size/2 + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared());
-    const uint32_t states_s_controls = state_size + control_size;
-    uint32_t control_offset = static_cast<uint32_t>((time_offset) / timestep);
-    T *control = &d_xu[control_offset * states_s_controls + state_size];
-
-
-    uint32_t sim_steps_needed = static_cast<uint32_t>(sim_time / sim_step_time);
-
-
-    for(uint32_t step = 0; step < sim_steps_needed; step++){
-        control_offset = static_cast<uint32_t>((time_offset + step * sim_step_time) / timestep);
-        control = &d_xu[control_offset * states_s_controls + state_size];
-
-        simple_integrator_kernel<T><<<1,32,simple_integrator_kernel_smem_size>>>(state_size, control_size, d_xs, control, d_dynMem_const, sim_step_time);
-
-    }
-
-    T half_sim_step_time = fmod(sim_time, sim_step_time);
-
-    simple_integrator_kernel<T><<<1,32,simple_integrator_kernel_smem_size>>>(state_size, control_size, d_xs, control, d_dynMem_const, half_sim_step_time);
-}
+// template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+// __device__ 
+// void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
+//     // first compute qdd
+//     T *s_q = s_xuk; 					T *s_qd = s_q + state_size/2; 				T *s_u = s_qd + state_size/2;
+//     T *s_qkp1 = s_xkp1; 				T *s_qdkp1 = s_qkp1 + state_size/2;
+//     T *s_qdd = s_temp; 					T *s_extra_temp = s_qdd + state_size/2;
+//     gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, b);
+//     b.sync();
+//     exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, b);
+// }

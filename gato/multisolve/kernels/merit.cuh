@@ -38,6 +38,7 @@ void computeMeritBatchedKernel1(
     T *d_reference_traj_batch, 
     void *d_GRiD_mem,
     T mu,
+    T *d_f_ext_batch,
     T timestep
 ) {
     grid::robotModel<T> *d_robot_model = (grid::robotModel<T> *)d_GRiD_mem;
@@ -60,6 +61,7 @@ void computeMeritBatchedKernel1(
     T *d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
     T *d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
     T *d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
+    T *d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
 
     if (knot_idx == KNOT_POINTS - 1) {
         #pragma unroll
@@ -98,7 +100,8 @@ void computeMeritBatchedKernel1(
             s_temp, 
             d_robot_model, 
             timestep,
-            cooperative_groups::this_thread_block()
+            cooperative_groups::this_thread_block(),
+            d_f_ext
         );
     } else {
         #pragma unroll
@@ -171,7 +174,8 @@ void computeMeritBatched(
     T *d_merit_batch,
     T *d_merit_batch_temp,
     T *d_dz_batch,
-    T *d_xu_traj_batch, 
+    T *d_xu_traj_batch,
+    T *d_f_ext_batch,
     ProblemInputs<T, BatchSize> inputs
 ) {
     dim3 grid1(KNOT_POINTS, BatchSize, NumAlphas);
@@ -187,6 +191,7 @@ void computeMeritBatched(
         inputs.d_reference_traj_batch,
         inputs.d_GRiD_mem,
         static_cast<T>(10.0), //TODO: tweak this
+        d_f_ext_batch,
         inputs.timestep
     );
 

@@ -530,6 +530,12 @@ void printMatrixRowMajor(T *A) {
 
 namespace gato {
 
+template <typename T, uint32_t BatchSize>
+__device__ __forceinline__
+T *getOffsetWrench(T *batch, uint32_t solve_idx) {
+    return batch + solve_idx * 6;
+}
+
 // compute pointer to a (STATE_SIZE) vector from a batch (BATCH_SIZE X KNOT_POINTS)
 template <typename T, uint32_t BatchSize>
 __device__ __forceinline__

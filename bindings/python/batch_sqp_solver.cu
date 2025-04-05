@@ -97,6 +97,16 @@ public:
 
         return result;
     }
+    
+    void set_external_wrench(py::array_t<T> f_ext, uint32_t solve_idx) {
+        py::buffer_info f_ext_buf = f_ext.request();
+        solver_.set_external_wrench(static_cast<float*>(f_ext_buf.ptr), solve_idx);
+    }
+
+    void set_external_wrench_batch(py::array_t<T> f_ext_batch) {
+        py::buffer_info f_ext_buf = f_ext_batch.request();
+        solver_.set_external_wrench_batch(static_cast<float*>(f_ext_buf.ptr));
+    }
 
     void reset() {
         solver_.reset();
@@ -119,61 +129,79 @@ PYBIND11_MODULE(batch_sqp, m) {
         .def("solve", &PySQPSolver<float, 1>::solve)
         .def("reset", &PySQPSolver<float, 1>::reset)
         .def("resetRho", &PySQPSolver<float, 1>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 1>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 1>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 1>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 1>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 2>>(m, "SQPSolverfloat_2")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 2>::solve)
         .def("reset", &PySQPSolver<float, 2>::reset)
         .def("resetRho", &PySQPSolver<float, 2>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 2>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 2>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 2>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 2>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 4>>(m, "SQPSolverfloat_4")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 4>::solve)
         .def("reset", &PySQPSolver<float, 4>::reset)
         .def("resetRho", &PySQPSolver<float, 4>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 4>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 4>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 4>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 4>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 8>>(m, "SQPSolverfloat_8")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 8>::solve)
         .def("reset", &PySQPSolver<float, 8>::reset)
         .def("resetRho", &PySQPSolver<float, 8>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 8>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 8>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 8>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 8>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 16>>(m, "SQPSolverfloat_16")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 16>::solve)
         .def("reset", &PySQPSolver<float, 16>::reset)
         .def("resetRho", &PySQPSolver<float, 16>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 16>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 16>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 16>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 16>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 32>>(m, "SQPSolverfloat_32")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 32>::solve)
         .def("reset", &PySQPSolver<float, 32>::reset)
         .def("resetRho", &PySQPSolver<float, 32>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 32>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 32>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 32>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 32>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 64>>(m, "SQPSolverfloat_64")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 64>::solve)
         .def("reset", &PySQPSolver<float, 64>::reset)
         .def("resetRho", &PySQPSolver<float, 64>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 64>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 64>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 64>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 64>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 128>>(m, "SQPSolverfloat_128")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 128>::solve)
         .def("reset", &PySQPSolver<float, 128>::reset)
         .def("resetRho", &PySQPSolver<float, 128>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 128>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 128>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 128>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 128>::set_external_wrench_batch);
 
     py::class_<PySQPSolver<float, 256>>(m, "SQPSolverfloat_256")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 256>::solve)
         .def("reset", &PySQPSolver<float, 256>::reset)
         .def("resetRho", &PySQPSolver<float, 256>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 256>::resetLambda);
+        .def("resetLambda", &PySQPSolver<float, 256>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 256>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 256>::set_external_wrench_batch);
 } 

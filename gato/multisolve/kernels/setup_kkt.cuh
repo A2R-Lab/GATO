@@ -41,6 +41,7 @@ void setupKKTSystemBatchedKernel(
     void *d_GRiD_mem, // dynamics constraint TODO: can be const?
     T *d_x_s_batch, // initial state
     T *d_reference_traj_batch, // end effector position trajectory
+    T *d_f_ext_batch,
     T timestep
 ) {
     // kernel launched with 2D grid: (knot_idx, solve_idx)
@@ -58,11 +59,13 @@ void setupKKTSystemBatchedKernel(
     T *s_c_k = s_B_k + STATE_P_CONTROL; // integrator error
     T *s_temp = s_c_k + STATE_SIZE;
 
+
     for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
 
         // Input pointers
         T *d_xu_traj_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
         T *d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
+        T *d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
 
         // Output pointers
         T *d_Q_k = getOffsetStateSq<T, BatchSize>(d_Q_batch, solve_idx, knot_idx);
@@ -84,7 +87,8 @@ void setupKKTSystemBatchedKernel(
             s_temp,
             d_GRiD_mem,
             timestep,
-            cooperative_groups::this_thread_block()
+            cooperative_groups::this_thread_block(),
+            d_f_ext
         );
         __syncthreads();
 
@@ -166,7 +170,8 @@ __host__
 void setupKKTSystemBatched(
     KKTSystem<T, BatchSize> kkt,
     ProblemInputs<T, BatchSize> inputs,
-    T *d_xu_traj_batch
+    T *d_xu_traj_batch,
+    T *d_f_ext_batch
 ) {
     dim3 grid(KNOT_POINTS, BatchSize);
     dim3 block(KKT_THREADS);
@@ -184,6 +189,7 @@ void setupKKTSystemBatched(
         inputs.d_GRiD_mem,
         inputs.d_x_s_batch,
         inputs.d_reference_traj_batch,
+        d_f_ext_batch,
         inputs.timestep
     );
 }
