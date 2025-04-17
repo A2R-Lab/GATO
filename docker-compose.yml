@@ -4,7 +4,11 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/app
+      - .:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=${DISPLAY}
+    network_mode: host
     deploy:
       resources:
         reservations:
@@ -15,5 +19,7 @@ services:
     tty: true
     stdin_open: true
 
-    
-# sudo setfacl --modify user:<USER>:rw /var/run/docker.sock
+
+# Before running, execute: xhost +local:root
+
+# To ensure proper docker permissions: sudo setfacl --modify user:<USER>:rw /var/run/docker.sock
