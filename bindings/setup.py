@@ -16,6 +16,8 @@ setup(
         ],
         include_dirs=[
             '.',
+            '..',
+            './gato',
             '../gato',
             '../config',
             '../dependencies',

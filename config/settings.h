@@ -14,25 +14,25 @@ using T = float;
 constexpr uint32_t KNOT_POINTS = 32;
 //constexpr T TIMESTEP = 0.01; // 1/64 s
 
-constexpr uint32_t SQP_MAX_ITER = 20;
+constexpr uint32_t SQP_MAX_ITER = 5;
 constexpr uint32_t PCG_MAX_ITER = 200;
 
-constexpr T PCG_TOLERANCE = static_cast<T>(5e-5); // relative tolerance
+constexpr T PCG_TOLERANCE = static_cast<T>(1e-4); // relative tolerance
 
 constexpr uint32_t NUM_ALPHAS = 8;
 
-constexpr uint32_t F_EXT_KNOTS = 0;
+constexpr uint32_t F_EXT_KNOTS = 32;
 
 
 // TODO: SQP max time (const frequency)
 
 // ----- Cost -----
-constexpr float CONTROL_COST = 1e-7;
+constexpr float CONTROL_COST = 1e-5;
 constexpr float VELOCITY_COST = 1e-2;
-constexpr float TERMINAL_COST = 10.0;
-constexpr float BARRIER_COST = 0.00;
+constexpr float TERMINAL_COST = 50.0;
+constexpr float BARRIER_COST = 0.01;
 
-constexpr float RHO_INIT = 1e-3;
+constexpr float RHO_INIT = 1e-4;
 constexpr float RHO_FACTOR = 1.2;
 constexpr float RHO_MAX = 10.0;
 constexpr float RHO_MIN = 1e-8;
@@ -45,7 +45,7 @@ constexpr uint32_t PCG_THREADS = 1024;
 constexpr uint32_t DZ_THREADS = 128;
 constexpr uint32_t MERIT_THREADS = 128;
 constexpr uint32_t LINE_SEARCH_THREADS = 128;
-
+constexpr uint32_t SIM_FORWARD_THREADS = 128;
 } // namespace sqp
 
 // ----- Plant -----

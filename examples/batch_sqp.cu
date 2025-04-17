@@ -26,7 +26,7 @@ int main() {
 
     // Setup identical problem inputs for each batch
     ProblemInputs<T, BATCH_SIZE> inputs;
-    inputs.timestep = static_cast<T>(TIMESTEP);
+    inputs.timestep = static_cast<T>(0.01);
     gpuErrchk(cudaMalloc(&inputs.d_x_s_batch, STATE_SIZE * BATCH_SIZE * sizeof(T)));
     gpuErrchk(cudaMalloc(&inputs.d_reference_traj_batch, REFERENCE_TRAJ_SIZE * BATCH_SIZE * sizeof(T)));
     for (int i = 0; i < BATCH_SIZE; i++) { // Copy the same initial state and reference trajectory for each batch

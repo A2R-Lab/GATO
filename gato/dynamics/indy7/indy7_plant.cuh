@@ -73,7 +73,7 @@ namespace gato{
 
 		template<class T>
 		__host__ __device__
-		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(0.1);}
+		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(0.0);}
 
 		__host__ __device__
 		constexpr float JOINT_LIMITS_DATA[6][2] = { // from indy7.urdf

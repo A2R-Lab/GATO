@@ -256,14 +256,23 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
 
 
 
-// template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
-// __device__ 
-// void integrator(uint32_t state_size, T *s_xkp1, T *s_xuk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b){
-//     // first compute qdd
-//     T *s_q = s_xuk; 					T *s_qd = s_q + state_size/2; 				T *s_u = s_qd + state_size/2;
-//     T *s_qkp1 = s_xkp1; 				T *s_qdkp1 = s_qkp1 + state_size/2;
-//     T *s_qdd = s_temp; 					T *s_extra_temp = s_qdd + state_size/2;
-//     gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, b);
-//     b.sync();
-//     exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, b);
-// }
+template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+__device__ 
+void integrator(uint32_t state_size, T *s_xkp1, T *s_xk, T *s_uk, T *s_temp, void *d_dynMem_const, T dt, cg::thread_block b, T *d_f_ext){
+
+    T *s_q = s_xk; 					
+    T *s_qd = s_q + state_size/2; 				
+    T *s_u = s_uk;
+
+    T *s_qkp1 = s_xkp1; 				
+    T *s_qdkp1 = s_qkp1 + state_size/2;
+
+    T *s_qdd = s_temp; 					
+
+    T *s_extra_temp = s_temp + state_size/2;
+
+    gato::plant::forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, b, d_f_ext);
+    b.sync();
+
+    exec_integrator<T,INTEGRATOR_TYPE,ANGLE_WRAP>(state_size, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, b);
+}
