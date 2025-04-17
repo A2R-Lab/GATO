@@ -14,3 +14,6 @@ services:
               capabilities: [gpu]
     tty: true
     stdin_open: true
+
+    
+# sudo setfacl --modify user:<USER>:rw /var/run/docker.sock
