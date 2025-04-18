@@ -12,6 +12,7 @@
 #include "kernels/pcg.cuh"
 #include "kernels/merit.cuh"
 #include "kernels/line_search.cuh"
+#include "kernels/sim.cuh"
 
 using namespace sqp;
 
@@ -86,6 +87,22 @@ public:
     void warmStart() {
         // TODO: run a bunch of times so lambda is warm started
         return;
+    }
+
+    void sim_forward(T *d_xkp1_batch, T *d_xk, T *d_uk, T dt) { // simulates forward for each batch element
+
+        void *d_GRiD_mem = gato::plant::initializeDynamicsConstMem<T>();
+
+        simForwardBatched<T, BatchSize>(
+            d_xkp1_batch, // batch of next states
+            d_xk, // current state
+            d_uk, // control input
+            d_GRiD_mem, 
+            d_f_ext_batch_, // external wrenches
+            dt // sim timestep
+        );
+
+        gato::plant::freeDynamicsConstMem<T>(d_GRiD_mem);
     }
 
     SQPStats<T, BatchSize> solve(

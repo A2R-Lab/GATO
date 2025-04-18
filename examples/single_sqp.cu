@@ -19,7 +19,7 @@ int main() {
 
     ProblemInputs<T, 1> inputs;
     
-    inputs.timestep = static_cast<T>(TIMESTEP);
+    inputs.timestep = static_cast<T>(0.01);
 
     gpuErrchk(cudaMalloc(&inputs.d_x_s_batch, STATE_SIZE * sizeof(T)));
     gpuErrchk(cudaMemcpy(inputs.d_x_s_batch, h_xu_traj.data(), STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice));
