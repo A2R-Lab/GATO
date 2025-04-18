@@ -109,24 +109,11 @@ void computeMeritBatchedKernel1(
             s_temp[i] =  abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  //initial state constraint error
         }
         __syncthreads();
-        glass::reduce<T>(STATE_SIZE, s_temp); //TODO: use warp reduce instead
+        block::reduce<T>(STATE_SIZE, s_temp); //TODO: use warp reduce instead
         __syncthreads();
         constraint_k = s_temp[0];
     }
     __syncthreads();
-
-    // // initial state constraint error
-    // if (knot_idx == 0) {
-    //     #pragma unroll
-    //     for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
-    //         s_temp[i] =  abs(d_x_initial_batch[i] - s_xux_k[i]); //TODO: need to flip?
-    //     }
-    //     __syncthreads();
-    //     glass::reduce<T>(STATE_SIZE, s_temp); //TODO: use warp reduce instead
-    //     __syncthreads();
-    //     constraint_k += s_temp[0];
-    // }
-    // __syncthreads();
 
     // compute merit
     if (threadIdx.x == 0) {
@@ -148,7 +135,7 @@ void computeMeritBatchedKernel2(
     block::copy<T, KNOT_POINTS>(s_mem, d_merit_batch_temp + solve_idx * NumAlphas * KNOT_POINTS + alpha_idx * KNOT_POINTS);
     __syncthreads();
 
-    glass::reduce<T>(KNOT_POINTS, s_mem);
+    block::reduce<T>(KNOT_POINTS, s_mem);
     __syncthreads();
 
     if (threadIdx.x == 0) {

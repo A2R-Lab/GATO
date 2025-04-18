@@ -12,7 +12,6 @@ namespace sqp {
 using T = float;
 
 constexpr uint32_t KNOT_POINTS = 64;
-//constexpr T TIMESTEP = 0.01; // 1/64 s
 
 constexpr uint32_t SQP_MAX_ITER = 4;
 constexpr uint32_t PCG_MAX_ITER = 200;

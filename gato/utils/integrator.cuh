@@ -5,7 +5,6 @@
 
 namespace cg = cooperative_groups;
 #include "settings.h"
-#include "GLASS/glass.cuh"
 
 
 template<typename T>
@@ -212,7 +211,7 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
     b.sync();
 
     // finish off forming the error
-    glass::reduce<T>(state_size, s_err);
+    block::reduce<T>(state_size, s_err);
     b.sync();
     // if(GATO_LEAD_THREAD){printf("in integratorError with reduced error of [%f]\n",s_err[0]);}
     return s_err[0];
@@ -248,7 +247,7 @@ T integratorError(uint32_t state_size, T *s_xuk, T *s_xkp1, T *s_temp, void *d_d
     b.sync();
 
     // finish off forming the error
-    glass::reduce<T>(state_size, s_err);
+    block::reduce<T>(state_size, s_err);
     b.sync();
     // if(GATO_LEAD_THREAD){printf("in integratorError with reduced error of [%f]\n",s_err[0]);}
     return s_err[0];

@@ -29,9 +29,8 @@
 #include <cooperative_groups.h>
 #include "indy7_grid.cuh"
 #include "indy7_grid_noise.cuh"
-#include "GLASS/glass.cuh"
 #include "settings.h"
-
+#include "utils/linalg.cuh"
 // #include <random>
 // #define RANDOM_MEAN 0
 // #define RANDOM_STDEV 0.001
@@ -39,6 +38,7 @@
 // std::normal_distribution<double> randDist(RANDOM_MEAN, RANDOM_STDEV); //mean followed by stdiv
 
 using namespace sqp;
+using namespace gato;
 
 namespace gato{
 
@@ -75,7 +75,7 @@ namespace gato{
 		__host__ __device__
 		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(0.1);}
 
-		__host__ __device__
+		__device__
 		constexpr float JOINT_LIMITS_DATA[6][2] = { // from indy7.urdf
 			{-3.0543f, 3.0543f}, // joint 0
 			{-3.0543f, 3.0543f}, // joint 1
@@ -388,7 +388,7 @@ namespace gato{
                 }
 			}
 			__syncthreads();
-			glass::reduce<T>(3 + threadsNeeded, s_cost_vec);
+			block::reduce<T>(3 + threadsNeeded, s_cost_vec);
 			__syncthreads();
 			
 			return s_cost_vec[0];
