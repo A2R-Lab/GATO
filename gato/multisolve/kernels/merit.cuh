@@ -4,7 +4,7 @@
 #include <cooperative_groups.h>
 #include "settings.h"
 #include "constants.h"
-#include "utils/cuda_utils.cuh"
+#include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
 #include "utils/integrator.cuh"
 

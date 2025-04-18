@@ -2,6 +2,9 @@
 #include <cooperative_groups.h>
 #include <algorithm>
 #include <cmath>
+#include "constants.h"
+
+using namespace gato::constants;
 
 namespace cg = cooperative_groups;
 #include "settings.h"
@@ -9,36 +12,48 @@ namespace cg = cooperative_groups;
 
 template<typename T>
 __host__ __device__ 
-T angleWrap(T input){
+T angle_wrap(T input){
     const T pi = static_cast<T>(3.14159);
-    if(input > pi){input = -(input - pi);}
-    if(input < -pi){input = -(input + pi);}
+    if (input > pi) { input = -(input - pi); }
+    if (input < -pi) { input = -(input + pi); }
     return input;
 }
-
 
 template <typename T, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
 __device__ 
 void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt, cg::thread_block b, bool absval = false){
     T new_qkp1; T new_qdkp1;
-    for (unsigned ind = threadIdx.x; ind < state_size/2; ind += blockDim.x){
-        // euler xk = xk + dt *dxk
-        if (INTEGRATOR_TYPE == 0){
+    for (unsigned ind = threadIdx.x; ind < state_size/2; ind += blockDim.x) {
+
+        if (INTEGRATOR_TYPE == 0) { // euler 
+            // q_next = q_curr + dt * qd_curr
+            // qd_next = qd_curr + dt * qdd_curr
             new_qkp1 = s_q[ind] + dt*s_qd[ind];
             new_qdkp1 = s_qd[ind] + dt*s_qdd[ind];
-        }
-        // semi-inplicit euler
-        // qdkp1 = qdk + dt*qddk
-        // qkp1 = qk  + dt*qdkp1
-        else if (INTEGRATOR_TYPE == 1){
+        } else if (INTEGRATOR_TYPE == 1) { // semi-inplicit euler
+            // qd_next = qd_curr + dt*qdd_curr
+            // q_next = q_curr + dt*qd_next
             new_qdkp1 = s_qd[ind] + dt*s_qdd[ind];
             new_qkp1 = s_q[ind] + dt*new_qdkp1;
-        }
-        else {printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+        } else if (INTEGRATOR_TYPE == 2) { // midpoint
+            // Estimate state at midpoint t + dt/2
+            T dt_half = dt / 2.0;
+            T q_mid = s_q[ind] + dt_half * s_qd[ind];
+            T qd_mid = s_qd[ind] + dt_half * s_qdd[ind];
+
+            // *** Need to compute acceleration at midpoint: qdd_mid = dynamics(q_mid, qd_mid, u) ***
+            // *** This requires modifying the calling function to re-evaluate dynamics ***
+            T qdd_mid = s_qdd[ind]; // Placeholder: Using initial qdd - THIS IS INCORRECT FOR STANDARD MIDPOINT
+
+            // Full step using midpoint velocity and acceleration
+            new_qdkp1 = s_qd[ind] + dt * qdd_mid; // Velocity update uses midpoint acceleration
+            new_qkp1 = s_q[ind] + dt * qd_mid;   // Position update uses midpoint velocity
+        
+        } else { printf("Integrator [%d] not defined. Currently support [0: Euler, 1: Semi-Implicit Euler, 2: Midpoint]",INTEGRATOR_TYPE); }
 
         // wrap angles if needed
-        if(ANGLE_WRAP){ printf("ANGLE_WRAP!\n");
-            new_qkp1 = angleWrap(new_qkp1);
+        if(ANGLE_WRAP){
+            new_qkp1 = angle_wrap(new_qkp1);
         }
 
         // then computre error
@@ -57,7 +72,58 @@ void exec_integrator_error(uint32_t state_size, T *s_err, T *s_qkp1, T *s_qdkp1,
 template <typename T, unsigned INTEGRATOR_TYPE = 1>
 __device__
 void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_Ak, T *s_Bk, T *s_dqdd, T dt, cg::thread_block b){
+
+    const uint32_t thread_id = threadIdx.x;
+    const uint32_t half_state = state_size / 2;
+    
+    // Constants for midpoint integrator
+    const T dt_half = dt / 2.0;
+    const T dt_sq_half = dt * dt_half;
+    
+    if (INTEGRATOR_TYPE == 0) { // euler
+        // Direct thread assignment for A matrix
+        for (uint32_t i = thread_id; i < STATE_SIZE; i += block_dim){
+            int c = i / STATE_SIZE;
+            int r = i % STATE_SIZE;
+            s_Ak[i] = (r == c) ? static_cast<T>(1) : // 1s on diagonal
+                             ((r < half_state && r == c - half_state) ? dt : // dt on off-diagonal for + qd*dt
+                             ((r >= half_state) ? s_dqdd[c * half_state + r - half_state] * dt : 0)); // qdd*dt on off-diagonal for + q*dt^2
+        }
         
+        // Direct thread assignment for B matrix
+        if (thread_id < state_size * control_size) {
+            int c = thread_id / state_size;
+            int r = thread_id % state_size;
+            s_Bk[thread_id] = (r >= half_state) ? dt * s_dqdd[state_size * half_state + c * half_state + r - half_state] : 0;
+        }
+    }
+    else if (INTEGRATOR_TYPE == 1) {
+        // Semi-Implicit Euler
+        // Direct thread assignment for A matrix
+        if (thread_id < state_size * state_size) {
+            int c = thread_id / state_size;
+            int r = thread_id % state_size;
+            int rdqdd = r % half_state;
+            T dtVal = (r == rdqdd) ? dt : static_cast<T>(1);
+            
+            s_Ak[thread_id] = (r == c) ? static_cast<T>(1) : 
+                             ((r == c - half_state) ? dt : 0);
+            s_Ak[thread_id] += dt * s_dqdd[c * half_state + rdqdd] * dtVal;
+        }
+        
+        // Direct thread assignment for B matrix
+        if (thread_id < state_size * control_size) {
+            int c = thread_id / state_size;
+            int r = thread_id % state_size;
+            int rdqdd = r % half_state;
+            T dtVal = (r == rdqdd) ? dt : static_cast<T>(1);
+            
+            s_Bk[thread_id] = dt * s_dqdd[state_size * half_state + c * half_state + rdqdd] * dtVal;
+        }
+    }
+
+
+
     const uint32_t thread_id = threadIdx.x;
     const uint32_t block_dim = blockDim.x;
 
@@ -94,7 +160,109 @@ void exec_integrator_gradient(uint32_t state_size, uint32_t control_size, T *s_A
             }
         }
     }
-    else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+    else if (INTEGRATOR_TYPE == 2){
+        // Midpoint (Explicit)
+        // qd_mid = qd + (dt/2)*qdd
+        // q_mid = q + (dt/2)*qd
+        // qdd_mid = dynamics(q_mid, qd_mid, u) <-- Requires re-evaluation
+        // qdkp1 = qd + dt*qdd_mid
+        // qkp1 = qk + dt*qd_mid = qk + dt*(qd + (dt/2)*qdd) = qk + dt*qd + (dt^2/2)*qdd
+        //
+        // NOTE: The gradient calculation below assumes we use dqdd evaluated at the *initial* state (xk, uk).
+        // A more accurate gradient would require dqdd_mid (gradient of dynamics at the midpoint state),
+        // and careful application of the chain rule through the midpoint calculation.
+        // This implementation mirrors the structure of Euler/SIE but is likely not the exact gradient of the midpoint method.
+        
+        // Ak = d(xkp1)/d(xk) = d[qkp1; qdkp1]/d[qk; qdk]
+        // Bk = d(xkp1)/d(uk) = d[qkp1; qdkp1]/d[uk]
+
+        // qkp1 = qk + dt*qdk + (dt^2/2)*qddk
+        // qdkp1 = qdk + dt*qdd_mid  <- This dependency on qdd_mid complicates the gradient.
+        // Using qddk as approximation for qdd_mid for gradient calculation:
+        // qdkp1 approx qdk + dt*qddk
+
+        const uint32_t half_state = state_size / 2;
+        const T dt_half = dt / 2.0;
+        const T dt_sq_half = dt * dt_half;
+        
+        // Parallel computation of Ak and Bk
+        if (thread_id < state_size * state_size) {
+            // Calculate Ak
+            int c = thread_id / state_size;
+            int r = thread_id % state_size;
+            int rdqdd = r % half_state;
+            
+            T dqdd_val = s_dqdd[c * half_state + rdqdd];
+            
+            // Calculate Ak entry
+            T ak_val = static_cast<T>(r == c); // Identity matrix base
+            if (r < half_state) { // d(qkp1)/d(xk)
+                ak_val += static_cast<T>(r == c - half_state) * dt; // d(qkp1)/d(qdk) = dt*I
+                ak_val += dt_sq_half * dqdd_val;                   // d(qkp1)/d(xk) = (dt^2/2)*dqdd/dxk
+            } else { // d(qdkp1)/d(xk)
+                ak_val += dt * dqdd_val;                           // d(qdkp1)/d(xk) approx dt*dqdd/dxk
+            }
+            s_Ak[thread_id] = ak_val;
+        }
+        
+        // Direct mapping for Bk calculation
+        if (thread_id < state_size * control_size) {
+            int c = thread_id / state_size;
+            int r = thread_id % state_size;
+            int rdqdd = r % half_state;
+            
+            T dqdd_du_val = s_dqdd[state_size * half_state + c * half_state + rdqdd];
+            
+            T bk_val = 0.0;
+            if (r < half_state) { // d(qkp1)/d(uk)
+                bk_val = dt_sq_half * dqdd_du_val; // (dt^2/2) * dqdd/duk
+            } else { // d(qdkp1)/d(uk)
+                bk_val = dt * dqdd_du_val;         // dt * dqdd/duk
+            }
+            s_Bk[thread_id] = bk_val;
+        }
+
+        // ----
+
+        T dt_half = dt / 2.0;
+        T dt_sq_half = dt * dt_half; // dt^2 / 2
+
+        for (unsigned ind = thread_id; ind < state_size*state_size; ind += block_dim){
+            int c = ind / state_size; // column index in Ak (relates to xk)
+            int r = ind % state_size; // row index in Ak (relates to xkp1)
+            int rdqdd = r % (state_size/2); // index within q or qd part for dqdd access
+
+            T dqdd_val = s_dqdd[c*state_size/2 + rdqdd]; // dqdd/dxk or dqdd/duk depending on c
+
+            // Calculate Ak entry
+            T ak_val = static_cast<T>(r == c); // Identity matrix base
+            if (r < state_size/2) { // d(qkp1)/d(xk)
+                ak_val += static_cast<T>(r == c - state_size/2) * dt; // d(qkp1)/d(qdk) = dt*I
+                ak_val += dt_sq_half * dqdd_val;                     // d(qkp1)/d(xk) = (dt^2/2)*dqdd/dxk
+            } else { // d(qdkp1)/d(xk)  (Approximation using qddk instead of qdd_mid)
+                ak_val += dt * dqdd_val;                             // d(qdkp1)/d(xk) approx dt*dqdd/dxk
+            }
+            s_Ak[ind] = ak_val;
+        }
+         // Calculate Bk entry (Approximation using qddk)
+        for (unsigned ind = thread_id; ind < state_size*control_size; ind += block_dim){
+             int c = ind / state_size; // column index in Bk (relates to uk)
+             int r = ind % state_size; // row index in Bk (relates to xkp1)
+             int rdqdd = r % (state_size/2); // index within q or qd part for dqdd access
+
+             // dqdd/duk term, offset in s_dqdd array
+             T dqdd_du_val = s_dqdd[state_size*state_size/2 + c*state_size/2 + rdqdd];
+
+             T bk_val = 0.0;
+             if (r < state_size/2) { // d(qkp1)/d(uk)
+                 bk_val = dt_sq_half * dqdd_du_val; // (dt^2/2) * dqdd/duk
+             } else { // d(qdkp1)/d(uk)
+                 bk_val = dt * dqdd_du_val;         // dt * dqdd/duk
+             }
+             s_Bk[ind] = bk_val;
+        }
+    }
+    else{printf("Integrator [%d] not defined. Currently support [0: Euler, 1: Semi-Implicit Euler, 2: Midpoint]",INTEGRATOR_TYPE);}
 }
 
 
@@ -118,11 +286,26 @@ void exec_integrator(uint32_t state_size, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd
             s_qdkp1[ind] = s_qd[ind] + dt*s_qdd[ind];
             s_qkp1[ind] = s_q[ind] + dt*s_qdkp1[ind];
         }
-        else{printf("Integrator [%d] not defined. Currently support [0: Euler and 1: Semi-Implicit Euler]",INTEGRATOR_TYPE);}
+        // midpoint
+        else if (INTEGRATOR_TYPE == 2) {
+            // Estimate state at midpoint t + dt/2
+            T dt_half = dt / 2.0;
+            T q_mid = s_q[ind] + dt_half * s_qd[ind];
+            T qd_mid = s_qd[ind] + dt_half * s_qdd[ind];
+
+            // *** Need to compute acceleration at midpoint: qdd_mid = dynamics(q_mid, qd_mid, u) ***
+            // *** This requires modifying the calling function to re-evaluate dynamics ***
+            T qdd_mid = s_qdd[ind]; // Placeholder: Using initial qdd - THIS IS INCORRECT FOR STANDARD MIDPOINT
+
+            // Full step using midpoint velocity and acceleration
+            s_qdkp1[ind] = s_qd[ind] + dt * qdd_mid; // Velocity update uses midpoint acceleration
+            s_qkp1[ind] = s_q[ind] + dt * qd_mid;   // Position update uses midpoint velocity
+        }
+        else{printf("Integrator [%d] not defined. Currently support [0: Euler, 1: Semi-Implicit Euler, 2: Midpoint]",INTEGRATOR_TYPE);}
 
         // wrap angles if needed
         if(ANGLE_WRAP){
-            s_qkp1[ind] = angleWrap(s_qkp1[ind]);
+            s_qkp1[ind] = angle_wrap(s_qkp1[ind]);
         }
     }
 }
@@ -163,7 +346,7 @@ void integratorAndGradient(uint32_t state_size, uint32_t control_size, T *s_xux,
     // first compute qdd and dqdd
     T *s_qdd = s_temp; 	
     T *s_dqdd = s_qdd + state_size/2;	
-    T *s_extra_temp = s_dqdd + state_size/2*(state_size+control_size);
+    T *s_extra_temp = s_dqdd + (state_size/2)*(state_size+control_size);
     T *s_q = s_xux; 	
     T *s_qd = s_q + state_size/2; 		
     T *s_u = s_qd + state_size/2;

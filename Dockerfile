@@ -1,5 +1,5 @@
 # start with NVIDIA CUDA base image and ROS Humble
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 as cuda
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS cuda
 FROM ros:humble-ros-base
 
 # CUDA
@@ -57,13 +57,15 @@ RUN pip3 install --no-cache-dir \
     numpy
 
 # install MuJoCo
-RUN git clone https://github.com/deepmind/mujoco.git \ 
+RUN git clone https://github.com/deepmind/mujoco.git \
     && cd mujoco \
     && mkdir build \
     && cd build \
-    && cmake .. \
+    && cmake -DCMAKE_INSTALL_PREFIX=/usr .. \
     && cmake --build . \
-    && cmake --install .
+    && cmake --install . \
+    && cd ../.. \
+    && rm -rf mujoco
 
 # set LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:$LD_LIBRARY_PATH
