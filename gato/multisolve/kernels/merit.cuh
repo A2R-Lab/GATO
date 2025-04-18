@@ -94,13 +94,11 @@ void computeMeritBatchedKernel1(
         // constraint error
     if (knot_idx < KNOT_POINTS - 1) { // not last knot
         constraint_k = integratorError<T>(
-            STATE_SIZE, 
             s_xux_k, 
             &s_xux_k[STATE_SIZE + CONTROL_SIZE], 
             s_temp, 
             d_robot_model, 
             timestep,
-            cooperative_groups::this_thread_block(),
             d_f_ext
         );
     } else {

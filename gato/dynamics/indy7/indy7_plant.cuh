@@ -146,30 +146,27 @@ namespace gato{
 
 		template <typename T>
 		__device__
-		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const, cooperative_groups::thread_block block){
+		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const){
 
 			T *s_XImats = s_XITemp; T *s_temp = &s_XITemp[864];
 			grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float> *) d_dynMem_const, s_temp);
 			__syncthreads();
 
 			grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato::plant::GRAVITY<T>());
-			
-			// grid::forward_dynamics_device<T>(s_qdd,s_q,s_qd,s_u,(grid::robotModel<T>*)d_dynMem_const,GRAVITY<T>());
 		}
 
 		// Add external wrench
 		template <typename T>
 		__device__
-		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const, cooperative_groups::thread_block block, T *d_f_ext){
+		void forwardDynamics(T *s_qdd, T *s_q, T *s_qd, T *s_u, T *s_XITemp, void *d_dynMem_const, T *d_f_ext){
 
 			T *s_XImats = s_XITemp; T *s_temp = &s_XITemp[864];
 			grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float> *) d_dynMem_const, s_temp);
 			__syncthreads();
 
 			grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato::plant::GRAVITY<T>(), d_f_ext);
-			
-			// grid::forward_dynamics_device<T>(s_qdd,s_q,s_qd,s_u,(grid::robotModel<T>*)d_dynMem_const,GRAVITY<T>());
 		}
+		
 
 		__host__ __device__
 		constexpr unsigned forwardDynamics_TempMemSize_Shared(){return grid::FD_DYNAMIC_SHARED_MEM_COUNT;}
