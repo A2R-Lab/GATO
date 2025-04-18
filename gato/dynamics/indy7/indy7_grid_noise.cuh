@@ -152,14 +152,14 @@ namespace grid {
 
             if (jid == 5) {
                 // Add external wrench
-                if (blockIdx.x < KNOTS_F_EXT()){
-                    s_vaf[72 + jid6] += d_f_ext[0];
-                    s_vaf[72 + jid6 + 1] += d_f_ext[1];
-                    s_vaf[72 + jid6 + 2] += d_f_ext[2];
-                    s_vaf[72 + jid6 + 3] += d_f_ext[3];
-                    s_vaf[72 + jid6 + 4] += d_f_ext[4];
-                    s_vaf[72 + jid6 + 5] += d_f_ext[5];
-                }
+                //if (blockIdx.x < KNOTS_F_EXT()){
+                s_vaf[72 + jid6] -= d_f_ext[0];
+                s_vaf[72 + jid6 + 1] -= d_f_ext[1];
+                s_vaf[72 + jid6 + 2] -= d_f_ext[2];
+                s_vaf[72 + jid6 + 3] -= d_f_ext[3];
+                s_vaf[72 + jid6 + 4] -= d_f_ext[4];
+                s_vaf[72 + jid6 + 5] -= d_f_ext[5];
+                //}
             }
         }
         __syncthreads();
@@ -368,14 +368,14 @@ namespace grid {
 
                 if (jid == 5) {
                     // Add external wrench
-                    if (blockIdx.x < KNOTS_F_EXT()){
-                        s_vaf[72 + jid6] += d_f_ext[0];
-                        s_vaf[72 + jid6 + 1] += d_f_ext[1];
-                        s_vaf[72 + jid6 + 2] += d_f_ext[2];
-                        s_vaf[72 + jid6 + 3] += d_f_ext[3];
-                        s_vaf[72 + jid6 + 4] += d_f_ext[4];
-                        s_vaf[72 + jid6 + 5] += d_f_ext[5];
-                    }
+                    //if (blockIdx.x < KNOTS_F_EXT()){
+                    s_vaf[72 + jid6] -= d_f_ext[0];
+                    s_vaf[72 + jid6 + 1] -= d_f_ext[1];
+                    s_vaf[72 + jid6 + 2] -= d_f_ext[2];
+                    s_vaf[72 + jid6 + 3] -= d_f_ext[3];
+                    s_vaf[72 + jid6 + 4] -= d_f_ext[4];
+                    s_vaf[72 + jid6 + 5] -= d_f_ext[5];
+                    //}
                 }
             }
             __syncthreads();
@@ -461,7 +461,7 @@ namespace grid {
     __device__
     void forward_dynamics_inner(T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_XImats, T *s_temp, const T gravity, T *d_f_ext) {
         direct_minv_inner<T>(s_temp, s_q, s_XImats, &s_temp[36]);
-        inverse_dynamics_inner<T>(&s_temp[36], &s_temp[42], s_q, s_qd, s_XImats, &s_temp[150], gravity);
+        inverse_dynamics_inner<T>(&s_temp[36], &s_temp[42], s_q, s_qd, s_XImats, &s_temp[150], gravity, d_f_ext);
         forward_dynamics_finish<T>(s_qdd, s_u, &s_temp[36], s_temp);
     }
 
