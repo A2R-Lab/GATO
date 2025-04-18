@@ -6,29 +6,13 @@
 #include "constants.h"
 #include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
-#include "utils/integrator.cuh"
+#include "dynamics/integrator.cuh"
 
 using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
-
-/*
-
-template <typename T, uint32_t TimeStep, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
-__global__
-void computeMeritKernelBatched()
-
-template <typename T>
-__host__
-size_t getComputeMeritBatchedSMemSize()
-
-template <typename T, uint32_t NumAlphas>
-__host__
-void computeMeritBatched()
-
-*/
-
-template <typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+using namespace gato::plant;
+template <typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__
 void computeMeritBatchedKernel1(
     T *d_merit_batch_temp,
@@ -93,9 +77,9 @@ void computeMeritBatchedKernel1(
 
         // constraint error
     if (knot_idx < KNOT_POINTS - 1) { // not last knot
-        constraint_k = integratorError<T>(
+        constraint_k = integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
             s_xux_k, 
-            &s_xux_k[STATE_SIZE + CONTROL_SIZE], 
+            s_xux_k + STATE_SIZE + CONTROL_SIZE, 
             s_temp, 
             d_robot_model, 
             timestep,

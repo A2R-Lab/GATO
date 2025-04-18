@@ -1,17 +1,22 @@
-# GATO Configuration File
 
-# General Settings
-precision: float  # Options: float(32), double(64)
-knot_points: 64
-f_ext_knots: 64
+# fixed:
+#   precision: float  # Options: float(32), double(64)
+#   batch_size: 64
+#   num_alphas: 16
 
+# variable:
+#   knot_points: 64
+
+f_ext_knots: 64 # number of knots to apply simulated external wrench
+
+integrator_type: 2 # 0: euler, 1: semi-implicit euler, 2: trapezoidal
 
 # Cost Weights
 costs:
-  control: 1.0e-8
   velocity: 1.0e-2
+  control: 1.0e-8
   terminal: 100.0
-  barrier: 0.05
+  joint_limit_barrier: 0.05
 
 # SQP
 sqp:
@@ -19,27 +24,22 @@ sqp:
   pcg:
     max_iterations: 200
     tolerance: 1.0e-5  # relative tolerance
+  rho:
+    init: 1.0e-5
+    factor: 1.2
+    max: 10.0
+    min: 1.0e-8
+  num_alphas: 16 # line search
 
-# Line Search
-num_alphas: 16
-
-
-# Augmented Lagrangian Parameters
-augmented_lagrangian:
-  rho_init: 1.0e-5
-  rho_factor: 1.2
-  rho_max: 10.0
-  rho_min: 1.0e-8
-
-# CUDA Thread Configuration
+# CUDA number of threads
 threads:
-  kkt: 128
-  schur: 128
+  kkt: 256
+  schur: 256
   pcg: 1024
-  dz: 128
-  merit: 128
-  line_search: 128
-  sim_forward: 128
+  dz: 256
+  merit: 256
+  line_search: 256
+  sim_forward: 256
 
-# Robot Configuration
-robot: indy7  # Options: indy7, iiwa14
+# Robot Dynamics Model
+robot: indy7 

@@ -4,14 +4,14 @@
 #include "settings.h"
 #include "constants.h"
 #include "utils/linalg.cuh"
-#include "utils/integrator.cuh"
+#include "dynamics/integrator.cuh"
 
 using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
+using namespace gato::plant;
 
-
-template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__
 void simForwardBatchedKernel(
     T *d_xkp1_batch,
@@ -34,7 +34,7 @@ void simForwardBatchedKernel(
     block::copy<T, STATE_SIZE>(s_xk, d_xk);
     block::copy<T, CONTROL_SIZE>(s_uk, d_uk);
 
-    integrator<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
+    sim_step<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
         s_xkp1,
         s_xk,
         s_uk,
