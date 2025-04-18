@@ -236,7 +236,7 @@ namespace gato{
 			grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_temp, GRAVITY<T>(), d_f_ext); __syncthreads();
 			grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_temp, GRAVITY<T>()); __syncthreads();
 			
-			
+			// 6x12 elements
 			for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 72; ind += blockDim.x*blockDim.y){
 				int row = ind % 6; int dc_col_offset = ind - row;
 				// account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix

@@ -18,7 +18,6 @@ services:
               capabilities: [gpu]
     tty: true
     stdin_open: true
-
 # Before running, execute: xhost +local:root
 
 # To ensure proper docker permissions: sudo setfacl --modify user:<USER>:rw /var/run/docker.sock

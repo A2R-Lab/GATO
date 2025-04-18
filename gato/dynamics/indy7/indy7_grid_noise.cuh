@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <cuda_runtime.h>
-#include "utils/cuda_utils.cuh"
+#include "utils/cuda.cuh"
 #include "settings.h"
 
 

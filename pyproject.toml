@@ -7,14 +7,15 @@ requires-python = ">=3.10"
 dependencies = [
     "ipykernel>=6.29.5",
     "jupyter>=1.1.1",
+    "numpy>=2.2.3",
+    "scipy>=1.15.2",
     "matplotlib>=3.10.1",
+    "torch>=2.6.0",
+    "pin>=3.4.0",
+    "osqp>=0.6.7.post3",
     "meshcat>=0.3.2",
     "ninja>=1.11.1.4",
-    "numpy>=2.2.3",
-    "osqp>=0.6.7.post3",
-    "pin>=3.4.0",
-    "scipy>=1.15.2",
-    "torch>=2.6.0",
+    "pybind11>=2.13.6",
 ]
 
 [dependency-groups]

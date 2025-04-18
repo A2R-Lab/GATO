@@ -18,6 +18,9 @@ void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 #define gpuErrchk(ans) ans
 #endif
 
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#device-memory-l2-access-management
+// - Repeated accesses to data region in the global memory are considered to be persisting.
+// Allocate a fraction of the L2 cache for persisting accesses to global memory
 void setL2PersistingAccess(float fraction) {
    cudaDeviceProp prop;
    cudaGetDeviceProperties(&prop, 0); // device 0
@@ -30,5 +33,5 @@ void setL2PersistingAccess(float fraction) {
 
 void resetL2PersistingAccess() {
    gpuErrchk(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, 0));
-   gpuErrchk(cudaCtxResetPersistingL2Cache());
-} // use cudaCtxResetPersistingL2Cache() to reset all persisting L2 cache lines to normal
+   gpuErrchk(cudaCtxResetPersistingL2Cache()); //reset all persisting L2 cache lines to normal
+}

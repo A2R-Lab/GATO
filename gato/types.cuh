@@ -3,7 +3,7 @@
 #include <cstdint>
 #include "settings.h"
 #include "constants.h"
-#include "utils/cuda_utils.cuh"
+#include "utils/cuda.cuh"
 
 using namespace sqp;
 using namespace gato::constants;
