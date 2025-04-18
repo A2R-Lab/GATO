@@ -1,0 +1,23 @@
+[project]
+name = "mpc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.1",
+    "meshcat>=0.3.2",
+    "ninja>=1.11.1.4",
+    "numpy>=2.2.3",
+    "osqp>=0.6.7.post3",
+    "pin>=3.4.0",
+    "scipy>=1.15.2",
+    "torch>=2.6.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+]
