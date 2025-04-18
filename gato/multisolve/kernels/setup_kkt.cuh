@@ -81,13 +81,11 @@ void setupKKTSystemBatchedKernel(
         __syncthreads();
 
         integratorAndGradient<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(
-            STATE_SIZE, CONTROL_SIZE,
             s_xux_k,
             s_A_k, s_B_k, s_c_k,
             s_temp,
             d_GRiD_mem,
             timestep,
-            cooperative_groups::this_thread_block(),
             d_f_ext
         );
         __syncthreads();

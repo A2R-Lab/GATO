@@ -35,14 +35,12 @@ void simForwardBatchedKernel(
     block::copy<T, CONTROL_SIZE>(s_uk, d_uk);
 
     integrator<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
-        STATE_SIZE,
         s_xkp1,
         s_xk,
         s_uk,
         s_temp,
         d_GRiD_mem,
         dt,
-        cooperative_groups::this_thread_block(),
         d_f_ext
     );
     __syncthreads();
