@@ -12,6 +12,8 @@
 #include "types.cuh"
 #include "utils/utils.h"
 
+const T TIMESTEP = 0.01;
+
 // Define a macro to run benchmark for a specific batch size
 #define RUN_BENCHMARK(SIZE) \
     { \

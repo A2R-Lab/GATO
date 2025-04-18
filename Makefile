@@ -1,7 +1,7 @@
 NVCC = nvcc
 NVCC_FLAGS = -use_fast_math -std=c++17 -O3 --compiler-options '-Wall'# -Wextra -Wpedantic
 
-INCLUDES = -I./gato -I./config -I./dependencies
+INCLUDES = -I./gato -I./config
 
 HEADERS = $(wildcard gato/*.cuh config/*.h dependencies/*.h)
 

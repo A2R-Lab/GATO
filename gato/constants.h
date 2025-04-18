@@ -3,6 +3,8 @@
 #include <cstdint>
 #include "settings.h"
 
+using namespace sqp;
+
 namespace gato {
 namespace constants {
     constexpr uint32_t REFERENCE_TRAJ_SIZE = grid::EE_POS_SIZE * KNOT_POINTS;
