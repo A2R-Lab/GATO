@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 
+
 template <typename T>
 std::vector<T> readCSVToVec(const std::string& filename) {
     std::vector<T> vec;

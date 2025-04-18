@@ -76,6 +76,7 @@ WORKDIR /workspace
 # source ROS environment in bash
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 RUN echo "[ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash" >> ~/.bashrc
+RUN echo "[ -f /workspace/.venv/bin/activate ] && source /workspace/.venv/bin/activate" >> ~/.bashrc
 
 # command to run when container starts
 CMD ["/bin/bash"]

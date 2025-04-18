@@ -159,46 +159,6 @@ PYBIND11_MODULE(batch_sqp, m) {
         .def("set_external_wrench_batch", &PySQPSolver<float, 1>::set_external_wrench_batch)
         .def("sim_forward", &PySQPSolver<float, 1>::sim_forward);
 
-    py::class_<PySQPSolver<float, 2>>(m, "SQPSolverfloat_2")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 2>::solve)
-        .def("reset", &PySQPSolver<float, 2>::reset)
-        .def("resetRho", &PySQPSolver<float, 2>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 2>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 2>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 2>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 2>::sim_forward);
-
-    py::class_<PySQPSolver<float, 4>>(m, "SQPSolverfloat_4")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 4>::solve)
-        .def("reset", &PySQPSolver<float, 4>::reset)
-        .def("resetRho", &PySQPSolver<float, 4>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 4>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 4>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 4>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 4>::sim_forward);
-
-    py::class_<PySQPSolver<float, 8>>(m, "SQPSolverfloat_8")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 8>::solve)
-        .def("reset", &PySQPSolver<float, 8>::reset)
-        .def("resetRho", &PySQPSolver<float, 8>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 8>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 8>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 8>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 8>::sim_forward);
-
-    py::class_<PySQPSolver<float, 16>>(m, "SQPSolverfloat_16")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 16>::solve)
-        .def("reset", &PySQPSolver<float, 16>::reset)
-        .def("resetRho", &PySQPSolver<float, 16>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 16>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 16>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 16>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 16>::sim_forward);
-
     py::class_<PySQPSolver<float, 32>>(m, "SQPSolverfloat_32")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 32>::solve)
@@ -218,24 +178,4 @@ PYBIND11_MODULE(batch_sqp, m) {
         .def("set_external_wrench", &PySQPSolver<float, 64>::set_external_wrench)
         .def("set_external_wrench_batch", &PySQPSolver<float, 64>::set_external_wrench_batch)
         .def("sim_forward", &PySQPSolver<float, 64>::sim_forward);
-
-    py::class_<PySQPSolver<float, 128>>(m, "SQPSolverfloat_128")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 128>::solve)
-        .def("reset", &PySQPSolver<float, 128>::reset)
-        .def("resetRho", &PySQPSolver<float, 128>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 128>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 128>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 128>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 128>::sim_forward);
-
-    py::class_<PySQPSolver<float, 256>>(m, "SQPSolverfloat_256")
-        .def(py::init<>())
-        .def("solve", &PySQPSolver<float, 256>::solve)
-        .def("reset", &PySQPSolver<float, 256>::reset)
-        .def("resetRho", &PySQPSolver<float, 256>::resetRho)
-        .def("resetLambda", &PySQPSolver<float, 256>::resetLambda)
-        .def("set_external_wrench", &PySQPSolver<float, 256>::set_external_wrench)
-        .def("set_external_wrench_batch", &PySQPSolver<float, 256>::set_external_wrench_batch)
-        .def("sim_forward", &PySQPSolver<float, 256>::sim_forward);
 } 

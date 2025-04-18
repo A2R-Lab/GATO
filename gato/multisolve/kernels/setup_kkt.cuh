@@ -5,29 +5,14 @@
 #include "settings.h"
 #include "constants.h"
 #include "utils/linalg.cuh"
-#include "utils/integrator.cuh"
+#include "dynamics/integrator.cuh"
 
 using namespace sqp;
 using namespace gato;
+using namespace gato::plant;
 using namespace gato::constants;
 
-/*
-
-template <typename T, uint32_t INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
-__global__
-void setupKKTSystemBatchedKernel()
-
-template <typename T>
-__host__
-size_t getSetupKKTSystemBatchedSMemSize()
-
-template <typename T>
-__host__
-void setupKKTSystemBatched()
-
-*/
-
-template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 1, bool ANGLE_WRAP = false>
+template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__
 void setupKKTSystemBatchedKernel(
     T *d_Q_batch,
@@ -80,7 +65,7 @@ void setupKKTSystemBatchedKernel(
         block::copy<T, 2 * grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k); //TODO: is this correct?
         __syncthreads();
 
-        integratorAndGradient<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(
+        linearize_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(
             s_xux_k,
             s_A_k, s_B_k, s_c_k,
             s_temp,

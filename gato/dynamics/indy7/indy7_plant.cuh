@@ -183,7 +183,7 @@ namespace gato{
 
 		template <typename T, bool INCLUDE_DU = true>
 		__device__
-		void forwardDynamicsAndGradient(T *s_df_du, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const){
+		void forwardDynamicsAndGradient(T *s_dqdd, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const){
 
 			T *s_XITemp = s_temp_in;
 			grid::robotModel<T> *d_robotModel = (grid::robotModel<T> *) d_dynMem_const;
@@ -207,10 +207,10 @@ namespace gato{
 					int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
 					val += s_Minv[index] * s_dc_du[dc_col_offset + col];
 				}
-				s_df_du[ind] = -val;
+				s_dqdd[ind] = -val;
 				if (INCLUDE_DU && ind < 36){
 					int col = ind / 6; int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-					s_df_du[ind + 72] = s_Minv[index];
+					s_dqdd[ind + 72] = s_Minv[index];
 				}
 			}
 		}
@@ -218,7 +218,7 @@ namespace gato{
 		// Add external wrench
 		template <typename T, bool INCLUDE_DU = true>
 		__device__
-		void forwardDynamicsAndGradient(T *s_df_du, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const, T *d_f_ext){
+		void forwardDynamicsAndGradient(T *s_dqdd, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const, T *d_f_ext){
 
 			T *s_XITemp = s_temp_in;
 			grid::robotModel<T> *d_robotModel = (grid::robotModel<T> *) d_dynMem_const;
@@ -242,10 +242,10 @@ namespace gato{
 					int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
 					val += s_Minv[index] * s_dc_du[dc_col_offset + col];
 				}
-				s_df_du[ind] = -val;
+				s_dqdd[ind] = -val;
 				if (INCLUDE_DU && ind < 36){
 					int col = ind / 6; int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-					s_df_du[ind + 72] = s_Minv[index];
+					s_dqdd[ind + 72] = s_Minv[index];
 				}
 			}
 		}
