@@ -27,6 +27,8 @@ build-benchmark: examples/benchmark_batch_sqp.cu $(HEADERS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) -o build/benchmark_batch_sqp examples/benchmark_batch_sqp.cu
 
 build-bindings:
+	rm -rf build
+	rm -rf bindings/build
 	cd bindings && TORCH_CUDA_ARCH_LIST="8.9 8.6 7.5" pip install -e .
 
 clean:

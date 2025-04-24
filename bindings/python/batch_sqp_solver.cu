@@ -158,7 +158,15 @@ PYBIND11_MODULE(batch_sqp, m) {
         .def("set_external_wrench", &PySQPSolver<float, 1>::set_external_wrench)
         .def("set_external_wrench_batch", &PySQPSolver<float, 1>::set_external_wrench_batch)
         .def("sim_forward", &PySQPSolver<float, 1>::sim_forward);
-
+    py::class_<PySQPSolver<float, 16>>(m, "SQPSolverfloat_16")
+        .def(py::init<>())
+        .def("solve", &PySQPSolver<float, 16>::solve)
+        .def("reset", &PySQPSolver<float, 16>::reset)
+        .def("resetRho", &PySQPSolver<float, 16>::resetRho)
+        .def("resetLambda", &PySQPSolver<float, 16>::resetLambda)
+        .def("set_external_wrench", &PySQPSolver<float, 16>::set_external_wrench)
+        .def("set_external_wrench_batch", &PySQPSolver<float, 16>::set_external_wrench_batch)
+        .def("sim_forward", &PySQPSolver<float, 16>::sim_forward);
     py::class_<PySQPSolver<float, 32>>(m, "SQPSolverfloat_32")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 32>::solve)
@@ -168,7 +176,6 @@ PYBIND11_MODULE(batch_sqp, m) {
         .def("set_external_wrench", &PySQPSolver<float, 32>::set_external_wrench)
         .def("set_external_wrench_batch", &PySQPSolver<float, 32>::set_external_wrench_batch)
         .def("sim_forward", &PySQPSolver<float, 32>::sim_forward);
-
     py::class_<PySQPSolver<float, 64>>(m, "SQPSolverfloat_64")
         .def(py::init<>())
         .def("solve", &PySQPSolver<float, 64>::solve)
