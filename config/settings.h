@@ -14,7 +14,7 @@ using T = float;
 constexpr uint32_t KNOT_POINTS = 32;
 constexpr uint32_t INTEGRATOR_TYPE = 2; // 0: euler, 1: semi-implicit euler, 2: trapezoidal
 
-constexpr uint32_t SQP_MAX_ITER = 2;
+constexpr uint32_t SQP_MAX_ITER = 4;
 constexpr uint32_t PCG_MAX_ITER = 200;
 
 constexpr T PCG_TOLERANCE = static_cast<T>(5e-5); // relative tolerance
@@ -31,8 +31,8 @@ constexpr float VELOCITY_COST = 1e-2;
 constexpr float TERMINAL_COST = 100.0;
 constexpr float BARRIER_COST = 0.05;
 
-constexpr float RHO_INIT = 1e-4;
-constexpr float RHO_FACTOR = 1.25;
+constexpr float RHO_INIT = 1e-5;
+constexpr float RHO_FACTOR = 1.2;
 constexpr float RHO_MAX = 10.0;
 constexpr float RHO_MIN = 1e-8;
 

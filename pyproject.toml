@@ -16,6 +16,7 @@ dependencies = [
     "meshcat>=0.3.2",
     "ninja>=1.11.1.4",
     "pybind11>=2.13.6",
+    "pyqt5>=5.15.11",
 ]
 
 [dependency-groups]

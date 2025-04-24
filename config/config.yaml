@@ -1,45 +1,55 @@
+solver:
+  # plant_path: "dynamics/indy7/indy7_plant.cuh" # grid dynamics model
+  # integrator_type: 2 # 0: euler, 1: semi-implicit euler, 2: trapezoidal
 
-# fixed:
-#   precision: float  # Options: float(32), double(64)
-#   batch_size: 64
-#   num_alphas: 16
+  #ctrl_freq: 500 # TODO:
 
-# variable:
-#   knot_points: 64
+  batch_size: 32
+  N_h: 32
+  dt: 0.01
 
-f_ext_knots: 64 # number of knots to apply simulated external wrench
+  f_ext_horizon: 64 # number of knots to apply simulated external wrench
 
-integrator_type: 2 # 0: euler, 1: semi-implicit euler, 2: trapezoidal
+  sqp_tol: 1.0e-5 # TODO: infinity norm of KKT residual
+  sqp_max_iter: 5
 
-# Cost Weights
-costs:
-  velocity: 1.0e-2
-  control: 1.0e-8
-  terminal: 100.0
+  pcg_tol: 5.0e-5 # relative tolerance
+  pcg_max_iter: 150
+
+  num_alphas: 16 # step sizes for line search
+
+cost:
+  ee_pos_weights: [1.0, 1.0, 1.0]
+  ee_pos_reg: 5.0
+  ee_pos_reg_terminal: 50.0
+
   joint_limit_barrier: 0.05
+  #TODO: control limit barrier
 
-# SQP
-sqp:
-  max_iterations: 4
-  pcg:
-    max_iterations: 200
-    tolerance: 1.0e-5  # relative tolerance
-  rho:
-    init: 1.0e-5
-    factor: 1.2
-    max: 10.0
-    min: 1.0e-8
-  num_alphas: 16 # line search
+  # state
+  # - higher penalties for joint positions, lower penalties for velocities
+  # - penalize first 3 (heavier) joints more
+  # - can increase velocity weights for smoother/stable trajectories
+  x_reg_weights: [10., 10., 10., 5., 5., 5, 1., 1., 1., 1., 1., 1.]
+  x_reg: 0.01 # initial value
+  x_reg_terminal: 0.01
 
-# CUDA number of threads
-threads:
-  kkt: 256
-  schur: 256
+  # control
+  # - penalize torques for smaller actuators?
+  # - scale inversely with torque limits?
+  u_reg_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  u_reg: 0.00001 # initial value
+  u_reg_terminal: 0.00001
+
+  reg_factor: 10.0
+  reg_max: 1.0e9
+  reg_min: 1.0e-9
+
+threads: # kernel thread block sizes
+  kkt: 128
+  schur: 128
   pcg: 1024
-  dz: 256
-  merit: 256
-  line_search: 256
-  sim_forward: 256
-
-# Robot Dynamics Model
-robot: indy7 
+  dz: 128
+  merit: 128
+  line_search: 128
+  sim_forward: 128

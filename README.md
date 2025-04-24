@@ -27,6 +27,8 @@ Docker
 # manually
 docker compose up -d # build and run
 docker compose exec dev bash # enter container
+docker compose exec -w /workspace dev bash #enter container in the workspace directory
+
 docker down # stop and remove
 ```
 
