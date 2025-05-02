@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-urdfdom-headers \
     python3-colcon-common-extensions \
     python3-rosdep \
+    libeigen3-dev \
     libxinerama-dev \
     libglfw3-dev \
     libxcursor-dev \

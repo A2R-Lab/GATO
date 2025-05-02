@@ -29,21 +29,20 @@ void solvePCGBatched()
 template <typename T, uint32_t BatchSize>
 __global__ 
 void solvePCGBatchedKernel(
-    int32_t* d_converged,
     uint32_t* d_iterations,
     T *d_x_batch, // (lambda) updated in-place
     T *d_A_batch, // (S)
     T *d_M_inv_batch, // (P_inv)
     T *d_b_batch, // (gamma)
     T epsilon,
-    int32_t *d_rho_max_reached_batch
+    uint32_t max_pcg_iters,
+    int32_t *d_kkt_converged_batch
 ) {
     const uint32_t solve_idx = blockIdx.x;
     
     // skip solve if rho_max_reached
-    if (d_rho_max_reached_batch[solve_idx]) {
+    if (d_kkt_converged_batch[solve_idx]) {
         if (threadIdx.x == 0) {
-            d_converged[solve_idx] = false;
             d_iterations[solve_idx] = 0;
         }
         return;
@@ -66,7 +65,6 @@ void solvePCGBatchedKernel(
     // scalars
     __shared__ T s_rho, s_rho_new, s_alpha, s_beta, s_initial_rho;
 
-    bool converged = false;
     uint32_t iterations = 0;
 
     block::zeroSharedMemory<T, 5 * VEC_SIZE_PADDED>(s_mem);
@@ -108,7 +106,7 @@ void solvePCGBatchedKernel(
     __syncthreads();
 
     // ----- PCG Loop -----
-    for (uint32_t i = 0; i < PCG_MAX_ITER; i++) {
+    for (uint32_t i = 0; i < max_pcg_iters; i++) {
         iterations++;
 
         // A_p = A * p
@@ -140,9 +138,8 @@ void solvePCGBatchedKernel(
         block::dot<T>(&s_rho_new, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
         __syncthreads();
 
-        // check for convergence using relative tolerance
+        // check for convergence using absolute and relative tolerance
         if (abs(s_rho_new) / s_initial_rho < epsilon) {
-            converged = true;
             break;
         }
         __syncthreads();
@@ -166,7 +163,6 @@ void solvePCGBatchedKernel(
     
     // save stats for current batch
     if (threadIdx.x == 0) {
-        d_converged[solve_idx] = 1 * converged;
         d_iterations[solve_idx] = iterations;
     }
     
@@ -188,8 +184,8 @@ void solvePCGBatched(
     T *d_lambda_batch,
     SchurSystem<T, BatchSize> schur,
     T epsilon,
-    int32_t *d_rho_max_reached_batch,
-    int32_t *d_converged,
+    uint32_t max_pcg_iters,
+    int32_t *d_kkt_converged_batch,
     uint32_t *d_iterations
 ) {
     dim3 grid(BatchSize);
@@ -197,13 +193,13 @@ void solvePCGBatched(
     const uint32_t s_mem_size = getSolvePCGBatchedSMemSize<T>();
 
     solvePCGBatchedKernel<T, BatchSize><<<grid, thread_block, s_mem_size>>>(
-        d_converged,
         d_iterations,
         d_lambda_batch,
         schur.d_S_batch,
         schur.d_P_inv_batch,
         schur.d_gamma_batch,
         epsilon,
-        d_rho_max_reached_batch
+        max_pcg_iters,
+        d_kkt_converged_batch
     );
 }

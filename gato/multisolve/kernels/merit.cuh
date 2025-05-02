@@ -145,7 +145,9 @@ void computeMeritBatched(
     T *d_dz_batch,
     T *d_xu_traj_batch,
     T *d_f_ext_batch,
-    ProblemInputs<T, BatchSize> inputs
+    ProblemInputs<T, BatchSize> inputs,
+    T mu,
+    void *d_GRiD_mem
 ) {
     dim3 grid1(KNOT_POINTS, BatchSize, NumAlphas);
     dim3 grid2(BatchSize, NumAlphas);
@@ -158,8 +160,8 @@ void computeMeritBatched(
         d_xu_traj_batch, 
         inputs.d_x_s_batch,
         inputs.d_reference_traj_batch,
-        inputs.d_GRiD_mem,
-        static_cast<T>(10.0), //TODO: tweak this
+        d_GRiD_mem,
+        mu,
         d_f_ext_batch,
         inputs.timestep
     );
