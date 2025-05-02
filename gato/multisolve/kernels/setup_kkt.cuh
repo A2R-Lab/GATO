@@ -142,7 +142,7 @@ size_t getSetupKKTSystemBatchedSMemSize() {
         STATE_SIZE + // c_k
         STATE_SIZE_SQ + // Q_last
         STATE_SIZE + // q_last
-        max(grid::EE_POS_SHARED_MEM_COUNT, grid::DEE_POS_SHARED_MEM_COUNT) + 
+        max(grid::EE_POS_SHARED_MEM_COUNT, gato::plant::trackingCostGradientAndHessian_TempMemSize_Shared()) + 
         max((STATE_SIZE/2)*(STATE_S_CONTROL + 1) + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared(), 3 + (STATE_SIZE/2)*6)
     );
     return size;
@@ -154,7 +154,8 @@ void setupKKTSystemBatched(
     KKTSystem<T, BatchSize> kkt,
     ProblemInputs<T, BatchSize> inputs,
     T *d_xu_traj_batch,
-    T *d_f_ext_batch
+    T *d_f_ext_batch,
+    void *d_GRiD_mem
 ) {
     dim3 grid(KNOT_POINTS, BatchSize);
     dim3 block(KKT_THREADS);
@@ -169,7 +170,7 @@ void setupKKTSystemBatched(
         kkt.d_B_batch,
         kkt.d_c_batch,
         d_xu_traj_batch,
-        inputs.d_GRiD_mem,
+        d_GRiD_mem,
         inputs.d_x_s_batch,
         inputs.d_reference_traj_batch,
         d_f_ext_batch,

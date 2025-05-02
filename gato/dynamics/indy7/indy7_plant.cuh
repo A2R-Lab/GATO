@@ -28,7 +28,7 @@
 #include <cuda_runtime_api.h>
 #include <cooperative_groups.h>
 #include "indy7_grid.cuh"
-#include "indy7_grid_noise.cuh"
+#include "indy7_fext.cuh"
 #include "settings.h"
 #include "utils/linalg.cuh"
 // #include <random>
@@ -54,26 +54,30 @@ namespace gato{
 		template<class T>
 		__host__ __device__
 		constexpr T GRAVITY() {return static_cast<T>(9.81);}
-		
-		template<class T>
-		__host__ __device__
-		constexpr T COST_QD() {return static_cast<T>(VELOCITY_COST);}
 
 		template<class T>
 		__host__ __device__
-		constexpr T COST_R() {return static_cast<T>(CONTROL_COST);}
+		constexpr T COST_Q() {return static_cast<T>(q_COST);}
 
 		template<class T>
 		__host__ __device__
-		constexpr T COST_TERMINAL() {return static_cast<T>(TERMINAL_COST);}
+		constexpr T COST_QD() {return static_cast<T>(dq_COST);}
+
+		template<class T>
+		__host__ __device__
+		constexpr T COST_R() {return static_cast<T>(u_COST);}
+
+		template<class T>
+		__host__ __device__
+		constexpr T COST_TERMINAL() {return static_cast<T>(N_COST);}
 
         		template<class T>
 		__host__ __device__
-		constexpr T COST_BARRIER() {return static_cast<T>(BARRIER_COST);}
+		constexpr T COST_BARRIER() {return static_cast<T>(q_lim_COST);}
 
 		template<class T>
 		__host__ __device__
-		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(0.1);}
+		constexpr T JOINT_LIMIT_MARGIN() {return static_cast<T>(-0.5);}
 
 		__device__
 		constexpr float JOINT_LIMITS_DATA[6][2] = { // from indy7.urdf
@@ -183,7 +187,7 @@ namespace gato{
 
 		template <typename T, bool INCLUDE_DU = true>
 		__device__
-		void forwardDynamicsAndGradient(T *s_dqdd, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const){
+		void forwardDynamicsAndGradient(T *s_df_du, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const){
 
 			T *s_XITemp = s_temp_in;
 			grid::robotModel<T> *d_robotModel = (grid::robotModel<T> *) d_dynMem_const;
@@ -207,10 +211,10 @@ namespace gato{
 					int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
 					val += s_Minv[index] * s_dc_du[dc_col_offset + col];
 				}
-				s_dqdd[ind] = -val;
+				s_df_du[ind] = -val;
 				if (INCLUDE_DU && ind < 36){
 					int col = ind / 6; int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-					s_dqdd[ind + 72] = s_Minv[index];
+					s_df_du[ind + 72] = s_Minv[index];
 				}
 			}
 		}
@@ -218,7 +222,7 @@ namespace gato{
 		// Add external wrench
 		template <typename T, bool INCLUDE_DU = true>
 		__device__
-		void forwardDynamicsAndGradient(T *s_dqdd, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const, T *d_f_ext){
+		void forwardDynamicsAndGradient(T *s_df_du, T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_temp_in, void *d_dynMem_const, T *d_f_ext){
 
 			T *s_XITemp = s_temp_in;
 			grid::robotModel<T> *d_robotModel = (grid::robotModel<T> *) d_dynMem_const;
@@ -242,10 +246,10 @@ namespace gato{
 					int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
 					val += s_Minv[index] * s_dc_du[dc_col_offset + col];
 				}
-				s_dqdd[ind] = -val;
+				s_df_du[ind] = -val;
 				if (INCLUDE_DU && ind < 36){
 					int col = ind / 6; int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-					s_dqdd[ind + 72] = s_Minv[index];
+					s_df_du[ind + 72] = s_Minv[index];
 				}
 			}
 		}
@@ -352,8 +356,6 @@ namespace gato{
 			T *s_extra_temp = s_eePos_cost + 6;
 
 
-
-
 			for(int i = threadIdx.x; i < threadsNeeded; i += blockDim.x){
 				if(i < state_size/2){
 					err = s_xu[i + state_size/2];
@@ -378,10 +380,10 @@ namespace gato{
 			for(int i = threadIdx.x; i < 3; i+=blockDim.x){
 				err = s_eePos_cost[i] - s_eePos_traj[i];
                 if (blockIdx.x == KNOT_POINTS - 1){
-                    s_cost_vec[threadsNeeded + i] = COST_TERMINAL<T>() * err * err;
+                    s_cost_vec[threadsNeeded + i] = 0.5 * COST_TERMINAL<T>() * err * err;
                 }
                 else{
-                    s_cost_vec[threadsNeeded + i] = static_cast<T>(0.5) * err * err;
+                    s_cost_vec[threadsNeeded + i] = 0.5 * COST_Q<T>() * err * err;
                 }
 			}
 			__syncthreads();
@@ -441,6 +443,8 @@ namespace gato{
 						s_qk[i] = s_eePos_grad[6 * i + 0] * x_err + s_eePos_grad[6 * i + 1] * y_err + s_eePos_grad[6 * i + 2] * z_err;
                         if (blockIdx.x == KNOT_POINTS - 1){
                             s_qk[i] *= COST_TERMINAL<T>();
+                        } else {
+                            s_qk[i] *= COST_Q<T>();
                         }
 
                         s_qk[i] += COST_BARRIER<T>() * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
@@ -467,13 +471,10 @@ namespace gato{
 					//hessian
 					for(int j = 0; j < state_size; j++){
 						if(j < state_size / 2 && i < state_size / 2){
-							s_Qk[i*state_size + j] = s_eePos_grad[6 * i + 0] * s_eePos_grad[6 * j + 0] + 
+							s_Qk[i*state_size + j] = (s_eePos_grad[6 * i + 0] * s_eePos_grad[6 * j + 0] + 
 													s_eePos_grad[6 * i + 1] * s_eePos_grad[6 * j + 1] + 
-													s_eePos_grad[6 * i + 2] * s_eePos_grad[6 * j + 2];
-
-                            if (blockIdx.x == KNOT_POINTS - 1){
-                                s_Qk[i*state_size + j] *= COST_TERMINAL<T>();
-                            }
+													s_eePos_grad[6 * i + 2] * s_eePos_grad[6 * j + 2]) * 
+													(blockIdx.x == KNOT_POINTS - 1 ? COST_TERMINAL<T>() : COST_Q<T>());
 
                             if (i == j){
                                 const T margin = JOINT_LIMIT_MARGIN<T>();
@@ -520,7 +521,178 @@ namespace gato{
 			__syncthreads();
 		}
 
-		// __host__ __device__
-		// constexpr unsigned costGradientAndHessian_TempMemSize_Shared(){return 0;}
+		__host__ __device__
+		constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared(){return grid::EE_POS_SHARED_MEM_COUNT + 2 * 6 * STATE_SIZE/2;}
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	// 	__host__
+	// 	unsigned trackingcost_TempMemCt_Shared(uint32_t state_size, uint32_t control_size, uint32_t knot_points){
+	// 		return state_size + control_size + 3 + 6 + 6 + grid::EE_POS_SHARED_MEM_COUNT;
+	// 	}
+
+	// 	///TODO: get rid of divergence
+	// 		template <typename T>
+	// 	__device__
+	// 	T trackingcost(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T *s_xu, T *s_ee_ref_k, T *s_temp, const grid::robotModel<T> *d_robotModel){
+	// 		T err;
+			
+	// 		// number of cost terms from:
+	// 		// - ee tracking error
+	// 		// - dq and u regularization
+	// 		const uint32_t num_threads = 6 + state_size + control_size * (blockIdx.x < knot_points - 1);
+			
+	// 		T *s_cost_vec = s_temp;
+	// 		T *s_ee_k = s_cost_vec + num_threads;
+	// 		T *s_extra_temp = s_ee_k + 6;
+
+	// 		grid::end_effector_positions_device<T>(s_ee_k, s_xu, s_extra_temp, d_robotModel); __syncthreads();
+			
+	// 		for(int i = threadIdx.x; i < num_threads; i += blockDim.x){
+	// 			if(i < 3){ // ee tracking
+	// 				T cost = (blockIdx.x == KNOT_POINTS - 1) ? COST_TERMINAL<T>() : COST_Q<T>();
+	// 				err = s_ee_ref_k[i] - s_ee_k[i];
+	// 				s_cost_vec[i] = cost * err * err;
+	// 			} else if (i < state_size) { // joint limits and qd reg
+	// 				err = s_xu[i];
+	// 				s_cost_vec[i] = (i < state_size/2) 
+	// 					? COST_BARRIER<T>() * jointBarrier(err, JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1])
+	// 					: COST_QD<T>() * err * err;
+	// 			} else { // u reg
+	// 				err = s_xu[i];
+	// 				s_cost_vec[i] = COST_R<T>() * err * err;
+	// 				//s_cost_vec[i] += COST_BARRIER<T>() * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+	// 			}
+	// 		} 
+	// 		__syncthreads();
+
+	// 		block::reduce<T>(num_threads, s_cost_vec); 
+	// 		__syncthreads();
+			
+	// 		return s_cost_vec[0];
+	// 	}	
+
+
+	// 	///TODO: costgradientandhessian could be much faster with no divergence
+	// 	// not last block
+	// 	template <typename T, bool computeR=true>
+	// 	__device__
+	// 	void trackingCostGradientAndHessian(uint32_t state_size, 
+	// 										uint32_t control_size, 
+	// 										T *s_xu, 
+	// 										T *s_ee_ref_k, 
+	// 										T *s_Qk, 
+	// 										T *s_qk, 
+	// 										T *s_Rk, 
+	// 										T *s_rk,
+	// 										T *s_temp,
+	// 										void *d_robotModel)
+	// 	{	
+	// 		const T Q_cost = (blockIdx.x == KNOT_POINTS - 1) ? COST_TERMINAL<T>() : COST_Q<T>();
+	// 		const T QD_cost = COST_QD<T>();
+	// 		const T R_cost = COST_R<T>();
+	// 		const T BARRIER_cost = COST_BARRIER<T>();
+
+	// 		T *s_ee_k = s_temp;
+	// 		T *s_dee_k = s_ee_k + 6; // d(ee_err)/dq
+	// 		T *s_scratch = s_dee_k + 6 * state_size/2;
+
+	// 		const uint32_t threads_needed = state_size + control_size*computeR;
+	// 		T dx, dy, dz;
+	// 		grid::end_effector_positions_device<T>(s_ee_k, s_xu, s_scratch, (grid::robotModel<T> *)d_robotModel);
+	// 		__syncthreads();
+	// 		grid::end_effector_positions_gradient_device<T>(s_dee_k, s_xu, s_scratch, (grid::robotModel<T> *)d_robotModel);
+	// 		__syncthreads();
+
+	// 		// Gradients (q, r)
+	// 		for (int i = threadIdx.x; i < threads_needed; i += blockDim.x){
+	// 			if(i < state_size){
+	// 				if (i < state_size / 2) { // ee tracking cost gradient (with respect to q)
+	// 					dx = s_ee_k[0] - s_ee_ref_k[0];
+	// 					dy = s_ee_k[1] - s_ee_ref_k[1];
+	// 					dz = s_ee_k[2] - s_ee_ref_k[2];
+	// 					s_qk[i] = Q_cost * (s_dee_k[6*i+0] * dx + s_dee_k[6*i+1] * dy + s_dee_k[6*i+2] * dz);
+						
+	// 					// Joint barrier gradient
+	// 					s_qk[i] += BARRIER_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+	// 				} else { // joint velocities
+	// 					s_qk[i] = QD_cost * s_xu[i];
+	// 				}
+	// 			} else { // control inputs
+	// 				s_rk[i - state_size] = R_cost * s_xu[i];
+	// 			}
+	// 		}
+	// 		__syncthreads();
+
+	// 		// Hessians (Q, R)
+	// 		for (int i = threadIdx.x; i < threads_needed; i += blockDim.x){
+	// 			if (i < state_size){
+	// 				for(int j = 0; j < state_size; j++){
+	// 					if(j < state_size / 2 && i < state_size / 2){
+	// 						// ee tracking hessian (gauss-newton approximation)
+	// 						s_Qk[i*state_size + j] = s_qk[i] * s_qk[j];
+
+	// 						// q barrier hessian (only diagonal terms)
+	// 						if (i == j){
+	// 							T dist_min = s_xu[i] - JOINT_LIMITS<T>()[i][0];
+	// 							T dist_max = JOINT_LIMITS<T>()[i][1] - s_xu[i];
+	// 							s_Qk[i*state_size + j] += BARRIER_cost * (1/(dist_min*dist_min) + 1/(dist_max*dist_max));
+	// 						}
+	// 					} else { 
+	// 						// (qd)
+	// 						s_Qk[i*state_size + j] = (i == j) ? QD_cost : static_cast<T>(0.0);
+	// 					}
+	// 				}
+	// 			} else { // (u)
+	// 				for(int j = i; j < threads_needed; j++){
+	// 					s_Rk[(i-state_size)*control_size + j] = (i == j) ? R_cost : static_cast<T>(0);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+
+	// 	// last block
+	// 	template <typename T>
+	// 	__device__
+	// 	void trackingCostGradientAndHessian_lastblock(uint32_t state_size, 
+	// 												uint32_t control_size, 
+	// 												T *s_xux, 
+	// 												T *s_ee_ref_k, 
+	// 												T *s_Qk, 
+	// 												T *s_qk, 
+	// 												T *s_Rk, 
+	// 												T *s_rk, 
+	// 												T *s_Qkp1, 
+	// 												T *s_qkp1,
+	// 												T *s_temp,
+	// 												void *d_dynMem_const
+	// 												)
+	// 	{
+	// 		trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_ee_ref_k, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const);
+	// 		__syncthreads();
+	// 		trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_ee_ref_k[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
+	// 		__syncthreads();
+	// 	}
+
+	// 	__host__ __device__
+	// 	constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared(){return grid::EE_POS_SHARED_MEM_COUNT + 2 * 6 * STATE_SIZE/2;}
+	// }

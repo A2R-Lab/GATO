@@ -37,9 +37,7 @@ struct PCGStats { //TODO: use template
 
 template <typename T, uint32_t BatchSize>
 struct LineSearchStats {
-    bool all_rho_max_reached;
-
-    // if rho_max_reached for a solve or line search failure, step_size = -1
+    // if line search failure, step_size = -1
     std::vector<T> min_merit; //min merit
     std::vector<T> step_size; //argmin of line search
 
@@ -56,7 +54,7 @@ struct SQPStats {
 
     // for each solve
     std::vector<int> sqp_iterations; 
-    std::vector<int> rho_max_reached; // 1 if reached, 0 if not
+    std::vector<int> kkt_converged; // 1 if converged, 0 if not
     
     // for each SQP iteration
     std::vector<PCGStats<BatchSize>> pcg_stats;
@@ -64,7 +62,7 @@ struct SQPStats {
 
     SQPStats() :
         sqp_iterations(BatchSize, 0),
-        rho_max_reached(BatchSize, 0) {}
+        kkt_converged(BatchSize, 0) {}
 };
 
 // --------------------------------------------------
