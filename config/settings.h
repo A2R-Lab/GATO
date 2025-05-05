@@ -10,7 +10,7 @@ constexpr uint32_t INTEGRATOR_TYPE = 2; // 0: euler, 1: semi-implicit euler, 2: 
 // constexpr uint32_t SQP_MAX_ITER = 5;
 // constexpr T KKT_TOL = static_cast<T>(1e-4);
 // constexpr T SOLVED_RATIO = 1.0;
-// TODO: SQP max time (const frequency)
+
 
 // constexpr uint32_t PCG_MAX_ITER = 100;
 // constexpr uint32_t PCG_MIN_ITER = 1;
@@ -23,7 +23,7 @@ constexpr uint32_t INTEGRATOR_TYPE = 2; // 0: euler, 1: semi-implicit euler, 2: 
 constexpr uint32_t NUM_ALPHAS = 8;
 constexpr float q_COST = 2.0;
 // constexpr float q_reg_COST = 1e-5;
-constexpr float dq_COST = 5e-3;
+constexpr float dq_COST = 1e-2;
 constexpr float u_COST = 1e-5;
 constexpr float N_COST = 20.0;
 constexpr float q_lim_COST = 0.1;
