@@ -1,7 +1,14 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "mpc"
-version = "0.1.0"
-description = "Add your description here"
+name = "gato"
+version = "0.0.2"
+authors = [
+    { name="Alex Du", email="alexander.du@columbia.edu" },
+]
+description = "GPU-accelerated batched trajectory optimization"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,6 +24,7 @@ dependencies = [
     "ninja>=1.11.1.4",
     "pybind11>=2.13.6",
     "pyqt5>=5.15.11",
+    "tdqm>=0.0.1",
 ]
 
 [dependency-groups]
