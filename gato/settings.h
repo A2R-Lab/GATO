@@ -5,7 +5,7 @@
 namespace sqp {
 
 using T = float;
-constexpr uint32_t INTEGRATOR_TYPE = 2; // 0: euler, 1: semi-implicit euler, 2: verlet (?)
+constexpr uint32_t INTEGRATOR_TYPE = 2;  // 0: euler, 1: semi-implicit euler, 2: verlet (?)
 
 // constexpr uint32_t SQP_MAX_ITER = 5;
 // constexpr T KKT_TOL = static_cast<T>(1e-4);
@@ -21,14 +21,14 @@ constexpr uint32_t INTEGRATOR_TYPE = 2; // 0: euler, 1: semi-implicit euler, 2: 
 // -——————————————————compile time settings——————————————————
 
 constexpr uint32_t NUM_ALPHAS = 8;
-constexpr float q_COST = 2.0;
+constexpr float    q_COST = 2.0;
 // constexpr float q_reg_COST = 1e-5;
-constexpr float dq_COST = 1e-2;
-constexpr float u_COST = 1e-5;
+constexpr float dq_COST = 5e-3;
+constexpr float u_COST = 1e-6;
 constexpr float N_COST = 20.0;
 constexpr float q_lim_COST = 0.1;
 
-constexpr float RHO = 1e-7;
+constexpr float RHO = 1e-8;
 // TODO: add u_lim
 
 
@@ -37,12 +37,12 @@ constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
 constexpr uint32_t DZ_THREADS = 128;
 constexpr uint32_t MERIT_THREADS = 128;
-constexpr uint32_t LINE_SEARCH_THREADS = 512;
+constexpr uint32_t LINE_SEARCH_THREADS = 1024;
 constexpr uint32_t SIM_FORWARD_THREADS = 512;
 
-} // namespace sqp
+}  // namespace sqp
 
 // ----- Plant -----
 #include "dynamics/indy7/indy7_plant.cuh"
-//#include "dynamics/iiwa14/iiwa14_plant.cuh"
-// TODO: add other plants
+// #include "dynamics/iiwa14/iiwa14_plant.cuh"
+//  TODO: add other plants
