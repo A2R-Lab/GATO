@@ -11,15 +11,15 @@
 using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
-using namespace gato::plant;
+
+
 template<typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void
     computeMeritBatchedKernel1(T* d_merit_batch_temp, T* d_dz_batch, T* d_xu_traj_batch, T* d_x_initial_batch, T* d_reference_traj_batch, void* d_GRiD_mem, T mu, T* d_f_ext_batch, T timestep)
 {
-        grid::robotModel<T>* d_robot_model = (grid::robotModel<T>*)d_GRiD_mem;
-
-        // TODO: change to for loops if we can't launch enough blocks for all solves
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
+        
+        grid::robotModel<T>* d_robot_model = (grid::robotModel<T>*)d_GRiD_mem;
         const uint32_t solve_idx = blockIdx.y;
         const uint32_t knot_idx = blockIdx.x;
         const uint32_t alpha_idx = blockIdx.z;
@@ -39,10 +39,8 @@ __global__ void
         T* d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
 
         if (knot_idx == KNOT_POINTS - 1) {
-#pragma unroll
                 for (int i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) { s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i]; }
         } else {
-#pragma unroll
                 for (int i = threadIdx.x; i < STATE_SIZE + STATE_S_CONTROL; i += blockDim.x) { s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i]; }
         }
 
@@ -51,14 +49,12 @@ __global__ void
         __syncthreads();
 
         // cost function
-        cost_k = gato::plant::trackingcost<T>(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS, s_xux_k, s_reference_traj_k, s_temp, d_robot_model);
-        __syncthreads();
+        cost_k = plant::trackingcost<T>(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS, s_xux_k, s_reference_traj_k, s_temp, d_robot_model);
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
-                constraint_k = integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
+                constraint_k = compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
         } else {
-#pragma unroll
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
                         s_temp[i] = abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  // initial state constraint error
                 }
@@ -93,10 +89,9 @@ __global__ void computeMeritBatchedKernel2(T* d_merit_batch, T* d_merit_batch_te
 template<typename T>
 __host__ size_t getComputeMeritBatchedSMemSize()
 {
-        size_t size = sizeof(T) * 2
-                      * (2 * STATE_SIZE + CONTROL_SIZE +                                                                               // xux_k
-                         grid::EE_POS_SIZE +                                                                                           // reference_traj_k
-                         grid::EE_POS_DYNAMIC_SHARED_MEM_COUNT + 2 * STATE_SIZE + gato::plant::forwardDynamics_TempMemSize_Shared());  // TODO: verify this
+        size_t size = sizeof(T)
+                      * (2 * STATE_SIZE + CONTROL_SIZE + grid::EE_POS_SIZE +                                                                                          // reference_traj_k
+                         max(gato::plant::trackingcost_TempMemCt_Shared(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS), gato::plant::forwardDynamics_TempMemSize_Shared()));  // TODO: verify this
         return size;
 }
 

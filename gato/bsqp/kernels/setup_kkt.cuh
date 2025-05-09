@@ -62,7 +62,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 block::copy<T, 2 * grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);  // TODO: is this correct?
                 __syncthreads();
 
-                linearize_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+                compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
                 __syncthreads();
 
                 block::copy<T, STATE_SIZE_SQ>(d_A_k, s_A_k);
@@ -115,8 +115,8 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
                          STATE_SIZE +                    // c_k
                          STATE_SIZE_SQ +                 // Q_last
                          STATE_SIZE +                    // q_last
-                         max(grid::EE_POS_DYNAMIC_SHARED_MEM_COUNT, gato::plant::trackingCostGradientAndHessian_TempMemSize_Shared())
-                         + max((STATE_SIZE / 2) * (STATE_S_CONTROL + 1) + gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared(), 3 + (STATE_SIZE / 2) * 6));
+                         max(max(grid::EE_POS_DYNAMIC_SHARED_MEM_COUNT, gato::plant::trackingCostGradientAndHessian_TempMemSize_Shared()),
+                         gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared()));
         return size;
 }
 

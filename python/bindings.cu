@@ -1,7 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
-// TODO: use Eigen3!
 #include "bsqp/bsqp.cuh"
 #include "types.cuh"
 #include "utils/utils.h"
@@ -42,6 +41,8 @@ class PyBSQP {
         {
                 printDeviceInfo();
                 setL2PersistingAccess(1.0);
+                std::cout << "T : " << typeid(T).name() << std::endl;
+
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * BatchSize * sizeof(T)));
@@ -126,7 +127,7 @@ class PyBSQP {
         void set_f_ext_batch(py::array_t<T> f_ext_batch)
         {
                 py::buffer_info f_ext_buf = f_ext_batch.request();
-                solver_.set_f_ext_batch(static_cast<float*>(f_ext_buf.ptr));
+                solver_.set_f_ext_batch(static_cast<T*>(f_ext_buf.ptr));
         }
 
         py::array_t<T> sim_forward(py::array_t<T> xk, py::array_t<T> uk, T dt)
@@ -162,75 +163,37 @@ class PyBSQP {
 #define MODULE_NAME_HELPER(knot) bsqpN##knot
 #define MODULE_NAME(knot) MODULE_NAME_HELPER(knot)
 
+// Macro to register a PyBSQP class with the given precision type and batch size
+#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                         \
+        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                         \
+            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
+            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                           \
+            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                 \
+            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                       \
+            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)
+
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
 {
-
         m.attr("KNOT_POINTS") = KNOT_POINTS;  // to check num knots for current module
 
-        // Register solvers for each batch size with the current KNOT_POINTS
-        py::class_<PyBSQP<float, 1>>(m, "BSQP_1")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 1>::solve)
-            .def("reset_dual", &PyBSQP<float, 1>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 1>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 1>::sim_forward);
 
-        py::class_<PyBSQP<float, 2>>(m, "BSQP_2")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 2>::solve)
-            .def("reset_dual", &PyBSQP<float, 2>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 2>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 2>::sim_forward);
-
-        py::class_<PyBSQP<float, 4>>(m, "BSQP_4")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 4>::solve)
-            .def("reset_dual", &PyBSQP<float, 4>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 4>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 4>::sim_forward);
-
-        py::class_<PyBSQP<float, 8>>(m, "BSQP_8")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 8>::solve)
-            .def("reset_dual", &PyBSQP<float, 8>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 8>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 8>::sim_forward);
-
-        py::class_<PyBSQP<float, 16>>(m, "BSQP_16")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 16>::solve)
-            .def("reset_dual", &PyBSQP<float, 16>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 16>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 16>::sim_forward);
-
-        py::class_<PyBSQP<float, 32>>(m, "BSQP_32")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 32>::solve)
-            .def("reset_dual", &PyBSQP<float, 32>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 32>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 32>::sim_forward);
-
-        py::class_<PyBSQP<float, 64>>(m, "BSQP_64")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 64>::solve)
-            .def("reset_dual", &PyBSQP<float, 64>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 64>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 64>::sim_forward);
-
-        py::class_<PyBSQP<float, 128>>(m, "BSQP_128")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 128>::solve)
-            .def("reset_dual", &PyBSQP<float, 128>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 128>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 128>::sim_forward);
-
-        py::class_<PyBSQP<float, 512>>(m, "BSQP_512")
-            .def(py::init<const float, const uint32_t, const float, const uint32_t, const float, const float, const float, const float, const float, const float, const float, const float>())
-            .def("solve", &PyBSQP<float, 512>::solve)
-            .def("reset_dual", &PyBSQP<float, 512>::reset_dual)
-            .def("set_f_ext_batch", &PyBSQP<float, 512>::set_f_ext_batch)
-            .def("sim_forward", &PyBSQP<float, 512>::sim_forward);
-            
-            
-            
+#ifdef USE_DOUBLES
+        REGISTER_BSQP_CLASS(double, 1);
+        REGISTER_BSQP_CLASS(double, 2);
+        REGISTER_BSQP_CLASS(double, 4);
+        REGISTER_BSQP_CLASS(double, 8);
+        REGISTER_BSQP_CLASS(double, 16);
+        REGISTER_BSQP_CLASS(double, 32);
+        REGISTER_BSQP_CLASS(double, 64);
+        REGISTER_BSQP_CLASS(double, 128);
+#else
+        REGISTER_BSQP_CLASS(float, 1);
+        REGISTER_BSQP_CLASS(float, 2);
+        REGISTER_BSQP_CLASS(float, 4);
+        REGISTER_BSQP_CLASS(float, 8);
+        REGISTER_BSQP_CLASS(float, 16);
+        REGISTER_BSQP_CLASS(float, 32);
+        REGISTER_BSQP_CLASS(float, 64);
+        REGISTER_BSQP_CLASS(float, 128);
+#endif
 }

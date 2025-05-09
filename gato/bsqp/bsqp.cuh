@@ -3,7 +3,6 @@
 #include <iostream>
 #include <cstdint>
 #include <chrono>
-#include <Eigen/Core>
 #include "settings.h"
 #include "constants.h"
 #include "types.cuh"
@@ -39,11 +38,11 @@ class BSQP {
 
         void reset_dual() { gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BatchSize * sizeof(T))); }
 
-        void warmstart()
-        {
-                // TODO: run a bunch of times with low sqp & pcg tolerances so lambda is warm started
-                return;
-        }
+        // void warmstart()
+        // {
+        //         // TODO: run a bunch of times with low sqp & pcg tolerances so lambda is warm started
+        //         return;
+        // }
 
         void sim_forward(T* d_xkp1_batch, T* d_xk, T* d_uk, T dt) { simForwardBatched<T, BatchSize>(d_xkp1_batch, d_xk, d_uk, d_GRiD_mem_, d_f_ext_batch_, dt); }
 
@@ -62,14 +61,14 @@ class BSQP {
                         setupKKTSystemBatched<T, BatchSize>(kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_);
                         formSchurSystemBatched<T, BatchSize>(schur_system_batch_, kkt_system_batch_);
 
-                        gpuErrchk(cudaEventRecord(pcg_start_event_));
+                        // gpuErrchk(cudaEventRecord(pcg_start_event_));
                         solvePCGBatched<T, BatchSize>(d_lambda_batch_, schur_system_batch_, pcg_tol_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
-                        gpuErrchk(cudaEventRecord(pcg_stop_event_));
-                        gpuErrchk(cudaEventSynchronize(pcg_stop_event_));
+                        // gpuErrchk(cudaEventRecord(pcg_stop_event_));
+                        // gpuErrchk(cudaEventSynchronize(pcg_stop_event_));
 
                         computeDzBatched<T, BatchSize>(d_dz_batch_, d_lambda_batch_, kkt_system_batch_);
 
-                        // Note: d_q_batch, d_r_batch contain the KKT residuals after computeDzBatched
+                        // d_q_batch, d_r_batch contain the KKT residuals after computeDzBatched
                         gpuErrchk(cudaMemcpyAsync(h_q_batch_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpyAsync(h_c_batch_, kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         // gpuErrchk(cudaMemcpy(h_r_batch_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
@@ -78,17 +77,16 @@ class BSQP {
                         gpuErrchk(cudaEventElapsedTime(&pcg_time_us_, pcg_start_event_, pcg_stop_event_));
                         pcg_stats.solve_time_us = pcg_time_us_ * 1000;
 
-
-                        // KKT residual check on cpu (this is async with gpu)
+                        // KKT condition check on cpu is async with gpu
                         uint32_t num_solved = 0;
                         for (uint32_t b = 0; b < BatchSize; ++b) {
-                                Eigen::Map<Eigen::Matrix<T, STATE_P_KNOTS, 1>> q_vec(h_q_batch_ + b * STATE_P_KNOTS);
-                                Eigen::Map<Eigen::Matrix<T, STATE_P_KNOTS, 1>> c_vec(h_c_batch_ + b * STATE_P_KNOTS);
-                                // Eigen::Map<Eigen::Matrix<T, CONTROL_P_KNOTS, 1>> r_vec(h_r_batch_ + b * CONTROL_P_KNOTS);
+                                const T* q_ptr = h_q_batch_ + b * STATE_P_KNOTS;
+                                const T* c_ptr = h_c_batch_ + b * STATE_P_KNOTS;
 
-                                T q_max = q_vec.cwiseAbs().maxCoeff();
-                                T c_max = c_vec.cwiseAbs().maxCoeff();
-                                // T r_max = r_vec.cwiseAbs().maxCoeff();
+                                auto abs_cmp = [](T a, T b) { return std::abs(a) < std::abs(b); };
+
+                                T q_max = std::abs(*std::max_element(q_ptr, q_ptr + STATE_P_KNOTS, abs_cmp));
+                                T c_max = std::abs(*std::max_element(c_ptr, c_ptr + STATE_P_KNOTS, abs_cmp));
 
                                 // within kkt exit tol or pcg exit tol (no steps taken)
                                 if (pcg_stats.num_iterations[b] == 0 || (q_max < kkt_tol_ && c_max < kkt_tol_)) {
@@ -102,6 +100,9 @@ class BSQP {
                                         h_sqp_iters_B_[b] += 1;
                                 }
                         }
+
+                        if (num_solved >= BatchSize * solve_ratio_) break;
+
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
 
                         computeMeritBatched<T, BatchSize, NUM_ALPHAS>(d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_);
@@ -111,21 +112,19 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(ls_stats.step_size.data(), d_step_size_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         sqp_stats.line_search_stats.push_back(ls_stats);
                         sqp_stats.pcg_stats.push_back(pcg_stats);
-
-                        if (num_solved >= BatchSize * solve_ratio_) break;
                 }
 
                 gpuErrchk(cudaDeviceSynchronize());
                 auto sqp_end_time = std::chrono::high_resolution_clock::now();
-                sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
-                memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
-                memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, BatchSize * sizeof(uint32_t));
-
                 gpuErrchk(cudaMemset(d_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t)));
                 gpuErrchk(cudaMemset(d_all_kkt_converged_, 0, sizeof(int32_t)));
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t)));
+                sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
+                memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
+                memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, BatchSize * sizeof(uint32_t));
                 memset(h_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t));
                 memset(h_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t));
+
                 return sqp_stats;
         }
 
@@ -259,32 +258,3 @@ class BSQP {
         T           N_cost_;
         T           q_lim_cost_;
 };
-
-
-// // Compute average L2 norm of each residual (q, r, c) over all knot points
-// T q_norm_sum = 0.0;
-// T c_norm_sum = 0.0;
-
-// for (uint32_t k = 0; k < KNOT_POINTS; ++k) {
-//     T* q_k = h_q_batch_ + b * STATE_P_KNOTS + k * STATE_SIZE;
-//     T* c_k = h_c_batch_ + b * STATE_P_KNOTS + k * STATE_SIZE;
-
-//     T q_norm = 0.0;
-//     T c_norm = 0.0;
-
-//     for (uint32_t j = 0; j < STATE_SIZE; ++j) {
-//         q_norm += q_k[j] * q_k[j];
-//         c_norm += c_k[j] * c_k[j];
-//     }
-
-//     q_norm_sum += std::sqrt(q_norm);
-//     c_norm_sum += std::sqrt(c_norm);
-// }
-
-// T avg_q_norm = q_norm_sum / KNOT_POINTS;
-// T avg_c_norm = c_norm_sum / KNOT_POINTS;
-
-// if (avg_q_norm < kkt_tol_ && avg_c_norm < kkt_tol_) { // ignore r_norm for now
-//     h_kkt_converged_batch_[b] = 1;
-//     num_solved++;
-// }

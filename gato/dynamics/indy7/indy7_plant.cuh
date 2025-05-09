@@ -63,20 +63,21 @@ namespace plant {
                 return static_cast<T>(-0.5);
         }
 
-        __device__ constexpr float JOINT_LIMITS_DATA[6][2] = {
+        template<class T>
+        __device__ constexpr T JOINT_LIMITS_DATA[6][2] = {
             // from indy7.urdf
-            {-3.0543f, 3.0543f},  // joint 0
-            {-3.0543f, 3.0543f},  // joint 1
-            {-3.0543f, 3.0543f},  // joint 2
-            {-3.0543f, 3.0543f},  // joint 3
-            {-3.0543f, 3.0543f},  // joint 4
-            {-3.7520f, 3.7520f},  // joint 5
+            {-3.0543, 3.0543},  // joint 0
+            {-3.0543, 3.0543},  // joint 1
+            {-3.0543, 3.0543},  // joint 2
+            {-3.0543, 3.0543},  // joint 3
+            {-3.0543, 3.0543},  // joint 4
+            {-3.7520, 3.7520}  // joint 5
         };
 
         template<class T>
-        __host__ __device__ constexpr const float (&JOINT_LIMITS())[6][2]
+        __host__ __device__ constexpr const T (&JOINT_LIMITS())[6][2]
         {
-                return JOINT_LIMITS_DATA;
+                return JOINT_LIMITS_DATA<T>;
         }
 
         template<typename T>
@@ -116,7 +117,7 @@ namespace plant {
 
                 T* s_XImats = s_XITemp;
                 T* s_temp = &s_XITemp[864];
-                grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float>*)d_dynMem_const, s_temp);
+                grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
                 grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato::plant::GRAVITY<T>());
@@ -129,7 +130,7 @@ namespace plant {
 
                 T* s_XImats = s_XITemp;
                 T* s_temp = &s_XITemp[864];
-                grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<float>*)d_dynMem_const, s_temp);
+                grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
                 grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_temp, gato::plant::GRAVITY<T>(), d_f_ext);
@@ -176,6 +177,7 @@ namespace plant {
                                 s_df_du[ind + 72] = s_Minv[index];
                         }
                 }
+                __syncthreads();
         }
 
         // Add external wrench
@@ -217,6 +219,7 @@ namespace plant {
                                 s_df_du[ind + 72] = s_Minv[index];
                         }
                 }
+                __syncthreads();
         }
 
         __host__ __device__ constexpr unsigned forwardDynamicsAndGradient_TempMemSize_Shared()
