@@ -27,40 +27,40 @@ namespace plant {
                 return static_cast<T>(9.81);
         }
 
-        template<class T>
-        __host__ __device__ constexpr T COST_Q()
-        {
-                return static_cast<T>(q_COST);
-        }
+        // template<class T>
+        // __host__ __device__ constexpr T COST_Q()
+        // {
+        //         return static_cast<T>(q_COST);
+        // }
 
-        template<class T>
-        __host__ __device__ constexpr T COST_QD()
-        {
-                return static_cast<T>(dq_COST);
-        }
+        // template<class T>
+        // __host__ __device__ constexpr T COST_QD()
+        // {
+        //         return static_cast<T>(dq_COST);
+        // }
 
-        template<class T>
-        __host__ __device__ constexpr T COST_R()
-        {
-                return static_cast<T>(u_COST);
-        }
+        // template<class T>
+        // __host__ __device__ constexpr T COST_R()
+        // {
+        //         return static_cast<T>(u_COST);
+        // }
 
-        template<class T>
-        __host__ __device__ constexpr T COST_TERMINAL()
-        {
-                return static_cast<T>(N_COST);
-        }
+        // template<class T>
+        // __host__ __device__ constexpr T COST_TERMINAL()
+        // {
+        //         return static_cast<T>(N_COST);
+        // }
 
-        template<class T>
-        __host__ __device__ constexpr T COST_BARRIER()
-        {
-                return static_cast<T>(q_lim_COST);
-        }
+        // template<class T>
+        // __host__ __device__ constexpr T COST_BARRIER()
+        // {
+        //         return static_cast<T>(q_lim_COST);
+        // }
 
         template<class T>
         __host__ __device__ constexpr T JOINT_LIMIT_MARGIN()
         {
-                return static_cast<T>(-0.5);
+                return static_cast<T>(-0.2);
         }
 
         template<class T>
@@ -97,17 +97,19 @@ namespace plant {
         __device__ T jointBarrier(T q, T q_min, T q_max)
         {
                 const T margin = JOINT_LIMIT_MARGIN<T>();
-                T       dist_min = q - (q_min + margin);
-                T       dist_max = (q_max - margin) - q;
-                return -log(dist_min) - log(dist_max);
+                T       dist_min = q - (q_min - margin);
+                T       dist_max = (q_max + margin) - q;
+                return (dist_min <=0 || dist_max <= 0) ? 1e10 : -log(dist_min) - log(dist_max);
         }
 
         template<class T>
         __device__ T jointBarrierGradient(T q, T q_min, T q_max)
         {
                 const T margin = JOINT_LIMIT_MARGIN<T>();
-                T       dist_min = q - (q_min + margin);
-                T       dist_max = (q_max - margin) - q;
+                T       dist_min = q - (q_min - margin);
+                T       dist_max = (q_max + margin) - q;
+                dist_min = (dist_min <= 1e-10) ? 1e-10 : dist_min;
+                dist_max = (dist_max <= 1e-10) ? 1e-10 : dist_max;
                 return -1 / dist_min + 1 / dist_max;
         }
 
@@ -228,7 +230,7 @@ namespace plant {
         }
 
         template<typename T>
-        __device__ T trackingcost(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T* s_xu, T* s_eePos_traj, T* s_temp, const grid::robotModel<T>* d_robotModel)
+        __device__ T trackingcost(uint32_t state_size, uint32_t control_size, uint32_t knot_points, T* s_xu, T* s_eePos_traj, T* s_temp, const grid::robotModel<T>* d_robotModel, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost)
         {
                 T              err;
                 const uint32_t threadsNeeded = state_size / 2 + control_size * (blockIdx.x < knot_points - 1);
@@ -242,20 +244,20 @@ namespace plant {
                 for (int i = threadIdx.x; i < threadsNeeded; i += blockDim.x) {
                         if (i < state_size / 2) {
                                 err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * COST_QD<T>() * err * err;
-                                s_cost_vec[i] += COST_BARRIER<T>() * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                s_cost_vec[i] = static_cast<T>(0.5) * qd_cost * err * err;
+                                s_cost_vec[i] += q_lim_cost * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                         } else {
                                 err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * COST_R<T>() * err * err;
+                                s_cost_vec[i] = static_cast<T>(0.5) * u_cost * err * err;
                         }
                 }
 #pragma unroll
                 for (int i = threadIdx.x; i < 3; i += blockDim.x) {
                         err = s_eePos_cost[i] - s_eePos_traj[i];
                         if (blockIdx.x == KNOT_POINTS - 1) {
-                                s_cost_vec[threadsNeeded + i] = 0.5 * COST_TERMINAL<T>() * err * err;
+                                s_cost_vec[threadsNeeded + i] = 0.5 * N_cost * err * err;
                         } else {
-                                s_cost_vec[threadsNeeded + i] = 0.5 * COST_Q<T>() * err * err;
+                                s_cost_vec[threadsNeeded + i] = 0.5 * q_cost * err * err;
                         }
                 }
                 __syncthreads();
@@ -272,7 +274,7 @@ namespace plant {
         }
 
         template<typename T, bool computeR = true>
-        __device__ void trackingCostGradientAndHessian(uint32_t state_size, uint32_t control_size, T* s_xu, T* s_eePos_traj, T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp, void* d_robotModel)
+        __device__ void trackingCostGradientAndHessian(uint32_t state_size, uint32_t control_size, T* s_xu, T* s_eePos_traj, T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp, void* d_robotModel, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost)
         {
                 T* s_eePos = s_temp;
                 T* s_eePos_grad = s_eePos + 6;
@@ -290,14 +292,14 @@ namespace plant {
                                         // tracking err
                                         s_qk[i] = (s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                    + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
-                                                  * (blockIdx.x == KNOT_POINTS - 1 ? COST_TERMINAL<T>() : COST_Q<T>());
+                                                  * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
                                         // joint barrier
-                                        s_qk[i] += COST_BARRIER<T>() * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                        s_qk[i] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                 } else {
-                                        s_qk[i] = COST_QD<T>() * s_xu[i];
+                                        s_qk[i] = qd_cost * s_xu[i];
                                 }
                         } else {
-                                s_rk[i - grid::NX] = COST_R<T>() * s_xu[i];
+                                s_rk[i - grid::NX] = u_cost * s_xu[i];
                         }
                 }
                 // __syncthreads();
@@ -308,24 +310,25 @@ namespace plant {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
                                                 // tracking err
-                                                s_Qk[i * grid::NX + j] = (s_eePos_grad[6 * i + 0] * s_eePos_grad[6 * j + 0] + s_eePos_grad[6 * i + 1] * s_eePos_grad[6 * j + 1]
-                                                                          + s_eePos_grad[6 * i + 2] * s_eePos_grad[6 * j + 2])
-                                                                         * (blockIdx.x == KNOT_POINTS - 1 ? COST_TERMINAL<T>() : COST_Q<T>());
+                                                s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1]) + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))*
+                                                                          (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1]) + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2])))
+                                                                         * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
                                                 // joint barrier
+                                                // s_Qk[i * state_size + j] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]) * jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
                                                 if (i == j) {
                                                         const T margin = JOINT_LIMIT_MARGIN<T>();
                                                         T       dist_min = s_xu[i] - (JOINT_LIMITS<T>()[i][0] + margin);
                                                         T       dist_max = (JOINT_LIMITS<T>()[i][1] - margin) - s_xu[i];
-                                                        s_Qk[i * state_size + j] += COST_BARRIER<T>() * (1 / (dist_min * dist_min) + 1 / (dist_max * dist_max));
+                                                        s_Qk[i * state_size + j] += q_lim_cost * (1 / (dist_min * dist_min) + 1 / (dist_max * dist_max));
                                                 }
                                         } else {
                                                 // joint velocity reg
-                                                s_Qk[i * grid::NX + j] = (i == j) ? COST_QD<T>() : static_cast<T>(0);
+                                                s_Qk[i * grid::NX + j] = (i == j) ? qd_cost : static_cast<T>(0);
                                         }
                                 }
                         } else {
                                 uint32_t offset = i - grid::NX;
-                                for (int j = 0; j < grid::NU; j++) { s_Rk[offset * grid::NU + j] = (offset == j) ? COST_R<T>() : static_cast<T>(0); }
+                                for (int j = 0; j < grid::NU; j++) { s_Rk[offset * grid::NU + j] = (offset == j) ? u_cost : static_cast<T>(0); }
                         }
                 }
                 __syncthreads();
@@ -343,10 +346,15 @@ namespace plant {
                                                                  T*       s_Qkp1,
                                                                  T*       s_qkp1,
                                                                  T*       s_temp,
-                                                                 void*    d_dynMem_const)
+                                                                 void*    d_dynMem_const,
+                                                                 T        q_cost,
+                                                                 T        qd_cost,
+                                                                 T        u_cost,
+                                                                 T        N_cost,
+                                                                 T        q_lim_cost)
         {
-                trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const);
-                trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const);
+                trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
+                trackingCostGradientAndHessian<T, false>(state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
         }
 
         __host__ __device__ constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared()
