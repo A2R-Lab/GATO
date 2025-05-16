@@ -24,7 +24,12 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T*    d_x_s_batch,             // initial state
                                             T*    d_reference_traj_batch,  // end effector position trajectory
                                             T*    d_f_ext_batch,
-                                            T     timestep)
+                                            T     timestep,
+                                            T     q_cost,
+                                            T     qd_cost,
+                                            T     u_cost,
+                                            T     N_cost,
+                                            T     q_lim_cost)
 {
         // kernel launched with 2D grid: (knot_idx, solve_idx)
         const uint32_t solve_idx = blockIdx.y;
@@ -71,7 +76,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
 
                 if (knot_idx < KNOT_POINTS - 2) {
 
-                        gato::plant::trackingCostGradientAndHessian<T>(STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_GRiD_mem);
+                        gato::plant::trackingCostGradientAndHessian<T>(STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_GRiD_mem, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
@@ -81,7 +86,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
 
                         // compute Q_k, q_k, R_k, r_k, Q_last, q_last
                         gato::plant::trackingCostGradientAndHessian_lastblock<T>(
-                            STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_Q_last, s_q_last, s_temp, d_GRiD_mem);
+                            STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_Q_last, s_q_last, s_temp, d_GRiD_mem, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
 
                         // c_0 = x_0 - x_s
                         T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
@@ -121,7 +126,7 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
 }
 
 template<typename T, uint32_t BatchSize>
-__host__ void setupKKTSystemBatched(KKTSystem<T, BatchSize> kkt, ProblemInputs<T, BatchSize> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem)
+__host__ void setupKKTSystemBatched(KKTSystem<T, BatchSize> kkt, ProblemInputs<T, BatchSize> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost)
 {
         dim3   grid(KNOT_POINTS, BatchSize);
         dim3   block(KKT_THREADS);
@@ -139,5 +144,10 @@ __host__ void setupKKTSystemBatched(KKTSystem<T, BatchSize> kkt, ProblemInputs<T
                                                                                inputs.d_x_s_batch,
                                                                                inputs.d_reference_traj_batch,
                                                                                d_f_ext_batch,
-                                                                               inputs.timestep);
+                                                                               inputs.timestep,
+                                                                               q_cost,
+                                                                               qd_cost,
+                                                                               u_cost,
+                                                                               N_cost,
+                                                                               q_lim_cost);
 }

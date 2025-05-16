@@ -15,7 +15,7 @@ using namespace gato::constants;
 
 template<typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void
-    computeMeritBatchedKernel1(T* d_merit_batch_temp, T* d_dz_batch, T* d_xu_traj_batch, T* d_x_initial_batch, T* d_reference_traj_batch, void* d_GRiD_mem, T mu, T* d_f_ext_batch, T timestep)
+    computeMeritBatchedKernel1(T* d_merit_batch_temp, T* d_dz_batch, T* d_xu_traj_batch, T* d_x_initial_batch, T* d_reference_traj_batch, void* d_GRiD_mem, T mu, T* d_f_ext_batch, T timestep, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
         
@@ -49,7 +49,7 @@ __global__ void
         __syncthreads();
 
         // cost function
-        cost_k = plant::trackingcost<T>(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS, s_xux_k, s_reference_traj_k, s_temp, d_robot_model);
+        cost_k = plant::trackingcost<T>(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS, s_xux_k, s_reference_traj_k, s_temp, d_robot_model, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
@@ -96,7 +96,7 @@ __host__ size_t getComputeMeritBatchedSMemSize()
 }
 
 template<typename T, uint32_t BatchSize, uint32_t NumAlphas>
-__host__ void computeMeritBatched(T* d_merit_batch, T* d_merit_batch_temp, T* d_dz_batch, T* d_xu_traj_batch, T* d_f_ext_batch, ProblemInputs<T, BatchSize> inputs, T mu, void* d_GRiD_mem)
+__host__ void computeMeritBatched(T* d_merit_batch, T* d_merit_batch_temp, T* d_dz_batch, T* d_xu_traj_batch, T* d_f_ext_batch, ProblemInputs<T, BatchSize> inputs, T mu, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost)
 {
         dim3   grid1(KNOT_POINTS, BatchSize, NumAlphas);
         dim3   grid2(BatchSize, NumAlphas);
@@ -104,7 +104,7 @@ __host__ void computeMeritBatched(T* d_merit_batch, T* d_merit_batch_temp, T* d_
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
 
         computeMeritBatchedKernel1<T, BatchSize>
-            <<<grid1, thread_block, s_mem_size>>>(d_merit_batch_temp, d_dz_batch, d_xu_traj_batch, inputs.d_x_s_batch, inputs.d_reference_traj_batch, d_GRiD_mem, mu, d_f_ext_batch, inputs.timestep);
+            <<<grid1, thread_block, s_mem_size>>>(d_merit_batch_temp, d_dz_batch, d_xu_traj_batch, inputs.d_x_s_batch, inputs.d_reference_traj_batch, d_GRiD_mem, mu, d_f_ext_batch, inputs.timestep, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
 
         computeMeritBatchedKernel2<T, NumAlphas><<<grid2, thread_block, KNOT_POINTS * sizeof(T)>>>(d_merit_batch, d_merit_batch_temp);
 }

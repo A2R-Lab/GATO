@@ -36,8 +36,9 @@ class PyBSQP {
                const T        qd_cost,
                const T        u_cost,
                const T        N_cost,
-               const T        q_lim_cost)
-            : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost)
+               const T        q_lim_cost,
+               const T        rho)
+            : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, rho)
         {
                 printDeviceInfo();
                 setL2PersistingAccess(1.0);
@@ -166,7 +167,7 @@ class PyBSQP {
 // Macro to register a PyBSQP class with the given precision type and batch size
 #define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                         \
         py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                         \
-            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
+            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
             .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                           \
             .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                 \
             .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                       \
