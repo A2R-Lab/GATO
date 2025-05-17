@@ -25,7 +25,7 @@ __global__ void
         const uint32_t alpha_idx = blockIdx.z;
         T              alpha = 1.0 / (1 << alpha_idx);
 
-        T cost_k, constraint_k, merit_k;  // cost function, constraint error, per-point merit
+        T cost_k, constraint_k;  // cost function, constraint error, per-point merit
 
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // current state, control, and next state
@@ -50,6 +50,7 @@ __global__ void
 
         // cost function
         cost_k = plant::trackingcost<T>(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS, s_xux_k, s_reference_traj_k, s_temp, d_robot_model, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+        __syncthreads();
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot

@@ -10,6 +10,8 @@ import pickle
 import importlib
 sys.path.append('./python/bsqp')
 
+np.set_printoptions(precision=3)
+np.set_printoptions(linewidth=990)
 
 class GATO:
     def __init__(self, N, dt, batch_size, f_ext_std, max_sqp_iters=8, kkt_tol=0.005, max_pcg_iters=50, pcg_tol=1e-3, Q_cost=1.0, dQ_cost=1e-2, u_cost=1e-6, QN_cost=20.0, Qlim_cost=0.0, Qvel_cost=0.0, Qacc_cost=0.0, rho=0.0):
@@ -75,21 +77,21 @@ class Benchmark():
         N = 16
         self.N = N
         dt = 0.01
-        max_qp_iters = 20
+        max_qp_iters = 5
         num_threads = batch_size
         fext_timesteps = 8
-        Q_cost = 2.0
-        dQ_cost = 1e-2
-        R_cost = 1e-6
+        Q_cost = 1.0
+        dQ_cost = 5e-2
+        R_cost = 1e-7
         QN_cost = 20.0
-        Qpos_cost = 0.01
-        Qvel_cost = 0.01
-        Qacc_cost = 0.01
+        Qpos_cost = 0.0
+        Qvel_cost = 0.0
+        Qacc_cost = 0.0
         rho = 1e-5
         # orient_cost = 0.0
-        kkt_tol = 1e-4
-        max_pcg_iters = 200
-        pcg_tol = 1e-7
+        kkt_tol = 1e-9
+        max_pcg_iters = 500
+        pcg_tol = 1e-8
         self.realtime = False
         self.resample_fext = 0 and (batch_size > 1)
         self.usefext = usefext
@@ -199,7 +201,7 @@ class Benchmark():
 
         self.XU_batch = np.zeros((self.batch_size, self.solver.N*(self.nx+self.nu)-self.nu))
         self.update_XU_batch()
-        self.update_goal_trace_batch(goal_point)
+        self.update_goal_trace_batch(self.eepos_zero)
         goal_set = False
         
         while sim_steps < 1000:
@@ -209,6 +211,7 @@ class Benchmark():
 
             # set goal
             if not goal_set and self.dist_to_goal(self.eepos_zero) < 0.4:
+                print(f'goal set')
                 self.update_goal_trace_batch(goal_point)
                 goal_set = True
 
@@ -220,7 +223,15 @@ class Benchmark():
             solvestart = time.monotonic()
             XU_batch_new, gpu_solve_time = self.solver.solve(self.xs_batch, self.goal_trace_batch, self.XU_batch)
             solve_time = time.monotonic() - solvestart
+            # print(f'Solve time: {1000 * (solve_time):.2f} ms')
+            print(f'{XU_batch_new[:,:18]}')
 
+            # if any XU_batch_new is nan or inf, reset solver
+            if np.any(np.isnan(XU_batch_new)) or np.any(np.isinf(XU_batch_new)):
+                print("solve returned nan or inf")
+                self.reset_solver()
+                self.update_XU_batch()
+                continue
 
             # simulate forward with last control
             sim_time = solve_time
