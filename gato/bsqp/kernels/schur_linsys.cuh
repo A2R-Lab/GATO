@@ -91,7 +91,7 @@ __global__ void formSchurSystemBatchedKernel1(T* d_S_batch,
                 T rho_penalty = d_rho_penalty_batch[solve_idx];
                 block::addScaledIdentity<T, STATE_SIZE>(s_Q_k, rho_penalty);
                 block::addScaledIdentity<T, STATE_SIZE>(s_Q_kp1, rho_penalty);
-                block::addScaledIdentity<T, CONTROL_SIZE>(s_R_k, rho_penalty);
+                // block::addScaledIdentity<T, CONTROL_SIZE>(s_R_k, rho_penalty);
                 __syncthreads();
 
                 // TODO: cholesky factorization inverse (because symmetric positive definite)

@@ -148,6 +148,7 @@ class PyBSQP {
         }
 
         void reset_dual() { solver_.reset_dual(); }
+        void reset_rho() { solver_.reset_rho(); }
 
       private:
         BSQP<T, BatchSize> solver_;
@@ -165,13 +166,14 @@ class PyBSQP {
 #define MODULE_NAME(knot) MODULE_NAME_HELPER(knot)
 
 // Macro to register a PyBSQP class with the given precision type and batch size
-#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                         \
-        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                         \
+#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                                     \
+        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                                     \
             .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
-            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                           \
-            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                 \
-            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                       \
-            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)
+            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                                       \
+            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                             \
+            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                                   \
+            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)                                                                                                                           \
+            .def("reset_rho", &PyBSQP<Type, BatchSize>::reset_rho)
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
 {
