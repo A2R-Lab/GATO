@@ -41,6 +41,8 @@ class GATO:
         }
         
     def solve(self, x_curr_batch, eepos_goals_batch, XU_batch):
+        # self.reset_dual()
+        # self.reset_rho()
         result = self.solver.solve(XU_batch, self.dt, x_curr_batch, eepos_goals_batch)
         self.stats['solve_time']['values'].append(result["sqp_time_us"])
         self.stats['sqp_iters']['values'].append(result["sqp_iters"])
@@ -59,6 +61,9 @@ class GATO:
     def reset_dual(self):
         self.solver.reset_dual()
         
+    def reset_rho(self):
+        self.solver.reset_rho()
+        
     def get_stats(self):
         return self.stats
     
@@ -67,24 +72,24 @@ class Benchmark():
     def __init__(self, file_prefix='', batch_size=1, usefext=False):
         # xml_filename = "urdfs/frankapanda/mjx_panda.xml"
         urdf_filename = "urdfs/indy7.urdf"
-        N = 32
+        N = 16
         self.N = N
         dt = 0.01
-        max_qp_iters = 4
+        max_qp_iters = 20
         num_threads = batch_size
         fext_timesteps = 8
         Q_cost = 2.0
-        dQ_cost = 1e-2
-        R_cost = 5e-5
+        dQ_cost = 5e-4
+        R_cost = 5e-6
         QN_cost = 10.0
         Qpos_cost = 0.0
-        rho = 1e-2
+        rho = 5e-5
         # Qvel_cost = 0.0
         # Qacc_cost = 0.0
         # orient_cost = 0.0
-        kkt_tol = 0.005
-        max_pcg_iters = 250
-        pcg_tol = 1e-7
+        kkt_tol = 1e-4
+        max_pcg_iters = 100
+        pcg_tol = 1e-6
         self.realtime = True
         self.resample_fext = 0 and (batch_size > 1)
         self.usefext = usefext
@@ -179,6 +184,7 @@ class Benchmark():
     def reset_solver(self):
         # reset primals and duals to zeros
         self.solver.reset_dual()
+        self.solver.reset_rho()
 
     def runMPC(self, viewer, goal_point):
         sim_steps = 0
@@ -272,8 +278,8 @@ class Benchmark():
 
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.8 + self.last_control * 0.2
-            # self.last_control = self.data.ctrl
+            self.data.ctrl = bestctrl #* 0.8 + self.last_control * 0.2
+            self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
             # update stats
@@ -298,7 +304,7 @@ class Benchmark():
         print(f'average ctrl: {total_ctrl / sim_steps}')
         return stats
 
-    def runBench(self, headless=False):
+    def runBench(self, headless=True):
 
         allstats = {
             'failed': [],
@@ -328,7 +334,7 @@ class Benchmark():
             print(f'Point{i}: {self.points[i]}, {self.points[i+1]}')
             # reset to zero
             self.xs_batch = np.zeros(self.batch_size*self.nx)
-            self.data.qpos = 0.0001 * np.ones(self.nq)
+            self.data.qpos = np.zeros(self.nq)
             self.data.qvel = np.zeros(self.nv)
             self.data.ctrl = np.zeros(self.nu)
 

@@ -55,23 +55,24 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
         }
 
         T min_merit = s_merit[0];
-    
+
         bool line_search_success = (min_merit < d_merit_initial_batch[solve_idx]);
 
         // Thread 0 handles step size computation and rho update
         if (tid == 0) {
 
                 // Update rho
-                T rho_multiplier = line_search_success ? //1 / RHO_FACTOR : RHO_FACTOR;
-                min(d_drho_batch[solve_idx] / RHO_FACTOR, 1 / RHO_FACTOR) :  // decrease on success
-                max(d_drho_batch[solve_idx] * RHO_FACTOR, RHO_FACTOR);       // increase on failure
+                T rho_multiplier = line_search_success ?  // 1 / RHO_FACTOR : RHO_FACTOR;
+                                       min(d_drho_batch[solve_idx] / RHO_FACTOR, 1 / RHO_FACTOR)
+                                                       :                                       // decrease on success
+                                       max(d_drho_batch[solve_idx] * RHO_FACTOR, RHO_FACTOR);  // increase on failure
 
                 d_drho_batch[solve_idx] = rho_multiplier;
                 d_rho_penalty_batch[solve_idx] = max(d_rho_penalty_batch[solve_idx] * rho_multiplier, RHO_MIN);
 
                 if (!line_search_success) {
                         if (d_rho_penalty_batch[solve_idx] > RHO_MAX) {
-                                d_rho_penalty_batch[solve_idx] = RHO_INIT; //reset rho for next sqp solve
+                                d_rho_penalty_batch[solve_idx] = RHO_INIT;  // reset rho for next sqp solve
                         }
                         d_step_size_batch[solve_idx] = -1;
                 } else {
@@ -86,12 +87,10 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
         // Only proceed with trajectory update if line search was successful
         if (line_search_success) {
                 const T step_size = s_merit[0];
-                T *d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
-                T *d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
-                #pragma unroll
-                for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) {
-                        d_xu_traj[i] += step_size * d_dz[i];
-                }
+                T*      d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
+                T*      d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
+#pragma unroll
+                for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
         }
 }
 
@@ -102,5 +101,6 @@ __host__ void lineSearchAndUpdateBatched(T* d_xu_traj_batch, T* d_dz_batch, T* d
         dim3   thread_block(LINE_SEARCH_THREADS);
         size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas;
 
-        lineSearchAndUpdateBatchedKernel<T, BatchSize, NumAlphas><<<grid, thread_block, s_mem_size>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch);
+        lineSearchAndUpdateBatchedKernel<T, BatchSize, NumAlphas>
+            <<<grid, thread_block, s_mem_size>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch);
 }
