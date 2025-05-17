@@ -60,24 +60,58 @@ namespace plant {
         template<class T>
         __host__ __device__ constexpr T JOINT_LIMIT_MARGIN()
         {
-                return static_cast<T>(0.2);
+                return static_cast<T>(-0.1);
         }
 
         template<class T>
         __device__ constexpr T JOINT_LIMITS_DATA[6][2] = {
             // from indy7.urdf
-            {-3.0543, 3.0543},  // joint 0
-            {-3.0543, 3.0543},  // joint 1
-            {-3.0543, 3.0543},  // joint 2
-            {-3.0543, 3.0543},  // joint 3
-            {-3.0543, 3.0543},  // joint 4
-            {-3.7520, 3.7520}   // joint 5
+            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-3.7520 - JOINT_LIMIT_MARGIN<T>(), 3.7520 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
+        };
+
+        template<class T>
+        __device__ constexpr T VEL_LIMITS_DATA[6][2] = {
+            // from indy7.urdf
+            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
+        };
+
+        template<class T>
+        __device__ constexpr T CTRL_LIMITS_DATA[6][2] = {
+            // from indy7.urdf
+            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-197.23 - JOINT_LIMIT_MARGIN<T>(), 197.23 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
         };
 
         template<class T>
         __host__ __device__ constexpr const T (&JOINT_LIMITS())[6][2]
         {
                 return JOINT_LIMITS_DATA<T>;
+        }
+
+        template<class T>
+        __host__ __device__ constexpr const T (&VEL_LIMITS())[6][2]
+        {
+                return VEL_LIMITS_DATA<T>;
+        }
+
+        template<class T>
+        __host__ __device__ constexpr const T (&CTRL_LIMITS())[6][2]
+        {
+                return CTRL_LIMITS_DATA<T>;
         }
 
         template<typename T>
@@ -96,21 +130,21 @@ namespace plant {
         template<class T>
         __device__ T jointBarrier(T q, T q_min, T q_max)
         {
-                const T margin = JOINT_LIMIT_MARGIN<T>();
-                T       dist_min = q - (q_min + margin);
-                T       dist_max = (q_max - margin) - q;
-                return (dist_min <= 0 || dist_max <= 0) ? 1e10 : -log(dist_min) - log(dist_max);
+                T       dist_min = q - q_min;
+                T       dist_max = q_max - q;
+                dist_min = (dist_min <= 1e-10) ? 1e-10 : dist_min;
+                dist_max = (dist_max <= 1e-10) ? 1e-10 : dist_max;
+                return -log(dist_min) - log(dist_max);
         }
 
         template<class T>
         __device__ T jointBarrierGradient(T q, T q_min, T q_max)
         {
-                const T margin = JOINT_LIMIT_MARGIN<T>();
-                T       dist_min = q - (q_min + margin);
-                T       dist_max = (q_max - margin) - q;
-                dist_min = (dist_min <= 1e-10) ? 1e-10 : dist_min;
-                dist_max = (dist_max <= 1e-10) ? 1e-10 : dist_max;
-                return -1 / dist_min + 1 / dist_max;
+                T       dist_min = q - q_min;
+                T       dist_max = q_max - q;
+                dist_min = (dist_min <= 1e-6) ? 1e-6 : dist_min;
+                dist_max = (dist_max <= 1e-6) ? 1e-6 : dist_max;
+                return (-1 / dist_min) + (1 / dist_max);
         }
 
         template<typename T>
@@ -241,7 +275,9 @@ namespace plant {
                                   T                          qd_cost,
                                   T                          u_cost,
                                   T                          N_cost,
-                                  T                          q_lim_cost)
+                                  T                          q_lim_cost,
+                                  T                          vel_lim_cost,
+                                  T                          ctrl_lim_cost)
         {
                 T              err;
                 const uint32_t threadsNeeded = state_size / 2 + control_size * (blockIdx.x < knot_points - 1);
@@ -257,9 +293,11 @@ namespace plant {
                                 err = s_xu[i + state_size / 2];
                                 s_cost_vec[i] = static_cast<T>(0.5) * qd_cost * err * err;
                                 s_cost_vec[i] += q_lim_cost * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                s_cost_vec[i] += vel_lim_cost * jointBarrier(s_xu[i + state_size / 2], VEL_LIMITS<T>()[i][0], VEL_LIMITS<T>()[i][1]);
                         } else {
                                 err = s_xu[i + state_size / 2];
                                 s_cost_vec[i] = static_cast<T>(0.5) * u_cost * err * err;
+                                s_cost_vec[i] += ctrl_lim_cost * jointBarrier(s_xu[i + state_size / 2], CTRL_LIMITS<T>()[i - state_size / 2][0], CTRL_LIMITS<T>()[i - state_size / 2][1]);
                         }
                 }
 #pragma unroll
@@ -299,7 +337,9 @@ namespace plant {
                                                        T        qd_cost,
                                                        T        u_cost,
                                                        T        N_cost,
-                                                       T        q_lim_cost)
+                                                       T        q_lim_cost,
+                                                       T        vel_lim_cost,
+                                                       T        ctrl_lim_cost)
         {
                 T* s_eePos = s_temp;
                 T* s_eePos_grad = s_eePos + 6;
@@ -322,9 +362,11 @@ namespace plant {
                                         s_qk[i] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                 } else {
                                         s_qk[i] = qd_cost * s_xu[i];
+                                        s_qk[i] += vel_lim_cost * jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
                                 }
                         } else {
                                 s_rk[i - grid::NX] = u_cost * s_xu[i];
+                                s_rk[i - grid::NX] += ctrl_lim_cost * jointBarrierGradient(s_xu[i], CTRL_LIMITS<T>()[i - grid::NX][0], CTRL_LIMITS<T>()[i - grid::NX][1]);
                         }
                 }
                 __syncthreads();
@@ -335,11 +377,16 @@ namespace plant {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
                                                 // tracking err
-                                                // s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
-                                                //                            + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
-                                                //                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
-                                                //                              + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2])))
-                                                s_Qk[i * grid::NX + j] = s_qk[i] * s_qk[j] * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
+                                                s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
+                                                                           + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
+                                                                          * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
+                                                                             + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
+
+                                                T barrier_grad_i = jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                                T barrier_grad_j = jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
+                                                s_Qk[i * grid::NX + j] += q_lim_cost * barrier_grad_i * barrier_grad_j;
+
+                                                // s_Qk[i * grid::NX + j] = s_qk[i] * s_qk[j] * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
                                                 // joint barrier
                                                 // s_Qk[i * state_size + j] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]) *
                                                 // jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
@@ -353,11 +400,21 @@ namespace plant {
                                         } else {
                                                 // joint velocity reg
                                                 s_Qk[i * grid::NX + j] = (i == j) ? qd_cost : static_cast<T>(0);
+                                                if (i == j) {
+                                                        T vel_barrier_grad_i = jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
+                                                        s_Qk[i * grid::NX + j] += vel_lim_cost * vel_barrier_grad_i * vel_barrier_grad_i;
+                                                }
                                         }
                                 }
                         } else {
                                 uint32_t offset = i - grid::NX;
-                                for (int j = 0; j < grid::NU; j++) { s_Rk[offset * grid::NU + j] = (offset == j) ? u_cost : static_cast<T>(0); }
+                                for (int j = 0; j < grid::NU; j++) { 
+                                        s_Rk[offset * grid::NU + j] = (offset == j) ? u_cost : static_cast<T>(0);
+                                        if (offset == j) {
+                                                T ctrl_barrier_grad_i = jointBarrierGradient(s_xu[i], CTRL_LIMITS<T>()[offset][0], CTRL_LIMITS<T>()[offset][1]);
+                                                s_Rk[offset * grid::NU + j] += ctrl_lim_cost * ctrl_barrier_grad_i * ctrl_barrier_grad_i;
+                                        }
+                                }
                         }
                 }
                 __syncthreads();
@@ -380,11 +437,13 @@ namespace plant {
                                                                  T        qd_cost,
                                                                  T        u_cost,
                                                                  T        N_cost,
-                                                                 T        q_lim_cost)
+                                                                 T        q_lim_cost,
+                                                                 T        vel_lim_cost,
+                                                                 T        ctrl_lim_cost)
         {
-                trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
+                trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
                 trackingCostGradientAndHessian<T, false>(
-                    state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost);
+                    state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
         }
 
         __host__ __device__ constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared()
