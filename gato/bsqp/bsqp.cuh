@@ -73,6 +73,11 @@ class BSQP {
 
                 auto sqp_start_time = std::chrono::high_resolution_clock::now();
 
+                // set d_dz_batch_ to zero
+                gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
+                gpuErrchk(cudaMemset(d_pcg_iterations_, 0, sizeof(uint32_t) * BatchSize));
+                gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * BatchSize));
+
                 computeMeritBatched<T, BatchSize, 1>(
                     d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
 
@@ -93,9 +98,9 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(h_c_batch_, kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         // gpuErrchk(cudaMemcpy(h_r_batch_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
 
-                        gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
-                        gpuErrchk(cudaEventElapsedTime(&pcg_time_us_, pcg_start_event_, pcg_stop_event_));
-                        pcg_stats.solve_time_us = pcg_time_us_ * 1000;
+                        gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost)); // throwing an error
+                        // gpuErrchk(cudaEventElapsedTime(&pcg_time_us_, pcg_start_event_, pcg_stop_event_)); // this was throwing an error
+                        pcg_stats.solve_time_us = 0; //  pcg_time_us_ * 1000;
 
                         // KKT condition check on cpu is async with gpu
                         uint32_t num_solved = 0;
