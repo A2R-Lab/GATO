@@ -12,7 +12,7 @@ sys.path.append('./python/bsqp')
 
 
 class GATO:
-    def __init__(self, N, dt, batch_size, f_ext_std, max_sqp_iters=8, kkt_tol=0.005, max_pcg_iters=50, pcg_tol=1e-3, Q_cost=1.0, dQ_cost=1e-2, u_cost=1e-6, QN_cost=20.0, Qlim_cost=0.0, rho=0.0):
+    def __init__(self, N, dt, batch_size, f_ext_std, max_sqp_iters=8, kkt_tol=0.005, max_pcg_iters=50, pcg_tol=1e-3, Q_cost=1.0, dQ_cost=1e-2, u_cost=1e-6, QN_cost=20.0, Qlim_cost=0.0, Qvel_cost=0.0, Qacc_cost=0.0, rho=0.0):
         module_name = f"bsqpN{N}" 
         try: lib = importlib.import_module(module_name)
         except ImportError as e: raise ValueError(f"Number of knots {N} not supported (could not import {module_name}): {e}")
@@ -20,7 +20,7 @@ class GATO:
         class_name = f"BSQP_{batch_size}_float" 
         if not hasattr(lib, class_name): raise ValueError(f"Batch size {batch_size} not supported in module {module_name}")
         
-        self.solver = getattr(lib, class_name)(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, 1.0, 10.0, Q_cost, dQ_cost, u_cost, QN_cost, Qlim_cost, rho)
+        self.solver = getattr(lib, class_name)(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, 1.0, 10.0, Q_cost, dQ_cost, u_cost, QN_cost, Qlim_cost, Qvel_cost, Qacc_cost, rho)
         
         self.N = N
         self.dt = dt
@@ -79,18 +79,18 @@ class Benchmark():
         num_threads = batch_size
         fext_timesteps = 8
         Q_cost = 2.0
-        dQ_cost = 5e-4
-        R_cost = 5e-6
-        QN_cost = 10.0
-        Qpos_cost = 0.0
-        rho = 5e-5
-        # Qvel_cost = 0.0
-        # Qacc_cost = 0.0
+        dQ_cost = 1e-2
+        R_cost = 1e-6
+        QN_cost = 20.0
+        Qpos_cost = 0.01
+        Qvel_cost = 0.01
+        Qacc_cost = 0.01
+        rho = 1e-5
         # orient_cost = 0.0
         kkt_tol = 1e-4
-        max_pcg_iters = 100
-        pcg_tol = 1e-6
-        self.realtime = True
+        max_pcg_iters = 200
+        pcg_tol = 1e-7
+        self.realtime = False
         self.resample_fext = 0 and (batch_size > 1)
         self.usefext = usefext
         self.file_prefix = file_prefix
@@ -110,8 +110,8 @@ class Benchmark():
             'R_cost': R_cost,
             'QN_cost': QN_cost,
             'Qpos_cost': Qpos_cost,
-            # 'Qvel_cost': Qvel_cost,
-            # 'Qacc_cost': Qacc_cost,
+            'Qvel_cost': Qvel_cost,
+            'Qacc_cost': Qacc_cost,
             # 'orient_cost': orient_cost,
             'realtime': self.realtime,
             'resample_fext': self.resample_fext,
@@ -124,7 +124,7 @@ class Benchmark():
         self.solver = GATO(N=N, dt=dt, batch_size=batch_size, 
                            f_ext_std=0.0, max_sqp_iters=max_qp_iters, 
                            kkt_tol=kkt_tol, max_pcg_iters=max_pcg_iters, pcg_tol=pcg_tol,
-                           Q_cost=Q_cost, dQ_cost=dQ_cost, u_cost=R_cost, QN_cost=QN_cost, Qlim_cost=Qpos_cost, rho=rho)
+                           Q_cost=Q_cost, dQ_cost=dQ_cost, u_cost=R_cost, QN_cost=QN_cost, Qlim_cost=Qpos_cost, Qvel_cost=Qvel_cost, Qacc_cost=Qacc_cost, rho=rho)
 
         # mujoco
         # self.model = mujoco.MjModel.from_xml_path(xml_filename)
@@ -278,7 +278,7 @@ class Benchmark():
 
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl #* 0.8 + self.last_control * 0.2
+            self.data.ctrl = bestctrl * 0.8 # + self.last_control * 0.2
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -304,7 +304,7 @@ class Benchmark():
         print(f'average ctrl: {total_ctrl / sim_steps}')
         return stats
 
-    def runBench(self, headless=True):
+    def runBench(self, headless=False):
 
         allstats = {
             'failed': [],
