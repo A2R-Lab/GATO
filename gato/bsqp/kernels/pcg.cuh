@@ -22,6 +22,8 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
 {
         const uint32_t solve_idx = blockIdx.x;
 
+        const T abs_tol = 1e-9 * KNOT_POINTS;
+
         // skip solve if rho_max_reached
         if (d_kkt_converged_batch[solve_idx]) {
                 if (threadIdx.x == 0) { d_iterations[solve_idx] = 0; }
@@ -44,7 +46,7 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
         T* s_scratch = s_p_vector + VEC_SIZE_PADDED;
 
         // scalars
-        __shared__ T s_rho, s_rho_new, s_alpha, s_beta, s_initial_rho;
+        __shared__ T s_rho, s_rho_new, s_alpha, s_beta, s_rho_init;
 
         uint32_t iterations = 0;
 
@@ -79,8 +81,14 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
         block::dot<T>(&s_rho, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
         __syncthreads();
 
+        if (abs(s_rho) < abs_tol) {
+                if (threadIdx.x == 0) { d_iterations[solve_idx] = 0; }
+                __syncthreads();
+                return;
+        }
+
         // initial residual norm for relative tolerance
-        if (threadIdx.x == 0) { s_initial_rho = abs(s_rho); }
+        if (threadIdx.x == 0) { s_rho_init = abs(s_rho); }
         __syncthreads();
 
         // ----- PCG Loop -----
@@ -115,7 +123,7 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
                 __syncthreads();
 
                 // check for convergence using absolute and relative tolerance
-                if (abs(s_rho_new) / s_initial_rho < epsilon) { break; }
+                if (abs(s_rho_new) < (abs_tol + epsilon * s_rho_init)) { break; }
 
                 // beta = rho_new / rho
                 // rho = rho_new
