@@ -14,18 +14,18 @@ constexpr uint32_t INTEGRATOR_TYPE = 2;  // 0: euler, 1: semi-implicit euler, 2:
 
 // -——————————————————compile time settings——————————————————
 
-constexpr uint32_t NUM_ALPHAS = 6;
+constexpr uint32_t NUM_ALPHAS = 10;
 constexpr float    settings_q_COST = 2.0;
 constexpr float    settings_dq_COST = 5e-3;
 constexpr float    settings_u_COST = 1e-6;
 constexpr float    settings_N_COST = 20.0;
-constexpr float    settings_q_lim_COST = 0.1;
+constexpr float    settings_q_lim_COST = 0.0;
 constexpr float    settings_vel_lim_COST = 0.0;
 constexpr float    settings_ctrl_lim_COST = 0.0;
 
 // constexpr float RHO = 1e-8;
-constexpr float RHO_INIT = 5e-5;
-constexpr float RHO_FACTOR = 1.2;
+constexpr float RHO_INIT = 1e-3;
+constexpr float RHO_FACTOR = 5.0;
 constexpr float RHO_MIN = 1e-9;
 constexpr float RHO_MAX = 10;
 

@@ -14,7 +14,7 @@ np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=990)
 
 class GATO:
-    def __init__(self, N, dt, batch_size, f_ext_std, max_sqp_iters=8, kkt_tol=0.005, max_pcg_iters=50, pcg_tol=1e-3, Q_cost=1.0, dQ_cost=1e-2, u_cost=1e-6, QN_cost=20.0, Qlim_cost=0.0, Qvel_cost=0.0, Qacc_cost=0.0, rho=0.0):
+    def __init__(self, N, dt, batch_size, f_ext_std, max_sqp_iters=8, kkt_tol=0.0001, max_pcg_iters=50, pcg_tol=1e-3, Q_cost=1.0, dQ_cost=1e-2, u_cost=1e-6, QN_cost=20.0, Qlim_cost=0.0, Qvel_cost=0.0, Qacc_cost=0.0, rho=0.0):
         module_name = f"bsqpN{N}" 
         try: lib = importlib.import_module(module_name)
         except ImportError as e: raise ValueError(f"Number of knots {N} not supported (could not import {module_name}): {e}")
@@ -22,7 +22,7 @@ class GATO:
         class_name = f"BSQP_{batch_size}_float" 
         if not hasattr(lib, class_name): raise ValueError(f"Batch size {batch_size} not supported in module {module_name}")
         
-        self.solver = getattr(lib, class_name)(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, 1.0, 10.0, Q_cost, dQ_cost, u_cost, QN_cost, Qlim_cost, Qvel_cost, Qacc_cost, rho)
+        self.solver = getattr(lib, class_name)(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, 1.0, 10.0,  Q_cost, dQ_cost, u_cost, QN_cost, Qlim_cost, Qvel_cost, Qacc_cost, rho)
         
         self.N = N
         self.dt = dt
@@ -43,8 +43,7 @@ class GATO:
         }
         
     def solve(self, x_curr_batch, eepos_goals_batch, XU_batch):
-        # self.reset_dual()
-        # self.reset_rho()
+        self.reset_rho()
         result = self.solver.solve(XU_batch, self.dt, x_curr_batch, eepos_goals_batch)
         self.stats['solve_time']['values'].append(result["sqp_time_us"])
         self.stats['sqp_iters']['values'].append(result["sqp_iters"])
@@ -69,7 +68,6 @@ class GATO:
     def get_stats(self):
         return self.stats
     
-
 class Benchmark():
     def __init__(self, file_prefix='', batch_size=1, usefext=False):
         # xml_filename = "urdfs/frankapanda/mjx_panda.xml"
@@ -80,19 +78,19 @@ class Benchmark():
         max_qp_iters = 5
         num_threads = batch_size
         fext_timesteps = 8
-        Q_cost = 1.0
-        dQ_cost = 5e-2
-        R_cost = 1e-7
+        Q_cost = 5.0
+        dQ_cost = 1e-3
+        R_cost = 2e-6
         QN_cost = 20.0
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
-        rho = 1e-9
+        rho = 5e-2
         # orient_cost = 0.0
-        kkt_tol = 1e-9
-        max_pcg_iters = 500
-        pcg_tol = 1e-8
-        self.realtime = False
+        kkt_tol = 1e-3
+        max_pcg_iters = 200
+        pcg_tol = 1e-6
+        self.realtime = True
         self.resample_fext = 0 and (batch_size > 1)
         self.usefext = usefext
         self.file_prefix = file_prefix
@@ -149,7 +147,7 @@ class Benchmark():
         self.nv = 6
         self.nu = 6
         self.nx = 12
-        self.eepos_zero = np.array([0.0, -.1865,  1.3275])
+        self.eepos_zero = np.array([0.0, -.1865,  1.3])
 
         # tmp instance variables
         self.xs = np.zeros(self.nx)
@@ -205,7 +203,7 @@ class Benchmark():
         goal_set = False
         
         while sim_steps < 1000:
-            if (self.dist_to_goal(goal_point) < 5e-2 and np.linalg.norm(self.data.qvel, ord=1) < 1.0):
+            if (self.dist_to_goal(goal_point) < 8e-2 and np.linalg.norm(self.data.qvel, ord=1) < 1.0):
                 print(f'Got to goal in {sim_steps} steps')
                 break
 
@@ -224,7 +222,7 @@ class Benchmark():
             XU_batch_new, gpu_solve_time = self.solver.solve(self.xs_batch, self.goal_trace_batch, self.XU_batch)
             solve_time = time.monotonic() - solvestart
             # print(f'Solve time: {1000 * (solve_time):.2f} ms')
-            print(f'{XU_batch_new[:,12:18]}')
+        #     print(f'{XU_batch_new[:,12:18]}')
 
 
             # if any XU_batch_new is nan or inf, reset solver
@@ -262,6 +260,7 @@ class Benchmark():
                 if not self.realtime:
                     break
             xnext = np.hstack((self.data.qpos, self.data.qvel))
+        #     print(xnext[6:])
             
             # get best control
             predictions = self.solver.sim_forward(self.xs, self.data.ctrl, self.model.opt.timestep * math.ceil(solve_time / self.model.opt.timestep))
@@ -288,9 +287,8 @@ class Benchmark():
                 self.fext_batch = self.fext_generator.normal(self.fext_batch, 2.0)
                 self.solver.batch_set_fext(self.fext_batch)
 
-
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.8# + self.last_control * 0.2
+            self.data.ctrl = bestctrl * 0.999 #+ self.last_control * 0.0
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -365,7 +363,9 @@ class Benchmark():
             leg3 = self.runMPC(viewer, self.eepos_zero)
 
             failed = leg1['failed'] or leg2['failed'] or leg3['failed']
-            print(f'Failed: {failed}')
+            color = '\033[92m' if not failed else '\033[91m'
+            end_color = '\033[0m'
+            print(f'Failed: {color}{failed}{end_color}')
             allstats['failed'].append(failed)
             allstats['cumulative_cost'].append(leg1['cumulative_cost'] + leg2['cumulative_cost'] + leg3['cumulative_cost'])
             allstats['cumulative_dist'].append(leg1['cumulative_dist'] + leg2['cumulative_dist'] + leg3['cumulative_dist'])
@@ -390,7 +390,7 @@ class Benchmark():
         
 
 if __name__ == '__main__':
-    b = Benchmark(file_prefix='stockcpu_batch2', batch_size=2, usefext=False)
+    b = Benchmark(file_prefix='stockcpu_batch2', batch_size=2, usefext=True)
     b.runBench()
     # b = Benchmark(file_prefix='stockcpu_batch1_fext', batch_size=1, usefext=True)
     # b.runBench()
