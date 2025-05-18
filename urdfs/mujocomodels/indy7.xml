@@ -37,7 +37,7 @@
                 <inertial pos="8.147e-05 -0.00046556 0.030791" quat="0.690889 -0.00961156 0.00718031 0.722862" mass="0.382549" diaginertia="0.000797777 0.000789807 0.000583066"/>
                 <joint name="joint5" pos="0 0 0" axis="0 0 1" limited="true" range="-3.75246 3.75246" actuatorfrcrange="-79.79 79.79"/>
                 <geom type="mesh" rgba="0.894118 0.894118 0.894118 1" mesh="Indy7_6_c"/>
-                <body name="end_effector" pos="0 0 0.06">
+                <body name="end_effector" pos="0 0 0">
                   <inertial pos="0 0 0" mass="0.1" diaginertia="0.0001 0.0001 0.0001"/>
                   <geom type="box" size="0.01 0.01 0.01" rgba="1 0 0 1"/>
                   <site name="ee_site" pos="0 0 0" size="0.005" rgba="0 1 0 0.5"/>

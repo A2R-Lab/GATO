@@ -69,6 +69,7 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
 
                 d_drho_batch[solve_idx] = rho_multiplier;
                 d_rho_penalty_batch[solve_idx] = max(d_rho_penalty_batch[solve_idx] * rho_multiplier, RHO_MIN);
+                d_rho_penalty_batch[solve_idx] = min(d_rho_penalty_batch[solve_idx], RHO_MAX);
 
                 if (!line_search_success) {
                         if (d_rho_penalty_batch[solve_idx] > RHO_MAX) {
