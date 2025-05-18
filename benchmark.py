@@ -87,7 +87,7 @@ class Benchmark():
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
-        rho = 1e-5
+        rho = 1e-9
         # orient_cost = 0.0
         kkt_tol = 1e-9
         max_pcg_iters = 500
@@ -199,7 +199,7 @@ class Benchmark():
         avg_solve_time = 0
         max_solve_time = 0
 
-        self.XU_batch = np.zeros((self.batch_size, self.solver.N*(self.nx+self.nu)-self.nu))
+        self.XU = np.zeros(self.solver.N*(self.nx+self.nu)-self.nu)
         self.update_XU_batch()
         self.update_goal_trace_batch(self.eepos_zero)
         goal_set = False
@@ -224,7 +224,8 @@ class Benchmark():
             XU_batch_new, gpu_solve_time = self.solver.solve(self.xs_batch, self.goal_trace_batch, self.XU_batch)
             solve_time = time.monotonic() - solvestart
             # print(f'Solve time: {1000 * (solve_time):.2f} ms')
-            print(f'{XU_batch_new[:,:18]}')
+            print(f'{XU_batch_new[:,12:18]}')
+
 
             # if any XU_batch_new is nan or inf, reset solver
             if np.any(np.isnan(XU_batch_new)) or np.any(np.isinf(XU_batch_new)):
@@ -289,7 +290,7 @@ class Benchmark():
 
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.8 # + self.last_control * 0.2
+            self.data.ctrl = bestctrl * 0.8# + self.last_control * 0.2
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -338,8 +339,8 @@ class Benchmark():
         
 
         # warmup
-        for _ in range(10):
-            self.solver.solve(self.xs_batch, self.goal_trace_batch, self.XU_batch)
+        # for _ in range(10):
+        #     self.solver.solve(self.xs_batch, self.goal_trace_batch, self.XU_batch)
         
         for i in tqdm(range(len(self.points)-1)):
             print(f'Point{i}: {self.points[i]}, {self.points[i+1]}')
