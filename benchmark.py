@@ -43,7 +43,7 @@ class GATO:
         }
         
     def solve(self, x_curr_batch, eepos_goals_batch, XU_batch):
-        self.reset_rho()
+        # self.reset_rho()
         result = self.solver.solve(XU_batch, self.dt, x_curr_batch, eepos_goals_batch)
         self.stats['solve_time']['values'].append(result["sqp_time_us"])
         self.stats['sqp_iters']['values'].append(result["sqp_iters"])
@@ -78,17 +78,16 @@ class Benchmark():
         max_qp_iters = 5
         num_threads = batch_size
         fext_timesteps = 8
-        Q_cost = 5.0
+        Q_cost = 2
         dQ_cost = 1e-3
-        R_cost = 2e-6
+        R_cost = 1e-6
         QN_cost = 20.0
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
-        rho = 5e-2
-        # orient_cost = 0.0
-        kkt_tol = 1e-3
-        max_pcg_iters = 200
+        rho = 1e-3
+        kkt_tol = 1e-4
+        max_pcg_iters = 400
         pcg_tol = 1e-6
         self.realtime = True
         self.resample_fext = 0 and (batch_size > 1)
