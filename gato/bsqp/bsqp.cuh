@@ -114,7 +114,7 @@ class BSQP {
                                 T c_max = std::abs(*std::max_element(c_ptr, c_ptr + STATE_P_KNOTS, abs_cmp));
 
                                 // within kkt exit tol or pcg exit tol (no steps taken)
-                                if (pcg_stats.num_iterations[b] == 0 || (q_max < kkt_tol_ && c_max < kkt_tol_)) {
+                                if (pcg_stats.num_iterations[b] == 0) {   // || (q_max < kkt_tol_ && c_max < kkt_tol_)
                                         h_kkt_converged_batch_[b] = 1;
                                         h_sqp_iters_B_[b] += 1;
                                 }

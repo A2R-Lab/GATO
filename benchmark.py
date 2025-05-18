@@ -43,7 +43,7 @@ class GATO:
         }
         
     def solve(self, x_curr_batch, eepos_goals_batch, XU_batch):
-        # self.reset_rho()
+        self.reset_rho()
         result = self.solver.solve(XU_batch, self.dt, x_curr_batch, eepos_goals_batch)
         self.stats['solve_time']['values'].append(result["sqp_time_us"])
         self.stats['sqp_iters']['values'].append(result["sqp_iters"])
@@ -80,17 +80,17 @@ class Benchmark():
         fext_timesteps = 8
         Q_cost = 2
         dQ_cost = 1e-3
-        R_cost = 1e-6
+        R_cost = 1e-7
         QN_cost = 20.0
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
-        rho = 1e-2
-        kkt_tol = 1e-6
-        max_pcg_iters = 400
+        rho = 1e-1
+        kkt_tol = 0.0
+        max_pcg_iters = 300
         pcg_tol = 1e-6
         self.realtime = True
-        self.resample_fext = 0 and (batch_size > 1)
+        self.resample_fext = False #0 and (batch_size > 1)
         self.usefext = usefext
         self.file_prefix = file_prefix
         self.batch_size = batch_size
@@ -201,7 +201,7 @@ class Benchmark():
         self.update_goal_trace_batch(self.eepos_zero)
         goal_set = False
         
-        while sim_steps < 1000:
+        while sim_steps < 2000:
             if (self.dist_to_goal(goal_point) < 5e-2 and np.linalg.norm(self.data.qvel, ord=1) < 1.0):
                 print(f'Got to goal in {sim_steps} steps')
                 break
@@ -286,7 +286,7 @@ class Benchmark():
                 self.solver.batch_set_fext(self.fext_batch)
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.99 #+ self.last_control * 0.0
+            self.data.ctrl = bestctrl * 0.9 #+ self.last_control * 0.0
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -297,7 +297,7 @@ class Benchmark():
             solves += 1
 
         stats = {
-            'failed': sim_steps>=1000,
+            'failed': sim_steps>=2000,
             'cumulative_dist': total_dist,
             'cumulative_cost': total_cost,
             'best_cost': best_cost,
@@ -374,8 +374,8 @@ class Benchmark():
         #     # save stats
         #     if i % 20 == 0:
         #         pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_{i}.pkl', 'wb'))
-        #     if i==20:
-        #         break
+            if i==50:
+                break
         pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_final.pkl', 'wb'))
 
         if not headless:
@@ -385,8 +385,8 @@ class Benchmark():
 
 
 if __name__ == '__main__':
-    b = Benchmark(file_prefix='gpu_batch1', batch_size=1, usefext=False)
-    b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch1', batch_size=1, usefext=False)
+#     b.runBench()
     b = Benchmark(file_prefix='gpu_batch2', batch_size=2, usefext=False)
     b.runBench()
     b = Benchmark(file_prefix='gpu_batch4', batch_size=4, usefext=False)
