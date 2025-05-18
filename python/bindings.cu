@@ -194,11 +194,12 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
 #else
         REGISTER_BSQP_CLASS(float, 1);
         REGISTER_BSQP_CLASS(float, 2);
-        // REGISTER_BSQP_CLASS(float, 4);
-        // REGISTER_BSQP_CLASS(float, 8);
+        REGISTER_BSQP_CLASS(float, 4);
+        REGISTER_BSQP_CLASS(float, 8);
         REGISTER_BSQP_CLASS(float, 16);
-        // REGISTER_BSQP_CLASS(float, 32);
-        // REGISTER_BSQP_CLASS(float, 64);
+        REGISTER_BSQP_CLASS(float, 32);
+        REGISTER_BSQP_CLASS(float, 64);
         REGISTER_BSQP_CLASS(float, 128);
+        REGISTER_BSQP_CLASS(float, 256);
 #endif
 }
