@@ -85,8 +85,8 @@ class Benchmark():
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
-        rho = 1e-3
-        kkt_tol = 1e-4
+        rho = 1e-2
+        kkt_tol = 1e-6
         max_pcg_iters = 400
         pcg_tol = 1e-6
         self.realtime = True
@@ -202,7 +202,7 @@ class Benchmark():
         goal_set = False
         
         while sim_steps < 1000:
-            if (self.dist_to_goal(goal_point) < 8e-2 and np.linalg.norm(self.data.qvel, ord=1) < 1.0):
+            if (self.dist_to_goal(goal_point) < 5e-2 and np.linalg.norm(self.data.qvel, ord=1) < 1.0):
                 print(f'Got to goal in {sim_steps} steps')
                 break
 
@@ -222,7 +222,6 @@ class Benchmark():
             solve_time = time.monotonic() - solvestart
             # print(f'Solve time: {1000 * (solve_time):.2f} ms')
         #     print(f'{XU_batch_new[:,12:18]}')
-
 
             # if any XU_batch_new is nan or inf, reset solver
             if np.any(np.isnan(XU_batch_new)) or np.any(np.isinf(XU_batch_new)):
@@ -287,7 +286,7 @@ class Benchmark():
                 self.solver.batch_set_fext(self.fext_batch)
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.999 #+ self.last_control * 0.0
+            self.data.ctrl = bestctrl * 0.99 #+ self.last_control * 0.0
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -333,7 +332,6 @@ class Benchmark():
             viewer = mujoco.viewer.launch_passive(self.model, self.data)
 
         
-        
 
         # warmup
         # for _ in range(10):
@@ -373,11 +371,11 @@ class Benchmark():
             allstats['max_solve_time'].append(max(leg1['max_solve_time'], leg2['max_solve_time'], leg3['max_solve_time']))
             allstats['steps'].append(leg1['steps'] + leg2['steps'] + leg3['steps'])
             
-            # save stats
-            if i % 20 == 0:
-                pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_{i}.pkl', 'wb'))
-            if i==20:
-                break
+        #     # save stats
+        #     if i % 20 == 0:
+        #         pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_{i}.pkl', 'wb'))
+        #     if i==20:
+        #         break
         pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_final.pkl', 'wb'))
 
         if not headless:
@@ -386,18 +384,23 @@ class Benchmark():
         return allstats
 
 
-        
-
 if __name__ == '__main__':
-    b = Benchmark(file_prefix='stockcpu_batch2', batch_size=2, usefext=True)
+    b = Benchmark(file_prefix='gpu_batch1', batch_size=1, usefext=False)
     b.runBench()
-    # b = Benchmark(file_prefix='stockcpu_batch1_fext', batch_size=1, usefext=True)
-    # b.runBench()
-    # b = Benchmark(file_prefix='stockcpu_batch2_fext', batch_size=2, usefext=True)
-    # b.runBench()
-    # b = Benchmark(file_prefix='stockcpu_batch4_fext', batch_size=4, usefext=True)
-    # b.runBench()
-    # b = Benchmark(file_prefix='stockcpu_batch8_fext', batch_size=8, usefext=True)
-    # b.runBench()
-    # b = Benchmark(file_prefix='stockcpu_batch16_fext', batch_size=16, usefext=True)
-    # b.runBench()
+    b = Benchmark(file_prefix='gpu_batch2', batch_size=2, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch4', batch_size=4, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch8', batch_size=8, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch16', batch_size=16, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch32', batch_size=32, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch64', batch_size=64, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch128', batch_size=128, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch256', batch_size=256, usefext=False)
+    b.runBench()
+    
