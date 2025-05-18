@@ -40,6 +40,11 @@ include_directories(${CMAKE_SOURCE_DIR}/gato)
 add_executable(bsqp examples/bsqp.cu)
 target_compile_definitions(bsqp PRIVATE KNOT_POINTS=16)
 
+# Add integrator test executable
+add_executable(integratortest examples/integratortest.cu)
+# Use the same include directories as bsqp implicitly has
+target_include_directories(integratortest PRIVATE ${CMAKE_SOURCE_DIR})
+
 # --- Python Bindings ---
 
 # horizon length options
