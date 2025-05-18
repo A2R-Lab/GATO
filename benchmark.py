@@ -69,10 +69,10 @@ class GATO:
         return self.stats
     
 class Benchmark():
-    def __init__(self, file_prefix='', batch_size=1, usefext=False):
+    def __init__(self, file_prefix='', batch_size=1, knot_points=16, usefext=False):
         # xml_filename = "urdfs/frankapanda/mjx_panda.xml"
         urdf_filename = "urdfs/indy7.urdf"
-        N = 16
+        N = knot_points
         self.N = N
         dt = 0.01
         max_qp_iters = 5
@@ -80,14 +80,14 @@ class Benchmark():
         fext_timesteps = 8
         Q_cost = 2
         dQ_cost = 1e-3
-        R_cost = 1e-7
+        R_cost = 1e-8 * N
         QN_cost = 20.0
         Qpos_cost = 0.0
         Qvel_cost = 0.0
         Qacc_cost = 0.0
         rho = 1e-1
         kkt_tol = 0.0
-        max_pcg_iters = 300
+        max_pcg_iters = 100
         pcg_tol = 1e-6
         self.realtime = True
         self.resample_fext = False #0 and (batch_size > 1)
@@ -286,7 +286,7 @@ class Benchmark():
                 self.solver.batch_set_fext(self.fext_batch)
 
             # set control for next step (maybe make this a moving avg so you don't give up gravity comp?)
-            self.data.ctrl = bestctrl * 0.9 #+ self.last_control * 0.0
+            self.data.ctrl = bestctrl * 0.85 #+ self.last_control * 0.0
             self.last_control = self.data.ctrl
             self.XU_batch[:] = XU_batch_new[best_tracker]
 
@@ -312,7 +312,7 @@ class Benchmark():
         print(f'average ctrl: {total_ctrl / sim_steps}')
         return stats
 
-    def runBench(self, headless=False):
+    def runBench(self, headless=True):
 
         allstats = {
             'failed': [],
@@ -371,7 +371,6 @@ class Benchmark():
             allstats['max_solve_time'].append(max(leg1['max_solve_time'], leg2['max_solve_time'], leg3['max_solve_time']))
             allstats['steps'].append(leg1['steps'] + leg2['steps'] + leg3['steps'])
             
-        #     # save stats
         #     if i % 20 == 0:
         #         pickle.dump(allstats, open(f'benchmark_stats{self.file_prefix}_stats_{i}.pkl', 'wb'))
             if i==50:
@@ -385,22 +384,60 @@ class Benchmark():
 
 
 if __name__ == '__main__':
-#     b = Benchmark(file_prefix='gpu_batch1', batch_size=1, usefext=False)
+#     b = Benchmark(file_prefix='gpu_batch1', batch_size=1, knot_points=16, usefext=False)
 #     b.runBench()
-    b = Benchmark(file_prefix='gpu_batch2', batch_size=2, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch4', batch_size=4, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch8', batch_size=8, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch16', batch_size=16, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch32', batch_size=32, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch64', batch_size=64, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch128', batch_size=128, usefext=False)
-    b.runBench()
-    b = Benchmark(file_prefix='gpu_batch256', batch_size=256, usefext=False)
-    b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch2', batch_size=2, knot_points=16, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch4', batch_size=4, knot_points=16, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch8', batch_size=8, knot_points=16, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch16', batch_size=16, knot_points=16, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch32', batch_size=32, knot_points=16, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch64', batch_size=64, knot_points=16, usefext=False)
+#     b.runBench()
     
+#     b = Benchmark(file_prefix='gpu_batch1_N32', batch_size=1, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch2_N32', batch_size=2, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch4_N32', batch_size=4, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch8_N32', batch_size=8, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch16_N32', batch_size=16, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch32_N32', batch_size=32, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch64_N32', batch_size=64, knot_points=32, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch128_N32', batch_size=128, knot_points=32, usefext=False)
+#     b.runBench()
+    
+#     b = Benchmark(file_prefix='gpu_batch1_N64', batch_size=1, knot_points=64, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch2_N64', batch_size=2, knot_points=64, usefext=False)
+#     b.runBench()
+    b = Benchmark(file_prefix='gpu_batch4_N64', batch_size=4, knot_points=64, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch8_N64', batch_size=8, knot_points=64, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch16_N64', batch_size=16, knot_points=64, usefext=False)
+    b.runBench()
+    b = Benchmark(file_prefix='gpu_batch32_N64', batch_size=32, knot_points=64, usefext=False)
+    b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch64_N64', batch_size=64, knot_points=64, usefext=False)
+#     b.runBench()
+#     b = Benchmark(file_prefix='gpu_batch128_N64', batch_size=128, knot_points=64, usefext=False)
+#     b.runBench()
+    
+    
+    
+    
+    
+    
+    
+#8 -> 64 knot
+#1 -> 64 knot
