@@ -4,29 +4,45 @@ This is a batched version of the trajectory optimization solver from the paper [
 
 ## Installation
 
-[uv](https://docs.astral.sh/uv/) is used as a Python package and project manager.
-
 ```sh
 git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
-git submodule update --init --recursive
-
-#uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-source .venv/bin/activate
-
-#docker
-docker-compose up -d
-docker-compose exec dev bash
-
-make build #builds examples and bindings
 ```
 
-Bindings only
+Docker is used for containerization and [uv](https://docs.astral.sh/uv/) is used as a Python package/project manager.
+
+Setup
 
 ```sh
+# setup dependencies, build container, and make
+./tools/install.sh
+```
+
+Docker
+
+```sh
+# build + run + enter container
+./tools/docker.sh
+
+# manually
+docker compose up -d # build and run
+docker compose exec dev bash # enter container
+docker compose exec -w /workspace dev bash #enter container in the workspace directory
+
+docker down # stop and remove
+```
+
+GATO
+
+```sh
+# examples, benchmark, and bindings
+make build
+
+# bindings only
 make build-bindings
+
+# clean
+make clean
 ```
 
 ### Requirements
@@ -37,7 +53,7 @@ GATO works with:
 - CUDA v12.2
 - C++17
 - Python 3.10.12
-- Docker 26.1.3
+- Docker 28.1.0
 
 ## Usage
 
