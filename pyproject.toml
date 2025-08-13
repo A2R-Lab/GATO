@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core", "pybind11"]
+requires = ["setuptools", "scikit-build-core", "pybind11"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,7 @@ authors = [
 ]
 description = "GPU-accelerated batched trajectory optimization"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = "==3.10.12"
 dependencies = [
     "ipykernel>=6.29.5",
     "jupyter>=1.1.1",
@@ -25,9 +25,16 @@ dependencies = [
     "pybind11>=2.13.6",
     "pyqt5>=5.15.11",
     "tdqm>=0.0.1",
+    "seaborn>=0.13.2",
 ]
 
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
 ]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+include = ["bsqp"]
