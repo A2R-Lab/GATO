@@ -89,7 +89,7 @@ __device__ __forceinline__ void addScaledIdentity(T* A, T alpha)
         for (uint32_t i = threadIdx.x; i < dim * dim; i += blockDim.x) {
                 uint32_t x = i / dim;
                 uint32_t y = i % dim;
-                if (x == y) {
+                if (x == y && x < dim/2 && y < dim/2) {
                         // For column-major, diagonal elements are at col*dim + col
                         A[x * dim + y] += alpha;
                 }

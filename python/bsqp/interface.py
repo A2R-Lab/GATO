@@ -23,14 +23,13 @@ class BSQP:
         u_cost=1e-6,
         N_cost=50.0,
         q_lim_cost=1e-3,
-        f_ext_B_std=None,
-        f_ext_resample_std=None,
+        rho=0.0,
     ):
         # Dynamically import the correct bsqp_N* module and get the solver class
         # The modules should be named like 'bsqp_N16', etc., and contain classes like 'BSQP_4', etc.
 
         # Build the module name for the given N
-        module_name = f"bsqp.bsqp_N{N}"
+        module_name = f"bsqp.bsqpN{N}"
         try:
             base = importlib.import_module(module_name)
         except ImportError as e:
@@ -39,7 +38,7 @@ class BSQP:
             )
 
         # Build the class name for the given batch_size
-        class_name = f"BSQP_{batch_size}"
+        class_name = f"BSQP_{batch_size}_float"
         if not hasattr(base, class_name):
             raise ValueError(
                 f"Batch size {batch_size} not supported in module {module_name}"
@@ -60,19 +59,16 @@ class BSQP:
             u_cost,
             N_cost,
             q_lim_cost,
+            0.0,  # vel_lim_cost
+            0.0,  # ctrl_lim_cost
+            rho,  # rho
         )
         self.model = pin.buildModelFromUrdf(model_path)
         self.data = self.model.createData()
         self.batch_size = batch_size
         self.N = N
         self.dt = dt
-        self.f_ext_B_std = f_ext_B_std
-        self.f_ext_resample_std = f_ext_resample_std
-        self.f_ext_B = np.zeros((self.batch_size, 6))
-        if f_ext_B_std is not None:
-            self.f_ext_B[1:, :3] = np.random.normal(
-                0, f_ext_B_std, (self.batch_size - 1, 3)
-            )
+        self.f_ext_B = np.zeros((self.batch_size, 6), dtype=np.float32)
         self.set_f_ext_B(self.f_ext_B)
 
         self.nx = self.model.nq + self.model.nv
@@ -80,7 +76,10 @@ class BSQP:
         self.nq = self.model.nq
         self.nv = self.model.nv
 
-        self.XU_B = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu))
+        self.XU_B = np.zeros(
+            (self.batch_size, self.N * (self.nx + self.nu) - self.nu),
+            dtype=np.float32,
+        )
 
         self.stats = {
             "sqp_time_us": np.array([]),
@@ -93,9 +92,20 @@ class BSQP:
         }
 
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
+        # Ensure float32 inputs for CUDA bindings
+        xcur_B = np.asarray(xcur_B, dtype=np.float32)
+        eepos_goals_B = np.asarray(eepos_goals_B, dtype=np.float32)
         if XU_B is None:
             XU_B = self.XU_B
+        else:
+            XU_B = np.asarray(XU_B, dtype=np.float32)
         XU_B[:, : self.nx] = xcur_B
+
+        # Keep rho behavior aligned with working benchmark
+        try:
+            self.solver.reset_rho()
+        except AttributeError:
+            pass
 
         result = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
 
@@ -111,6 +121,11 @@ class BSQP:
         return self.XU_B, result["sqp_time_us"]
 
     def get_best_idx(self, x_last, u_last, x_curr, dt):
+        """Simple evaluation of best trajectory based on forward simulation.
+        
+        Note: This is kept for backward compatibility but is typically not used
+        when the force estimator is integrated at the MPC level.
+        """
         if self.batch_size == 1:
             return 0
 
@@ -121,17 +136,6 @@ class BSQP:
             if err < best_err:
                 best_err = err
                 best_id = i
-
-        if self.f_ext_resample_std is not None:
-            self.f_ext_B[0, :] = np.zeros(6)
-            self.f_ext_B[1, :] = self.f_ext_B[best_id, :]
-            self.f_ext_B[2:, :] = np.random.normal(
-                self.f_ext_B[best_id, :],
-                self.f_ext_resample_std,
-                (self.batch_size - 2, 6),
-            )
-            self.f_ext_B[:, 3:] = 0.0
-            self.set_f_ext_B(self.f_ext_B)
 
         return best_id
 
@@ -145,11 +149,13 @@ class BSQP:
         self.XU_B = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu))
 
     def sim_forward(self, xk, uk, sim_dt):
+        xk = np.asarray(xk, dtype=np.float32)
+        uk = np.asarray(uk, dtype=np.float32)
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def set_f_ext_B(self, f_ext_B):
-        self.f_ext_B = f_ext_B
-        self.solver.set_f_ext_batch(f_ext_B)
+        self.f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
+        self.solver.set_f_ext_batch(self.f_ext_B)
 
     def reset_dual(self):
         self.solver.reset_dual()

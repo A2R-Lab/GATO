@@ -52,6 +52,7 @@ __device__ void integrator_error_inner(T* s_err, T* s_q_next, T* s_qd_next, T* s
         T* s_q_new = s_temp;
         T* s_qd_new = s_q_new + STATE_SIZE / 2;
         integrator_inner(s_q_new, s_qd_new, s_q, s_qd, s_qdd, dt);
+        __syncthreads();
 
         // compute error
         for (uint32_t i = threadIdx.x; i < STATE_SIZE / 2; i += blockDim.x) {

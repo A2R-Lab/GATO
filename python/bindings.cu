@@ -13,7 +13,7 @@ class PyBSQP {
       public:
         PyBSQP() : solver_()
         {
-                printDeviceInfo();
+                // printDeviceInfo();
                 setL2PersistingAccess(1.0);
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
@@ -36,10 +36,13 @@ class PyBSQP {
                const T        qd_cost,
                const T        u_cost,
                const T        N_cost,
-               const T        q_lim_cost)
-            : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost)
+               const T        q_lim_cost,
+               const T        vel_lim_cost,
+               const T        ctrl_lim_cost,
+               const T        rho)
+            : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
         {
-                printDeviceInfo();
+                // printDeviceInfo();
                 setL2PersistingAccess(1.0);
                 std::cout << "T : " << typeid(T).name() << std::endl;
 
@@ -147,6 +150,7 @@ class PyBSQP {
         }
 
         void reset_dual() { solver_.reset_dual(); }
+        void reset_rho() { solver_.reset_rho(); }
 
       private:
         BSQP<T, BatchSize> solver_;
@@ -164,13 +168,14 @@ class PyBSQP {
 #define MODULE_NAME(knot) MODULE_NAME_HELPER(knot)
 
 // Macro to register a PyBSQP class with the given precision type and batch size
-#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                         \
-        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                         \
-            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
-            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                           \
-            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                 \
-            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                       \
-            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)
+#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                                     \
+        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                                     \
+            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
+            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                                       \
+            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                             \
+            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                                   \
+            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)                                                                                                                           \
+            .def("reset_rho", &PyBSQP<Type, BatchSize>::reset_rho)
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
 {
@@ -195,5 +200,8 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
         REGISTER_BSQP_CLASS(float, 32);
         REGISTER_BSQP_CLASS(float, 64);
         REGISTER_BSQP_CLASS(float, 128);
+        REGISTER_BSQP_CLASS(float, 256);
+        REGISTER_BSQP_CLASS(float, 512);
+        REGISTER_BSQP_CLASS(float, 1024);
 #endif
 }

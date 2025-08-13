@@ -46,7 +46,7 @@ else
     docker run -it \
         --gpus all \
         --network=host \
-        -e DISPLAY=$DISPLAY \
+        -e DISPLAY=:0 \
         -v "$(pwd)":/workspace \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         --name ${CONTAINER_NAME} \

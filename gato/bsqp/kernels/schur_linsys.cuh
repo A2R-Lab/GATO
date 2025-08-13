@@ -20,7 +20,8 @@ __global__ void formSchurSystemBatchedKernel1(T* d_S_batch,
                                               T* d_r_batch,
                                               T* d_A_batch,
                                               T* d_B_batch,
-                                              T* d_c_batch)
+                                              T* d_c_batch,
+                                              T* d_rho_penalty_batch)
 {
         // launched with grid of (KNOT_POINTS, solve_idx)
         uint32_t knot_idx = blockIdx.x;
@@ -87,10 +88,10 @@ __global__ void formSchurSystemBatchedKernel1(T* d_S_batch,
 
                 // // Q_k_inv and R_k_inv
                 // // add scaled identity with rho to penalize constraint violations
-                // // T rho_penalty = RHO_INIT;//d_rho_penalty_batch[solve_idx];
-                block::addScaledIdentity<T, STATE_SIZE>(s_Q_k, RHO);
-                block::addScaledIdentity<T, STATE_SIZE>(s_Q_kp1, RHO);
-                block::addScaledIdentity<T, CONTROL_SIZE>(s_R_k, RHO);
+                T rho_penalty = d_rho_penalty_batch[solve_idx];
+                block::addScaledIdentity<T, STATE_SIZE>(s_Q_k, rho_penalty);
+                block::addScaledIdentity<T, STATE_SIZE>(s_Q_kp1, rho_penalty);
+                // block::addScaledIdentity<T, CONTROL_SIZE>(s_R_k, rho_penalty);
                 __syncthreads();
 
                 // TODO: cholesky factorization inverse (because symmetric positive definite)
@@ -174,8 +175,8 @@ __global__ void formSchurSystemBatchedKernel1(T* d_S_batch,
                 block::loadIdentity<T, STATE_SIZE>(s_Q_k_inv);
                 __syncthreads();
 
-                // // T rho_penalty = RHO_INIT;//d_rho_penalty_batch[solve_idx];
-                block::addScaledIdentity<T, STATE_SIZE>(s_Q_k, RHO);
+                T rho_penalty = d_rho_penalty_batch[solve_idx];
+                block::addScaledIdentity<T, STATE_SIZE>(s_Q_k, rho_penalty);
                 __syncthreads();
 
                 // store -Q_0 in P_inv
@@ -294,7 +295,7 @@ __host__ size_t getFormSchurSystemBatched2SMemSize()
 }
 
 template<typename T, uint32_t BatchSize>
-__host__ void formSchurSystemBatched(SchurSystem<T, BatchSize> schur, KKTSystem<T, BatchSize> kkt)
+__host__ void formSchurSystemBatched(SchurSystem<T, BatchSize> schur, KKTSystem<T, BatchSize> kkt, T* d_rho_penalty_batch)
 {
         dim3           grid1(KNOT_POINTS, BatchSize);
         dim3           grid2(KNOT_POINTS - 1, BatchSize);
@@ -303,7 +304,7 @@ __host__ void formSchurSystemBatched(SchurSystem<T, BatchSize> schur, KKTSystem<
         const uint32_t s_mem_size2 = getFormSchurSystemBatched2SMemSize<T>();
 
         formSchurSystemBatchedKernel1<T, BatchSize><<<grid1, thread_block, s_mem_size1>>>(
-            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch);
+            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch);
 
         formSchurSystemBatchedKernel2<T, BatchSize><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch);
 }
