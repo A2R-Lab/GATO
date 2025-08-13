@@ -13,7 +13,7 @@ class PyBSQP {
       public:
         PyBSQP() : solver_()
         {
-                printDeviceInfo();
+                // printDeviceInfo();
                 setL2PersistingAccess(1.0);
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
@@ -42,7 +42,7 @@ class PyBSQP {
                const T        rho)
             : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
         {
-                printDeviceInfo();
+                // printDeviceInfo();
                 setL2PersistingAccess(1.0);
                 std::cout << "T : " << typeid(T).name() << std::endl;
 
@@ -201,5 +201,7 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS), m)
         REGISTER_BSQP_CLASS(float, 64);
         REGISTER_BSQP_CLASS(float, 128);
         REGISTER_BSQP_CLASS(float, 256);
+        REGISTER_BSQP_CLASS(float, 512);
+        REGISTER_BSQP_CLASS(float, 1024);
 #endif
 }
