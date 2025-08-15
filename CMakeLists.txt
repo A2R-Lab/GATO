@@ -22,10 +22,36 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -std=c++17")
 set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -G -g")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -use_fast_math -O3")
 
+
+
 set(CMAKE_CUDA_ARCHITECTURES 89 86 75)
 message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
+# Ensure CMake uses the correct CUDA toolkit
+set(CUDAToolkit_ROOT "/usr/local/cuda-12.6" CACHE PATH "CUDA Toolkit root directory")
+
+# Check CUDA version and warn if not 12.6
+execute_process(
+  COMMAND ${CUDAToolkit_ROOT}/bin/nvcc --version
+  OUTPUT_VARIABLE NVCC_VERSION_OUTPUT
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REGEX MATCH "release ([0-9]+\\.[0-9]+)" _ ${NVCC_VERSION_OUTPUT})
+set(CUDA_VERSION_DETECTED ${CMAKE_MATCH_1})
+if(NOT CUDA_VERSION_DETECTED STREQUAL "12.6")
+  message(WARNING "Detected CUDA version is ${CUDA_VERSION_DETECTED}, but CUDA 12.6 is required for sm_89 support. Please check your environment.")
+endif()
+
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)
+# --- Automatically detect pybind11 in the active Python environment ---
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import pybind11, os; print(os.path.join(pybind11.get_cmake_dir()))"
+    OUTPUT_VARIABLE pybind11_cmake_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(EXISTS "${pybind11_cmake_dir}/pybind11Config.cmake")
+    list(APPEND CMAKE_PREFIX_PATH "${pybind11_cmake_dir}")
+endif()
 find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDA REQUIRED)
 

@@ -38,6 +38,10 @@
 
 # Ignore CMake generated files
 CMakeCache.txt
+ 
+# Ignore pickle and image files
+*.pkl
+*.png
 CMakeFiles/
 cmake_install.cmake
 Makefile

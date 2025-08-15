@@ -4,6 +4,9 @@ This is a batched version of the trajectory optimization solver from the paper [
 
 ## Installation
 
+
+### Clone the repository
+
 ```sh
 git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
@@ -11,14 +14,41 @@ cd GATO
 
 Docker is used for containerization and [uv](https://docs.astral.sh/uv/) is used as a Python package/project manager.
 
-Setup
+### Setup (Docker, recommended)
 
 ```sh
 # setup dependencies, build container, and make
 ./tools/install.sh
 ```
 
-Docker
+#### Manual Build (without Docker)
+
+Ensure you have CUDA 12.6 installed and available on your system. Set the environment variables so that the correct CUDA toolkit is used:
+
+```sh
+export PATH=/usr/local/cuda-12.6/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:$LD_LIBRARY_PATH
+```
+
+Check that the correct nvcc is being used:
+
+```sh
+which nvcc
+nvcc --version
+# Should show CUDA 12.6
+```
+
+Then build the project:
+
+```sh
+rm -rf build
+mkdir build
+cd build
+cmake -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc ..
+cmake --build . --parallel
+```
+
+### Docker
 
 ```sh
 # build + run + enter container
@@ -29,10 +59,10 @@ docker compose up -d # build and run
 docker compose exec dev bash # enter container
 docker compose exec -w /workspace dev bash #enter container in the workspace directory
 
-docker down # stop and remove
+docker compose down # stop and remove
 ```
 
-GATO
+### GATO Make Targets
 
 ```sh
 # examples, benchmark, and bindings
@@ -47,10 +77,11 @@ make clean
 
 ### Requirements
 
+
 GATO works with:
 
 - Ubuntu 22.04
-- CUDA v12.2
+- CUDA v12.6 (required for Hopper/H100, sm_89)
 - C++17
 - Python 3.10.12
 - Docker 28.1.0
