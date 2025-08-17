@@ -1,6 +1,7 @@
 import time
 import math
 import numpy as np
+import pinocchio as pin
 
 import sys 
 import contextlib
@@ -83,9 +84,8 @@ class TorqueCalculator():
         # self.ecat.set_servo(4, True)
         # self.ecat.set_servo(5, True)
       
-
-        urdf_filename = "urdfs/indy7_limited.urdf"
-
+        urdf_filename = "indy7-mpc/description/indy7.urdf"
+        
         self.batch_size = 1
         self.num_threads = self.batch_size
         self.dt = 0.01
@@ -135,23 +135,7 @@ class TorqueCalculator():
             'timestamp': time.strftime('%Y-%m-%d_%H-%M-%S')
         }
 
-        # self.solver = pysqpcpu.BatchThneed(urdf_filename=urdf_filename, 
-        #                                    eepos_frame_name="end_effector", 
-        #                                    batch_size=self.batch_size, 
-        #                                    num_threads=self.num_threads, 
-        #                                    N=N, 
-        #                                    dt=self.dt, 
-        #                                    max_qp_iters=max_qp_iters, 
-        #                                    fext_timesteps=self.fext_timesteps, 
-        #                                    Q_cost=Q_cost, 
-        #                                    dQ_cost=dQ_cost, 
-        #                                    R_cost=R_cost, 
-        #                                    QN_cost=QN_cost, 
-        #                                    Qpos_cost=Qpos_cost, 
-        #                                    Qvel_cost=Qvel_cost, 
-        #                                    Qacc_cost=Qacc_cost, 
-        #                                    orient_cost=orient_cost)
-
+        self.solver = None
         self.solver = BSQP(
             model_path="indy7-mpc/description/indy7.urdf",
             batch_size=self.batch_size,
@@ -171,103 +155,161 @@ class TorqueCalculator():
             rho=0.05 
         )
 
-        # self.last_state_msg_time = None
-        # self.start_time = None
+        # Store model:
+        model_dir = "indy7-mpc/description/"
+        model, visual_model, collision_model = pin.buildModelsFromUrdf(urdf_filename, model_dir)
+        self.solver_model = model
+        self.model = model
 
-        # self.fig8 = figure8()
-        # self.fig8_offset = 0
-        # self.goal_trace = self.fig8[:3*self.solver.N].copy()
-        # self.last_goal_update = time.monotonic()
+        self.q_traj = []  # trajectory for visualization (robot only)
+        self.q_traj_full = []  # full trajectory including pendulum
+        
+        # Dimensions - note model has extra DOFs from pendulum
+        self.nq_robot = self.solver_model.nq
+        self.nv_robot = self.solver_model.nv
+        self.nq = self.model.nq  # Robot + pendulum
+        self.nv = self.model.nv  # Robot + pendulum
+        self.nx = self.nq_robot + self.nv_robot  # Solver state dimension (robot only)
+        self.nu = self.solver_model.nv  # Control dimension (robot only)
+        self.N = N
+        
+        self.last_state_msg_time = None
+        self.start_time = None
 
-        # self.xs = np.zeros(self.solver.nx)
-        # if FIG8:
-        #     self.eepos_g = self.fig8[:3*self.solver.N].copy()
-        # else:
-        #     # self.eepos_g = np.tile(np.array([-.1865, 0., 1.328]), self.solver.N)
-        #     self.eepos_g = np.tile(np.array([0.5, -.1865, 0.5]), self.solver.N)
+        self.fig8 = figure8()
+        self.fig8_offset = 0
+        self.goal_trace = self.fig8[:3*self.solver.N].copy()
+        self.last_goal_update = time.monotonic()
+
+        self.xs = np.zeros(self.solver.nx)
+        if FIG8:
+            self.eepos_g = self.fig8[:3*self.solver.N].copy()
+        else:
+            # self.eepos_g = np.tile(np.array([-.1865, 0., 1.328]), self.solver.N)
+            self.eepos_g = np.tile(np.array([0.5, -.1865, 0.5]), self.solver.N)
             
-        #     self.goals = [
-        #         np.array([0.5, -.1865, 0.5]),
-        #         np.array([0.5, 0.3, 0.2]),
-        #         np.array([0.3, 0.3, 0.8]),
-        #         np.array([0.6, -0.5, 0.2]),
-        #         np.array([0., -0.5, 0.8])
-        #     ]
+            self.goals = [
+                np.array([0.5, -.1865, 0.5]),
+                np.array([0.5, 0.3, 0.2]),
+                np.array([0.3, 0.3, 0.8]),
+                np.array([0.6, -0.5, 0.2]),
+                np.array([0., -0.5, 0.8])
+            ]
             
-        #     self.eepos_g = np.tile(self.goals[0], self.solver.N)
-        #     self.goal_idx = 0
-        #     self.last_goal_switch_time = time.monotonic()
+            self.eepos_g = np.tile(self.goals[0], self.solver.N)
+            self.goal_idx = 0
+            self.last_goal_switch_time = time.monotonic()
         
-        # self.fext_sigma = 5.0
-        # self.fext_deque = deque(maxlen=1)
-        # self.state_transition_deque = deque(maxlen=1)
-        # self.fext_mask = np.zeros((self.batch_size, 6, self.solver.nq+1))
-        # self.fext_mask[:,0,self.solver.nq] = 1
-        # self.fext_mask[:,1,self.solver.nq] = 1
-        # self.fext_mask[:,2,self.solver.nq] = 1
-        # self.fext_batch = np.zeros_like(self.fext_mask)
-        # self.best_fext = np.zeros_like(self.fext_mask[0])
+        self.fext_sigma = 5.0
+        self.fext_deque = deque(maxlen=1)
+        self.state_transition_deque = deque(maxlen=1)
+        self.fext_mask = np.zeros((self.batch_size, 6, self.solver.nq+1))
+        self.fext_mask[:,0,self.solver.nq] = 1
+        self.fext_mask[:,1,self.solver.nq] = 1
+        self.fext_mask[:,2,self.solver.nq] = 1
+        self.fext_batch = np.zeros_like(self.fext_mask)
+        self.best_fext = np.zeros_like(self.fext_mask[0])
         
-        # # self.fext_batch[1:] = np.random.normal(self.fext_batch[1:], self.fext_sigma)
-        # self.fext_batch *= self.fext_mask
-        
-        # # self.solver.batch_set_fext(self.fext_batch)
-        
-        # self.last_xs = None
-        # self.last_u = np.zeros(6)
-        # self.last_commanded = np.zeros(6)
-        # self.last_rotation = np.eye(3)
-        # self.last_joint_state_time = time.monotonic()
+        # self.fext_batch[1:] = np.random.normal(self.fext_batch[1:], self.fext_sigma)
+        self.fext_batch *= self.fext_mask
+        # self.solver.batch_set_fext(self.fext_batch)
+        self.last_xs = None
+        self.last_u = np.zeros(6)
+        self.last_commanded = np.zeros(6)
+        self.last_rotation = np.eye(3)
+        self.last_joint_state_time = time.monotonic()
     
-        # # stats
-        # self.tracking_errs = []
-        # self.positions = []
-        # self.state_transitions = []
-        # self.spin_ct = 0
+        # stats
+        self.tracking_errs = []
+        self.positions = []
+        self.state_transitions = []
+        self.spin_ct = 0
 
-    # def joint_callback(self):
-    #     if self.start_time is None:
-    #         self.start_time = time.monotonic()
-    #     # self.last_joint_state_time = time.monotonic()
-    #     self.spin_ct += 1
-
-    #     self.xs = np.zeros(self.solver.nx)
-    #     self.torques_tx = np.zeros(6)
-    #     for i in range(6):
-    #         ppr = self.servos[i]["ppr"]
-    #         gear_ratio = self.servos[i]["gear_ratio"]
-    #         pos, vel, tor = self.ecat.get_servo_tx(i)[2:5]
-    #         pos_rad = ((2 * math.pi * pos / gear_ratio / ppr) + self.servos[i]["correction_rad"]) * self.servos[i]["direction"]
-    #         vel_rad = 2 * math.pi * vel / gear_ratio / ppr * self.servos[i]["direction"]
-    #         self.xs[i] = pos_rad
-    #         self.xs[i+6] = vel_rad
-    #         self.torques_tx[i] = tor
-    #         if pos_rad < self.pos_limit_lower[i] or pos_rad > self.pos_limit_upper[i]:
-    #             print(f'servo {i} pos out of range: {pos_rad}')
-    #             return 1
-    #         if vel_rad < self.vel_limit_lower[i] or vel_rad > self.vel_limit_upper[i]:
-    #             print(f'servo {i} vel out of range: {vel_rad}')
-    #             return 1
-    #     # print(f'xs: {self.xs.round(2)}')
-    #     self.msg_time = time.monotonic()
-    #     self.torques_tx *= self.directions
-    #     self.torques_tx *= self.torque_constants
-
-    #     s = time.monotonic()
+        # >>>> Python-based >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        # if self.batch_size > 1:
+        #     self.force_estimator = ImprovedForceEstimator(
+        #         batch_size=self.batch_size,
+        #         initial_radius=5.0,  
+        #         min_radius=2.0,      
+        #         max_radius=20.0,     
+        #         smoothing_factor=0.5 
+        #     )
+        #     self.current_force_batch = None
+        # else:
+        #     self.force_estimator = None
+        #     self.current_force_batch = None
         
-    #     all_updated = self.solver.sqp(self.xs, self.eepos_g) # run batch sqp
-    #     e = time.monotonic()
-    #     if not all_updated:
-    #         print("batch sqp failed")
-    #         return 1
+        # self.actual_f_ext = pin.StdVec_Force()
+        # for _ in range(self.model.njoints):
+        #     self.actual_f_ext.append(pin.Force.Zero())
 
-    #     if self.last_state_msg_time is not None:
-    #         step_duration = self.msg_time - self.last_state_msg_time
+    def joint_callback(self):
+        if self.start_time is None:
+            self.start_time = time.monotonic()
+        # self.last_joint_state_time = time.monotonic()
+        self.spin_ct += 1
 
-    #         torque_mean = (self.torques_tx + self.last_u) / 2
+        self.xs = np.zeros(self.solver.nx)
+        self.torques_tx = np.zeros(6)
+        for i in range(6):
+            ppr = self.servos[i]["ppr"]
+            gear_ratio = self.servos[i]["gear_ratio"]
+            # pos, vel, tor = self.ecat.get_servo_tx(i)[2:5] # get position, velocity, torque from EtherCAT
+            pos, vel, tor = 0, 0, 0
+            pos_rad = ((2 * math.pi * pos / gear_ratio / ppr) + self.servos[i]["correction_rad"]) * self.servos[i]["direction"]
+            vel_rad = 2 * math.pi * vel / gear_ratio / ppr * self.servos[i]["direction"]
+            self.xs[i] = pos_rad
+            self.xs[i+6] = vel_rad
+            self.torques_tx[i] = tor
+            if pos_rad < self.pos_limit_lower[i] or pos_rad > self.pos_limit_upper[i]:
+                print(f'servo {i} pos out of range: {pos_rad}')
+                return 1
+            if vel_rad < self.vel_limit_lower[i] or vel_rad > self.vel_limit_upper[i]:
+                print(f'servo {i} vel out of range: {vel_rad}')
+                return 1
+        # print(f'xs: {self.xs.round(2)}')
+        self.msg_time = time.monotonic()
+        self.torques_tx *= self.directions
+        self.torques_tx *= self.torque_constants
 
-    #         transition = np.hstack([self.last_xs, torque_mean, self.xs, step_duration, self.msg_time - self.start_time, self.best_fext[:3,6].flatten()])
-    #         self.state_transition_deque.append(transition)
+        s = time.monotonic()
+
+        # ====================================================================================================
+        # GATO SOLVER - Optimization toward current goal
+        # Update solver state (robot only)
+        x_curr = self.xs
+
+        # current_dist = np.linalg.norm(self.eepos(q[:self.nq_robot]) - current_goal)
+        # current_vel = np.linalg.norm(dq[:self.nv_robot], ord=1)
+        # reached = (current_dist < 5e-2) and (current_vel < 1.0)
+        # timeout = (total_sim_time - goal_start_time) >= 8.0
+
+        x_curr_batch = np.tile(x_curr, (self.batch_size, 1))
+        # 
+        current_goal = self.eepos_g
+        ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+        ee_g_batch = np.tile(ee_g, (self.batch_size, 1))
+        # 
+        XU = np.zeros(self.N*(self.nx+self.nu)-self.nu)
+        XU_batch = np.tile(XU, (self.batch_size, 1))
+        XU_batch[:, :self.nx] = x_curr
+
+        # ====================================================================================================
+
+        # all_updated = self.solver.sqp(self.xs, self.eepos_g) # run batch sqp
+        all_updated = None
+        e = time.monotonic()
+        # if not all_updated:
+        #     print("batch sqp failed")
+        #     return 1
+
+        if self.last_state_msg_time is not None:
+            step_duration = self.msg_time - self.last_state_msg_time
+
+            torque_mean = (self.torques_tx + self.last_u) / 2
+
+            transition = np.hstack([self.last_xs, torque_mean, self.xs, step_duration, self.msg_time - self.start_time, self.best_fext[:3,6].flatten()])
+            self.state_transition_deque.append(transition)
 
     #         # this is for a test
     #         self.state_transitions.append(transition)
@@ -399,31 +441,31 @@ class TorqueCalculator():
     #     print()
 
 def main(args=None):
-    # try:
+    try:
         controller = TorqueCalculator()
-    #     while 1:
-    #         if controller.joint_callback():
-    #             break
-    # except KeyboardInterrupt:
-    #     print("\nKeyboard interrupt detected. Shutting down gracefully...")
-    #     for i in range(6):
-    #         controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
-    #         time.sleep(0.02)
-    #         controller.ecat.set_servo(i, False)
-    # except Exception as e:
-    #     traceback.print_exc()
-    #     print(f"Error: {e}")
-    #     print("\nShutting down gracefully...")
-    #     for i in range(6):
-    #         controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
-    #         time.sleep(0.02)
-    #         controller.ecat.set_servo(i, False)
-    # finally:
-    #     for i in range(6):
-    #         controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
-    #         time.sleep(0.02)
-    #         controller.ecat.set_servo(i, False)
-    #     print("filename: ", controller.file_prefix)
+        while 1:
+            if controller.joint_callback():
+                break
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt detected. Shutting down gracefully...")
+        # for i in range(6):
+        #     controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
+        #     time.sleep(0.02)
+        #     controller.ecat.set_servo(i, False)
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error: {e}")
+        print("\nShutting down gracefully...")
+        # for i in range(6):
+        #     controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
+        #     time.sleep(0.02)
+        #     controller.ecat.set_servo(i, False)
+    finally:
+        # for i in range(6):
+        #     controller.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, 0)
+        #     time.sleep(0.02)
+        #     controller.ecat.set_servo(i, False)
+        print("filename: ", controller.file_prefix)
     
 
 if __name__ == '__main__':
