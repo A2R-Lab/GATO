@@ -13,15 +13,6 @@ import traceback
 from neuromeka import EtherCAT
 from collections import deque
 
-# current_dir = os.getcwd()
-# build_dir = os.path.join(current_dir, 'build')
-# sys.path.append(build_dir)
-# import pysqpcpu
-
-# Add the GATO python directory to the path for custom modules
-# gato_path = os.path.join(os.getcwd(), "GATO/python")
-# sys.path.append(gato_path)
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
 from bsqp.interface import BSQP
 from force_estimator import ImprovedForceEstimator
@@ -53,6 +44,7 @@ class TorqueCalculator():
         self.fext_factor = 1.0
 
         self.ip = '160.39.102.105'
+        # >>> TODO: Initialize EtherCAT
         # self.ecat = EtherCAT(self.ip)
         
         self.servos = [
@@ -76,7 +68,7 @@ class TorqueCalculator():
         self.vel_limit_lower = self.vel_limit_lower_deg_per_s * np.pi / 180.0
         self.vel_limit_upper = self.vel_limit_upper_deg_per_s * np.pi / 180.0
         
-        # enable all servos
+        # >>> TODO: Enable all servos
         # self.ecat.set_servo(0, True)
         # self.ecat.set_servo(1, True)
         # self.ecat.set_servo(2, True)
@@ -135,7 +127,6 @@ class TorqueCalculator():
             'timestamp': time.strftime('%Y-%m-%d_%H-%M-%S')
         }
 
-        self.solver = None
         self.solver = BSQP(
             model_path="indy7-mpc/description/indy7.urdf",
             batch_size=self.batch_size,
@@ -159,6 +150,7 @@ class TorqueCalculator():
         model_dir = "indy7-mpc/description/"
         model, visual_model, collision_model = pin.buildModelsFromUrdf(urdf_filename, model_dir)
         self.solver_model = model
+        # Create augmented model for simulation (with pendulum???)
         self.model = model
 
         self.q_traj = []  # trajectory for visualization (robot only)
@@ -173,6 +165,25 @@ class TorqueCalculator():
         self.nu = self.solver_model.nv  # Control dimension (robot only)
         self.N = N
         
+        # >>>> GATO - Python-based >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        if self.batch_size > 1:
+            self.force_estimator = ImprovedForceEstimator(
+                batch_size=self.batch_size,
+                initial_radius=5.0,  
+                min_radius=2.0,      
+                max_radius=20.0,     
+                smoothing_factor=0.5 
+            )
+            self.current_force_batch = None
+        else:
+            self.force_estimator = None
+            self.current_force_batch = None
+        
+        self.actual_f_ext = pin.StdVec_Force()
+        for _ in range(self.model.njoints):
+            self.actual_f_ext.append(pin.Force.Zero())
+
+        # >>>> SQPCPU
         self.last_state_msg_time = None
         self.start_time = None
 
@@ -185,7 +196,6 @@ class TorqueCalculator():
         if FIG8:
             self.eepos_g = self.fig8[:3*self.solver.N].copy()
         else:
-            # self.eepos_g = np.tile(np.array([-.1865, 0., 1.328]), self.solver.N)
             self.eepos_g = np.tile(np.array([0.5, -.1865, 0.5]), self.solver.N)
             
             self.goals = [
@@ -200,53 +210,118 @@ class TorqueCalculator():
             self.goal_idx = 0
             self.last_goal_switch_time = time.monotonic()
         
-        self.fext_sigma = 5.0
-        self.fext_deque = deque(maxlen=1)
-        self.state_transition_deque = deque(maxlen=1)
-        self.fext_mask = np.zeros((self.batch_size, 6, self.solver.nq+1))
-        self.fext_mask[:,0,self.solver.nq] = 1
-        self.fext_mask[:,1,self.solver.nq] = 1
-        self.fext_mask[:,2,self.solver.nq] = 1
-        self.fext_batch = np.zeros_like(self.fext_mask)
-        self.best_fext = np.zeros_like(self.fext_mask[0])
-        
-        # self.fext_batch[1:] = np.random.normal(self.fext_batch[1:], self.fext_sigma)
-        self.fext_batch *= self.fext_mask
-        # self.solver.batch_set_fext(self.fext_batch)
         self.last_xs = None
         self.last_u = np.zeros(6)
         self.last_commanded = np.zeros(6)
         self.last_rotation = np.eye(3)
         self.last_joint_state_time = time.monotonic()
     
-        # stats
-        self.tracking_errs = []
-        self.positions = []
-        self.state_transitions = []
+        # >>>> SQPCPU Stats
         self.spin_ct = 0
 
-        # >>>> Python-based >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # if self.batch_size > 1:
-        #     self.force_estimator = ImprovedForceEstimator(
-        #         batch_size=self.batch_size,
-        #         initial_radius=5.0,  
-        #         min_radius=2.0,      
-        #         max_radius=20.0,     
-        #         smoothing_factor=0.5 
-        #     )
-        #     self.current_force_batch = None
-        # else:
-        #     self.force_estimator = None
-        #     self.current_force_batch = None
+    def transform_force_to_gato_frame(self, q, f_world):
+        """
+        Transform a force from world frame at end-effector to local frame at joint 5.
+        Uses only robot joints (first nq_robot elements of q).
+        """
+        # Create data for solver model to do kinematics
+        solver_data = self.solver_model.createData()
         
-        # self.actual_f_ext = pin.StdVec_Force()
-        # for _ in range(self.model.njoints):
-        #     self.actual_f_ext.append(pin.Force.Zero())
+        # Use only robot configuration
+        q_robot = q[:self.nq_robot]
+        
+        # Update kinematics on solver model
+        pin.forwardKinematics(self.solver_model, solver_data, q_robot)
+        pin.updateFramePlacements(self.solver_model, solver_data)
+        
+        # Joint indices
+        jid_5_pin = 6  # Joint 5 in GATO = Joint 6 in Pinocchio
+        jid_ee_pin = self.solver_model.njoints - 1  # End-effector
+        
+        # Get transformations
+        transform_world_to_j5 = solver_data.oMi[jid_5_pin]
+        transform_world_to_ee = solver_data.oMi[jid_ee_pin]
+        
+        # Compute transformation from Joint 5 to End-Effector
+        transform_j5_to_ee = transform_world_to_j5.inverse() * transform_world_to_ee
+        
+        # Create force at end-effector in world frame
+        force_ee_world = pin.Force(f_world[:3], f_world[3:])
+        
+        # Transform to Joint 5 local frame
+        force_ee_local = transform_world_to_ee.actInv(force_ee_world)
+        wrench_j5_local = transform_j5_to_ee.actInv(force_ee_local)
+        
+        result = np.zeros(6)
+        result[:3] = wrench_j5_local.linear
+        result[3:] = wrench_j5_local.angular
+        
+        return result
+    
+    def update_force_batch(self, q):
+        
+        # No external force hypothesis for single batch
+        if self.batch_size == 1:  
+            return
+        
+        self.current_force_batch = self.force_estimator.generate_batch()
+        # Transform each force hypothesis to GATO frame
+        transformed_batch = np.zeros_like(self.current_force_batch)
+        for i in range(self.batch_size):
+            # Each hypothesis is in world frame, transform to GATO frame
+            transformed_batch[i, :] = self.transform_force_to_gato_frame(q, self.current_force_batch[i, :])
+        
+        self.solver.set_f_ext_B(transformed_batch)
 
+    def evaluate_best_trajectory(self, x_last, u_last, x_curr, dt):
+        """Evaluate which trajectory best matches reality (called post-solve)."""
+        if self.batch_size == 1:
+            return 0
+        
+        # Simulate all hypotheses with their corresponding forces
+        x_next_batch = self.solver.sim_forward(x_last, u_last, dt)
+        
+        # Calculate errors for all hypotheses
+        errors = np.linalg.norm(x_next_batch - x_curr[None, :], axis=1)
+        best_id = np.argmin(errors)
+        
+        # Update estimator with results
+        self.force_estimator.update(best_id, errors, alpha=0.4, beta=0.5)
+        
+        return best_id
+    
+    def eepos(self, q):
+        """Get end-effector position using solver model (robot only)."""
+        solver_data = self.solver_model.createData()
+        pin.forwardKinematics(self.solver_model, solver_data, q)
+        return solver_data.oMi[6].translation
+    
     def joint_callback(self):
+
+        stats = {
+            'solve_times': [],
+            'goal_distances': [],
+            'ee_goal': [],
+            'ee_actual': [],  # Actual end-effector positions
+            'ee_velocity': [],  # End-effector velocities
+            'controls': [],  # Control inputs (torques)
+            'joint_positions': [],  # All joint positions
+            'joint_velocities': [],  # All joint velocities
+            'timestamps': [],  # Time stamps for each step
+            'sqp_iters': [],  # SQP iterations
+            'pcg_iters': [],  # PCG iterations
+            'force_estimates': [],  # Force estimates (if batch)
+            'force_estimates_gato': [],  # Force estimates in GATO frame
+            'force_radius': [],  # Force estimator search radius
+            'force_confidence': [],  # Force estimator confidence
+            'best_trajectory_id': []  # Which trajectory was selected
+        }
+        
+        stats['goal_outcomes_by_idx'] = ['not_reached'] * len(self.goals)
+
         if self.start_time is None:
             self.start_time = time.monotonic()
-        # self.last_joint_state_time = time.monotonic()
+        # 
         self.spin_ct += 1
 
         self.xs = np.zeros(self.solver.nx)
@@ -267,178 +342,212 @@ class TorqueCalculator():
             if vel_rad < self.vel_limit_lower[i] or vel_rad > self.vel_limit_upper[i]:
                 print(f'servo {i} vel out of range: {vel_rad}')
                 return 1
+        # >>> sqpcpu (commented)
         # print(f'xs: {self.xs.round(2)}')
         self.msg_time = time.monotonic()
         self.torques_tx *= self.directions
         self.torques_tx *= self.torque_constants
 
-        s = time.monotonic()
-
         # ====================================================================================================
         # GATO SOLVER - Optimization toward current goal
         # Update solver state (robot only)
+        # Simulation uses q and q_dot from step simulation
+        # Experiment uses q and q_dot from robot recorded/acquired data
         x_curr = self.xs
+        current_goal = self.goals[self.goal_idx]
+        print(f"Current goal: {current_goal}")
+        print(f"nq_robot: {self.nq_robot}, nx: {self.nx}")
 
-        # current_dist = np.linalg.norm(self.eepos(q[:self.nq_robot]) - current_goal)
-        # current_vel = np.linalg.norm(dq[:self.nv_robot], ord=1)
-        # reached = (current_dist < 5e-2) and (current_vel < 1.0)
+        current_dist = np.linalg.norm(self.eepos(x_curr[:self.nq_robot]) - current_goal)
+        current_vel = np.linalg.norm(x_curr[self.nq_robot:self.nx], ord=1)
+        reached = (current_dist < 5e-2) and (current_vel < 1.0)
         # timeout = (total_sim_time - goal_start_time) >= 8.0
 
         x_curr_batch = np.tile(x_curr, (self.batch_size, 1))
         # 
-        current_goal = self.eepos_g
         ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
         ee_g_batch = np.tile(ee_g, (self.batch_size, 1))
         # 
-        XU = np.zeros(self.N*(self.nx+self.nu)-self.nu)
-        XU_batch = np.tile(XU, (self.batch_size, 1))
-        XU_batch[:, :self.nx] = x_curr
+        if self.last_state_msg_time is None:
+            print("Initializing XU_batch")
+            XU = np.zeros(self.N*(self.nx+self.nu)-self.nu)
+            for i in range(self.N):
+                start_idx = i * (self.nx + self.nu)
+                XU[start_idx:start_idx+self.nx] = x_curr
+            self.solver.reset_dual()
+            self.XU_batch = np.tile(XU, (self.batch_size, 1))
+
+        self.XU_batch[:, :self.nx] = x_curr
+
+        self.update_force_batch(x_curr[:self.nq_robot])
 
         # ====================================================================================================
-
+        solve_start = time.monotonic()
+        XU_batch_new, gpu_solve_time = self.solver.solve(x_curr_batch, ee_g_batch, self.XU_batch)
+        solve_end = time.monotonic()
+        solve_time = solve_end - solve_start
+        # ====================================================================================================        
+        # # >>> SQPCPU        
         # all_updated = self.solver.sqp(self.xs, self.eepos_g) # run batch sqp
-        all_updated = None
-        e = time.monotonic()
+        # all_updated = None
+        # e = time.monotonic()
         # if not all_updated:
         #     print("batch sqp failed")
         #     return 1
+        # ====================================================================================================        
 
         if self.last_state_msg_time is not None:
             step_duration = self.msg_time - self.last_state_msg_time
 
             torque_mean = (self.torques_tx + self.last_u) / 2
 
-            transition = np.hstack([self.last_xs, torque_mean, self.xs, step_duration, self.msg_time - self.start_time, self.best_fext[:3,6].flatten()])
-            self.state_transition_deque.append(transition)
+            best_id = self.evaluate_best_trajectory(self.last_xs, torque_mean, self.xs, step_duration)
 
-    #         # this is for a test
-    #         self.state_transitions.append(transition)
-
-    #         # get prediction based on last applied control
-
-
-    #         errors = np.zeros(self.batch_size)
-
-    #         for i in range(len(self.state_transition_deque)):
-    #             state = self.state_transition_deque[i][:12]
-    #             ctrl = self.state_transition_deque[i][12:18]
-    #             nextstate = self.state_transition_deque[i][18:30]
-    #             dt = self.state_transition_deque[i][30]
-    #             predictions = self.solver.predict_fwd(state, ctrl, dt)
-    #             for i, result in enumerate(predictions):
-    #                 # get expected state for each result
-    #                 errors[i] += np.linalg.norm(result[self.solver.nq:] - nextstate[self.solver.nq:])
-    #                 # errors[i] += 1e-3 * np.linalg.norm(self.fext_batch[i]) # regularize
-
-    #         best_tracker_idx = np.argmin(errors)
-    #         error_weights = 1.0 / errors
-    #         error_weights /= np.sum(error_weights)
-
-    #         # resample fexts around the best result
-    #         if self.resample_fext:
-    #             weighted_fext = (self.fext_batch * error_weights.reshape(-1,1,1)).sum(axis=0) * self.fext_factor
-    #             self.fext_deque.append(weighted_fext)
-    #             self.best_fext = np.mean(self.fext_deque, axis=0)
-    #             self.fext_batch[:] = self.best_fext
-    #             self.fext_batch[0,0,6] -= self.fext_sigma
-    #             self.fext_batch[0,1,6] -= self.fext_sigma
-    #             self.fext_batch[0,2,6] -= self.fext_sigma
-    #             self.fext_batch[1,0,6] += self.fext_sigma
-    #             self.fext_batch[1,1,6] -= self.fext_sigma
-    #             self.fext_batch[1,2,6] -= self.fext_sigma
-    #             self.fext_batch[2,0,6] -= self.fext_sigma
-    #             self.fext_batch[2,1,6] += self.fext_sigma
-    #             self.fext_batch[2,2,6] -= self.fext_sigma
-    #             self.fext_batch[3,0,6] += self.fext_sigma
-    #             self.fext_batch[3,1,6] += self.fext_sigma
-    #             self.fext_batch[3,2,6] -= self.fext_sigma
-    #             self.fext_batch[4,0,6] -= self.fext_sigma
-    #             self.fext_batch[4,1,6] -= self.fext_sigma
-    #             self.fext_batch[4,2,6] += self.fext_sigma
-    #             self.fext_batch[5,0,6] += self.fext_sigma
-    #             self.fext_batch[5,1,6] -= self.fext_sigma
-    #             self.fext_batch[5,2,6] += self.fext_sigma
-    #             self.fext_batch[6,0,6] -= self.fext_sigma
-    #             self.fext_batch[6,1,6] += self.fext_sigma
-    #             self.fext_batch[6,2,6] += self.fext_sigma
-    #             self.fext_batch[7,0,6] += self.fext_sigma
-    #             self.fext_batch[7,1,6] += self.fext_sigma
-    #             self.fext_batch[7,2,6] += self.fext_sigma
-    #             self.fext_batch *= self.fext_mask
-    #             self.solver.batch_set_fext(self.fext_batch)
-    #             print(np.round(self.best_fext[:3,self.solver.nq],2).T, sep='\t', end='')
-    #         best_result = (self.solver.get_results() * error_weights.reshape(-1,1)).sum(axis=0)
-
-    #     else:
-    #         best_tracker_idx = 0
-    #         best_result = self.solver.get_results()[best_tracker_idx]
-
-    #     print(f"\tbatch sqp time: {np.round(1000 * (e - s), 1)} ms", end='')
+            XU_best = XU_batch_new[best_id, :]
+            print(f"XU_best size: {XU_best.size}")
+            print(f"XU_best shape: {XU_best.shape}")
+            print(f"Time N: {self.N}, batch size: {self.batch_size}")
+            self.XU_batch[:, :] = XU_best
         
-    #     torques_smoothed = best_result[self.solver.nx:self.solver.nx+6] # + 0.2 * self.last_commanded
-    #     torques_nm_applied = self.applied_torque_factor * torques_smoothed.clip(min=self.servo_min_torques, max=self.servo_max_torques)
-    #     servo_torques = np.round(torques_nm_applied / self.torque_constants).astype(int) * self.directions
-    #     self.last_commanded = torques_nm_applied
-    #     # print(f'torques: {torques_nm_applied.round(2)}')
+        #   # >>> sqpcpu this is for a test
         
-    #     # redirect stdout to suppress print statements
-    #     with contextlib.redirect_stdout(io.StringIO()):
-    #         for i in range(6):
-    #             self.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, servo_torques[i])
+        #   # >>> sqpcpu
+        #   best_result = (self.solver.get_results() * error_weights.reshape(-1,1)).sum(axis=0)
+            best_result = self.XU_batch[0, :]
 
-    #             # update xs
-    #             ppr = self.servos[i]["ppr"]
-    #             gear_ratio = self.servos[i]["gear_ratio"]
-    #             pos, vel, tor = self.ecat.get_servo_tx(i)[2:5]
-    #             pos_rad = ((2 * math.pi * pos / gear_ratio / ppr) + self.servos[i]["correction_rad"]) * self.servos[i]["direction"]
-    #             vel_rad = 2 * math.pi * vel / gear_ratio / ppr * self.servos[i]["direction"]
-    #             self.xs[i] = pos_rad
-    #             self.xs[i+6] = vel_rad
-    #             self.last_u[i] = tor
+        else:
+        #   # >>> sqpcpu
+        #   best_result = self.solver.get_results()[best_tracker_idx]
+            best_id = 0
 
-    #     # self.last_u = torques_nm_applied
-    #     self.last_u *= self.directions
-    #     self.last_u *= self.torque_constants
+            XU_best = XU_batch_new[best_id, :]
+            self.XU_batch[:, :] = XU_best        
+            best_result = self.XU_batch[0, :]
 
-    #     self.last_xs = self.xs
-    #     self.last_state_msg_time = time.monotonic()
+        print(f"\tBatch SQP time: {np.round(1000 * (solve_time), 1)} ms\n")
 
-    #     # record stats
-    #     eepos = self.solver.eepos(self.xs[0:self.solver.nq])
-    #     if not FIG8:
-    #         print(np.linalg.norm(self.eepos_g[:3] - eepos).round(2), np.linalg.norm(self.xs[6:]).round(2), end='')
-    #     self.positions.append(eepos)
-    #     self.tracking_errs.append(np.linalg.norm(eepos - self.goal_trace[:3]))
-    #     # if self.spin_ct % 1000 == 0:
-    #     # exit cond
-    #     if time.monotonic() - self.start_time > 30.0:
-    #         # save tracking err to a file
-    #         np.save(f'data/tracking_errs_{self.config["file_prefix"]}.npy', np.array(self.tracking_errs))
-    #         np.save(f'data/positions_{self.config["file_prefix"]}.npy', np.array(self.positions))
-    #         np.save(f'data/state_transitions_{self.config["file_prefix"]}.npy', np.array(self.state_transitions))
-    #         return 1
+        print(f"Solver nx: {self.solver.nx}")
 
-    #     # shift the goal trace
-    #     if FIG8 and (time.monotonic() - self.last_goal_update > self.dt):
-    #         self.goal_trace[:-3] = self.goal_trace[3:]
-    #         self.goal_trace[-3:] = self.fig8[self.fig8_offset:self.fig8_offset+3]
-    #         self.fig8_offset += 3
-    #         self.fig8_offset %= len(self.fig8)
-    #         self.last_goal_update = time.monotonic()
-    #         self.eepos_g = self.goal_trace
-    #     elif not FIG8 and ((np.linalg.norm(self.eepos_g[:3] - eepos) < 0.05 and np.linalg.norm(self.xs[6:]) < 1.0) or (time.monotonic() - self.last_goal_switch_time > 6.0)):
-    #         if (np.linalg.norm(self.eepos_g[:3] - eepos) < 0.05 and np.linalg.norm(self.xs[6:]) < 1.0):
-    #             print(f'\ngoal reached\n')
-    #         else:
-    #             print(f'\ngoal failed\n')
+        # >>> sqpcpu
+        # torques_smoothed = best_result[self.solver.nx:self.solver.nx+6] # + 0.2 * self.last_commanded
+        
+        torques_smoothed = best_result[self.solver.nx:self.solver.nx+self.solver.nu]
+        torques_nm_applied = self.applied_torque_factor * torques_smoothed.clip(min=self.servo_min_torques, max=self.servo_max_torques)
+        servo_torques = np.round(torques_nm_applied / self.torque_constants).astype(int) * self.directions
+        self.last_commanded = torques_nm_applied
+        # print(f'torques: {torques_nm_applied.round(2)}')
+        
+        # Redirect stdout to suppress print statements
+        with contextlib.redirect_stdout(io.StringIO()):
+            for i in range(6):
+                # TODO: Uncomment
+                # self.ecat.set_servo_rx(i, 0x0f, 0x0a, 0, 0, servo_torques[i])
+
+                # update xs
+                ppr = self.servos[i]["ppr"]
+                gear_ratio = self.servos[i]["gear_ratio"]
+                # TODO: Uncomment
+                # pos, vel, tor = self.ecat.get_servo_tx(i)[2:5]
+                pos, vel, tor = 0, 0, 0
+                pos_rad = ((2 * math.pi * pos / gear_ratio / ppr) + self.servos[i]["correction_rad"]) * self.servos[i]["direction"]
+                vel_rad = 2 * math.pi * vel / gear_ratio / ppr * self.servos[i]["direction"]
+                self.xs[i] = pos_rad
+                self.xs[i+6] = vel_rad
+                self.last_u[i] = tor
+
+        # >>> sqpgpu 
+        # self.last_u = torques_nm_applied
+        
+        self.last_u *= self.directions
+        self.last_u *= self.torque_constants
+
+        self.last_xs = self.xs
+        self.last_state_msg_time = time.monotonic()
+
+        print("HERE")
+
+        # Record stats
+        eepos = self.eepos(self.xs[0:self.solver.nq])
+        print(f"End-effector position: {eepos.round(2)}\n")
+        pin.forwardKinematics(self.solver_model, self.solver_model.createData(), self.xs[0:self.solver.nq], self.xs[self.solver.nq:self.solver.nx])
+        ee_vel = pin.getFrameVelocity(self.solver_model, self.solver_model.createData(), 6, pin.LOCAL_WORLD_ALIGNED).linear
+        
+        stats['solve_times'].append(float(round(gpu_solve_time/1e3, 5)))
+        goaldist = np.sqrt(np.sum((eepos[:3] - current_goal)**2))
+        stats['goal_distances'].append(float(round(goaldist, 5)))
+        stats['ee_goal'].append(current_goal.copy())
+        stats['ee_actual'].append(eepos.copy())
+        stats['ee_velocity'].append(ee_vel.copy())
+        stats['controls'].append(self.last_u.copy())
+        stats['joint_positions'].append(self.xs[:self.nq_robot].copy())
+        stats['joint_velocities'].append(self.xs[self.nq_robot:self.nx].copy())
+        stats['best_trajectory_id'].append(best_id)
+
+        # Get solver statistics
+        solver_stats = self.solver.get_stats()
+        stats['sqp_iters'].append(solver_stats['sqp_iters'])
+        stats['pcg_iters'].append(solver_stats['pcg_iters'][0] if len(solver_stats['pcg_iters']) > 0 else 0)
+        
+        # Force estimator statistics (if batch)
+        if self.force_estimator:
+            est_stats = self.force_estimator.get_stats()
+            stats['force_estimates'].append(est_stats['smoothed_estimate'].copy())
+            # Also store the GATO-frame equivalent
+            gato_force = self.transform_force_to_gato_frame(q, est_stats['smoothed_estimate'])
+            stats['force_estimates_gato'].append(gato_force.copy())
+            stats['force_radius'].append(est_stats['radius'])
+            stats['force_confidence'].append(est_stats['confidence'])
+        # else:
+        #     # Calculate actual pendulum force reaction for comparison
+        #     pin.forwardKinematics(self.model, self.data, q)
+        #     pendulum_com_acc = pin.getFrameClassicalAcceleration(self.model, self.data, self.model.njoints-1, pin.LOCAL_WORLD_ALIGNED).linear
+        #     pendulum_mass = 10.0
+        #     pendulum_force = -pendulum_mass * (pendulum_com_acc - self.model.gravity.linear)
             
-    #         self.goal_idx += 1
-    #         if self.goal_idx == len(self.goals):
-    #             return 1
+        #     stats['force_estimates'].append(np.concatenate([pendulum_force, np.zeros(3)]))
+        #     stats['force_estimates_gato'].append(np.zeros(6))
+        #     stats['force_radius'].append(0.0)
+        #     stats['force_confidence'].append(1.0)
+        
+        print("HERE2")
+        
+        # Exit cond
+        print(f"\nTime: {time.monotonic() - self.start_time:.2f} seconds", end='')
+        if time.monotonic() - self.start_time > 30.0:
+            # Save tracking err to a file
+            # >>>> SQPCPU - 
+            # np.save(f'data/tracking_errs_{self.config["file_prefix"]}.npy', np.array(self.tracking_errs))
+            # np.save(f'data/positions_{self.config["file_prefix"]}.npy', np.array(self.positions))
+            # np.save(f'data/state_transitions_{self.config["file_prefix"]}.npy', np.array(self.state_transitions))
+            print(f"Experiment Ended after: {time.monotonic() - self.start_time} seconds")
+            return 1
 
-    #         self.eepos_g = np.tile(self.goals[self.goal_idx], self.solver.N)
-    #         self.last_goal_switch_time = time.monotonic()
-    #     print()
+        # Shift the goal trace
+        if FIG8 and (time.monotonic() - self.last_goal_update > self.dt):
+            self.goal_trace[:-3] = self.goal_trace[3:]
+            self.goal_trace[-3:] = self.fig8[self.fig8_offset:self.fig8_offset+3]
+            self.fig8_offset += 3
+            self.fig8_offset %= len(self.fig8)
+            self.last_goal_update = time.monotonic()
+            self.eepos_g = self.goal_trace
+        elif not FIG8 and ((np.linalg.norm(self.eepos_g[:3] - eepos) < 0.05 
+                      and np.linalg.norm(self.xs[6:]) < 1.0) 
+                      or (time.monotonic() - self.last_goal_switch_time > 6.0)):
+            if (np.linalg.norm(self.eepos_g[:3] - eepos) < 0.05 and np.linalg.norm(self.xs[6:]) < 1.0):
+                print(f'\n Goal reached\n')
+            else:
+                print(f'\n Goal failed\n')
+            
+            self.goal_idx += 1
+            if self.goal_idx == len(self.goals):
+                return 1
+
+            self.eepos_g = np.tile(self.goals[self.goal_idx], self.solver.N)
+            self.last_goal_switch_time = time.monotonic()
+        
+        print(f"\n Goal idx: {self.goal_idx}")
+        print("\n HERE3")
+        print()
 
 def main(args=None):
     try:
