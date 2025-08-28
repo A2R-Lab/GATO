@@ -1,0 +1,70 @@
+<mujoco model="KUKAiiwa14">
+  <compiler angle="radian" meshdir="../meshes/kuka/"/>
+  <statistic meansize="0.215933" extent="1.49599" center="-0.0055099 0.00418408 0.611062"/>
+  <asset>
+    <mesh name="iiwa_base" file="iiwa_base.stl"/>
+    <mesh name="iiwa_link_1" file="iiwa_link_1.stl"/>
+    <mesh name="iiwa_link_2" file="iiwa_link_2.stl"/>
+    <mesh name="iiwa_link_3" file="iiwa_link_3.stl"/>
+    <mesh name="iiwa_link_4" file="iiwa_link_4.stl"/>
+    <mesh name="iiwa_link_5" file="iiwa_link_5.stl"/>
+    <mesh name="iiwa_link_6" file="iiwa_link_6.stl"/>
+    <mesh name="iiwa_link_7" file="iiwa_link_7.stl"/>
+    <mesh name="tennis_ball_smaller" file="tennis_ball_smaller.obj"/>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="wood" file="../meshes/wood1.png"/>
+    <material name="wood" texuniform="true" texture="wood" reflectance="0.0"/>  
+  </asset>
+  <worldbody>
+    <light pos="1 0 1.5" dir="0 0 -1" directional="true"/>
+    <light pos="-1 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="2.0 1 .1" type="plane" material="wood"/>
+    <geom type="mesh" rgba="0.4 0.4 0.4 1" mesh="iiwa_base" contype="0" conaffinity="5"/>
+    <body name="L1" pos="0 0 0.1575">
+      <inertial pos="0 0 0" quat="0.999999 -0.00117646 0 0" mass="3.94781" diaginertia="0.00455 0.00454002 0.000289976"/>
+      <joint name="A1" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706"/>
+      <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_1" contype="0" conaffinity="5"/>
+      <body name="L2" pos="0 0 0.2025" quat="-0.5 0.5 0.5 0.5">
+        <inertial pos="0.0003 0.059 0.042" quat="0.5 0.5 -0.5 0.5" mass="4.50275" diaginertia="0.00042 0.00032 0.0001"/>
+        <joint name="A2" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944"/>
+        <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_2" contype="0" conaffinity="5"/>
+        <body name="L3" pos="0.2045 0 0" quat="0.5 0.5 0.5 0.5">
+          <inertial pos="0 0.03 0.13" quat="0.957239 0.0304965 -0.0159101 -0.287245" mass="2.4552" diaginertia="0.00226409 0.00216273 0.000723178"/>
+          <joint name="A3" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706"/>
+          <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_3" contype="0" conaffinity="5"/>
+          <body name="L4" pos="0 0 0.2155" quat="0.707107 0.707107 0 0">
+            <inertial pos="0 0.067 0.034" quat="0.458936 0.488707 -0.524616 0.52471" mass="2.61155" diaginertia="0.0497286 0.0383502 0.0113812"/>
+            <joint name="A4" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944"/>
+            <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_4" contype="0" conaffinity="5"/>
+            <body name="L5" pos="0 0.1845 0" quat="0.707107 -0.707107 0 0">
+              <inertial pos="0.0001 0.021 0.076" quat="0.656211 -0.00141917 -0.00124336 0.754575" mass="3.41" diaginertia="0.0028414 0.00276864 0.000119962"/>
+              <joint name="A5" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706"/>
+              <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_5" contype="0" conaffinity="5"/>
+              <body name="L6" pos="0 -0.0607 0.2155" quat="-0.5 0.5 0.5 0.5">
+                <inertial pos="0 0.0006 0.0004" quat="0.518527 0.469977 0.52024 0.489491" mass="3.38795" diaginertia="0.00281422 0.00231739 0.000498395"/>
+                <joint name="A6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944"/>
+                <geom type="mesh" rgba="1 0.423529 0.0392157 1" mesh="iiwa_link_6" contype="0" conaffinity="5"/>
+                <body name="L7" pos="0.081 0 0.0607" quat="0.5 0.5 0.5 0.5">
+                  <inertial pos="0 0 0.0227716" quat="0.734567 0.00606131 0.0323308 0.677739" mass="0.41132" diaginertia="0.010914 0.00800244 0.00294906"/>
+                  <joint name="A7" pos="0 0 0" axis="0 0 1" range="-3.05433 3.05433"/>
+                  <geom type="mesh" rgba="0.4 0.4 0.4 1" mesh="iiwa_link_7" contype="0" conaffinity="5"/>
+                  <geom pos="0 0 0.04" type="mesh" rgba="0.8 0.8 0.8 1" mesh="tennis_ball_smaller" contype="0" conaffinity="5"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="A1" joint="A1" ctrlrange="-200 200"/>
+    <position name="A2" joint="A2" ctrlrange="-200 200"/>
+    <position name="A3" joint="A3" ctrlrange="-200 200"/>
+    <position name="A4" joint="A4" ctrlrange="-200 200"/>
+    <position name="A5" joint="A5" ctrlrange="-200 200"/>
+    <position name="A6" joint="A6" ctrlrange="-200 200"/>
+    <position name="A7" joint="A7" ctrlrange="-200 200"/>
+  </actuator>
+</mujoco>

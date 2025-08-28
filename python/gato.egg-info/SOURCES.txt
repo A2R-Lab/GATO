@@ -1,0 +1,8 @@
+LICENSE
+README.md
+pyproject.toml
+python/gato.egg-info/PKG-INFO
+python/gato.egg-info/SOURCES.txt
+python/gato.egg-info/dependency_links.txt
+python/gato.egg-info/requires.txt
+python/gato.egg-info/top_level.txt
