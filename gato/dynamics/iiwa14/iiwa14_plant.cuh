@@ -155,7 +155,7 @@ namespace plant {
         {
 
                 T* s_XImats = s_XITemp;
-                T* s_temp = &s_XITemp[864];
+                T* s_temp = &s_XITemp[504];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
@@ -168,7 +168,7 @@ namespace plant {
         {
 
                 T* s_XImats = s_XITemp;
-                T* s_temp = &s_XITemp[864];
+                T* s_temp = &s_XITemp[504];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
@@ -187,10 +187,10 @@ namespace plant {
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
 
                 T* s_XImats = s_XITemp;
-                T* s_vaf = &s_XITemp[432];
-                T* s_dc_du = &s_vaf[108];
-                T* s_Minv = &s_dc_du[72];
-                T* s_temp = &s_Minv[36];
+                T* s_vaf = &s_XITemp[504];
+                T* s_dc_du = &s_vaf[126];
+                T* s_Minv = &s_dc_du[98];
+                T* s_temp = &s_Minv[49];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, d_robotModel, s_temp);
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::direct_minv_inner<T>(s_Minv, s_q, s_XImats, s_temp);
@@ -200,20 +200,22 @@ namespace plant {
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_temp, GRAVITY<T>());
                 grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_temp, GRAVITY<T>());
 
-                for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 72; ind += blockDim.x * blockDim.y) {
-                        int row = ind % 6;
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
+                        int row = ind % 7; 
                         int dc_col_offset = ind - row;
                         // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
                         T val = static_cast<T>(0);
-                        for (int col = 0; col < 6; col++) {
-                                int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
+                        #pragma unroll
+                        for(int col = 0; col < 7; col++) {
+                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 val += s_Minv[index] * s_dc_du[dc_col_offset + col];
                         }
                         s_df_du[ind] = -val;
-                        if (INCLUDE_DU && ind < 36) {
-                                int col = ind / 6;
-                                int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-                                s_df_du[ind + 72] = s_Minv[index];
+
+                        if (INCLUDE_DU && ind < 49){
+                                int col = ind / 7;
+                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
+                                s_df_du[ind + 98] = s_Minv[index];
                         }
                 }
                 __syncthreads();
@@ -227,10 +229,10 @@ namespace plant {
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
 
                 T* s_XImats = s_XITemp;
-                T* s_vaf = &s_XITemp[432];
-                T* s_dc_du = &s_vaf[108];
-                T* s_Minv = &s_dc_du[72];
-                T* s_temp = &s_Minv[36];
+                T* s_vaf = &s_XITemp[504];
+                T* s_dc_du = &s_vaf[126];
+                T* s_Minv = &s_dc_du[98];
+                T* s_temp = &s_Minv[49];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, d_robotModel, s_temp);
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::direct_minv_inner<T>(s_Minv, s_q, s_XImats, s_temp);
@@ -240,22 +242,22 @@ namespace plant {
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_temp, GRAVITY<T>(), d_f_ext);
                 grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_temp, GRAVITY<T>());
 
-                // 6x12 elements
-                for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 72; ind += blockDim.x * blockDim.y) {
-                        int row = ind % 6;
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
+                        int row = ind % 7; 
                         int dc_col_offset = ind - row;
                         // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
                         T val = static_cast<T>(0);
-#pragma unroll
-                        for (int col = 0; col < 6; col++) {
-                                int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
+                        #pragma unroll
+                        for(int col = 0; col < 7; col++) {
+                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 val += s_Minv[index] * s_dc_du[dc_col_offset + col];
                         }
                         s_df_du[ind] = -val;
-                        if (INCLUDE_DU && ind < 36) {
-                                int col = ind / 6;
-                                int index = (row <= col) * (col * 6 + row) + (row > col) * (row * 6 + col);
-                                s_df_du[ind + 72] = s_Minv[index];
+
+                        if (INCLUDE_DU && ind < 49){
+                                int col = ind / 7;
+                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
+                                s_df_du[ind + 98] = s_Minv[index];
                         }
                 }
                 __syncthreads();
@@ -322,7 +324,7 @@ namespace plant {
 
         __host__ unsigned trackingcost_TempMemCt_Shared(uint32_t state_size, uint32_t control_size, uint32_t knot_points)
         {
-                return grid::NQ / 2 + grid::NU + 2 * grid::NEE + grid::EE_POS_DYNAMIC_SHARED_MEM_COUNT;
+                return grid::NQ / 2 + grid::NU + 2 * grid::NEE + grid::EE_POS_SHARED_MEM_COUNT;
         }
 
         template<typename T, bool computeR = true>
@@ -451,7 +453,7 @@ namespace plant {
 
         __host__ __device__ constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared()
         {
-                return grid::DEE_POS_DYNAMIC_SHARED_MEM_COUNT + 6 + 6 * grid::NQ;
+                return grid::DEE_POS_SHARED_MEM_COUNT + 6 + 6 * grid::NQ;
         }
 }  // namespace plant
 }  // namespace gato
