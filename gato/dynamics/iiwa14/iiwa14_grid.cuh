@@ -137,7 +137,9 @@ namespace grid {
     const int ID_DU_MAX_SHARED_MEM_COUNT = 2695;
     const int FD_DU_MAX_SHARED_MEM_COUNT = 2849;
     const int EE_POS_SHARED_MEM_COUNT = 144;
+    const int EE_POS_DYNAMIC_SHARED_MEM_COUNT = 144;
     const int DEE_POS_SHARED_MEM_COUNT = 672;
+    const int DEE_POS_DYNAMIC_SHARED_MEM_COUNT = 672;
     const int IDSVA_SO_SHARED_MEM_COUNT = 3744;
     const int FDSVA_SO_SHARED_MEM_COUNT = 3444;
     const int SUGGESTED_THREADS = 352;

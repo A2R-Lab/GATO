@@ -25,6 +25,7 @@ dependencies = [
     "pyqt5>=5.15.11",
     "tdqm>=0.0.1",
     "seaborn>=0.13.2",
+    "pin>=3.7.0",
 ]
 
 [dependency-groups]

@@ -19,6 +19,7 @@ Requires-Dist: pybind11>=2.13.6
 Requires-Dist: pyqt5>=5.15.11
 Requires-Dist: tdqm>=0.0.1
 Requires-Dist: seaborn>=0.13.2
+Requires-Dist: pin>=3.7.0
 Dynamic: license-file
 
 # GPU-Accelerated Trajectory Optimization for Robotics
