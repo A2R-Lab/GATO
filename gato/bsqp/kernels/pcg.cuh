@@ -22,7 +22,7 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
 {
         const uint32_t solve_idx = blockIdx.x;
 
-        const T abs_tol = 1e-6;
+        const T abs_tol = 1e-9 * KNOT_POINTS;
 
         // skip solve if rho_max_reached
         if (d_kkt_converged_batch[solve_idx]) {
