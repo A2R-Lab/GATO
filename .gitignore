@@ -46,4 +46,5 @@ Makefile
 
 bindings/batch_sqp.egg-info/
 
-.old/
+.old/*.pkl
+data/*.pkl
