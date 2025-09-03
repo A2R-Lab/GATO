@@ -38,10 +38,10 @@ class MPC_GATO:
             pcg_tol=1e-6,
             solve_ratio=1.0,
             mu=10.0,
-            q_cost=2.0,
-            qd_cost=1e-3,
-            u_cost=1e-7,
-            N_cost=20.0,
+            q_cost=100.0,
+            qd_cost=1e-2,
+            u_cost=0e-7,
+            N_cost=0.0,
             q_lim_cost=0.01,
             rho=0.1 
         )
@@ -127,27 +127,33 @@ class MPC_GATO:
         pin.updateFramePlacements(self.solver_model, solver_data)
         
         # Joint indices
-        jid_5_pin = 6  # Joint 5 in GATO = Joint 6 in Pinocchio
-        jid_ee_pin = self.solver_model.njoints - 1  # End-effector
+        # jid_5_pin = 6  # Joint 5 in GATO = Joint 6 in Pinocchio
+        jid_ee_pin = self.solver_model.getFrameId("EE") # self.solver_model.njoints - 1  # End-effector
+        jid_eep_pin = self.solver_model.frames[jid_ee_pin].parent # end-effector parent joint
         
         # Get transformations
-        transform_world_to_j5 = solver_data.oMi[jid_5_pin]
+        # transform_world_to_j5 = solver_data.oMi[jid_eep_pin]
         transform_world_to_ee = solver_data.oMi[jid_ee_pin]
+        transform_world_to_jeep = solver_data.oMi[jid_eep_pin]
         
         # Compute transformation from Joint 5 to End-Effector
-        transform_j5_to_ee = transform_world_to_j5.inverse() * transform_world_to_ee
-        
+        # transform_j5_to_ee = transform_world_to_j5.inverse() * transform_world_to_ee
+        transform_jeep_to_ee = transform_world_to_jeep.inverse() * transform_world_to_ee
+
         # Create force at end-effector in world frame
         force_ee_world = pin.Force(f_world[:3], f_world[3:])
         
         # Transform to Joint 5 local frame
         force_ee_local = transform_world_to_ee.actInv(force_ee_world)
-        wrench_j5_local = transform_j5_to_ee.actInv(force_ee_local)
-        
+        # wrench_j5_local = transform_j5_to_ee.actInv(force_ee_local)
+        wrench_jeep_local = transform_jeep_to_ee.actInv(force_ee_local)
+
         result = np.zeros(6)
-        result[:3] = wrench_j5_local.linear
-        result[3:] = wrench_j5_local.angular
-        
+        # result[:3] = wrench_j5_local.linear
+        # result[3:] = wrench_j5_local.angular
+        result[:3] = wrench_jeep_local.linear
+        result[3:] = wrench_jeep_local.angular
+
         return result
     
     def update_force_batch(self, q):
@@ -221,7 +227,13 @@ class MPC_GATO:
         # Solver uses robot-only state
         x_curr = x_start
         x_curr_batch = np.tile(x_curr, (self.batch_size, 1))
-        
+
+        # Check for NaN or Inf in x_curr before using it
+        if np.any(np.isnan(x_curr)) or np.any(np.isinf(x_curr)):
+            print("WARNING: x_curr contains NaN or Inf! Values:", x_curr)
+
+        print(f"Size of x_curr: {x_curr.shape}")
+
         # Initialize first goal
         current_goal_idx = 0
         current_goal = goals[current_goal_idx]
@@ -413,4 +425,7 @@ class MPC_GATO:
         """Get end-effector position using solver model (robot only)."""
         solver_data = self.solver_model.createData()
         pin.forwardKinematics(self.solver_model, solver_data, q)
-        return solver_data.oMi[6].translation
+        jid_ee_pin = self.solver_model.getFrameId("EE") # self.solver_model.njoints - 1  # End-effector
+        jid_eep_pin = self.solver_model.frames[jid_ee_pin].parent
+        return solver_data.oMi[jid_ee_pin].translation
+        # return solver_data.oMi[6].translation
