@@ -127,30 +127,27 @@ class MPC_GATO:
         pin.updateFramePlacements(self.solver_model, solver_data)
         
         # Joint indices
-        # jid_5_pin = 6  # Joint 5 in GATO = Joint 6 in Pinocchio
-        jid_ee_pin = self.solver_model.getFrameId("EE") # self.solver_model.njoints - 1  # End-effector
-        jid_eep_pin = self.solver_model.frames[jid_ee_pin].parent # end-effector parent joint
+        jid_ee_fin = self.solver_model.getFrameId("EE") # self.solver_model.njoints - 1  # End-effector
+        jid_ee_pin = self.solver_model.frames[jid_ee_fin].parent # end-effector parent joint
+        jid_eep_pin = jid_ee_pin - 1 # End-effector parent joint
+        
+        print(f"jid_ee_pin: {jid_ee_pin}, jid_eep_pin: {jid_eep_pin}")
         
         # Get transformations
-        # transform_world_to_j5 = solver_data.oMi[jid_eep_pin]
-        transform_world_to_ee = solver_data.oMi[jid_ee_pin]
-        transform_world_to_jeep = solver_data.oMi[jid_eep_pin]
+        transform_world_to_ee = solver_data.oMi[jid_eep_pin]
+        transform_world_to_jeep = solver_data.oMi[jid_eep_pin-1]
         
-        # Compute transformation from Joint 5 to End-Effector
-        # transform_j5_to_ee = transform_world_to_j5.inverse() * transform_world_to_ee
+        # Compute transformation from last parent joint to End-Effector
         transform_jeep_to_ee = transform_world_to_jeep.inverse() * transform_world_to_ee
 
         # Create force at end-effector in world frame
         force_ee_world = pin.Force(f_world[:3], f_world[3:])
         
-        # Transform to Joint 5 local frame
+        # Transform to ee parent joint local frame
         force_ee_local = transform_world_to_ee.actInv(force_ee_world)
-        # wrench_j5_local = transform_j5_to_ee.actInv(force_ee_local)
         wrench_jeep_local = transform_jeep_to_ee.actInv(force_ee_local)
 
         result = np.zeros(6)
-        # result[:3] = wrench_j5_local.linear
-        # result[3:] = wrench_j5_local.angular
         result[:3] = wrench_jeep_local.linear
         result[3:] = wrench_jeep_local.angular
 
@@ -427,5 +424,38 @@ class MPC_GATO:
         pin.forwardKinematics(self.solver_model, solver_data, q)
         jid_ee_pin = self.solver_model.getFrameId("EE") # self.solver_model.njoints - 1  # End-effector
         jid_eep_pin = self.solver_model.frames[jid_ee_pin].parent
-        return solver_data.oMi[jid_ee_pin].translation
+        return solver_data.oMi[jid_eep_pin].translation
         # return solver_data.oMi[6].translation
+
+
+# Use class MPC_GATO as main
+if __name__ == "__main__":
+    # Load robot model
+    model_path = "iiwa-mpc/description/iiwa.urdf"
+    model = pin.buildModelFromUrdf(model_path)
+    
+    # Create MPC_GATO instance
+    mpc = MPC_GATO(model, N=32, dt=0.03125, batch_size=16)
+    
+    # Initial state (home position)
+    q0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    dq0 = np.zeros(7)
+    x0 = np.concatenate([q0, dq0])
+    
+    # Define goals in 3D space
+    goals = [
+        np.array([0.4, 0.2, 0.4]),
+        np.array([0.4, -0.2, 0.4]),
+        np.array([0.6, 0.0, 0.6]),
+        np.array([0.5, 0.3, 0.5]),
+        np.array([0.5, -0.3, 0.5])
+    ]
+    
+    # Compute end effector position at start
+    ee_start = mpc.eepos(q0)
+    print(f"End-effector starts at: {ee_start}")
+
+    # Validate transform_force_to_gato_frame
+    f_world = np.array([0.0, 0.0, -9.81, 0.0, 0.0, 0.0])  # Gravity in world frame
+    f_gato = mpc.transform_force_to_gato_frame(q0, f_world)
+    print(f"Transformed force (GATO frame): {f_gato}")
