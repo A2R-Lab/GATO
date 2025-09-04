@@ -1,6 +1,6 @@
 services:
   dev:
-    container_name: gato-dev
+    container_name: gato-container
     image: gato
     build:
       context: .
@@ -17,10 +17,6 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     tty: true
     stdin_open: true
-# Before running, execute: xhost +local:root
-# To ensure proper docker permissions: sudo setfacl --modify user:<USER>:rw /var/run/docker.sock
-
-

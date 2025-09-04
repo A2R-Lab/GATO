@@ -23,4 +23,4 @@ cmake ..
 echo "Building project..."
 cmake --build . --parallel
 
-echo "Rebuild complete!"
+echo "Build complete!"

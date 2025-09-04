@@ -14,17 +14,20 @@ Docker is used for containerization and [uv](https://docs.astral.sh/uv/) is used
 Setup
 
 ```sh
-# setup dependencies, build container, and make
 ./tools/install.sh
 ```
 
 Docker
 
 ```sh
-# build + run + enter container
 ./tools/docker.sh
+'''
 
-# manually
+Manual Installation
+'''sh
+git submodule update --init --recursive
+uv sync
+source .venv/bin/activate
 docker compose up -d # build and run
 docker compose exec dev bash # enter container
 docker compose exec -w /workspace dev bash #enter container in the workspace directory
@@ -35,14 +38,7 @@ docker down # stop and remove
 GATO
 
 ```sh
-# examples, benchmark, and bindings
-make build
-
-# bindings only
-make build-bindings
-
-# clean
-make clean
+./tools/build.sh
 ```
 
 ### Requirements
@@ -50,18 +46,15 @@ make clean
 GATO works with:
 
 - Ubuntu 22.04
-- CUDA v12.2
+- CUDA v12.6
 - C++17
+- gcc 11.4.0
 - Python 3.10.12
 - Docker 28.1.0
 
 ## Usage
 
-See [batch_sqp.cu](examples/batch_sqp.cu) for an example of a batch solve in C++/CUDA, and [batch_sqp.py](examples/batch_sqp.py) for an example using Python bindings. Examples of MPC with GATO are in [indy7-mpc/](examples/indy7-mpc/)
-
-## Nomenclature
-
-TODO
+See [batch_sqp.cu](examples/batch_sqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
 
 ## Related
 

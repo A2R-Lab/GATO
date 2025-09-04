@@ -20,7 +20,7 @@ else
     printf "${GREEN}${BOLD}${CHECK} Image '${IMAGE_NAME}' found.${RESET}\n"
 fi
 
-CONTAINER_NAME="gato-dev"
+CONTAINER_NAME="gato-container"
 # printf "${CYAN}${BOLD}--------------------------------------------------${RESET}\n\n"
 
 # Prepare for GUI forwarding if needed (outside container check)
@@ -61,7 +61,5 @@ else
 fi
 printf "${CYAN}${BOLD}--------------------------------------------------${RESET}\n\n"
 
-
-# ------ simple instructions (commented out, kept for reference)
 # docker build -t gato .
 # docker run --gpus all -it --name mycontainer -v $(pwd):/workspace 

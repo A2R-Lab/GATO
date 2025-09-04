@@ -8,17 +8,17 @@ printf "\n${CYAN}${BOLD}--------------------------------------------------${RESE
 printf "${ARROW} Removing build directories...\n"
 rm -rf build bindings/build 2>/dev/null || sudo rm -rf build bindings/build
 
-if docker ps -q -f name=^/gato-dev$ | grep -q .; then
-    printf "${ARROW} Stopping running container '${YELLOW}gato-dev${RESET}'...\n"
-    docker stop gato-dev > /dev/null
+if docker ps -q -f name=^/gato-container$ | grep -q .; then
+    printf "${ARROW} Stopping running container '${YELLOW}gato-container${RESET}'...\n"
+    docker stop gato-container > /dev/null
 fi
 
 # Remove container if it exists (stopped or running)
-if docker ps -aq -f name=^/gato-dev$ | grep -q .; then
-    printf "${ARROW} Removing container '${YELLOW}gato-dev${RESET}'...\n"
-    docker rm -f gato-dev > /dev/null
+if docker ps -aq -f name=^/gato-container$ | grep -q .; then
+    printf "${ARROW} Removing container '${YELLOW}gato-container${RESET}'...\n"
+    docker rm -f gato-container > /dev/null
 else
-    printf "${YELLOW}${BOLD}i${RESET} Container '${YELLOW}gato-dev${RESET}' not found, skipping removal.\n"
+    printf "${YELLOW}${BOLD}i${RESET} Container '${YELLOW}gato-container${RESET}' not found, skipping removal.\n"
 fi
 
 # Remove image if it exists
