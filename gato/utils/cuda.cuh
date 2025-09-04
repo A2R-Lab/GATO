@@ -45,15 +45,17 @@ void printDeviceInfo() {
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#device-memory-l2-access-management
 // - Repeated accesses to data region in the global memory are considered to be persisting.
 // Allocate a fraction of the L2 cache for persisting accesses to global memory
-void setL2PersistingAccess(float fraction) {
+void setL2PersistingAccess(float fraction, bool verbose = false) {
    cudaDeviceProp prop;
    cudaGetDeviceProperties(&prop, 0); // device 0
    size_t l2_kb = prop.l2CacheSize / 1024;
    size_t persisting_l2_max_kb = prop.persistingL2CacheMaxSize / 1024;
    size_t size = std::min(static_cast<size_t>(prop.l2CacheSize * fraction), static_cast<size_t>(prop.persistingL2CacheMaxSize));
    size_t size_kb = size / 1024;
-   std::cout << "Total L2 cache size: " << l2_kb << " kB" << std::endl;
-   std::cout << "Setting persisting L2 size to: " << size_kb << " / " << persisting_l2_max_kb << " kB" << std::endl;
+   if (verbose) {
+      std::cout << "Total L2 cache size: " << l2_kb << " kB" << std::endl;
+      std::cout << "Setting persisting L2 size to: " << size_kb << " / " << persisting_l2_max_kb << " kB" << std::endl;
+   }
    cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, size);
 }
 
