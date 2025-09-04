@@ -44,7 +44,6 @@ Makefile
 
 .vscode/
 
-bindings/batch_sqp.egg-info/
+python/gato.egg-info/
 
-.old/*.pkl
-data/*.pkl
+uv.lock
