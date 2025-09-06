@@ -5,6 +5,11 @@
 #include "iiwa14_fext.cuh"
 #include "settings.h"
 #include "utils/linalg.cuh"
+// #include <random>
+// #define RANDOM_MEAN 0
+// #define RANDOM_STDEV 0.001
+// std::default_random_engine randEng(time(0)); //seed
+// std::normal_distribution<double> randDist(RANDOM_MEAN, RANDOM_STDEV); //mean followed by stdiv
 
 using namespace sqp;
 
@@ -22,6 +27,36 @@ namespace plant {
                 return static_cast<T>(9.81);
         }
 
+        // template<class T>
+        // __host__ __device__ constexpr T COST_Q()
+        // {
+        //         return static_cast<T>(q_COST);
+        // }
+
+        // template<class T>
+        // __host__ __device__ constexpr T COST_QD()
+        // {
+        //         return static_cast<T>(dq_COST);
+        // }
+
+        // template<class T>
+        // __host__ __device__ constexpr T COST_R()
+        // {
+        //         return static_cast<T>(u_COST);
+        // }
+
+        // template<class T>
+        // __host__ __device__ constexpr T COST_TERMINAL()
+        // {
+        //         return static_cast<T>(N_COST);
+        // }
+
+        // template<class T>
+        // __host__ __device__ constexpr T COST_BARRIER()
+        // {
+        //         return static_cast<T>(q_lim_COST);
+        // }
+
         template<class T>
         __host__ __device__ constexpr T JOINT_LIMIT_MARGIN()
         {
@@ -31,37 +66,37 @@ namespace plant {
         template<class T>
         __device__ constexpr T JOINT_LIMITS_DATA[7][2] = {
             // from iiwa14.urdf
-            {-2.967 - JOINT_LIMIT_MARGIN<T>(), 2.967 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-2.094 - JOINT_LIMIT_MARGIN<T>(), 2.094 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-2.967 - JOINT_LIMIT_MARGIN<T>(), 2.967 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-2.094 - JOINT_LIMIT_MARGIN<T>(), 2.094 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-2.967 - JOINT_LIMIT_MARGIN<T>(), 2.967 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-2.094 - JOINT_LIMIT_MARGIN<T>(), 2.094 + JOINT_LIMIT_MARGIN<T>()},  // joint 5
-            {-3.054 - JOINT_LIMIT_MARGIN<T>(), 3.054 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
+            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 5
+            {-3.05433 - JOINT_LIMIT_MARGIN<T>(), 3.05433 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
         };
 
         template<class T>
         __device__ constexpr T VEL_LIMITS_DATA[7][2] = {
-            // from iiwa14.urdf (velocity = 10 rad/s for all joints)
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 5
-            {-10.0 - JOINT_LIMIT_MARGIN<T>(), 10.0 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
+            // from iiwa14.urdf
+            {-1.48353 - JOINT_LIMIT_MARGIN<T>(), 1.48353 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-1.48353 - JOINT_LIMIT_MARGIN<T>(), 1.48353 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-1.74533 - JOINT_LIMIT_MARGIN<T>(), 1.74533 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-1.30900 - JOINT_LIMIT_MARGIN<T>(), 1.30900 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-2.26893 - JOINT_LIMIT_MARGIN<T>(), 2.26893 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-2.35619 - JOINT_LIMIT_MARGIN<T>(), 2.35619 + JOINT_LIMIT_MARGIN<T>()},   // joint 5
+            {-2.35619 - JOINT_LIMIT_MARGIN<T>(), 2.35619 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
         };
 
         template<class T>
         __device__ constexpr T CTRL_LIMITS_DATA[7][2] = {
-            // from iiwa14.urdf (effort = 300 Nm for all joints)
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 5
-            {-300.0 - JOINT_LIMIT_MARGIN<T>(), 300.0 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
+            // from iiwa14.urdf
+            {-320.0 - JOINT_LIMIT_MARGIN<T>(), 320.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
+            {-320.0 - JOINT_LIMIT_MARGIN<T>(), 320.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
+            {-176.0 - JOINT_LIMIT_MARGIN<T>(), 176.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
+            {-176.0 - JOINT_LIMIT_MARGIN<T>(), 176.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
+            {-110.0 - JOINT_LIMIT_MARGIN<T>(), 110.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
+            {-40.0 - JOINT_LIMIT_MARGIN<T>(), 40.0 + JOINT_LIMIT_MARGIN<T>()},   // joint 5
+            {-40.0 - JOINT_LIMIT_MARGIN<T>(), 40.0 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
         };
 
         template<class T>
@@ -160,22 +195,24 @@ namespace plant {
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::direct_minv_inner<T>(s_Minv, s_q, s_XImats, s_temp);
                 T* s_c = s_temp;
-                grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, &s_temp[7], GRAVITY<T>());
+                grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, &s_temp[6], GRAVITY<T>());
                 grid::forward_dynamics_finish<T>(s_qdd, s_u, s_c, s_Minv);
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_temp, GRAVITY<T>());
                 grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_temp, GRAVITY<T>());
 
-                for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 98; ind += blockDim.x * blockDim.y) {
-                        int row = ind % 7;
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
+                        int row = ind % 7; 
                         int dc_col_offset = ind - row;
                         // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
                         T val = static_cast<T>(0);
-                        for (int col = 0; col < 7; col++) {
+                        #pragma unroll
+                        for(int col = 0; col < 7; col++) {
                                 int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 val += s_Minv[index] * s_dc_du[dc_col_offset + col];
                         }
                         s_df_du[ind] = -val;
-                        if (INCLUDE_DU && ind < 49) {
+
+                        if (INCLUDE_DU && ind < 49){
                                 int col = ind / 7;
                                 int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 s_df_du[ind + 98] = s_Minv[index];
@@ -200,24 +237,24 @@ namespace plant {
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::direct_minv_inner<T>(s_Minv, s_q, s_XImats, s_temp);
                 T* s_c = s_temp;
-                grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, &s_temp[7], GRAVITY<T>(), d_f_ext);
+                grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, &s_temp[6], GRAVITY<T>(), d_f_ext);
                 grid::forward_dynamics_finish<T>(s_qdd, s_u, s_c, s_Minv);
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_temp, GRAVITY<T>(), d_f_ext);
                 grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_temp, GRAVITY<T>());
 
-                // 7x14 elements
-                for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 98; ind += blockDim.x * blockDim.y) {
-                        int row = ind % 7;
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
+                        int row = ind % 7; 
                         int dc_col_offset = ind - row;
                         // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
                         T val = static_cast<T>(0);
-#pragma unroll
-                        for (int col = 0; col < 7; col++) {
+                        #pragma unroll
+                        for(int col = 0; col < 7; col++) {
                                 int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 val += s_Minv[index] * s_dc_du[dc_col_offset + col];
                         }
                         s_df_du[ind] = -val;
-                        if (INCLUDE_DU && ind < 49) {
+
+                        if (INCLUDE_DU && ind < 49){
                                 int col = ind / 7;
                                 int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
                                 s_df_du[ind + 98] = s_Minv[index];
@@ -254,7 +291,7 @@ namespace plant {
                 T* s_eePos_cost = s_cost_vec + threadsNeeded + 3;
                 T* s_scratch = s_eePos_cost + 6;
 
-                grid::end_effector_positions_device<T>(s_eePos_cost, s_xu, s_scratch, d_robotModel);
+                grid::end_effector_pose_device<T>(s_eePos_cost, s_xu, s_scratch, d_robotModel);
 
                 for (int i = threadIdx.x; i < threadsNeeded; i += blockDim.x) {
                         if (i < state_size / 2) {
@@ -287,6 +324,10 @@ namespace plant {
 
         __host__ unsigned trackingcost_TempMemCt_Shared(uint32_t state_size, uint32_t control_size, uint32_t knot_points)
         {
+                // Worst-case per-knot temp shared memory for trackingcost():
+                // threadsNeeded (NQ + NU on non-terminal knots) + 3 (position error terms)
+                // + EE pose size (6) + EE pose dynamic shared mem used by the GRiD device call.
+                // Using grid constants keeps it consistent with compile-time configuration.
                 return grid::NQ / 2 + grid::NU + 2 * grid::NEE + grid::EE_POS_DYNAMIC_SHARED_MEM_COUNT;
         }
 
@@ -315,8 +356,8 @@ namespace plant {
 
                 const uint32_t threads_needed = grid::NX + grid::NU * computeR;
 
-                grid::end_effector_positions_device<T>(s_eePos, s_xu, s_scratch, (grid::robotModel<T>*)d_robotModel);
-                grid::end_effector_positions_gradient_device<T>(s_eePos_grad, s_xu, s_scratch, (grid::robotModel<T>*)d_robotModel);
+                grid::end_effector_pose_device<T>(s_eePos, s_xu, s_scratch, (grid::robotModel<T>*)d_robotModel);
+                grid::end_effector_pose_gradient_device<T>(s_eePos_grad, s_xu, s_scratch, (grid::robotModel<T>*)d_robotModel);
 
                 // Gradient (qk, rk)
                 for (int i = threadIdx.x; i < threads_needed; i += blockDim.x) {
@@ -353,6 +394,17 @@ namespace plant {
                                                 T barrier_grad_i = jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                                 T barrier_grad_j = jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
                                                 s_Qk[i * grid::NX + j] += q_lim_cost * barrier_grad_i * barrier_grad_j;
+
+                                                // s_Qk[i * grid::NX + j] = s_qk[i] * s_qk[j] * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
+                                                // joint barrier
+                                                // s_Qk[i * state_size + j] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]) *
+                                                // jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
+                                                // if (i == j) {
+                                                //         const T margin = JOINT_LIMIT_MARGIN<T>();
+                                                //         T       dist_min = s_xu[i] - (JOINT_LIMITS<T>()[i][0] + margin);
+                                                //         T       dist_max = (JOINT_LIMITS<T>()[i][1] - margin) - s_xu[i];
+                                                //         s_Qk[i * state_size + j] += q_lim_cost * (1 / (dist_min * dist_min) + 1 / (dist_max * dist_max));
+                                                // }
 
                                         } else {
                                                 // joint velocity reg

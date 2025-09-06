@@ -8,6 +8,22 @@
 
 namespace grid {
 
+    /**
+     * Compute the RNEA (Recursive Newton-Euler Algorithm)
+     *
+     * Notes:
+     *   Assumes the XI matricies have already been updated for the given q
+     *   optimized for qdd = 0
+     *
+     * @param s_c is the vector of output torques
+     * @param s_vaf is a pointer to shared memory of size 3*6*NUM_JOINTS = 126
+     * @param s_q is the vector of joint positions
+     * @param s_qd is the vector of joint velocities
+     * @param s_XI is the pointer to the transformation and inertia matricies 
+     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
+     * @param s_temp is a pointer to helper shared memory of size 6*NUM_JOINTS = 42
+     * @param gravity is the gravity constant
+     */
     template <typename T>
     __device__
     void inverse_dynamics_inner(T *s_c,  T *s_vaf, const T *s_q, const T *s_qd, T *s_XImats, T *s_temp, const T gravity, T *d_f_ext) {
@@ -15,8 +31,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: joint0
-        //     links are: link1
+        //     joints are: A1
+        //     links are: L1
         // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravity
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
@@ -26,8 +42,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: joint1
-        //     links are: link2
+        //     joints are: A2
+        //     links are: L2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -43,8 +59,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: joint2
-        //     links are: link3
+        //     joints are: A3
+        //     links are: L3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -60,8 +76,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: joint3
-        //     links are: link4
+        //     joints are: A4
+        //     links are: L4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -77,8 +93,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: joint4
-        //     links are: link5
+        //     joints are: A5
+        //     links are: L5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -94,8 +110,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: joint5
-        //     links are: link6
+        //     joints are: A6
+        //     links are: L6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -111,8 +127,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: joint6
-        //     links are: link7
+        //     joints are: A7
+        //     links are: L7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -146,7 +162,6 @@ namespace grid {
             fx_times_v_peq<T>(&s_vaf[84 + jid6], &s_vaf[jid6], &s_temp[jid6]);
 
             if (jid == 6) {
-                // Add external wrench to end-effector (link7)
                 s_vaf[84 + jid6] -= d_f_ext[0];
                 s_vaf[84 + jid6 + 1] -= d_f_ext[1];
                 s_vaf[84 + jid6 + 2] -= d_f_ext[2];
@@ -160,67 +175,67 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: joint6
-        //     links are: link7
+        //     joints are: A7
+        //     links are: L7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*6 + 6*row], &s_vaf[84 + 6*6]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*6 + 6*row], &s_vaf[84 + 6*6]);
             int dstOffset = 84 + 6*5 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: joint5
-        //     links are: link6
+        //     joints are: A6
+        //     links are: L6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*5 + 6*row], &s_vaf[84 + 6*5]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*5 + 6*row], &s_vaf[84 + 6*5]);
             int dstOffset = 84 + 6*4 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: joint4
-        //     links are: link5
+        //     joints are: A5
+        //     links are: L5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*4 + 6*row], &s_vaf[84 + 6*4]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*4 + 6*row], &s_vaf[84 + 6*4]);
             int dstOffset = 84 + 6*3 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: joint3
-        //     links are: link4
+        //     joints are: A4
+        //     links are: L4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*3 + 6*row], &s_vaf[84 + 6*3]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*3 + 6*row], &s_vaf[84 + 6*3]);
             int dstOffset = 84 + 6*2 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: joint2
-        //     links are: link3
+        //     joints are: A3
+        //     links are: L3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*2 + 6*row], &s_vaf[84 + 6*2]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*2 + 6*row], &s_vaf[84 + 6*2]);
             int dstOffset = 84 + 6*1 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: joint1
-        //     links are: link2
+        //     joints are: A2
+        //     links are: L2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*1 + 6*row], &s_vaf[84 + 6*1]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*1 + 6*row], &s_vaf[84 + 6*1]);
             int dstOffset = 84 + 6*0 + row;
             s_vaf[dstOffset] += val;
         }
@@ -228,12 +243,29 @@ namespace grid {
         //
         // s_c extracted in parallel (S*f)
         //
-        for(int jid = threadIdx.x + threadIdx.y*blockDim.x; jid < 7; jid += blockDim.x*blockDim.y){
-            s_c[jid] = s_vaf[84 + 6*jid + 2];
+        for(int dof_id = threadIdx.x + threadIdx.y*blockDim.x; dof_id < 7; dof_id += blockDim.x*blockDim.y){
+            s_c[dof_id] = s_vaf[84 + 6*dof_id + 2];
         }
         __syncthreads();
     }
 
+
+    /**
+     * Compute the RNEA (Recursive Newton-Euler Algorithm)
+     *
+     * Notes:
+     *   Assumes the XI matricies have already been updated for the given q
+     *   used to compute vaf as helper values
+     *
+     * @param s_vaf is a pointer to shared memory of size 3*6*NUM_JOINTS = 126
+     * @param s_q is the vector of joint positions
+     * @param s_qd is the vector of joint velocities
+     * @param s_qdd is (optional vector of joint accelerations
+     * @param s_XI is the pointer to the transformation and inertia matricies 
+     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
+     * @param s_temp is a pointer to helper shared memory of size 6*NUM_JOINTS = 42
+     * @param gravity is the gravity constant
+     */
     template <typename T>
     __device__
     void inverse_dynamics_inner_vaf(T *s_vaf, const T *s_q, const T *s_qd, const T *s_qdd, T *s_XImats, T *s_temp, const T gravity, T *d_f_ext) {
@@ -241,9 +273,9 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: joint0
-        //     links are: link1
-        // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravity + S[k]*qdd[k]
+        //     joints are: A1
+        //     links are: L1
+        // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravityS[k]*qdd[k]
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
             s_vaf[jid6 + row] = static_cast<T>(0);
@@ -252,8 +284,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: joint1
-        //     links are: link2
+        //     joints are: A2
+        //     links are: L2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -269,8 +301,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: joint2
-        //     links are: link3
+        //     joints are: A3
+        //     links are: L3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -286,8 +318,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: joint3
-        //     links are: link4
+        //     joints are: A4
+        //     links are: L4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -303,8 +335,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: joint4
-        //     links are: link5
+        //     joints are: A5
+        //     links are: L5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -320,8 +352,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: joint5
-        //     links are: link6
+        //     joints are: A6
+        //     links are: L6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -337,8 +369,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: joint6
-        //     links are: link7
+        //     joints are: A7
+        //     links are: L7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -372,7 +404,6 @@ namespace grid {
             fx_times_v_peq<T>(&s_vaf[84 + jid6], &s_vaf[jid6], &s_temp[jid6]);
 
             if (jid == 6) {
-                // Add external wrench to end-effector (link7)
                 s_vaf[84 + jid6] -= d_f_ext[0];
                 s_vaf[84 + jid6 + 1] -= d_f_ext[1];
                 s_vaf[84 + jid6 + 2] -= d_f_ext[2];
@@ -386,73 +417,88 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: joint6
-        //     links are: link7
+        //     joints are: A7
+        //     links are: L7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*6 + 6*row], &s_vaf[84 + 6*6]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*6 + 6*row], &s_vaf[84 + 6*6]);
             int dstOffset = 84 + 6*5 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: joint5
-        //     links are: link6
+        //     joints are: A6
+        //     links are: L6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*5 + 6*row], &s_vaf[84 + 6*5]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*5 + 6*row], &s_vaf[84 + 6*5]);
             int dstOffset = 84 + 6*4 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: joint4
-        //     links are: link5
+        //     joints are: A5
+        //     links are: L5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*4 + 6*row], &s_vaf[84 + 6*4]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*4 + 6*row], &s_vaf[84 + 6*4]);
             int dstOffset = 84 + 6*3 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: joint3
-        //     links are: link4
+        //     joints are: A4
+        //     links are: L4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*3 + 6*row], &s_vaf[84 + 6*3]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*3 + 6*row], &s_vaf[84 + 6*3]);
             int dstOffset = 84 + 6*2 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: joint2
-        //     links are: link3
+        //     joints are: A3
+        //     links are: L3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*2 + 6*row], &s_vaf[84 + 6*2]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*2 + 6*row], &s_vaf[84 + 6*2]);
             int dstOffset = 84 + 6*1 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: joint1
-        //     links are: link2
+        //     joints are: A2
+        //     links are: L2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
-            T val = dot_prod<T,6,1,1>(&s_XImats[42*1 + 6*row], &s_vaf[84 + 6*1]);
+            T val = dot_prod<T,6,1,1>(&s_XImats[36*1 + 6*row], &s_vaf[84 + 6*1]);
             int dstOffset = 84 + 6*0 + row;
             s_vaf[dstOffset] += val;
         }
         __syncthreads();
     }
 
+        /**
+     * Computes forward dynamics
+     *
+     * Notes:
+     *   Assumes s_XImats is updated already for the current s_q
+     *   Does not internally sync the thread group, so it should be called after all threads have finished computing their values
+     *
+     * @param s_qdd is a pointer to memory for the final result
+     * @param s_q is the vector of joint positions
+     * @param s_qd is the vector of joint velocities
+     * @param s_u is the vector of joint input torques
+     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
+     * @param s_temp is the pointer to the shared memory needed of size: 891
+     * @param gravity is the gravity constant
+     */
     template <typename T>
     __device__
     void forward_dynamics_inner(T *s_qdd, const T *s_q, const T *s_qd, const T *s_u, T *s_XImats, T *s_temp, const T gravity, T *d_f_ext) {

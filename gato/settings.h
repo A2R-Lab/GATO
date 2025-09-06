@@ -40,5 +40,5 @@ constexpr uint32_t SIM_FORWARD_THREADS = 128;
 }  // namespace sqp
 
 // ----- Plant -----
-#include "dynamics/indy7/indy7_plant.cuh"
-// #include "dynamics/iiwa14/iiwa14_plant.cuh"
+// #include "dynamics/indy7/indy7_plant.cuh"
+#include "dynamics/iiwa14/iiwa14_plant.cuh"
