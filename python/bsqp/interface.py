@@ -141,7 +141,7 @@ class BSQP:
 
     def ee_pos(self, q):
         pin.forwardKinematics(self.model, self.data, q)
-        return self.data.oMi[6].translation
+        return self.data.oMi[self.model.njoints - 1].translation
 
     def reset(self):
         self.reset_dual()
