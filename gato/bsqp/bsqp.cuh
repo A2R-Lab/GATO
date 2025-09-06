@@ -92,16 +92,13 @@ class BSQP {
                         // gpuErrchk(cudaEventSynchronize(pcg_stop_event_));
 
                         computeDzBatched<T, BatchSize>(d_dz_batch_, d_lambda_batch_, kkt_system_batch_);
-
-                        // d_q_batch, d_r_batch contain the KKT residuals after computeDzBatched
+// d_q_batch, d_r_batch contain the KKT residuals after computeDzBatched
                         gpuErrchk(cudaMemcpyAsync(h_q_batch_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpyAsync(h_c_batch_, kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         // gpuErrchk(cudaMemcpy(h_r_batch_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
 
-                        gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost)); // throwing an error
-                        // gpuErrchk(cudaEventElapsedTime(&pcg_time_us_, pcg_start_event_, pcg_stop_event_)); // this was throwing an error
-                        pcg_stats.solve_time_us = 0; //  pcg_time_us_ * 1000;
-
+                        gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
+                        
                         // KKT condition check on cpu is async with gpu
                         uint32_t num_solved = 0;
                         for (uint32_t b = 0; b < BatchSize; ++b) {
@@ -129,6 +126,8 @@ class BSQP {
                         if (num_solved >= BatchSize * solve_ratio_) break;
 
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
+
+                        // flags already updated on device; no need to copy back
 
                         computeMeritBatched<T, BatchSize, NUM_ALPHAS>(
                             d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
@@ -179,11 +178,9 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_lambda_batch_, VEC_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BT));
 
-                // Allocate Schur system memory
-                gpuErrchk(cudaMallocManaged(&schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT));
-                gpuErrchk(cudaMemAdvise(schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT, cudaMemAdviseSetPreferredLocation, 0));
-                gpuErrchk(cudaMallocManaged(&schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT));
-                gpuErrchk(cudaMemAdvise(schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT, cudaMemAdviseSetPreferredLocation, 0));
+                // Allocate Schur system memory on device (faster than UM here)
+                gpuErrchk(cudaMalloc(&schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT));
+                gpuErrchk(cudaMalloc(&schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT));
                 gpuErrchk(cudaMalloc(&schur_system_batch_.d_gamma_batch, VEC_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(schur_system_batch_.d_S_batch, 0, B3D_MATRIX_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(schur_system_batch_.d_P_inv_batch, 0, B3D_MATRIX_SIZE_PADDED * BT));

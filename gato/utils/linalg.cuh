@@ -22,7 +22,7 @@ __device__ __forceinline__ void zeroSharedMemory(T* mem)
 }
 
 template<typename T, uint32_t size>
-__device__ __forceinline__ void copy(T* dst, T* src)
+__device__ __forceinline__ void copy(T* dst, const T* src)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { dst[i] = src[i]; }
@@ -30,7 +30,7 @@ __device__ __forceinline__ void copy(T* dst, T* src)
 
 // overloaded copy with scaling
 template<typename T, uint32_t size>
-__device__ __forceinline__ void copy(T* dst, T* src, T alpha)
+__device__ __forceinline__ void copy(T* dst, const T* src, T alpha)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { dst[i] = alpha * src[i]; }
@@ -38,7 +38,7 @@ __device__ __forceinline__ void copy(T* dst, T* src, T alpha)
 
 // vector sum with output parameter
 template<typename T, uint32_t size>
-__device__ __forceinline__ void vecSum(T* out, T* a, T* b)
+__device__ __forceinline__ void vecSum(T* out, const T* a, const T* b)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { out[i] = a[i] + b[i]; }
@@ -46,7 +46,7 @@ __device__ __forceinline__ void vecSum(T* out, T* a, T* b)
 
 // vector sum in-place
 template<typename T, uint32_t size>
-__device__ __forceinline__ void vecSum(T* a, T* b)
+__device__ __forceinline__ void vecSum(T* a, const T* b)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { a[i] += b[i]; }
@@ -54,7 +54,7 @@ __device__ __forceinline__ void vecSum(T* a, T* b)
 
 // vector difference with output parameter
 template<typename T, uint32_t size>
-__device__ __forceinline__ void vecSub(T* out, T* a, T* b)
+__device__ __forceinline__ void vecSub(T* out, const T* a, const T* b)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { out[i] = a[i] - b[i]; }
@@ -62,7 +62,7 @@ __device__ __forceinline__ void vecSub(T* out, T* a, T* b)
 
 // vector difference in-place
 template<typename T, uint32_t size>
-__device__ __forceinline__ void vecSub(T* a, T* b)
+__device__ __forceinline__ void vecSub(T* a, const T* b)
 {
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < size; i += blockDim.x) { a[i] -= b[i]; }
@@ -100,7 +100,7 @@ __device__ __forceinline__ void addScaledIdentity(T* A, T alpha)
 // A is (m x n), B is (n x k), C is (m x k)
 // A, B, C are assumed to be in column-major order
 template<typename T, uint32_t m, uint32_t n, uint32_t k>
-__device__ __forceinline__ void matMul(T* C, T* A, T* B, bool negate = false)
+__device__ __forceinline__ void matMul(T* C, const T* A, const T* B, bool negate = false)
 {
         // threads each compute an element of C
         uint32_t x, y;
@@ -119,7 +119,7 @@ __device__ __forceinline__ void matMul(T* C, T* A, T* B, bool negate = false)
 // A is (m x n), B is (n x k), C is (m x k)
 // A, B, C are assumed to be in column-major order
 template<typename T, uint32_t m, uint32_t n, uint32_t k>
-__device__ __forceinline__ void matMulSum(T* C, T* A, T* B, bool negate = false)
+__device__ __forceinline__ void matMulSum(T* C, const T* A, const T* B, bool negate = false)
 {
         // threads each compute an element of C
         uint32_t x, y;
@@ -138,7 +138,7 @@ __device__ __forceinline__ void matMulSum(T* C, T* A, T* B, bool negate = false)
 // A is (m x n), B is (k x n), C is (m x k)
 // A, B, C are assumed to be in column-major order
 template<typename T, uint32_t m, uint32_t n, uint32_t k>
-__device__ __forceinline__ void matMulTranspose(T* C, T* A, T* B, bool negate = false)
+__device__ __forceinline__ void matMulTranspose(T* C, const T* A, const T* B, bool negate = false)
 {
         // threads each compute an element of C
         uint32_t x, y;
@@ -157,7 +157,7 @@ __device__ __forceinline__ void matMulTranspose(T* C, T* A, T* B, bool negate = 
 // A is (m x n), B is (k x n), C is (m x k)
 // A, B, C are assumed to be in column-major order
 template<typename T, uint32_t m, uint32_t n, uint32_t k>
-__device__ __forceinline__ void matMulTransposeSum(T* C, T* A, T* B, bool negate = false)
+__device__ __forceinline__ void matMulTransposeSum(T* C, const T* A, const T* B, bool negate = false)
 {
         // threads each compute an element of C
         uint32_t x, y;
@@ -289,7 +289,7 @@ __device__ __forceinline__ void btdMatrixVectorProduct(T* s_output_1, T* s_outpu
 // * @note s_scratch array must be in shared memory
 // */
 template<typename T>
-__device__ __forceinline__ void dot(T* result, T* s_a, T* s_b, T* s_scratch, uint32_t size)
+__device__ __forceinline__ void dot(T* result, const T* s_a, const T* s_b, T* s_scratch, uint32_t size)
 {
 #ifndef NDEBUG
         assert(blockDim.x % WARP_SIZE == 0 && "blockDim.x must be a multiple of 32 (warp size)");
@@ -551,9 +551,21 @@ __device__ __forceinline__ T* getOffsetWrench(T* batch, uint32_t solve_idx)
         return batch + solve_idx * 6;
 }
 
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetWrench(const T* batch, uint32_t solve_idx)
+{
+        return batch + solve_idx * 6;
+}
+
 // compute pointer to a (STATE_SIZE) vector from a batch (BATCH_SIZE X KNOT_POINTS)
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetState(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * STATE_P_KNOTS + knot_idx * STATE_SIZE;
+}
+
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetState(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
         return batch + solve_idx * STATE_P_KNOTS + knot_idx * STATE_SIZE;
 }
@@ -565,9 +577,21 @@ __device__ __forceinline__ T* getOffsetControl(T* batch, uint32_t solve_idx, uin
         return batch + solve_idx * CONTROL_P_KNOTS + knot_idx * CONTROL_SIZE;
 }
 
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetControl(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * CONTROL_P_KNOTS + knot_idx * CONTROL_SIZE;
+}
+
 // compute pointer to a (STATE_SIZE x STATE_SIZE) matrix from a batch (BATCH_SIZE X KNOT_POINTS)
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetStateSq(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * STATE_SQ_P_KNOTS + knot_idx * STATE_SIZE_SQ;
+}
+
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetStateSq(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
         return batch + solve_idx * STATE_SQ_P_KNOTS + knot_idx * STATE_SIZE_SQ;
 }
@@ -580,7 +604,19 @@ __device__ __forceinline__ T* getOffsetControlSq(T* batch, uint32_t solve_idx, u
 }
 
 template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetControlSq(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * CONTROL_SQ_P_KNOTS + knot_idx * CONTROL_SIZE_SQ;
+}
+
+template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetStatePControl(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * STATE_P_CONTROL_P_KNOTS + knot_idx * STATE_P_CONTROL;
+}
+
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetStatePControl(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
         return batch + solve_idx * STATE_P_CONTROL_P_KNOTS + knot_idx * STATE_P_CONTROL;
 }
@@ -593,7 +629,19 @@ __device__ __forceinline__ T* getOffsetTraj(T* batch, uint32_t solve_idx, uint32
 }
 
 template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetTraj(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * TRAJ_SIZE + knot_idx * STATE_S_CONTROL;
+}
+
+template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetReferenceTraj(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * grid::EE_POS_SIZE;
+}
+
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetReferenceTraj(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
         return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * grid::EE_POS_SIZE;
 }
@@ -607,7 +655,19 @@ __device__ __forceinline__ T* getOffsetStatePadded(T* batch, uint32_t solve_idx,
 }
 
 template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetStatePadded(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * VEC_SIZE_PADDED + (knot_idx + 1) * STATE_SIZE;
+}
+
+template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetBlockRowPadded(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * B3D_MATRIX_SIZE_PADDED + knot_idx * BLOCK_ROW_SIZE;
+}
+
+template<typename T, uint32_t BatchSize>
+__device__ __forceinline__ const T* getOffsetBlockRowPadded(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
         return batch + solve_idx * B3D_MATRIX_SIZE_PADDED + knot_idx * BLOCK_ROW_SIZE;
 }

@@ -23,6 +23,8 @@ class BSQP:
         u_cost=1e-6,
         N_cost=50.0,
         q_lim_cost=1e-3,
+        vel_lim_cost=0.0,
+        ctrl_lim_cost=0.0,
         rho=0.0,
     ):
         # Dynamically import the correct bsqp_N* module and get the solver class
@@ -59,8 +61,8 @@ class BSQP:
             u_cost,
             N_cost,
             q_lim_cost,
-            0.0,  # vel_lim_cost
-            0.0,  # ctrl_lim_cost
+            vel_lim_cost,
+            ctrl_lim_cost,
             rho,  # rho
         )
         self.model = pin.buildModelFromUrdf(model_path)

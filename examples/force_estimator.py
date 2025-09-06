@@ -22,8 +22,8 @@ class ImprovedForceEstimator:
         self.radius = initial_radius
         self.min_radius = min_radius
         self.max_radius = max_radius
-        self.radius_increase_factor = 1.05  # Gentler increase when exploration wins
-        self.radius_decrease_factor = 0.95  # Gentler decrease when exploitation wins
+        self.radius_increase_factor = 1.05
+        self.radius_decrease_factor = 0.95 
         
         self.estimate = np.zeros(self.dim, dtype=np.float32)
         self.momentum = np.zeros(self.dim, dtype=np.float32)

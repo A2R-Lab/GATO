@@ -27,36 +27,6 @@ namespace plant {
                 return static_cast<T>(9.81);
         }
 
-        // template<class T>
-        // __host__ __device__ constexpr T COST_Q()
-        // {
-        //         return static_cast<T>(q_COST);
-        // }
-
-        // template<class T>
-        // __host__ __device__ constexpr T COST_QD()
-        // {
-        //         return static_cast<T>(dq_COST);
-        // }
-
-        // template<class T>
-        // __host__ __device__ constexpr T COST_R()
-        // {
-        //         return static_cast<T>(u_COST);
-        // }
-
-        // template<class T>
-        // __host__ __device__ constexpr T COST_TERMINAL()
-        // {
-        //         return static_cast<T>(N_COST);
-        // }
-
-        // template<class T>
-        // __host__ __device__ constexpr T COST_BARRIER()
-        // {
-        //         return static_cast<T>(q_lim_COST);
-        // }
-
         template<class T>
         __host__ __device__ constexpr T JOINT_LIMIT_MARGIN()
         {
@@ -143,11 +113,45 @@ namespace plant {
         template<class T>
         __device__ T jointBarrierGradient(T q, T q_min, T q_max)
         {
-                T       dist_min = q - q_min;
-                T       dist_max = q_max - q;
-                dist_min = (dist_min <= 1e-6) ? 1e-6 : dist_min;
-                dist_max = (dist_max <= 1e-6) ? 1e-6 : dist_max;
-                return (-1 / dist_min) + (1 / dist_max);
+                // Sign-preserving clamp so gradient points back inside even when violated
+                T dist_min = q - q_min;
+                T dist_max = q_max - q;
+                const T eps = static_cast<T>(1e-6);
+
+                // If inside and very close to boundary, grow magnitude to eps (same sign)
+                // If outside, keep sign and ensure magnitude at least eps
+                if (dist_min >= static_cast<T>(0)) {
+                        if (dist_min < eps) dist_min = eps;
+                } else {
+                        if (dist_min > -eps) dist_min = -eps;
+                }
+
+                if (dist_max >= static_cast<T>(0)) {
+                        if (dist_max < eps) dist_max = eps;
+                } else {
+                        if (dist_max > -eps) dist_max = -eps;
+                }
+
+                return (-static_cast<T>(1) / dist_min) + (static_cast<T>(1) / dist_max);
+        }
+
+        // Second derivative (Hessian) of the joint barrier:
+        // d^2/dq^2 [-log(q - q_min) - log(q_max - q)]
+        // = 1/(q - q_min)^2 + 1/(q_max - q)^2
+        template<class T>
+        __device__ T jointBarrierHessian(T q, T q_min, T q_max)
+        {
+                // Use magnitude clamp for curvature; sign does not affect squared term
+                T dist_min = q - q_min;
+                T dist_max = q_max - q;
+                const T eps = static_cast<T>(1e-6);
+
+                T abs_min = dist_min >= static_cast<T>(0) ? dist_min : -dist_min;
+                T abs_max = dist_max >= static_cast<T>(0) ? dist_max : -dist_max;
+                if (abs_min < eps) abs_min = eps;
+                if (abs_max < eps) abs_max = eps;
+
+                return static_cast<T>(1.0) / (abs_min * abs_min) + static_cast<T>(1.0) / (abs_max * abs_max);
         }
 
         template<typename T>
@@ -391,27 +395,17 @@ namespace plant {
                                                                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                              + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
 
-                                                T barrier_grad_i = jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
-                                                T barrier_grad_j = jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
-                                                s_Qk[i * grid::NX + j] += q_lim_cost * barrier_grad_i * barrier_grad_j;
-
-                                                // s_Qk[i * grid::NX + j] = s_qk[i] * s_qk[j] * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
-                                                // joint barrier
-                                                // s_Qk[i * state_size + j] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]) *
-                                                // jointBarrierGradient(s_xu[j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1]);
-                                                // if (i == j) {
-                                                //         const T margin = JOINT_LIMIT_MARGIN<T>();
-                                                //         T       dist_min = s_xu[i] - (JOINT_LIMITS<T>()[i][0] + margin);
-                                                //         T       dist_max = (JOINT_LIMITS<T>()[i][1] - margin) - s_xu[i];
-                                                //         s_Qk[i * state_size + j] += q_lim_cost * (1 / (dist_min * dist_min) + 1 / (dist_max * dist_max));
-                                                // }
+                                                // Add exact diagonal barrier Hessian for joint limits
+                                                if (i == j) {
+                                                        s_Qk[i * grid::NX + j] += q_lim_cost * jointBarrierHessian<T>(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                                }
 
                                         } else {
                                                 // joint velocity reg
                                                 s_Qk[i * grid::NX + j] = (i == j) ? qd_cost : static_cast<T>(0);
                                                 if (i == j) {
-                                                        T vel_barrier_grad_i = jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
-                                                        s_Qk[i * grid::NX + j] += vel_lim_cost * vel_barrier_grad_i * vel_barrier_grad_i;
+                                                        // Add exact diagonal barrier Hessian for velocity limits
+                                                        s_Qk[i * grid::NX + j] += vel_lim_cost * jointBarrierHessian<T>(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
                                                 }
                                         }
                                 }
@@ -420,8 +414,8 @@ namespace plant {
                                 for (int j = 0; j < grid::NU; j++) { 
                                         s_Rk[offset * grid::NU + j] = (offset == j) ? u_cost : static_cast<T>(0);
                                         if (offset == j) {
-                                                T ctrl_barrier_grad_i = jointBarrierGradient(s_xu[i], CTRL_LIMITS<T>()[offset][0], CTRL_LIMITS<T>()[offset][1]);
-                                                s_Rk[offset * grid::NU + j] += ctrl_lim_cost * ctrl_barrier_grad_i * ctrl_barrier_grad_i;
+                                                // Add exact diagonal barrier Hessian for control limits
+                                                s_Rk[offset * grid::NU + j] += ctrl_lim_cost * jointBarrierHessian<T>(s_xu[i], CTRL_LIMITS<T>()[offset][0], CTRL_LIMITS<T>()[offset][1]);
                                         }
                                 }
                         }
