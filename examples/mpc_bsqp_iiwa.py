@@ -459,3 +459,14 @@ if __name__ == "__main__":
     f_world = np.array([0.0, 0.0, -9.81, 0.0, 0.0, 0.0])  # Gravity in world frame
     f_gato = mpc.transform_force_to_gato_frame(q0, f_world)
     print(f"Transformed force (GATO frame): {f_gato}")
+
+    # Simulate all hypotheses with their corresponding forces
+    x_last = x0
+    u_last = np.zeros(mpc.nu)
+    dt = 0.03125
+    x_next_batch = mpc.solver.sim_forward(x_last, u_last, dt)
+
+    print(f"Size of x_last: {x_last.shape}")
+    print(f"Size of u_last: {u_last.shape}")
+    print(f"x_next_batch: {x_next_batch}")
+    print(f"Size of x_next_batch: {x_next_batch.shape}")
