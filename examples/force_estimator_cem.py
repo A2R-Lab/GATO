@@ -16,18 +16,18 @@ class CEMForceEstimator:
         batch_size: int,
         force_sigma: float = 10.0,
         torque_sigma: float = 0.0,
-        elite_frac: float = 0.25,
+        elite_frac: float = 0.15,
         min_sigma: float = 0.5,
-        max_sigma: float = 100.0,
+        max_sigma: float = 50.0,
         alpha_mean: float = 0.6,
         alpha_cov: float = 0.3,
         process_noise: float = 0.1,
         momentum_beta: float = 0.4,
         seed: int | None = None,
         axial_seeds: bool = True,
-        shrink_on_exploit: float = 0.7,
-        plateau_shrink: float = 0.85,
-        spike_expand: float = 1.25,
+        shrink_on_exploit: float = 0.8,
+        plateau_shrink: float = 0.9,
+        spike_expand: float = 1.2,
     ):
         assert batch_size > 3, "Batch size must be > 3 (exploitation + exploration)"
         self.batch_size = batch_size

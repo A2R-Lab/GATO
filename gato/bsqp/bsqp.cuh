@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cstdint>
 #include <chrono>
+#include <vector>
+#include <cstring>
 #include "settings.h"
 #include "constants.h"
 #include "types.cuh"
@@ -20,7 +22,8 @@ class BSQP {
       public:
         BSQP()
             : dt_(0.01), max_sqp_iters_(5), kkt_tol_(0.0001), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0), q_cost_(settings_q_COST), qd_cost_(settings_dq_COST),
-              u_cost_(settings_u_COST), N_cost_(settings_N_COST), q_lim_cost_(settings_q_lim_COST), vel_lim_cost_(settings_vel_lim_COST), ctrl_lim_cost_(settings_ctrl_lim_COST), rho_(1e-4)
+              u_cost_(settings_u_COST), N_cost_(settings_N_COST), q_lim_cost_(settings_q_lim_COST), vel_lim_cost_(settings_vel_lim_COST), ctrl_lim_cost_(settings_ctrl_lim_COST), rho_(1e-4),
+              adapt_rho_(true)
         {
                 allocateMemory();
                 for (uint32_t i = 0; i < BatchSize; i++) {
@@ -34,7 +37,7 @@ class BSQP {
 
         BSQP(T dt, uint32_t max_sqp_iters, T kkt_tol, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
             : dt_(dt), max_sqp_iters_(max_sqp_iters), kkt_tol_(kkt_tol), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
-              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), rho_(rho)
+              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), rho_(rho), adapt_rho_(true)
         {
                 allocateMemory();
                 for (uint32_t i = 0; i < BatchSize; i++) {
@@ -50,6 +53,22 @@ class BSQP {
 
         void set_f_ext_batch(T* h_f_ext_batch) { gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_batch, 6 * BatchSize * sizeof(T), cudaMemcpyHostToDevice)); }
 
+        // Hyperparameter setters (batched)
+        void set_rho_penalty_batch(const T* h_rho_penalty_batch, bool set_as_reset_default = true)
+        {
+                if (set_as_reset_default) { memcpy(h_rho_penalty_batch_init_, h_rho_penalty_batch, BatchSize * sizeof(T)); }
+                gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+        }
+
+        void set_drho_batch(const T* h_drho_batch, bool set_as_reset_default = true)
+        {
+                if (set_as_reset_default) { memcpy(h_drho_batch_init_, h_drho_batch, BatchSize * sizeof(T)); }
+                gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+        }
+
+        void set_mu_batch(const T* h_mu_batch) { gpuErrchk(cudaMemcpy(d_mu_batch_, h_mu_batch, BatchSize * sizeof(T), cudaMemcpyHostToDevice)); }
+        void set_pcg_tol_batch(const T* h_eps_batch) { gpuErrchk(cudaMemcpy(d_pcg_tol_batch_, h_eps_batch, BatchSize * sizeof(T), cudaMemcpyHostToDevice)); }
+
         void reset_dual() { gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BatchSize * sizeof(T))); }
 
         void reset_rho()
@@ -57,6 +76,8 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
         }
+
+        void set_rho_adaptation(bool enabled) { adapt_rho_ = enabled; }
         // void warmstart()
         // {
         //         // TODO: run a bunch of times with low sqp & pcg tolerances so lambda is warm started
@@ -64,6 +85,11 @@ class BSQP {
         // }
 
         void sim_forward(T* d_xkp1_batch, T* d_xk, T* d_uk, T dt) { simForwardBatched<T, BatchSize>(d_xkp1_batch, d_xk, d_uk, d_GRiD_mem_, d_f_ext_batch_, dt); }
+
+        void copy_final_merit_to_host(T* h_out)
+        {
+                gpuErrchk(cudaMemcpy(h_out, d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+        }
 
         SQPStats<T, BatchSize> solve(T* d_xu_traj_batch, ProblemInputs<T, BatchSize> inputs)
         {
@@ -79,7 +105,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * BatchSize));
 
                 computeMeritBatched<T, BatchSize, 1>(
-                    d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                    d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
@@ -87,7 +113,7 @@ class BSQP {
                         formSchurSystemBatched<T, BatchSize>(schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_);
 
                         // gpuErrchk(cudaEventRecord(pcg_start_event_));
-                        solvePCGBatched<T, BatchSize>(d_lambda_batch_, schur_system_batch_, pcg_tol_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                        solvePCGBatched<T, BatchSize>(d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
                         // gpuErrchk(cudaEventRecord(pcg_stop_event_));
                         // gpuErrchk(cudaEventSynchronize(pcg_stop_event_));
 
@@ -128,24 +154,29 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
 
                         computeMeritBatched<T, BatchSize, NUM_ALPHAS>(
-                            d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                            d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
                         lineSearchAndUpdateBatched<T, BatchSize, NUM_ALPHAS>(
-                            d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_);
+                            d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt_rho_ ? 1 : 0);
 
                         gpuErrchk(cudaMemcpyAsync(ls_stats.min_merit.data(), d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpyAsync(ls_stats.step_size.data(), d_step_size_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         sqp_stats.line_search_stats.push_back(ls_stats);
                 }
 
+                // Final merit on updated trajectory for selection
+                gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
+                computeMeritBatched<T, BatchSize, 1>(
+                    d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
                 gpuErrchk(cudaDeviceSynchronize());
                 auto sqp_end_time = std::chrono::high_resolution_clock::now();
                 gpuErrchk(cudaMemset(d_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t)));
                 gpuErrchk(cudaMemset(d_all_kkt_converged_, 0, sizeof(int32_t)));
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t)));
-                gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+                // gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
                 sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
                 memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
                 memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, BatchSize * sizeof(uint32_t));
+                // copy final merits to host vector for bindings (reuse h_q_batch_ as scratch not ideal; leave to bindings via device copy)
                 memset(h_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t));
                 memset(h_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t));
 
@@ -194,9 +225,19 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMalloc(&d_rho_penalty_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_drho_batch_, BT));
+                gpuErrchk(cudaMalloc(&d_mu_batch_, BT));
+                gpuErrchk(cudaMalloc(&d_pcg_tol_batch_, BT));
 
                 gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * BT));
                 gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * BT));
+                // initialize per-batch mu and pcg tol from scalars
+                {
+                        std::vector<T> h_tmp(BatchSize);
+                        for (uint32_t i = 0; i < BatchSize; ++i) { h_tmp[i] = mu_; }
+                        gpuErrchk(cudaMemcpy(d_mu_batch_, h_tmp.data(), BT, cudaMemcpyHostToDevice));
+                        for (uint32_t i = 0; i < BatchSize; ++i) { h_tmp[i] = pcg_tol_; }
+                        gpuErrchk(cudaMemcpy(d_pcg_tol_batch_, h_tmp.data(), BT, cudaMemcpyHostToDevice));
+                }
 
                 gpuErrchk(cudaMallocHost(&h_q_batch_, STATE_P_KNOTS * BT));
                 gpuErrchk(cudaMallocHost(&h_r_batch_, CONTROL_P_KNOTS * BT));
@@ -269,6 +310,8 @@ class BSQP {
         T  h_rho_penalty_batch_init_[BatchSize];
         T  h_drho_batch_init_[BatchSize];
         T* d_drho_batch_;
+        T* d_mu_batch_;
+        T* d_pcg_tol_batch_;
 
         // Host-side buffers for KKT check
         T*          h_q_batch_;
@@ -293,4 +336,5 @@ class BSQP {
         T           vel_lim_cost_;
         T           ctrl_lim_cost_;
         T           rho_;
+        bool        adapt_rho_;
 };

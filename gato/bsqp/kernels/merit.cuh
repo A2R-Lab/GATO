@@ -20,7 +20,7 @@ __global__ void computeMeritBatchedKernel1(T*    __restrict__ d_merit_batch,  //
                                            T*    __restrict__ d_x_initial_batch,
                                            T*    __restrict__ d_reference_traj_batch,
                                            void*             d_GRiD_mem,
-                                           T                 mu,
+                                           const T* __restrict__ d_mu_batch,
                                            T*    __restrict__ d_f_ext_batch,
                                            T                 timestep,
                                            T                 q_cost,
@@ -40,6 +40,8 @@ __global__ void computeMeritBatchedKernel1(T*    __restrict__ d_merit_batch,  //
         T                    alpha = 1.0 / (1 << alpha_idx);
 
         T cost_k, constraint_k;  // cost function, constraint error, per-point merit
+        T mu = d_mu_batch ? d_mu_batch[solve_idx] : static_cast<T>(1.0);
+        if (!(mu > static_cast<T>(-1e30) && mu < static_cast<T>(1e30))) { mu = static_cast<T>(1.0); }
 
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // current state, control, and next state
@@ -83,6 +85,10 @@ __global__ void computeMeritBatchedKernel1(T*    __restrict__ d_merit_batch,  //
         }
         __syncthreads();
 
+        // Defensive guards against NaN/Inf propagating
+        if (!(cost_k > static_cast<T>(-1e30) && cost_k < static_cast<T>(1e30))) { cost_k = static_cast<T>(1e9); }
+        if (!(constraint_k > static_cast<T>(-1e30) && constraint_k < static_cast<T>(1e30))) { constraint_k = static_cast<T>(1e9); }
+
         // accumulate merit directly to global output (fused reduction)
         if (threadIdx.x == 0) { atomicAdd(&d_merit_batch[solve_idx * gridDim.z + alpha_idx], cost_k + mu * constraint_k); }
 }
@@ -106,7 +112,7 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                   T*                          d_xu_traj_batch,
                                   T*                          d_f_ext_batch,
                                   ProblemInputs<T, BatchSize> inputs,
-                                  T                           mu,
+                                  const T*                    d_mu_batch,
                                   void*                       d_GRiD_mem,
                                   T                           q_cost,
                                   T                           qd_cost,
@@ -130,7 +136,7 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                                                                        inputs.d_x_s_batch,
                                                                                        inputs.d_reference_traj_batch,
                                                                                        d_GRiD_mem,
-                                                                                       mu,
+                                                                                       d_mu_batch,
                                                                                        d_f_ext_batch,
                                                                                        inputs.timestep,
                                                                                        q_cost,
