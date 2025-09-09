@@ -149,6 +149,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
 
                 // ----- Compute theta_k_inv and save in P_inv -----
                 block::loadIdentity<T, STATE_SIZE>(s_theta_k_inv);
+                block::addScaledIdentity<T, STATE_SIZE>(s_theta_k, rho_penalty);
                 __syncthreads();
                 block::invertMatrix<T>(STATE_SIZE, s_theta_k, s_scratch);
                 __syncthreads();

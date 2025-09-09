@@ -25,9 +25,9 @@ constexpr float    settings_ctrl_lim_COST = 0.0;
 
 // constexpr float RHO = 1e-8;
 constexpr float RHO_INIT = 1e-3;
-constexpr float RHO_FACTOR = 1.5;
-constexpr float RHO_MIN = 1e-4;
-constexpr float RHO_MAX = 100;
+constexpr float RHO_FACTOR = 1.2;
+constexpr float RHO_MIN = 1e-3;
+constexpr float RHO_MAX = 10;
 
 constexpr uint32_t KKT_THREADS = 128;
 constexpr uint32_t SCHUR_THREADS = 256;

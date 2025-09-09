@@ -22,7 +22,7 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
 {
         const uint32_t solve_idx = blockIdx.x;
 
-        const T abs_tol = 1e-4;
+        const T abs_tol = 1e-6;
 
         // skip solve if rho_max_reached
         if (d_kkt_converged_batch[solve_idx]) {

@@ -122,12 +122,10 @@ class BSQP {
                                         h_sqp_iters_B_[b] += 1;
                                 }
                         }
-
+                        sqp_stats.pcg_stats.push_back(pcg_stats);
                         if (num_solved >= BatchSize * solve_ratio_) break;
 
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
-
-                        // flags already updated on device; no need to copy back
 
                         computeMeritBatched<T, BatchSize, NUM_ALPHAS>(
                             d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, mu_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
@@ -137,7 +135,6 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(ls_stats.min_merit.data(), d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpyAsync(ls_stats.step_size.data(), d_step_size_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         sqp_stats.line_search_stats.push_back(ls_stats);
-                        sqp_stats.pcg_stats.push_back(pcg_stats);
                 }
 
                 gpuErrchk(cudaDeviceSynchronize());
