@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cstdint>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 #include "settings.h"
 #include "constants.h"
 #include "types.cuh"
@@ -95,35 +97,44 @@ class BSQP {
 // d_q_batch, d_r_batch contain the KKT residuals after computeDzBatched
                         gpuErrchk(cudaMemcpyAsync(h_q_batch_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpyAsync(h_c_batch_, kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-                        // gpuErrchk(cudaMemcpy(h_r_batch_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+                        gpuErrchk(cudaMemcpyAsync(h_r_batch_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
 
                         gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
+
+                        // Ensure async copies above are visible on host before evaluation
+                        gpuErrchk(cudaStreamSynchronize(0));
                         
-                        // KKT condition check on cpu is async with gpu
+                        // KKT condition check on CPU using stationarity (q, r) and primal (c) residuals
                         uint32_t num_solved = 0;
                         for (uint32_t b = 0; b < BatchSize; ++b) {
                                 const T* q_ptr = h_q_batch_ + b * STATE_P_KNOTS;
+                                const T* r_ptr = h_r_batch_ + b * CONTROL_P_KNOTS;
                                 const T* c_ptr = h_c_batch_ + b * STATE_P_KNOTS;
 
                                 auto abs_cmp = [](T a, T b) { return std::abs(a) < std::abs(b); };
 
                                 T q_max = std::abs(*std::max_element(q_ptr, q_ptr + STATE_P_KNOTS, abs_cmp));
+                                T r_max = std::abs(*std::max_element(r_ptr, r_ptr + CONTROL_P_KNOTS, abs_cmp));
                                 T c_max = std::abs(*std::max_element(c_ptr, c_ptr + STATE_P_KNOTS, abs_cmp));
 
-                                // within kkt exit tol or pcg exit tol (no steps taken)
-                                if (pcg_stats.num_iterations[b] == 0) {   // || (q_max < kkt_tol_ && c_max < kkt_tol_)
+                                bool dual_ok = (std::max(q_max, r_max) < kkt_tol_);
+                                bool prim_ok = (c_max < kkt_tol_);
+
+                                if (dual_ok && prim_ok) {
                                         h_kkt_converged_batch_[b] = 1;
-                                        h_sqp_iters_B_[b] += 1;
                                 }
 
                                 if (h_kkt_converged_batch_[b]) {
                                         num_solved++;
+                                        // Count the iteration on which this batch converged
+                                        h_sqp_iters_B_[b] += 1;
                                 } else {
                                         h_sqp_iters_B_[b] += 1;
                                 }
                         }
                         sqp_stats.pcg_stats.push_back(pcg_stats);
-                        if (num_solved >= BatchSize * solve_ratio_) break;
+                        // Early exit when enough of the batch has converged
+                        if (num_solved >= static_cast<uint32_t>(BatchSize * solve_ratio_)) break;
 
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
 
