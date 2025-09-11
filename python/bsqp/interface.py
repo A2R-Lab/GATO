@@ -95,6 +95,8 @@ class BSQP:
             "pcg_times_us": np.array([np.zeros(self.batch_size)]),
             "min_merit": np.array([np.zeros(self.batch_size)]),
             "step_size": np.array([np.zeros(self.batch_size)]),
+            "initial_merit": np.array([]),
+            "best_initial_merit": np.array([]),
         }
 
         # Optional batched hyperparameters
@@ -128,6 +130,13 @@ class BSQP:
         self.stats["sqp_iters"] = np.asarray(result["sqp_iters"], dtype=np.int32).reshape(self.batch_size)
         self.stats["kkt_converged"] = np.asarray(result["kkt_converged"], dtype=np.int32).reshape(self.batch_size)
         self.stats["final_merit"] = np.asarray(result["final_merit"], dtype=np.float32).reshape(self.batch_size)
+        if "initial_merit" in result:
+            self.stats["initial_merit"] = np.asarray(result["initial_merit"], dtype=np.float32).reshape(self.batch_size)
+            # For consistency with the "best across batch" curve, derive the baseline as the best (min) initial merit across the batch
+            if self.stats["initial_merit"].size:
+                self.stats["best_initial_merit"] = float(np.min(self.stats["initial_merit"]))
+            else:
+                self.stats["best_initial_merit"] = np.array([], dtype=np.float32)
         self.stats["ls_num_iters"] = int(result.get("ls_num_iters", 0))
 
         # Normalize shapes for per-iteration stats
@@ -181,6 +190,16 @@ class BSQP:
         else:
             self.stats["best_merit_per_iter"] = np.array([], dtype=np.float32)
             self.stats["best_merit_iter1"] = float("nan")
+
+        # If initial baseline is present, provide a normalized curve convenience entry
+        if np.size(self.stats.get("best_initial_merit", [])):
+            denom = float(self.stats["best_initial_merit"]) if self.stats["best_initial_merit"] else None
+            if denom and denom != 0 and self.stats["best_merit_per_iter"].size:
+                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"] / denom
+            else:
+                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
+        else:
+            self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
 
         return self.XU_B, result["sqp_time_us"]
 

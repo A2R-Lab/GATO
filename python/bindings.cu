@@ -88,9 +88,11 @@ class PyBSQP {
                 std::vector<T> h_xu_traj(TRAJ_SIZE * BatchSize);
                 gpuErrchk(cudaMemcpy(h_xu_traj.data(), d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
 
-                // Copy final merits (computed at end of solve) back to host
+                // Copy final merits (computed at end of solve) and initial (pre-iteration) merits back to host
                 std::vector<T> h_final_merit(BatchSize);
+                std::vector<T> h_initial_merit(BatchSize);
                 solver_.copy_final_merit_to_host(h_final_merit.data());
+                solver_.copy_initial_merit0_to_host(h_initial_merit.data());
 
                 py::dict result;
                 result["XU"] = py::array_t<T>({BatchSize, TRAJ_SIZE}, h_xu_traj.data());
@@ -104,6 +106,7 @@ class PyBSQP {
                                                                stats.kkt_converged.data()  // data
                 );
                 result["final_merit"] = py::array_t<T>({BatchSize}, {sizeof(T)}, h_final_merit.data());
+                result["initial_merit"] = py::array_t<T>({BatchSize}, {sizeof(T)}, h_initial_merit.data());
 
                 // Per-iteration stats: shape them as (iters, BatchSize)
                 const size_t num_iters = stats.line_search_stats.size();

@@ -91,6 +91,11 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(h_out, d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
         }
 
+        void copy_initial_merit0_to_host(T* h_out)
+        {
+                gpuErrchk(cudaMemcpy(h_out, d_merit_initial0_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+        }
+
         SQPStats<T, BatchSize> solve(T* d_xu_traj_batch, ProblemInputs<T, BatchSize> inputs)
         {
                 SQPStats<T, BatchSize>        sqp_stats;
@@ -106,6 +111,8 @@ class BSQP {
 
                 computeMeritBatched<T, BatchSize, 1>(
                     d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                // Snapshot the true initial merit (before any SQP iterations/line-search updates)
+                gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
@@ -126,30 +133,30 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(pcg_stats.num_iterations.data(), d_pcg_iterations_, sizeof(uint32_t) * BatchSize, cudaMemcpyDeviceToHost));
                         
                         // KKT condition check on cpu is async with gpu
-                        uint32_t num_solved = 0;
-                        for (uint32_t b = 0; b < BatchSize; ++b) {
-                                const T* q_ptr = h_q_batch_ + b * STATE_P_KNOTS;
-                                const T* c_ptr = h_c_batch_ + b * STATE_P_KNOTS;
+                        // uint32_t num_solved = 0;
+                        // for (uint32_t b = 0; b < BatchSize; ++b) {
+                        //         const T* q_ptr = h_q_batch_ + b * STATE_P_KNOTS;
+                        //         const T* c_ptr = h_c_batch_ + b * STATE_P_KNOTS;
 
-                                auto abs_cmp = [](T a, T b) { return std::abs(a) < std::abs(b); };
+                        //         auto abs_cmp = [](T a, T b) { return std::abs(a) < std::abs(b); };
 
-                                T q_max = std::abs(*std::max_element(q_ptr, q_ptr + STATE_P_KNOTS, abs_cmp));
-                                T c_max = std::abs(*std::max_element(c_ptr, c_ptr + STATE_P_KNOTS, abs_cmp));
+                        //         T q_max = std::abs(*std::max_element(q_ptr, q_ptr + STATE_P_KNOTS, abs_cmp));
+                        //         T c_max = std::abs(*std::max_element(c_ptr, c_ptr + STATE_P_KNOTS, abs_cmp));
 
-                                // within kkt exit tol or pcg exit tol (no steps taken)
-                                if (pcg_stats.num_iterations[b] == 0) {   // || (q_max < kkt_tol_ && c_max < kkt_tol_)
-                                        h_kkt_converged_batch_[b] = 1;
-                                        h_sqp_iters_B_[b] += 1;
-                                }
+                        //         // within kkt exit tol or pcg exit tol (no steps taken)
+                        //         // if (pcg_stats.num_iterations[b] == 0) {   // || (q_max < kkt_tol_ && c_max < kkt_tol_)
+                        //         //         h_kkt_converged_batch_[b] = 1;
+                        //         //         h_sqp_iters_B_[b] += 1;
+                        //         // }
 
-                                if (h_kkt_converged_batch_[b]) {
-                                        num_solved++;
-                                } else {
-                                        h_sqp_iters_B_[b] += 1;
-                                }
-                        }
+                        //         if (h_kkt_converged_batch_[b]) {
+                        //                 num_solved++;
+                        //         } else {
+                        //                 h_sqp_iters_B_[b] += 1;
+                        //         }
+                        // }
                         sqp_stats.pcg_stats.push_back(pcg_stats);
-                        if (num_solved >= BatchSize * solve_ratio_) break;
+                        // if (num_solved >= BatchSize * solve_ratio_) break;
 
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
 
@@ -215,6 +222,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(schur_system_batch_.d_gamma_batch, 0, VEC_SIZE_PADDED * BT));
 
                 gpuErrchk(cudaMalloc(&d_merit_initial_batch_, BT));
+                gpuErrchk(cudaMalloc(&d_merit_initial0_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_batch_, NUM_ALPHAS * BT));
                 gpuErrchk(cudaMalloc(&d_merit_batch_temp_, NUM_ALPHAS * BT * KNOT_POINTS));
 
@@ -271,6 +279,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_dz_batch_));
                 gpuErrchk(cudaFree(d_kkt_converged_batch_));
                 gpuErrchk(cudaFree(d_merit_initial_batch_));
+                gpuErrchk(cudaFree(d_merit_initial0_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_temp_));
                 gpuErrchk(cudaFree(d_sqp_iters_B_));
@@ -299,6 +308,7 @@ class BSQP {
         T* d_merit_initial_batch_;
         T* d_merit_batch_;
         T* d_merit_batch_temp_;
+        T* d_merit_initial0_batch_;
         // Line search
         T*        d_step_size_batch_;
         int32_t*  d_all_kkt_converged_;
