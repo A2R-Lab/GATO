@@ -93,13 +93,22 @@ namespace plant {
         // - Control:        [1., 1., 1., 1., 1., 1., 1.]
         template<class T>
         __device__ constexpr T POS_WEIGHTS_DATA[7] = {
+<<<<<<< HEAD
             static_cast<T>(10.0), static_cast<T>(10.0), static_cast<T>(5.0),
             static_cast<T>(5.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(0.1)
+=======
+            static_cast<T>(10.0), static_cast<T>(5.0), static_cast<T>(5.0),
+            static_cast<T>(1.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
+>>>>>>> 526dd53 (per joint weights)
         };
 
         template<class T>
         __device__ constexpr T VEL_WEIGHTS_DATA[7] = {
+<<<<<<< HEAD
             static_cast<T>(5.0), static_cast<T>(5.0), static_cast<T>(1.0),
+=======
+            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
+>>>>>>> 526dd53 (per joint weights)
             static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
         };
 
@@ -434,12 +443,20 @@ namespace plant {
                         if (i < grid::NX) {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
+<<<<<<< HEAD
                                                 // J^T * J approximation of hessian
+=======
+                                                // tracking err (scaled by per-joint position weights; keep symmetry and PSD)
+>>>>>>> 526dd53 (per joint weights)
                                                 s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                            + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
                                                                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                              + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost)
+<<<<<<< HEAD
                                                                           * POS_WEIGHTS<T>()[i];
+=======
+                                                                          * POS_WEIGHTS<T>()[i] * POS_WEIGHTS<T>()[j];
+>>>>>>> 526dd53 (per joint weights)
 
                                                 // Add exact diagonal barrier Hessian for joint limits
                                                 if (i == j) {
