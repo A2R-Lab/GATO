@@ -143,9 +143,9 @@ class BSQP {
                         lineSearchAndUpdateBatched<T, BatchSize, NUM_ALPHAS>(
                             d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_);
 
-                        gpuErrchk(cudaMemcpyAsync(ls_stats.min_merit.data(), d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-                        gpuErrchk(cudaMemcpyAsync(ls_stats.step_size.data(), d_step_size_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
-                        sqp_stats.line_search_stats.push_back(ls_stats);
+                        // gpuErrchk(cudaMemcpyAsync(ls_stats.min_merit.data(), d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+                        // gpuErrchk(cudaMemcpyAsync(ls_stats.step_size.data(), d_step_size_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+                        // sqp_stats.line_search_stats.push_back(ls_stats);
                 }
 
                 gpuErrchk(cudaDeviceSynchronize());
@@ -155,9 +155,9 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t)));
                 gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
                 sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
-                memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
+                // memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
                 memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, BatchSize * sizeof(uint32_t));
-                memset(h_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t));
+                // memset(h_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t));
                 memset(h_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t));
 
                 return sqp_stats;

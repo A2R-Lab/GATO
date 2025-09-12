@@ -49,14 +49,7 @@ target_include_directories(integratortest PRIVATE ${CMAKE_SOURCE_DIR})
 # --- Python Bindings ---
 
 # horizon length options
-set(KNOTS
-    8
-    16
-    32
-    64
-    128
-    256
-    512)
+set(KNOTS 8 16 32)
 
 foreach(knot ${KNOTS})
   set(MODULE_NAME "bsqpN${knot}")
