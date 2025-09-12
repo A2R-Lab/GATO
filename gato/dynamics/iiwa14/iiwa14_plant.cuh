@@ -87,6 +87,46 @@ namespace plant {
                 return CTRL_LIMITS_DATA<T>;
         }
 
+        // Joint weights
+        // - Position/state: [10., 5., 5., 1., 1., 1., 1.]
+        // - Velocity:       [1., 1., 1., 1., 1., 1., 1.]
+        // - Control:        [1., 1., 1., 1., 1., 1., 1.]
+        template<class T>
+        __device__ constexpr T POS_WEIGHTS_DATA[7] = {
+            static_cast<T>(10.0), static_cast<T>(5.0), static_cast<T>(5.0),
+            static_cast<T>(1.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
+        };
+
+        template<class T>
+        __device__ constexpr T VEL_WEIGHTS_DATA[7] = {
+            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
+            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
+        };
+
+        template<class T>
+        __device__ constexpr T CTRL_WEIGHTS_DATA[7] = {
+            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
+            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
+        };
+
+        template<class T>
+        __host__ __device__ constexpr const T (&POS_WEIGHTS())[7]
+        {
+                return POS_WEIGHTS_DATA<T>;
+        }
+
+        template<class T>
+        __host__ __device__ constexpr const T (&VEL_WEIGHTS())[7]
+        {
+                return VEL_WEIGHTS_DATA<T>;
+        }
+
+        template<class T>
+        __host__ __device__ constexpr const T (&CTRL_WEIGHTS())[7]
+        {
+                return CTRL_WEIGHTS_DATA<T>;
+        }
+
         template<typename T>
         void* initializeDynamicsConstMem()
         {
@@ -300,13 +340,13 @@ namespace plant {
                 for (int i = threadIdx.x; i < threadsNeeded; i += blockDim.x) {
                         if (i < state_size / 2) {
                                 err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * qd_cost * err * err;
-                                s_cost_vec[i] += q_lim_cost * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
-                                s_cost_vec[i] += vel_lim_cost * jointBarrier(s_xu[i + state_size / 2], VEL_LIMITS<T>()[i][0], VEL_LIMITS<T>()[i][1]);
+                                s_cost_vec[i] = static_cast<T>(0.5) * qd_cost * VEL_WEIGHTS<T>()[i] * err * err;
+                                s_cost_vec[i] += q_lim_cost * POS_WEIGHTS<T>()[i] * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                s_cost_vec[i] += vel_lim_cost * VEL_WEIGHTS<T>()[i] * jointBarrier(s_xu[i + state_size / 2], VEL_LIMITS<T>()[i][0], VEL_LIMITS<T>()[i][1]);
                         } else {
                                 err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * u_cost * err * err;
-                                s_cost_vec[i] += ctrl_lim_cost * jointBarrier(s_xu[i + state_size / 2], CTRL_LIMITS<T>()[i - state_size / 2][0], CTRL_LIMITS<T>()[i - state_size / 2][1]);
+                                s_cost_vec[i] = static_cast<T>(0.5) * u_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * err * err;
+                                s_cost_vec[i] += ctrl_lim_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * jointBarrier(s_xu[i + state_size / 2], CTRL_LIMITS<T>()[i - state_size / 2][0], CTRL_LIMITS<T>()[i - state_size / 2][1]);
                         }
                 }
 #pragma unroll
@@ -367,19 +407,19 @@ namespace plant {
                 for (int i = threadIdx.x; i < threads_needed; i += blockDim.x) {
                         if (i < grid::NX) {
                                 if (i < grid::NQ) {
-                                        // tracking err
+                                        // tracking err (scaled by per-joint position weights)
                                         s_qk[i] = (s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                    + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
-                                                  * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
+                                                  * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost) * POS_WEIGHTS<T>()[i];
                                         // joint barrier
-                                        s_qk[i] += q_lim_cost * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                        s_qk[i] += q_lim_cost * POS_WEIGHTS<T>()[i] * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                 } else {
-                                        s_qk[i] = qd_cost * s_xu[i];
-                                        s_qk[i] += vel_lim_cost * jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
+                                        s_qk[i] = qd_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * s_xu[i];
+                                        s_qk[i] += vel_lim_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
                                 }
                         } else {
-                                s_rk[i - grid::NX] = u_cost * s_xu[i];
-                                s_rk[i - grid::NX] += ctrl_lim_cost * jointBarrierGradient(s_xu[i], CTRL_LIMITS<T>()[i - grid::NX][0], CTRL_LIMITS<T>()[i - grid::NX][1]);
+                                s_rk[i - grid::NX] = u_cost * CTRL_WEIGHTS<T>()[i - grid::NX] * s_xu[i];
+                                s_rk[i - grid::NX] += ctrl_lim_cost * CTRL_WEIGHTS<T>()[i - grid::NX] * jointBarrierGradient(s_xu[i], CTRL_LIMITS<T>()[i - grid::NX][0], CTRL_LIMITS<T>()[i - grid::NX][1]);
                         }
                 }
                 __syncthreads();
@@ -389,33 +429,34 @@ namespace plant {
                         if (i < grid::NX) {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
-                                                // tracking err
+                                                // tracking err (scaled by per-joint position weights; keep symmetry and PSD)
                                                 s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                            + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
                                                                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
-                                                                             + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost);
+                                                                             + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost)
+                                                                          * POS_WEIGHTS<T>()[i] * POS_WEIGHTS<T>()[j];
 
                                                 // Add exact diagonal barrier Hessian for joint limits
                                                 if (i == j) {
-                                                        s_Qk[i * grid::NX + j] += q_lim_cost * jointBarrierHessian<T>(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
+                                                        s_Qk[i * grid::NX + j] += q_lim_cost * POS_WEIGHTS<T>()[i] * jointBarrierHessian<T>(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                                 }
 
                                         } else {
                                                 // joint velocity reg
-                                                s_Qk[i * grid::NX + j] = (i == j) ? qd_cost : static_cast<T>(0);
+                                                s_Qk[i * grid::NX + j] = (i == j) ? (qd_cost * VEL_WEIGHTS<T>()[i - grid::NQ]) : static_cast<T>(0);
                                                 if (i == j) {
                                                         // Add exact diagonal barrier Hessian for velocity limits
-                                                        s_Qk[i * grid::NX + j] += vel_lim_cost * jointBarrierHessian<T>(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
+                                                        s_Qk[i * grid::NX + j] += vel_lim_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * jointBarrierHessian<T>(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
                                                 }
                                         }
                                 }
                         } else {
                                 uint32_t offset = i - grid::NX;
                                 for (int j = 0; j < grid::NU; j++) { 
-                                        s_Rk[offset * grid::NU + j] = (offset == j) ? u_cost : static_cast<T>(0);
+                                        s_Rk[offset * grid::NU + j] = (offset == j) ? (u_cost * CTRL_WEIGHTS<T>()[offset]) : static_cast<T>(0);
                                         if (offset == j) {
                                                 // Add exact diagonal barrier Hessian for control limits
-                                                s_Rk[offset * grid::NU + j] += ctrl_lim_cost * jointBarrierHessian<T>(s_xu[i], CTRL_LIMITS<T>()[offset][0], CTRL_LIMITS<T>()[offset][1]);
+                                                s_Rk[offset * grid::NU + j] += ctrl_lim_cost * CTRL_WEIGHTS<T>()[offset] * jointBarrierHessian<T>(s_xu[i], CTRL_LIMITS<T>()[offset][0], CTRL_LIMITS<T>()[offset][1]);
                                         }
                                 }
                         }
