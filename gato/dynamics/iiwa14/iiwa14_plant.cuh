@@ -93,13 +93,13 @@ namespace plant {
         // - Control:        [1., 1., 1., 1., 1., 1., 1.]
         template<class T>
         __device__ constexpr T POS_WEIGHTS_DATA[7] = {
-            static_cast<T>(10.0), static_cast<T>(5.0), static_cast<T>(5.0),
-            static_cast<T>(1.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
+            static_cast<T>(10.0), static_cast<T>(10.0), static_cast<T>(5.0),
+            static_cast<T>(5.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(0.1)
         };
 
         template<class T>
         __device__ constexpr T VEL_WEIGHTS_DATA[7] = {
-            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
+            static_cast<T>(5.0), static_cast<T>(5.0), static_cast<T>(1.0),
             static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
         };
 
@@ -349,18 +349,23 @@ namespace plant {
                                 s_cost_vec[i] += ctrl_lim_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * jointBarrier(s_xu[i + state_size / 2], CTRL_LIMITS<T>()[i - state_size / 2][0], CTRL_LIMITS<T>()[i - state_size / 2][1]);
                         }
                 }
-#pragma unroll
-                for (int i = threadIdx.x; i < 3; i += blockDim.x) {
-                        err = s_eePos_cost[i] - s_eePos_traj[i];
-                        if (blockIdx.x == KNOT_POINTS - 1) {
-                                s_cost_vec[threadsNeeded + i] = 0.5 * N_cost * err * err;
-                        } else {
-                                s_cost_vec[threadsNeeded + i] = 0.5 * q_cost * err * err;
+
+
+                if (threadIdx.x == 0) {
+                        T sq_err = 0.0;
+                        for (int i = 0; i < 3; i++) {
+                                err = s_eePos_cost[i] - s_eePos_traj[i];
+                                if (blockIdx.x == KNOT_POINTS - 1) {
+                                        sq_err += 0.5 * N_cost * err * err;
+                                } else {
+                                        sq_err += 0.5 * q_cost * err * err;
+                                }
                         }
+                        s_cost_vec[threadsNeeded + 1] = sqrtf(sq_err);
                 }
                 __syncthreads();
 
-                block::reduce<T>(threadsNeeded + 3, s_cost_vec);
+                block::reduce<T>(threadsNeeded + 1, s_cost_vec);
                 __syncthreads();
 
                 return s_cost_vec[0];
@@ -429,12 +434,12 @@ namespace plant {
                         if (i < grid::NX) {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
-                                                // tracking err (scaled by per-joint position weights; keep symmetry and PSD)
+                                                // J^T * J approximation of hessian
                                                 s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                            + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
                                                                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                              + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost)
-                                                                          * POS_WEIGHTS<T>()[i] * POS_WEIGHTS<T>()[j];
+                                                                          * POS_WEIGHTS<T>()[i];
 
                                                 // Add exact diagonal barrier Hessian for joint limits
                                                 if (i == j) {
