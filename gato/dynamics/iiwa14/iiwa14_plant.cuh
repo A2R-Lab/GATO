@@ -30,7 +30,7 @@ namespace plant {
         template<class T>
         __host__ __device__ constexpr T JOINT_LIMIT_MARGIN()
         {
-                return static_cast<T>(-0.1);
+                return static_cast<T>(-0.5);
         }
 
         template<class T>
@@ -86,35 +86,23 @@ namespace plant {
         {
                 return CTRL_LIMITS_DATA<T>;
         }
-
-        // Joint weights
-        // - Position/state: [10., 5., 5., 1., 1., 1., 1.]
-        // - Velocity:       [1., 1., 1., 1., 1., 1., 1.]
-        // - Control:        [1., 1., 1., 1., 1., 1., 1.]
+        
         template<class T>
         __device__ constexpr T POS_WEIGHTS_DATA[7] = {
-<<<<<<< HEAD
-            static_cast<T>(10.0), static_cast<T>(10.0), static_cast<T>(5.0),
-            static_cast<T>(5.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(0.1)
-=======
+
             static_cast<T>(10.0), static_cast<T>(5.0), static_cast<T>(5.0),
             static_cast<T>(1.0),  static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
->>>>>>> 526dd53 (per joint weights)
         };
 
         template<class T>
         __device__ constexpr T VEL_WEIGHTS_DATA[7] = {
-<<<<<<< HEAD
-            static_cast<T>(5.0), static_cast<T>(5.0), static_cast<T>(1.0),
-=======
-            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
->>>>>>> 526dd53 (per joint weights)
+            static_cast<T>(5.0), static_cast<T>(5.0), static_cast<T>(5.0),
             static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
         };
 
         template<class T>
         __device__ constexpr T CTRL_WEIGHTS_DATA[7] = {
-            static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0),
+            static_cast<T>(2.0), static_cast<T>(2.0), static_cast<T>(1.0),
             static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0)
         };
 
@@ -349,12 +337,13 @@ namespace plant {
                 for (int i = threadIdx.x; i < threadsNeeded; i += blockDim.x) {
                         if (i < state_size / 2) {
                                 err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * qd_cost * VEL_WEIGHTS<T>()[i] * err * err;
+                                T qd = (blockIdx.x == KNOT_POINTS - 1) ? N_cost : qd_cost;
+                                s_cost_vec[i] = static_cast<T>(0.5) * qd * VEL_WEIGHTS<T>()[i] * err * err;
                                 s_cost_vec[i] += q_lim_cost * POS_WEIGHTS<T>()[i] * jointBarrier(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                 s_cost_vec[i] += vel_lim_cost * VEL_WEIGHTS<T>()[i] * jointBarrier(s_xu[i + state_size / 2], VEL_LIMITS<T>()[i][0], VEL_LIMITS<T>()[i][1]);
                         } else {
-                                err = s_xu[i + state_size / 2];
-                                s_cost_vec[i] = static_cast<T>(0.5) * u_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * err * err;
+                                // err = s_xu[i + state_size / 2];
+                                // s_cost_vec[i] = static_cast<T>(0.5) * u_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * err * err;
                                 s_cost_vec[i] += ctrl_lim_cost * CTRL_WEIGHTS<T>()[i - state_size / 2] * jointBarrier(s_xu[i + state_size / 2], CTRL_LIMITS<T>()[i - state_size / 2][0], CTRL_LIMITS<T>()[i - state_size / 2][1]);
                         }
                 }
@@ -364,13 +353,14 @@ namespace plant {
                         T sq_err = 0.0;
                         for (int i = 0; i < 3; i++) {
                                 err = s_eePos_cost[i] - s_eePos_traj[i];
-                                if (blockIdx.x == KNOT_POINTS - 1) {
-                                        sq_err += 0.5 * N_cost * err * err;
-                                } else {
-                                        sq_err += 0.5 * q_cost * err * err;
-                                }
+                                sq_err += err * err;
                         }
-                        s_cost_vec[threadsNeeded + 1] = sqrtf(sq_err);
+
+                        if (blockIdx.x == KNOT_POINTS - 1) {
+                                s_cost_vec[threadsNeeded + 1] = 0.5 * N_cost * sqrtf(sq_err);
+                        } else {
+                                s_cost_vec[threadsNeeded + 1] = 0.5 * q_cost * sqrtf(sq_err);
+                        }
                 }
                 __syncthreads();
 
@@ -428,7 +418,8 @@ namespace plant {
                                         // joint barrier
                                         s_qk[i] += q_lim_cost * POS_WEIGHTS<T>()[i] * jointBarrierGradient(s_xu[i], JOINT_LIMITS<T>()[i][0], JOINT_LIMITS<T>()[i][1]);
                                 } else {
-                                        s_qk[i] = qd_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * s_xu[i];
+                                        T qd = (blockIdx.x == KNOT_POINTS - 1) ? N_cost : qd_cost;
+                                        s_qk[i] = qd * VEL_WEIGHTS<T>()[i - grid::NQ] * s_xu[i];
                                         s_qk[i] += vel_lim_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * jointBarrierGradient(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
                                 }
                         } else {
@@ -443,20 +434,12 @@ namespace plant {
                         if (i < grid::NX) {
                                 for (int j = 0; j < grid::NX; j++) {
                                         if (j < grid::NQ && i < grid::NQ) {
-<<<<<<< HEAD
                                                 // J^T * J approximation of hessian
-=======
-                                                // tracking err (scaled by per-joint position weights; keep symmetry and PSD)
->>>>>>> 526dd53 (per joint weights)
                                                 s_Qk[i * grid::NX + j] = ((s_eePos_grad[6 * i + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * i + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                            + s_eePos_grad[6 * i + 2] * (s_eePos[2] - s_eePos_traj[2]))
                                                                           * (s_eePos_grad[6 * j + 0] * (s_eePos[0] - s_eePos_traj[0]) + s_eePos_grad[6 * j + 1] * (s_eePos[1] - s_eePos_traj[1])
                                                                              + s_eePos_grad[6 * j + 2] * (s_eePos[2] - s_eePos_traj[2]))) * (blockIdx.x == KNOT_POINTS - 1 ? N_cost : q_cost)
-<<<<<<< HEAD
-                                                                          * POS_WEIGHTS<T>()[i];
-=======
                                                                           * POS_WEIGHTS<T>()[i] * POS_WEIGHTS<T>()[j];
->>>>>>> 526dd53 (per joint weights)
 
                                                 // Add exact diagonal barrier Hessian for joint limits
                                                 if (i == j) {
@@ -465,7 +448,8 @@ namespace plant {
 
                                         } else {
                                                 // joint velocity reg
-                                                s_Qk[i * grid::NX + j] = (i == j) ? (qd_cost * VEL_WEIGHTS<T>()[i - grid::NQ]) : static_cast<T>(0);
+                                                T qd = (blockIdx.x == KNOT_POINTS - 1) ? N_cost : qd_cost;
+                                                s_Qk[i * grid::NX + j] = (i == j) ? (qd * VEL_WEIGHTS<T>()[i - grid::NQ]) : static_cast<T>(0);
                                                 if (i == j) {
                                                         // Add exact diagonal barrier Hessian for velocity limits
                                                         s_Qk[i * grid::NX + j] += vel_lim_cost * VEL_WEIGHTS<T>()[i - grid::NQ] * jointBarrierHessian<T>(s_xu[i], VEL_LIMITS<T>()[i - grid::NQ][0], VEL_LIMITS<T>()[i - grid::NQ][1]);
