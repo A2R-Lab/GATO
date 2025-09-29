@@ -1,0 +1,5 @@
+- batch over regularization
+- fig8 tracking
+- pick and place
+- fig8 tracking (with fext)
+- pick and place (with fext)

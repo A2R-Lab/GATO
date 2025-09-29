@@ -16,72 +16,21 @@ import pinocchio as pin
 sys.path.append('./python/bsqp')
 sys.path.append('./python')
 from bsqp.interface import BSQP
-
-def figure8(dt, A_x=0.4, A_z=0.4, offset=[0.0, 0.5, 0.6], period=6, cycles=5, theta=np.pi/4):
-    """Generate figure 8 trajectory."""
-    x_unrot = lambda t: offset[0] + A_x * np.sin(t)
-    y_unrot = lambda t: offset[1]
-    z_unrot = lambda t: offset[2] + A_z * np.sin(2*t)/2 + A_z/2
-    
-    R = np.array([[np.cos(theta), -np.sin(theta), 0.0],
-                  [np.sin(theta), np.cos(theta), 0.0],
-                  [0.0, 0.0, 1.0]])
-    
-    def get_rotated_coords(t):
-        unrot = np.array([x_unrot(t), y_unrot(t), z_unrot(t)])
-        rot = R @ unrot
-        return rot[0], rot[1], rot[2]
-    
-    x = lambda t: get_rotated_coords(t)[0]
-    y = lambda t: get_rotated_coords(t)[1]
-    z = lambda t: get_rotated_coords(t)[2]
-    
-    timesteps = np.linspace(0, 2*np.pi, int(period/dt))
-    fig_8 = np.array([[x(t), y(t), z(t), 0.0, 0.0, 0.0] for t in timesteps]).reshape(-1)
-    return np.tile(fig_8, int(cycles))
-
-def rk4(model, data, q, dq, u, dt):
-    """RK4 integration for forward dynamics."""
-    # No external forces for this benchmark
-    fext = pin.StdVec_Force()
-    for _ in range(model.njoints):
-        fext.append(pin.Force.Zero())
-    
-    # RK4 integration
-    k1q = dq
-    k1v = pin.aba(model, data, q, dq, u, fext)
-    
-    q2 = pin.integrate(model, q, k1q * dt / 2)
-    k2q = dq + k1v * dt/2
-    k2v = pin.aba(model, data, q2, k2q, u, fext)
-    
-    q3 = pin.integrate(model, q, k2q * dt / 2)
-    k3q = dq + k2v * dt/2
-    k3v = pin.aba(model, data, q3, k3q, u, fext)
-    
-    q4 = pin.integrate(model, q, k3q * dt)
-    k4q = dq + k3v * dt
-    k4v = pin.aba(model, data, q4, k4q, u, fext)
-    
-    dq_next = dq + (dt/6) * (k1v + 2*k2v + 2*k3v + k4v)
-    avg_dq = (k1q + 2*k2q + 2*k3q + k4q) / 6
-    q_next = pin.integrate(model, q, avg_dq * dt)
-    
-    return q_next, dq_next
+from bsqp.common import figure8, rk4, get_ee_position, initialize_warm_start
 
 def run_benchmark_iteration(batch_size, N, dt=0.01, sim_time=5.0, sim_dt=0.001):
     """Run a single benchmark iteration with given batch size and horizon."""
     
     # Load Pinocchio model for forward simulation
-    urdf_path = "examples/indy7-mpc/description/indy7.urdf"
-    model_dir = "examples/indy7-mpc/description/"
+    urdf_path = "examples/indy7_description/indy7.urdf"
+    model_dir = "examples/indy7_description/"
     model, _, _ = pin.buildModelsFromUrdf(urdf_path, model_dir)
     model.gravity.linear = np.array([0, 0, -9.81])
     data = model.createData()
     
     # Initialize solver
     solver = BSQP(
-        model_path="examples/indy7-mpc/description/indy7.urdf",
+        model_path="examples/indy7_description/indy7.urdf",
         batch_size=batch_size,
         N=N,
         dt=dt,
@@ -120,11 +69,8 @@ def run_benchmark_iteration(batch_size, N, dt=0.01, sim_time=5.0, sim_dt=0.001):
     ee_g = fig8_traj[:6*N]
     ee_g_batch = np.tile(ee_g, (batch_size, 1))
     
-    # Initialize warm start
-    XU = np.zeros(N*(nx+nu)-nu)
-    for i in range(N):
-        start_idx = i * (nx + nu)
-        XU[start_idx:start_idx+nx] = x_start
+    # Initialize warm start using common function
+    XU = initialize_warm_start(x_start, N, nx, nu)
     XU_batch = np.tile(XU, (batch_size, 1))
     XU_best = XU.copy()
     
@@ -201,8 +147,7 @@ def run_benchmark_iteration(batch_size, N, dt=0.01, sim_time=5.0, sim_dt=0.001):
         sqp_iters_list.append(stats['sqp_iters'])
         
         # Calculate goal distance for tracking quality
-        pin.forwardKinematics(model, data, q)
-        ee_pos = data.oMi[6].translation
+        ee_pos = get_ee_position(model, data, q)
         goal_pos = ee_g[6:9]  # First goal position
         goal_dist = np.linalg.norm(ee_pos[:3] - goal_pos)
         goal_distances.append(goal_dist)
