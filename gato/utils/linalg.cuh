@@ -7,7 +7,6 @@
 using namespace sqp;
 using namespace gato::constants;
 
-// TODO: cholesky matrix inverse
 namespace block {  // utils for block-level operations
 
 constexpr uint32_t WARP_SIZE = 32;
