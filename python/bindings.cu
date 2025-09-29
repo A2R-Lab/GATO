@@ -11,20 +11,6 @@ namespace py = pybind11;
 template<typename T, uint32_t BatchSize>
 class PyBSQP {
       public:
-        PyBSQP() : solver_()
-        {
-                // printDeviceInfo();
-                setL2PersistingAccess(1.0);
-                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xk_, STATE_SIZE * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
-
-                h_xkp1_batch_.resize(STATE_SIZE * BatchSize);
-        }
-
         PyBSQP(const T        dt,
                const uint32_t max_sqp_iters,
                const T        kkt_tol,

@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class ImprovedForceEstimator:
+class ForceEstimator:
     
     def __init__(self, batch_size, initial_radius=10.0, min_radius=1.0, max_radius=100.0, smoothing_factor=0.3):
 

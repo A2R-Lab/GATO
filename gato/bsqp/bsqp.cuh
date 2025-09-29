@@ -18,20 +18,6 @@ using namespace sqp;
 template<typename T, uint32_t BatchSize>
 class BSQP {
       public:
-        BSQP()
-            : dt_(0.01), max_sqp_iters_(5), kkt_tol_(0.0001), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0), q_cost_(settings_q_COST), qd_cost_(settings_dq_COST),
-              u_cost_(settings_u_COST), N_cost_(settings_N_COST), q_lim_cost_(settings_q_lim_COST), vel_lim_cost_(settings_vel_lim_COST), ctrl_lim_cost_(settings_ctrl_lim_COST), rho_(1e-4)
-        {
-                allocateMemory();
-                for (uint32_t i = 0; i < BatchSize; i++) {
-                        h_drho_batch_init_[i] = static_cast<T>(1.0);
-                        h_rho_penalty_batch_init_[i] = static_cast<T>(rho_);
-                }
-                gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaDeviceSynchronize());
-        }
-
         BSQP(T dt, uint32_t max_sqp_iters, T kkt_tol, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
             : dt_(dt), max_sqp_iters_(max_sqp_iters), kkt_tol_(kkt_tol), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
               u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), rho_(rho)
@@ -57,11 +43,6 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
         }
-        // void warmstart()
-        // {
-        //         // TODO: run a bunch of times with low sqp & pcg tolerances so lambda is warm started
-        //         return;
-        // }
 
         void sim_forward(T* d_xkp1_batch, T* d_xk, T* d_uk, T dt) { simForwardBatched<T, BatchSize>(d_xkp1_batch, d_xk, d_uk, d_GRiD_mem_, d_f_ext_batch_, dt); }
 
