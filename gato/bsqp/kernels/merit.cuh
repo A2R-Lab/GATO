@@ -20,7 +20,7 @@ __global__ void computeMeritBatchedKernel1(T*    d_merit_batch_temp,
                                            T*    d_x_initial_batch,
                                            T*    d_reference_traj_batch,
                                            void* d_GRiD_mem,
-                                           T     mu,
+                                           T*    d_mu_batch,
                                            T*    d_f_ext_batch,
                                            T     timestep,
                                            T     q_cost,
@@ -38,6 +38,7 @@ __global__ void computeMeritBatchedKernel1(T*    d_merit_batch_temp,
         const uint32_t       knot_idx = blockIdx.x;
         const uint32_t       alpha_idx = blockIdx.z;
         T                    alpha = 1.0 / (1 << alpha_idx);
+        T                    mu = d_mu_batch[solve_idx];
 
         T cost_k, constraint_k;  // cost function, constraint error, per-point merit
 
@@ -120,7 +121,7 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                   T*                          d_xu_traj_batch,
                                   T*                          d_f_ext_batch,
                                   ProblemInputs<T, BatchSize> inputs,
-                                  T                           mu,
+                                  T*                          d_mu_batch,
                                   void*                       d_GRiD_mem,
                                   T                           q_cost,
                                   T                           qd_cost,
@@ -141,7 +142,7 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                                                                       inputs.d_x_s_batch,
                                                                                       inputs.d_reference_traj_batch,
                                                                                       d_GRiD_mem,
-                                                                                      mu,
+                                                                                      d_mu_batch,
                                                                                       d_f_ext_batch,
                                                                                       inputs.timestep,
                                                                                       q_cost,

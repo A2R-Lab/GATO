@@ -19,7 +19,7 @@ from bsqp.config import (
 )
 
 
-def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start):
+def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start, model_path=None):
     """Run a single benchmark configuration."""
     
     print(f"\nBatch={batch_size}, N={N}")
@@ -32,6 +32,8 @@ def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, 
             N=N,
             dt=dt,
             batch_size=batch_size,
+            model_path=model_path,
+            plant_type='indy7',
             constant_f_ext=None,  # No external force
             track_full_stats=True  # Track SQP iterations
         )
@@ -77,8 +79,8 @@ def main():
     
     # Configuration
     config = {
-        'urdf_path': "examples/indy7-mpc/description/indy7.urdf",
-        'model_dir': "examples/indy7-mpc/description/",
+        'urdf_path': "examples/indy7_description/indy7.urdf",
+        'model_dir': "examples/indy7_description/",
         'batch_sizes': [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
         'N': 64,  # Horizon length
         'dt': 0.01,
@@ -122,7 +124,8 @@ def main():
             sim_time=config['sim_time'],
             sim_dt=config['sim_dt'],
             fig8_traj=fig8_traj,
-            x_start=x_start
+            x_start=x_start,
+            model_path=config['urdf_path'],
         )
         results.append(result)
     

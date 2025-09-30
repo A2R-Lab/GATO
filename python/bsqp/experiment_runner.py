@@ -12,8 +12,7 @@ from .common import figure8
 from .config import (
     EXPERIMENT_BATCH_SIZES, 
     FIG8_DEFAULT_PARAMS,
-    INDY7_START_CONFIGS,
-    DEFAULT_SIM_PARAMS
+    INDY7_START_CONFIGS
 )
 
 

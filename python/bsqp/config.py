@@ -54,11 +54,3 @@ BATCH_COLORS = {
     512: '#8B4513',  # Brown
     1024: '#000000'  # Black
 }
-
-# Simulation parameters
-DEFAULT_SIM_PARAMS = {
-    'sim_dt': 0.001,  # Simulation timestep
-    'sim_time': 5.0,  # Total simulation time
-    'dt': 0.01,       # MPC timestep
-    'N': 64           # Horizon length
-}

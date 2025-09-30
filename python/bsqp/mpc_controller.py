@@ -14,9 +14,18 @@ except ImportError:
 
 
 class MPC_GATO:
-    
-    def __init__(self, model, N=32, dt=0.03125, batch_size=1, constant_f_ext=None, 
-                 track_full_stats=False):
+
+    def __init__(
+        self,
+        model,
+        model_path,
+        N=32,
+        dt=0.03125,
+        batch_size=1,
+        constant_f_ext=None,
+        track_full_stats=False,
+        plant_type='indy7',
+    ):
         """
         Initialize MPC controller.
         
@@ -27,6 +36,7 @@ class MPC_GATO:
             batch_size: Number of parallel trajectories
             constant_f_ext: Constant external force/torque (optional)
             track_full_stats: If True, track all stats; if False, only essential ones
+            plant_type: Plant identifier used for selecting dynamics (e.g., 'indy7', 'iiwa14')
         """
         self.model = model
         self.model.gravity.linear = np.array([0, 0, -9.81])
@@ -34,7 +44,7 @@ class MPC_GATO:
         
         # Initialize solver with standard parameters
         self.solver = BSQP(
-            model_path="indy7_description/indy7.urdf",
+            model_path=model_path,
             batch_size=batch_size,
             N=N,
             dt=dt,
@@ -49,7 +59,8 @@ class MPC_GATO:
             u_cost=2e-6,
             N_cost=50.0,
             q_lim_cost=0.01,
-            rho=0.01
+            rho=0.01,
+            plant_type=plant_type,
         )
         
         self.nq = self.model.nq

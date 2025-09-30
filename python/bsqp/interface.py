@@ -1,9 +1,7 @@
-import os
-import sys
 import importlib
 import numpy as np
-import torch
 import pinocchio as pin
+import torch
 
 class BSQP:
     def __init__(
@@ -23,13 +21,27 @@ class BSQP:
         u_cost=1e-6,
         N_cost=50.0,
         q_lim_cost=1e-3,
+        vel_lim_cost=0.0,
+        ctrl_lim_cost=0.0,
         rho=0.0,
+        rho_batch=None,
+        mu_batch=None,
+        pcg_tol_batch=None,
+        adapt_rho=True,
+        plant_type='indy7',  # 'indy7' or 'iiwa14'
     ):
         # Dynamically import the correct bsqp_N* module and get the solver class
-        # The modules should be named like 'bsqp_N16', etc., and contain classes like 'BSQP_4', etc.
+        # The modules should be named like 'bsqpN{N}_{plant_type}', e.g., 'bsqpN32_indy7'
+        
+        # Auto-detect plant type from model_path if not explicitly specified
+        if plant_type is None:
+            if 'iiwa' in model_path.lower():
+                plant_type = 'iiwa14'
+            else:
+                plant_type = 'indy7'  # default
 
-        # Build the module name for the given N
-        module_name = f"bsqp.bsqpN{N}"
+        # Build the module name for the given N and plant
+        module_name = f"bsqp.bsqpN{N}_{plant_type}"
         try:
             base = importlib.import_module(module_name)
         except ImportError as e:
@@ -45,6 +57,7 @@ class BSQP:
             )
         self.lib = base
         self.solver_class = getattr(base, class_name)
+        self.plant_type = plant_type
 
         self.solver = self.solver_class(
             dt,
@@ -59,8 +72,8 @@ class BSQP:
             u_cost,
             N_cost,
             q_lim_cost,
-            0.0,  # vel_lim_cost
-            0.0,  # ctrl_lim_cost
+            vel_lim_cost,
+            ctrl_lim_cost,
             rho,  # rho
         )
         self.model = pin.buildModelFromUrdf(model_path)
@@ -85,11 +98,26 @@ class BSQP:
             "sqp_time_us": np.array([]),
             "sqp_iters": np.array([]),
             "kkt_converged": np.array([]),
-            "pcg_iters": np.array([np.zeros(self.batch_size)]),
-            "pcg_times_us": np.array([np.zeros(self.batch_size)]),
-            "min_merit": np.array([np.zeros(self.batch_size)]),
-            "step_size": np.array([np.zeros(self.batch_size)]),
+            "pcg_iters": np.array([]),
+            "pcg_times_us": np.array([]),
+            "min_merit": np.array([]),
+            "step_size": np.array([]),
+            "initial_merit": np.array([]),
+            "best_initial_merit": np.array([]),
         }
+
+        # Optional batched hyperparameters
+        if rho_batch is not None:
+            rho_batch = np.asarray(rho_batch, dtype=np.float32).reshape(self.batch_size)
+            self.solver.set_rho_penalty_batch(rho_batch, True)
+        # Control whether line-search adapts rho or keeps per-batch rho fixed
+        self.solver.set_rho_adaptation(bool(adapt_rho))
+        if mu_batch is not None:
+            mu_batch = np.asarray(mu_batch, dtype=np.float32).reshape(self.batch_size)
+            self.solver.set_mu_batch(mu_batch)
+        if pcg_tol_batch is not None:
+            pcg_tol_batch = np.asarray(pcg_tol_batch, dtype=np.float32).reshape(self.batch_size)
+            self.solver.set_pcg_tol_batch(pcg_tol_batch)
 
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
         # Ensure float32 inputs for CUDA bindings
@@ -101,22 +129,83 @@ class BSQP:
             XU_B = np.asarray(XU_B, dtype=np.float32)
         XU_B[:, : self.nx] = xcur_B
 
-        # Keep rho behavior aligned with working benchmark
-        try:
-            self.solver.reset_rho()
-        except AttributeError:
-            pass
-
         result = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
 
-        self.XU_B = result["XU"]
-        self.stats["sqp_time_us"] = result["sqp_time_us"]
-        self.stats["sqp_iters"] = result["sqp_iters"]
-        self.stats["kkt_converged"] = result["kkt_converged"]
-        self.stats["pcg_iters"] = result["pcg_iters"]
-        self.stats["pcg_times_us"] = result["pcg_times_us"]
-        self.stats["min_merit"] = result["ls_min_merit"]
-        self.stats["step_size"] = result["ls_step_size"]
+        # Copy raw results
+        self.XU_B = np.asarray(result["XU"], dtype=np.float32)
+        self.stats["sqp_time_us"] = int(result["sqp_time_us"])
+        self.stats["sqp_iters"] = np.asarray(result["sqp_iters"], dtype=np.int32).reshape(self.batch_size)
+        self.stats["kkt_converged"] = np.asarray(result["kkt_converged"], dtype=np.int32).reshape(self.batch_size)
+        self.stats["final_merit"] = np.asarray(result["final_merit"], dtype=np.float32).reshape(self.batch_size)
+        if "initial_merit" in result:
+            self.stats["initial_merit"] = np.asarray(result["initial_merit"], dtype=np.float32).reshape(self.batch_size)
+            if self.stats["initial_merit"].size:
+                self.stats["best_initial_merit"] = float(np.min(self.stats["initial_merit"]))
+            else:
+                self.stats["best_initial_merit"] = np.array([], dtype=np.float32)
+        self.stats["ls_num_iters"] = int(result.get("ls_num_iters", 0))
+
+        # Normalize shapes for per-iteration stats
+        def _to_np(a, dtype=None):
+            arr = np.asarray(a)
+            if arr.dtype == object:
+                try:
+                    arr = np.asarray([np.asarray(v).reshape(-1) for v in arr.tolist()])
+                except Exception:
+                    arr = np.array([], dtype=(np.float32 if dtype is None else dtype))
+            if dtype is not None and arr.dtype != dtype:
+                arr = arr.astype(dtype)
+            return arr
+
+        num_iters = self.stats["ls_num_iters"]
+        min_merit = _to_np(result.get("ls_min_merit", np.array([])), dtype=np.float32)
+        step_size = _to_np(result.get("ls_step_size", np.array([])), dtype=np.float32)
+        pcg_iters = _to_np(result.get("pcg_iters", np.array([])), dtype=np.int32)
+        pcg_times = _to_np(result.get("pcg_times_us", np.array([])), dtype=np.float32)
+
+        # Ensure shapes: (iters, B) for min_merit/step_size/pcg_iters; (iters,) for pcg_times
+        if min_merit.size:
+            if min_merit.ndim == 1 and self.batch_size == 1 and num_iters == min_merit.shape[0]:
+                min_merit = min_merit.reshape(num_iters, 1)
+            elif min_merit.ndim == 2 and min_merit.shape[0] != num_iters and min_merit.size == num_iters * self.batch_size:
+                min_merit = min_merit.reshape(num_iters, self.batch_size)
+        if step_size.size:
+            if step_size.ndim == 1 and self.batch_size == 1 and num_iters == step_size.shape[0]:
+                step_size = step_size.reshape(num_iters, 1)
+            elif step_size.ndim == 2 and step_size.shape[0] != num_iters and step_size.size == num_iters * self.batch_size:
+                step_size = step_size.reshape(num_iters, self.batch_size)
+        if pcg_iters.size:
+            if pcg_iters.ndim == 1 and self.batch_size == 1 and num_iters == pcg_iters.shape[0]:
+                pcg_iters = pcg_iters.reshape(num_iters, 1)
+            elif pcg_iters.ndim == 2 and pcg_iters.shape[0] != num_iters and pcg_iters.size == num_iters * self.batch_size:
+                pcg_iters = pcg_iters.reshape(num_iters, self.batch_size)
+
+        self.stats["pcg_iters"] = pcg_iters
+        self.stats["pcg_times_us"] = pcg_times
+        self.stats["min_merit"] = min_merit
+        self.stats["step_size"] = step_size
+
+        # Derive per-iteration aggregates
+        ls_np = self.stats.get("min_merit", np.array([]))
+        if isinstance(ls_np, list):
+            ls_np = np.asarray(ls_np, dtype=np.float32)
+        if isinstance(ls_np, np.ndarray) and ls_np.size and ls_np.ndim == 2:
+            best_per_iter = np.min(ls_np.astype(np.float32), axis=1)
+            self.stats["best_merit_per_iter"] = best_per_iter
+            self.stats["best_merit_iter1"] = float(best_per_iter[0]) if best_per_iter.size > 0 else float("nan")
+        else:
+            self.stats["best_merit_per_iter"] = np.array([], dtype=np.float32)
+            self.stats["best_merit_iter1"] = float("nan")
+
+        # Normalized curve
+        if np.size(self.stats.get("best_initial_merit", [])):
+            denom = float(self.stats["best_initial_merit"]) if self.stats["best_initial_merit"] else None
+            if denom and denom != 0 and self.stats["best_merit_per_iter"].size:
+                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"] / denom
+            else:
+                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
+        else:
+            self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
 
         return self.XU_B, result["sqp_time_us"]
 

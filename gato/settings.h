@@ -10,8 +10,6 @@ typedef double T;
 typedef float T;
 #endif
 
-constexpr uint32_t INTEGRATOR_TYPE = 2;  // 0: euler, 1: semi-implicit euler, 2: verlet (?)
-
 // -——————————————————compile time settings——————————————————
 
 constexpr uint32_t NUM_ALPHAS = 8;
@@ -32,6 +30,12 @@ constexpr uint32_t SIM_FORWARD_THREADS = 128;
 
 }  // namespace sqp
 
-// ----- Plant -----
-#include "dynamics/indy7/indy7_plant.cuh"
-// #include "dynamics/iiwa14/iiwa14_plant.cuh"
+// ----- Plant Selection -----
+// Plant type is defined at compile time via CMake
+#if defined(PLANT_INDY7)
+    #include "dynamics/indy7/indy7_plant.cuh"
+#elif defined(PLANT_IIWA14)
+    #include "dynamics/iiwa14/iiwa14_plant.cuh"
+#else
+    #error "Plant type must be defined: PLANT_INDY7 or PLANT_IIWA14"
+#endif

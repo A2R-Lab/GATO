@@ -11,16 +11,34 @@ uv sync
 source .venv/bin/activate
 
 echo -e "----------------------------------------"
-echo -e "Starting container..."
-docker compose up -d
+echo -e "Building docker image..."
+IMAGE_NAME="gato"
+CONTAINER_NAME="gato-container"
+docker build -t ${IMAGE_NAME} .
+
+echo -e "----------------------------------------"
+echo -e "Ensuring container is running..."
+if docker ps -q -f name=^/${CONTAINER_NAME}$ | grep -q .; then
+    echo -e "Container '${CONTAINER_NAME}' already running."
+elif docker ps -aq -f name=^/${CONTAINER_NAME}$ | grep -q .; then
+    docker start ${CONTAINER_NAME}
+else
+    docker run -d -it \
+        --gpus all \
+        --network=host \
+        -e DISPLAY=${DISPLAY:-:0} \
+        -v "$(pwd)":/workspace \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        --name ${CONTAINER_NAME} \
+        ${IMAGE_NAME}
+fi
 
 echo -e "----------------------------------------"
 echo -e "Building ..."
-docker compose exec dev bash -c "make build"
+docker exec ${CONTAINER_NAME} bash -c "cd /workspace && make build"
 
 echo -e "----------------------------------------"
 echo -e "Setup complete."
-echo -e " - to enter the container: 'docker compose exec dev bash'"
+echo -e " - to enter the container: 'docker exec -it ${CONTAINER_NAME} bash'"
 echo -e " - to use the venv: 'source .venv/bin/activate'"
-
-#docker compose exec dev bash
+#docker exec -it ${CONTAINER_NAME} bash
