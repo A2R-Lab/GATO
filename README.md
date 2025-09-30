@@ -68,7 +68,7 @@ Built Python modules are written to `python/bsqp/` as `bsqpN{N}_{plant}.so`.
 
 ## Usage
 
-See [batch_sqp.cu](examples/batch_sqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
+See [batch_sqp.cu](examples/bsqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
 
 ## Related
 
