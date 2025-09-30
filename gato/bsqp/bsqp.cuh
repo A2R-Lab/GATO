@@ -187,6 +187,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_sqp_iters_B_, 0, BatchSize * sizeof(uint32_t)));
                 gpuErrchk(cudaMemset(d_all_kkt_converged_, 0, sizeof(int32_t)));
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, BatchSize * sizeof(int32_t)));
+                gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_, BatchSize * sizeof(T), cudaMemcpyHostToDevice));
                 sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
                 memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, BatchSize * sizeof(int32_t));
                 memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, BatchSize * sizeof(uint32_t));

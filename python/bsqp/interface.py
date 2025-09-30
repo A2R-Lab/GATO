@@ -14,7 +14,7 @@ class BSQP:
         kkt_tol=1e-4,
         max_pcg_iters=100,
         pcg_tol=1e-4,
-        solve_ratio=0.875,
+        solve_ratio=1.0,
         mu=1.0,
         q_cost=2.0,
         qd_cost=1e-4,
