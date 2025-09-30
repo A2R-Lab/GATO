@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools", "scikit-build-core", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gato"
+version = "0.0.2"
+authors = [
+    { name="Alex Du", email="alexander.du@columbia.edu" },
+]
+description = "GPU-accelerated batched trajectory optimization"
+readme = "README.md"
+requires-python = "==3.10.12"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "numpy>=2.2.3",
+    "scipy>=1.15.2",
+    "matplotlib>=3.10.1",
+    "torch>=2.6.0",
+    "pin>=3.4.0",
+    "osqp>=0.6.7.post3",
+    "meshcat>=0.3.2",
+    "ninja>=1.11.1.4",
+    "pybind11>=2.13.6",
+    "pyqt5>=5.15.11",
+    "tdqm>=0.0.1",
+    "seaborn>=0.13.2",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+include = ["bsqp"]
