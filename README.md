@@ -1,6 +1,7 @@
-# GPU-Accelerated Trajectory Optimization for Robotics
+# GATO
+> GPU-Accelerated Trajectory Optimization
 
-This is a batched version of the trajectory optimization solver from the paper ["MPCGPU: Real-Time Nonlinear Model Predictive Control through Preconditioned Conjugate Gradient on the GPU"](https://arxiv.org/abs/2309.08079).
+Numerical experiments and the open-source solver from  ["GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"](https://arxiv.org/abs/2510.07625)
 
 ## Installation
 
@@ -68,9 +69,23 @@ Built Python modules are written to `python/bsqp/` as `bsqpN{N}_{plant}.so`.
 
 ## Usage
 
-See [batch_sqp.cu](examples/batch_sqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
+See [batch_sqp.cu](examples/bsqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
 
 ## Related
 
 - The open-source [MPCGPU solver](https://github.com/A2R-Lab/MPCGPU)
 - [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for computing rigid body dynamics with analytical gradients
+
+## Cite
+
+```bibtex
+@misc{du2025gatogpuacceleratedbatchedtrajectory,
+      title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
+      author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
+      year={2025},
+      eprint={2510.07625},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2510.07625}, 
+}
+```
