@@ -14,22 +14,22 @@ using namespace gato::constants;
 
 
 template<typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
-__global__ void computeMeritBatchedKernel1(T*    d_merit_batch_temp,
-                                           T*    d_dz_batch,
-                                           T*    d_xu_traj_batch,
-                                           T*    d_x_initial_batch,
-                                           T*    d_reference_traj_batch,
-                                           void* d_GRiD_mem,
-                                           T*    d_mu_batch,
-                                           T*    d_f_ext_batch,
-                                           T     timestep,
-                                           T     q_cost,
-                                           T     qd_cost,
-                                           T     u_cost,
-                                           T     N_cost,
-                                           T     q_lim_cost,
-                                           T     vel_lim_cost,
-                                           T     ctrl_lim_cost)
+__global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
+                                          T* __restrict__       d_dz_batch,
+                                          T* __restrict__       d_xu_traj_batch,
+                                          T* __restrict__       d_x_initial_batch,
+                                          T* __restrict__       d_reference_traj_batch,
+                                          void*                 d_GRiD_mem,
+                                          const T* __restrict__ d_mu_batch,
+                                          T* __restrict__       d_f_ext_batch,
+                                          T                     timestep,
+                                          T                     q_cost,
+                                          T                     qd_cost,
+                                          T                     u_cost,
+                                          T                     N_cost,
+                                          T                     q_lim_cost,
+                                          T                     vel_lim_cost,
+                                          T                     ctrl_lim_cost)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
@@ -85,24 +85,10 @@ __global__ void computeMeritBatchedKernel1(T*    d_merit_batch_temp,
         __syncthreads();
 
         // compute merit
-        if (threadIdx.x == 0) { d_merit_batch_temp[solve_idx * gridDim.z * gridDim.x + alpha_idx * gridDim.x + knot_idx] = cost_k + mu * constraint_k; }
-}
-
-template<typename T, uint32_t NumAlphas>
-__global__ void computeMeritBatchedKernel2(T* d_merit_batch, T* d_merit_batch_temp)
-{
-        const uint32_t solve_idx = blockIdx.x;
-        const uint32_t alpha_idx = blockIdx.y;
-
-        extern __shared__ T s_mem[];
-
-        block::copy<T, KNOT_POINTS>(s_mem, d_merit_batch_temp + solve_idx * NumAlphas * KNOT_POINTS + alpha_idx * KNOT_POINTS);
-        __syncthreads();
-
-        block::reduce<T>(KNOT_POINTS, s_mem);
-        __syncthreads();
-
-        if (threadIdx.x == 0) { d_merit_batch[solve_idx * NumAlphas + alpha_idx] = s_mem[0]; }
+        if (threadIdx.x == 0) {
+                uint32_t merit_index = solve_idx * gridDim.z + alpha_idx;
+                atomicAdd(d_merit_batch + merit_index, cost_k + mu * constraint_k);
+        }
 }
 
 template<typename T>
@@ -116,7 +102,6 @@ __host__ size_t getComputeMeritBatchedSMemSize()
 
 template<typename T, uint32_t BatchSize, uint32_t NumAlphas>
 __host__ void computeMeritBatched(T*                          d_merit_batch,
-                                  T*                          d_merit_batch_temp,
                                   T*                          d_dz_batch,
                                   T*                          d_xu_traj_batch,
                                   T*                          d_f_ext_batch,
@@ -131,27 +116,26 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                   T                           vel_lim_cost,
                                   T                           ctrl_lim_cost)
 {
-        dim3   grid1(KNOT_POINTS, BatchSize, NumAlphas);
-        dim3   grid2(BatchSize, NumAlphas);
-        dim3   thread_block(MERIT_THREADS);
+        dim3   grid(KNOT_POINTS, BatchSize, NumAlphas);
+        dim3   thread_block(grid::SUGGESTED_THREADS);
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
 
-        computeMeritBatchedKernel1<T, BatchSize><<<grid1, thread_block, s_mem_size>>>(d_merit_batch_temp,
-                                                                                      d_dz_batch,
-                                                                                      d_xu_traj_batch,
-                                                                                      inputs.d_x_s_batch,
-                                                                                      inputs.d_reference_traj_batch,
-                                                                                      d_GRiD_mem,
-                                                                                      d_mu_batch,
-                                                                                      d_f_ext_batch,
-                                                                                      inputs.timestep,
-                                                                                      q_cost,
-                                                                                      qd_cost,
-                                                                                      u_cost,
-                                                                                      N_cost,
-                                                                                      q_lim_cost,
-                                                                                      vel_lim_cost,
-                                                                                      ctrl_lim_cost);
+        gpuErrchk(cudaMemset(d_merit_batch, 0, BatchSize * NumAlphas * sizeof(T)));
 
-        computeMeritBatchedKernel2<T, NumAlphas><<<grid2, thread_block, KNOT_POINTS * sizeof(T)>>>(d_merit_batch, d_merit_batch_temp);
+        computeMeritBatchedKernel<T, BatchSize><<<grid, thread_block, s_mem_size>>>(d_merit_batch,
+                                                                                    d_dz_batch,
+                                                                                    d_xu_traj_batch,
+                                                                                    inputs.d_x_s_batch,
+                                                                                    inputs.d_reference_traj_batch,
+                                                                                    d_GRiD_mem,
+                                                                                    d_mu_batch,
+                                                                                    d_f_ext_batch,
+                                                                                    inputs.timestep,
+                                                                                    q_cost,
+                                                                                    qd_cost,
+                                                                                    u_cost,
+                                                                                    N_cost,
+                                                                                    q_lim_cost,
+                                                                                    vel_lim_cost,
+                                                                                    ctrl_lim_cost);
 }

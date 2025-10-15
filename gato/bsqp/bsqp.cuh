@@ -114,8 +114,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * BatchSize));
 
                 computeMeritBatched<T, BatchSize, 1>(
-                    d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
-                // Snapshot the true initial merit (before any SQP iterations/line-search updates)
+                    d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, BatchSize * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // SQP Loop
@@ -168,7 +167,7 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, BatchSize * sizeof(int32_t), cudaMemcpyHostToDevice));
 
                         computeMeritBatched<T, BatchSize, NUM_ALPHAS>(
-                            d_merit_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                            d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
                         lineSearchAndUpdateBatched<T, BatchSize, NUM_ALPHAS>(
                             d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt_rho_ ? 1 : 0);
 
@@ -180,7 +179,7 @@ class BSQP {
                 // Final merit on updated trajectory for selection
                 gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * BatchSize * sizeof(T)));
                 computeMeritBatched<T, BatchSize, 1>(
-                    d_merit_initial_batch_, d_merit_batch_temp_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                    d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
 
                 gpuErrchk(cudaDeviceSynchronize());
                 auto sqp_end_time = std::chrono::high_resolution_clock::now();
@@ -221,10 +220,8 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BT));
 
                 // Allocate Schur system memory
-                gpuErrchk(cudaMallocManaged(&schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT));
-                gpuErrchk(cudaMemAdvise(schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT, cudaMemAdviseSetPreferredLocation, 0));
-                gpuErrchk(cudaMallocManaged(&schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT));
-                gpuErrchk(cudaMemAdvise(schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT, cudaMemAdviseSetPreferredLocation, 0));
+                gpuErrchk(cudaMalloc(&schur_system_batch_.d_S_batch, B3D_MATRIX_SIZE_PADDED * BT));
+                gpuErrchk(cudaMalloc(&schur_system_batch_.d_P_inv_batch, B3D_MATRIX_SIZE_PADDED * BT));
                 gpuErrchk(cudaMalloc(&schur_system_batch_.d_gamma_batch, VEC_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(schur_system_batch_.d_S_batch, 0, B3D_MATRIX_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(schur_system_batch_.d_P_inv_batch, 0, B3D_MATRIX_SIZE_PADDED * BT));
@@ -233,7 +230,6 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_merit_initial_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_initial0_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_batch_, NUM_ALPHAS * BT));
-                gpuErrchk(cudaMalloc(&d_merit_batch_temp_, NUM_ALPHAS * BT * KNOT_POINTS));
 
                 gpuErrchk(cudaMalloc(&d_sqp_iters_B_, BI));
                 gpuErrchk(cudaMalloc(&d_pcg_iterations_, BI));
@@ -284,7 +280,6 @@ class BSQP {
                 gpuErrchk(cudaFree(d_merit_initial_batch_));
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_));
-                gpuErrchk(cudaFree(d_merit_batch_temp_));
                 gpuErrchk(cudaFree(d_sqp_iters_B_));
                 gpuErrchk(cudaFree(d_pcg_iterations_));
                 gpuErrchk(cudaFree(d_step_size_batch_));
@@ -313,7 +308,6 @@ class BSQP {
         T* d_merit_initial_batch_;
         T* d_merit_initial0_batch_;
         T* d_merit_batch_;
-        T* d_merit_batch_temp_;
         // Line search
         T*        d_step_size_batch_;
         int32_t*  d_all_kkt_converged_;

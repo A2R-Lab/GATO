@@ -22,7 +22,7 @@ constexpr float RHO_MAX = 10;
 
 constexpr uint32_t KKT_THREADS = 128;
 constexpr uint32_t SCHUR_THREADS = 128;
-constexpr uint32_t PCG_THREADS = 512;
+constexpr uint32_t PCG_THREADS = 1024;
 constexpr uint32_t DZ_THREADS = 128;
 constexpr uint32_t MERIT_THREADS = 128;
 constexpr uint32_t LINE_SEARCH_THREADS = 512;

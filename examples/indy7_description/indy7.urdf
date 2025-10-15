@@ -247,7 +247,7 @@
     <axis xyz="0 0 1"/>
     <limit effort="79.79" lower="-3.7524578917878086" upper="3.7524578917878086" velocity="3.141592653589793"/>
   </joint>
-  <joint name="tcp" type="fixed">
+  <joint name="EE" type="fixed">
     <parent link="link6"/>
     <child link="tcp"/>
     <origin xyz="0 0 0.06" rpy="0 0 0"/>

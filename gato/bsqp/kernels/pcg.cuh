@@ -11,14 +11,14 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T, uint32_t BatchSize>
-__global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
-                                      T*        d_x_batch,      // (lambda) updated in-place
-                                      T*        d_A_batch,      // (S)
-                                      T*        d_M_inv_batch,  // (P_inv)
-                                      T*        d_b_batch,      // (gamma)
-                                      T*        d_epsilon_batch,
-                                      uint32_t  max_pcg_iters,
-                                      int32_t*  d_kkt_converged_batch)
+__global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* __restrict__       d_iterations,
+                                                                    T* __restrict__              d_x_batch,
+                                                                    const T* __restrict__        d_A_batch,
+                                                                    const T* __restrict__        d_M_inv_batch,
+                                                                    const T* __restrict__        d_b_batch,
+                                                                    const T* __restrict__        d_epsilon_batch,
+                                                                    uint32_t                     max_pcg_iters,
+                                                                    int32_t* __restrict__        d_kkt_converged_batch)
 {
         const uint32_t solve_idx = blockIdx.x;
         const T        epsilon = d_epsilon_batch[solve_idx];
@@ -54,11 +54,11 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
         __syncthreads();
 
         // get A, M_inv, b, x pointers for current batch
-        T* d_A_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_A_batch, solve_idx, 0);
-        T* d_M_inv_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_M_inv_batch, solve_idx, 0);
+        const T* d_A_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_A_batch, solve_idx, 0);
+        const T* d_M_inv_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_M_inv_batch, solve_idx, 0);
 
         // getOffsetStatePadded points to the start of data, we want to point to the start of padding
-        T* d_b_vector = getOffsetStatePadded<T, BatchSize>(d_b_batch, solve_idx, 0) - STATE_SIZE;  // TODO: consider using shared memory for b
+        const T* d_b_vector = getOffsetStatePadded<T, BatchSize>(d_b_batch, solve_idx, 0) - STATE_SIZE;  // TODO: consider using shared memory for b
         T* d_x_vector = getOffsetStatePadded<T, BatchSize>(d_x_batch, solve_idx, 0) - STATE_SIZE;
 
         // copy x to shared memory
@@ -150,9 +150,7 @@ __global__ void solvePCGBatchedKernel(uint32_t* d_iterations,
 template<typename T>
 __host__ size_t getSolvePCGBatchedSMemSize()
 {
-        size_t size = sizeof(T)
-                      * (5 * VEC_SIZE_PADDED + 32 + 5 + PCG_THREADS  // TODO: check if this is correct
-                      );
+        size_t size = sizeof(T) * (5 * VEC_SIZE_PADDED + 32 + 5 + PCG_THREADS);
         return size;
 }
 

@@ -90,13 +90,6 @@ def rk4(model, data, q, dq, u, dt, fext=None):
     
     return q_next, dq_next
 
-
-def get_ee_position(model, data, q):
-    """Get end-effector position for given joint configuration."""
-    pin.forwardKinematics(model, data, q)
-    return data.oMi[6].translation  # Joint 6 is end-effector for Indy7
-
-
 def initialize_warm_start(x_start, N, nx, nu):
     """Initialize warm start trajectory."""
     XU = np.zeros(N*(nx+nu)-nu)
@@ -104,24 +97,6 @@ def initialize_warm_start(x_start, N, nx, nu):
         start_idx = i * (nx + nu)
         XU[start_idx:start_idx+nx] = x_start
     return XU
-
-
-# Default MPC parameters
-DEFAULT_MPC_PARAMS = {
-    'max_sqp_iters': 1,
-    'kkt_tol': 0.001,
-    'max_pcg_iters': 100,
-    'pcg_tol': 1e-6,
-    'solve_ratio': 1.0,
-    'mu': 10.0,
-    'q_cost': 2.0,
-    'qd_cost': 1e-3,
-    'u_cost': 1e-8,  # Will be multiplied by N
-    'N_cost': 20.0,
-    'q_lim_cost': 0.0,
-    'rho': 0.1
-}
-
 
 def collect_tracking_stats(q, dq, ee_goal, model, data, gpu_time_us, solver_stats):
     """
@@ -140,4 +115,44 @@ def collect_tracking_stats(q, dq, ee_goal, model, data, gpu_time_us, solver_stat
         'gpu_time_ms': gpu_time_us / 1000.0,
         'sqp_iters': solver_stats.get('sqp_iters', 0),
         'pcg_iters': solver_stats.get('pcg_iters', [0])[0] if 'pcg_iters' in solver_stats else 0
+    }
+
+
+def sample_axis_angle(mag_range=(0.0, 0.6)):
+    """
+    Sample random axis-angle vector for pendulum initial condition.
+    
+    Args:
+        mag_range: Tuple of (min_magnitude, max_magnitude) in radians
+        
+    Returns:
+        3D axis-angle vector
+    """
+    mag = np.random.uniform(*mag_range)
+    # Random direction on unit sphere
+    v = np.random.normal(size=3)
+    n = np.linalg.norm(v) + 1e-12
+    axis = v / n
+    return axis * mag
+
+
+def sample_pendulum_params(length_range=(0.3, 0.7), damping_range=(0.1, 0.6), 
+                          angle_range=(0.0, 0.6), mass=15.0):
+    """
+    Sample random pendulum configuration for parameter sweeps.
+    
+    Args:
+        length_range: Tuple of (min, max) pendulum length in meters
+        damping_range: Tuple of (min, max) damping coefficient in Nms/rad
+        angle_range: Tuple of (min, max) initial angle magnitude in radians
+        mass: Fixed mass in kg
+        
+    Returns:
+        Dictionary with pendulum configuration
+    """
+    return {
+        'mass': mass,
+        'length': np.random.uniform(*length_range),
+        'damping': np.random.uniform(*damping_range),
+        'initial_angle': sample_axis_angle(angle_range)
     }

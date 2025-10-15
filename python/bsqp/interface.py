@@ -209,28 +209,9 @@ class BSQP:
 
         return self.XU_B, result["sqp_time_us"]
 
-    def get_best_idx(self, x_last, u_last, x_curr, dt):
-        """Simple evaluation of best trajectory based on forward simulation.
-        
-        Note: This is kept for backward compatibility but is typically not used
-        when the force estimator is integrated at the MPC level.
-        """
-        if self.batch_size == 1:
-            return 0
-
-        best_err, best_id = np.inf, 0
-        x_next_B = self.sim_forward(x_last, u_last, dt)
-        for i in range(self.batch_size):
-            err = np.linalg.norm(x_next_B[i, :] - x_curr)
-            if err < best_err:
-                best_err = err
-                best_id = i
-
-        return best_id
-
     def ee_pos(self, q):
         pin.forwardKinematics(self.model, self.data, q)
-        return self.data.oMi[6].translation
+        return self.data.oMi[self.model.njoints - 1].translation
 
     def reset(self):
         self.reset_dual()
@@ -245,6 +226,9 @@ class BSQP:
     def set_f_ext_B(self, f_ext_B):
         self.f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
         self.solver.set_f_ext_batch(self.f_ext_B)
+        
+    def reset_rho(self):
+        self.solver.reset_rho()
 
     def reset_dual(self):
         self.solver.reset_dual()
