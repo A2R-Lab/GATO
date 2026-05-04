@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
+  <meta name="description" content="GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC.">
+  <meta name="keywords" content="GATO, GPU, trajectory optimization, model predictive control, MPC, CUDA, robotics, ICRA 2026, batch MPC">
+  <meta name="author" content="Alexander Du, Emre Adabag, Gabriel Bravo-Palacios, Brian Plancher">
+  <meta name="robots" content="index, follow">
+  <meta name="language" content="English">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="A2R Lab">
+  <meta property="og:title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
+  <meta property="og:description" content="GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC.">
+  <meta property="og:url" content="http://a2r-lab.org/GATO">
+  <meta property="article:published_time" content="2026-01-01T00:00:00.000Z">
+  <meta property="article:author" content="Alexander Du">
+  <meta property="article:section" content="Research">
+  <meta property="article:tag" content="Robotics">
+  <meta property="article:tag" content="Trajectory Optimization">
+  <meta property="article:tag" content="Model Predictive Control">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
+  <meta name="twitter:description" content="GATO delivers 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC on edge hardware.">
+
+  <!-- Academic/Research Specific -->
+  <meta name="citation_title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
+  <meta name="citation_author" content="Du, Alexander">
+  <meta name="citation_author" content="Adabag, Emre">
+  <meta name="citation_author" content="Bravo-Palacios, Gabriel">
+  <meta name="citation_author" content="Plancher, Brian">
+  <meta name="citation_publication_date" content="2026">
+  <meta name="citation_conference_title" content="IEEE International Conference on Robotics and Automation (ICRA)">
+  <meta name="citation_arxiv_id" content="2510.07625">
+
+  <!-- Additional SEO -->
+  <meta name="theme-color" content="#2563eb">
+  <meta name="msapplication-TileColor" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <!-- Preconnect for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+
+  <title>GATO &mdash; GPU-Accelerated Trajectory Optimization | ICRA 2026</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="static/images/favicon.ico">
+  <link rel="shortcut icon" href="static/images/favicon.ico">
+
+  <!-- Critical CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+  <link rel="stylesheet" href="static/css/index.css?v=20260504">
+
+  <!-- Non-critical CSS -->
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  </noscript>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- JS -->
+  <script defer src="static/js/index.js"></script>
+
+  <!-- Structured Data for Academic Papers -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ScholarlyArticle",
+    "headline": "GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control",
+    "description": "GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU baselines and 1.4-16x over GPU baselines for real-time batch MPC.",
+    "author": [
+      {"@type": "Person", "name": "Alexander Du", "affiliation": {"@type": "Organization", "name": "A2R Lab, Dartmouth College"}},
+      {"@type": "Person", "name": "Emre Adabag", "affiliation": {"@type": "Organization", "name": "A2R Lab, Dartmouth College"}},
+      {"@type": "Person", "name": "Gabriel Bravo-Palacios", "url": "https://linkedin.com/in/gabriel-bravo-palacios", "affiliation": {"@type": "Organization", "name": "A2R Lab, Dartmouth College"}},
+      {"@type": "Person", "name": "Brian Plancher", "url": "https://brianplancher.com/", "affiliation": {"@type": "Organization", "name": "A2R Lab, Dartmouth College"}}
+    ],
+    "datePublished": "2026-01-01",
+    "publisher": {
+      "@type": "Organization",
+      "name": "IEEE International Conference on Robotics and Automation (ICRA)"
+    },
+    "url": "http://a2r-lab.org/GATO",
+    "sameAs": "https://arxiv.org/abs/2510.07625",
+    "keywords": ["trajectory optimization", "model predictive control", "GPU computing", "robotics", "CUDA", "batch MPC"],
+    "isAccessibleForFree": true,
+    "about": [
+      {"@type": "Thing", "name": "Trajectory Optimization"},
+      {"@type": "Thing", "name": "Model Predictive Control"},
+      {"@type": "Thing", "name": "Parallel Computing"}
+    ]
+  }
+  </script>
+
+  <!-- Organization Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "A2R Lab",
+    "url": "https://a2r-lab.org",
+    "sameAs": [
+      "https://github.com/A2R-Lab"
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Scroll to Top Button -->
+  <button class="scroll-to-top" onclick="scrollToTop()" title="Scroll to top" aria-label="Scroll to top">
+    <i class="fas fa-chevron-up"></i>
+  </button>
+
+  <main id="main-content">
+
+  <!-- Hero / Title Section -->
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-widescreen">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-1 publication-title">GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control</h1>
+            <div class="is-size-5 publication-authors">
+              <div class="author-row">
+                <span class="author-block">
+                  <a href="#" target="_blank">Alexander Du</a><sup>1</sup>,</span>
+                <span class="author-block">
+                  <a href="#" target="_blank">Emre Adabag</a><sup>1</sup>,</span>
+                <span class="author-block">
+                  <a href="https://linkedin.com/in/gabriel-bravo-palacios" target="_blank">Gabriel Bravo-Palacios</a><sup>1</sup>,</span>
+                <span class="author-block">
+                  <a href="https://brianplancher.com/" target="_blank">Brian Plancher</a><sup>1</sup></span>
+              </div>
+            </div>
+
+            <div class="is-size-6 publication-authors">
+              <div class="columns is-centered is-mobile" style="margin-bottom:0;">
+                <div class="column is-narrow has-text-centered">
+                  <sup>1</sup>A²R Lab, Dartmouth College
+                </div>
+              </div>
+              <span class="eql-cntrb"><small>IEEE International Conference on Robotics and Automation (ICRA) 2026</small></span>
+            </div>
+
+            <div class="column has-text-centered">
+              <div class="publication-links">
+                <!-- Paper PDF -->
+                <span class="link-block">
+                  <a href="https://arxiv.org/pdf/2510.07625" target="_blank" class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fas fa-file-pdf"></i></span>
+                    <span>Paper</span>
+                  </a>
+                </span>
+
+                <!-- GitHub -->
+                <span class="link-block">
+                  <a href="https://github.com/A2R-Lab/GATO" target="_blank" class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fab fa-github"></i></span>
+                    <span>Code</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Hero -->
+
+  <!-- Performance & Hardware Validation -->
+  <section class="section hero is-light">
+    <div class="container is-max-widescreen">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Performance &amp; Hardware Validation</h2>
+          <div class="content has-text-justified">
+            <p>
+              GATO achieves <b>18&ndash;21&times; speedup over CPU baselines</b> and <b>1.4&ndash;16&times; speedup over GPU baselines</b> as batch size increases, covering the under-served regime of tens to low-hundreds of parallel solves at real-time rates.
+            </p>
+          </div>
+          <figure class="image" style="max-width:720px; margin: 0 auto 2rem;">
+            <img src="static/demos/gato_solve_time_heatmap.png" alt="GATO solve-time heatmap comparing CPU and GPU baselines across batch sizes and horizon lengths" loading="lazy">
+            <figcaption class="is-size-7 has-text-grey mt-2">Solve-time heatmap: GATO vs. CPU and GPU baselines across batch sizes and horizon lengths.</figcaption>
+          </figure>
+          <!-- TODO: replace or augment with demo videos once available.
+               See the repo README for instructions on adding .mp4 + .jpg poster files to static/demos/. -->
+          <div class="notification is-info is-light" style="display:inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.95rem;">
+            <i class="fas fa-film" style="margin-right:0.4rem;"></i>
+            <strong>Demo videos coming soon.</strong> Hardware and simulation demonstrations will be added here.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Performance & Hardware Validation -->
+
+  <!-- Abstract -->
+  <section class="section">
+    <div class="container is-max-widescreen">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Abstract</h2>
+          <div class="content has-text-justified">
+            <p>
+              While Model Predictive Control (MPC) delivers strong performance across robotics applications, solving the underlying (batches of) nonlinear trajectory optimization (TO) problems online remains computationally demanding. Existing GPU-accelerated approaches typically (i) parallelize a single solve to meet real-time deadlines, (ii) scale to very large batches at slower-than-real-time rates, or (iii) achieve speed by restricting model generality (e.g., point-mass dynamics or a single linearization). This leaves a large gap in solver performance for many state-of-the-art MPC applications that require real-time batches of tens to low-hundreds of solves.
+            </p>
+            <p>
+              As such, we present GATO, an open source, GPU-accelerated, batched TO solver co-designed across algorithm, software, and computational hardware to deliver real-time throughput for these moderate batch size regimes. Our approach leverages a combination of block-, warp-, and thread-level parallelism within and across solves for ultra-high performance. We demonstrate the effectiveness of our approach through a combination of: simulated benchmarks showing speedups of 18&ndash;21&times; over CPU baselines and 1.4&ndash;16&times; over GPU baselines as batch size increases; case studies highlighting improved disturbance rejection and convergence behavior; and finally a validation on hardware using an industrial manipulator. We open source GATO to support reproducibility and adoption.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Abstract -->
+
+  <!-- Key Results -->
+  <section class="section hero is-light">
+    <div class="container is-max-widescreen">
+      <h2 class="title is-3 has-text-centered">Key Results</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="content">
+            <div class="columns is-multiline">
+              <div class="column is-6">
+                <div class="box result-box">
+                  <h4 class="title is-5"><i class="fas fa-bolt result-icon"></i> GPU Speedup</h4>
+                  <p><strong>18&ndash;21&times;</strong> faster than CPU baselines<br>
+                  <strong>1.4&ndash;16&times;</strong> faster than GPU baselines as batch size increases</p>
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="box result-box">
+                  <h4 class="title is-5"><i class="fas fa-layer-group result-icon"></i> Real-Time Batch MPC</h4>
+                  <p>Targets the <strong>under-served regime</strong> of tens to low-hundreds of parallel solves at real-time rates&mdash;beyond single-solve parallelism, below large-batch offline methods</p>
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="box result-box">
+                  <h4 class="title is-5"><i class="fas fa-robot result-icon"></i> Hardware Validated</h4>
+                  <p>Demonstrated on an <strong>industrial manipulator</strong> with improved disturbance rejection and convergence behavior verified in hardware experiments</p>
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="box result-box">
+                  <h4 class="title is-5"><i class="fas fa-cubes result-icon"></i> Open Source</h4>
+                  <p>Full <strong>CUDA solver</strong> with Python bindings, Docker-based reproducible environment, and support for custom robot dynamics via plug-in plant models</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Key Results -->
+
+  <!-- Method Overview -->
+  <section class="section">
+    <div class="container is-max-widescreen">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Method</h2>
+          <div class="content has-text-justified">
+            <p>
+              GATO solves batches of nonlinear trajectory optimization problems using a GPU-accelerated Sequential Quadratic Programming (SQP) approach co-designed across algorithm, software, and hardware. At each SQP iteration, it:
+            </p>
+            <ol>
+              <li><strong>Batch initialization:</strong> Initializes all trajectories in parallel across GPU threads, amortizing setup cost over the entire batch.</li>
+              <li><strong>Parallelized KKT formation &amp; factorization:</strong> Exploits block-, warp-, and thread-level GPU parallelism both <em>within</em> a single solve (across time steps) and <em>across</em> solves (across the batch) to form and factor the KKT system via Schur complement decomposition with no CPU-GPU data transfer in the inner loop.</li>
+              <li><strong>Line search &amp; convergence:</strong> Applies a GPU-resident line search with merit function evaluation, enabling fast convergence and strong disturbance rejection without falling back to CPU.</li>
+            </ol>
+            <p>
+              This co-design fills the critical gap between single-solve real-time methods and large-batch offline solvers, enabling scalable edge MPC for manipulation and other robotics applications.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Method Overview -->
+
+  <!-- Supported Systems -->
+  <section class="section hero is-light">
+    <div class="container is-max-widescreen">
+      <h2 class="title is-3 has-text-centered">Supported Robot Systems</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="content">
+            <p class="has-text-centered">
+              GATO ships with plant models for two robot arms. Additional systems can be added by implementing
+              <code>_plant.cuh</code> and <code>_grid.cuh</code> (see <code>gato/dynamics/</code>).
+            </p>
+            <div class="table-container">
+              <table class="table is-bordered is-striped is-hoverable is-fullwidth">
+                <thead>
+                  <tr><th>Robot</th><th>DOF</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>KUKA iiwa14</td><td>7</td><td>Industrial manipulator; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
+                  <tr><td>Neubrex Indy7</td><td>6</td><td>Collaborative robot; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="has-text-centered is-size-7 has-text-grey">
+              Configurable horizon lengths: 8, 16, 32, 64, 128 knot points (set via <code>-DKNOTS</code> at build time).
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Supported Systems -->
+
+  <!-- Quick Start -->
+  <section class="section">
+    <div class="container is-max-widescreen">
+      <h2 class="title is-3 has-text-centered">Quick Start</h2>
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content">
+            <h4>Setup (Docker + uv)</h4>
+            <pre><code class="language-bash">git clone https://github.com/A2R-Lab/GATO.git
+cd GATO
+./tools/install.sh   # install Docker and uv
+./tools/docker.sh    # build image and enter container</code></pre>
+            <h4>Build the CUDA Solver</h4>
+            <pre><code class="language-bash">./tools/build.sh     # default: iiwa14 + indy7, knots 8/32/128</code></pre>
+            <h4>Custom Build Options</h4>
+            <pre><code class="language-bash">mkdir -p build && cd build
+cmake -DPLANT="iiwa14" -DKNOTS="16;64" ..
+cmake --build . --parallel</code></pre>
+            <p>Built Python extension modules are written to <code>python/bsqp/</code> as <code>bsqpN{N}_{plant}.so</code>.
+            See <a href="https://github.com/A2R-Lab/GATO/tree/main/examples" target="_blank"><code>examples/</code></a> for Jupyter notebooks demonstrating MPC with GATO.</p>
+            <h4>Related Projects</h4>
+            <ul>
+              <li><a href="https://github.com/A2R-Lab/MPCGPU" target="_blank">MPCGPU</a> &mdash; open-source GPU MPC solver</li>
+              <li><a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a> &mdash; GPU-accelerated rigid body dynamics with analytical gradients</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End Quick Start -->
+
+  </main>
+
+  <!-- BibTeX citation -->
+  <section class="section hero is-light" id="BibTeX">
+    <div class="container is-max-widescreen content">
+      <div class="bibtex-header">
+        <h2 class="title">BibTeX</h2>
+        <button class="copy-bibtex-btn" onclick="copyBibTeX()" title="Copy BibTeX to clipboard">
+          <i class="fas fa-copy"></i>
+          <span class="copy-text">Copy</span>
+        </button>
+      </div>
+      <pre id="bibtex-code"><code class="nohighlight">@misc{du2025gatogpuacceleratedbatchedtrajectory,
+      title={GATO: GPU-Accelerated and Batched Trajectory Optimization
+             for Scalable Edge Model Predictive Control},
+      author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
+      year={2025},
+      eprint={2510.07625},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2510.07625},
+}</code></pre>
+    </div>
+  </section>
+  <!-- End BibTeX -->
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content has-text-centered">
+            <p>
+              This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a>
+              adopted from the <a href="https://nerfies.github.io" target="_blank">Nerfies</a> project page.
+              This website is licensed under a
+              <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Highlight.js syntax highlighting -->
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+
+</body>
+</html>
