@@ -1,0 +1,4 @@
+[submodule "external/GRiD"]
+	path = external/GRiD
+	url = git@github.com:A2R-Lab/GRiD.git
+	branch = modernizing-tests
