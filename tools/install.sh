@@ -1,44 +1,73 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# GATO host-native install (no Docker, no uv — assumes CUDA is installed on the
+# host, same model as GRiD's base_install.sh). Creates a project-local .venv and
+# installs into it.
+#
+#   ./tools/install.sh              # lean: codegen + build deps + submodules + regen grid.cuh
+#   ./tools/install.sh --examples   #   + heavy runtime to run MPC/benchmark examples (torch, pin, viz)
+#   ./tools/install.sh --dev        #   + test tooling (pytest)
+#   ./tools/install.sh --all        #   + examples + dev
+#   ./tools/install.sh --no-regen   # skip the regen_grid.py codegen step
+#
+# After install:  source .venv/bin/activate  &&  ./tools/build.sh
+set -euo pipefail
 
-git submodule update --init --recursive
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+VENV_DIR="${REPO_ROOT}/.venv"
 
-echo -e "----------------------------------------"
-echo -e "Installing dependencies...\n"
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+WANT_EXAMPLES=0
+WANT_DEV=0
+DO_REGEN=1
+
+for arg in "$@"; do
+  case "${arg}" in
+    --examples) WANT_EXAMPLES=1 ;;
+    --dev)      WANT_DEV=1 ;;
+    --all)      WANT_EXAMPLES=1; WANT_DEV=1 ;;
+    --no-regen) DO_REGEN=0 ;;
+    -h|--help)
+      sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^#\{0,1\} \{0,1\}//'
+      exit 0 ;;
+    *) echo "unknown option: ${arg}" >&2; exit 2 ;;
+  esac
+done
+
+# Build the pip extras suffix, e.g. "" or "[examples,dev]".
+EXTRAS=""
+if (( WANT_EXAMPLES || WANT_DEV )); then
+  parts=()
+  (( WANT_EXAMPLES )) && parts+=("examples")
+  (( WANT_DEV ))      && parts+=("dev")
+  EXTRAS="[$(IFS=,; echo "${parts[*]}")]"
 fi
-uv sync
-source .venv/bin/activate
 
-echo -e "----------------------------------------"
-echo -e "Building docker image..."
-IMAGE_NAME="gato"
-CONTAINER_NAME="gato-container"
-docker build -t ${IMAGE_NAME} .
+echo "----------------------------------------"
+echo "Initializing submodules (GRiD + nested GRiDCodeGenerator/URDFParser/RBDReference/GLASS)..."
+git -C "${REPO_ROOT}" submodule update --init --recursive
 
-echo -e "----------------------------------------"
-echo -e "Ensuring container is running..."
-if docker ps -q -f name=^/${CONTAINER_NAME}$ | grep -q .; then
-    echo -e "Container '${CONTAINER_NAME}' already running."
-elif docker ps -aq -f name=^/${CONTAINER_NAME}$ | grep -q .; then
-    docker start ${CONTAINER_NAME}
+echo "----------------------------------------"
+if [[ ! -d "${VENV_DIR}" ]]; then
+  echo "Creating venv at ${VENV_DIR} ..."
+  python3 -m venv "${VENV_DIR}"
 else
-    docker run -d -it \
-        --gpus all \
-        --network=host \
-        -e DISPLAY=${DISPLAY:-:0} \
-        -v "$(pwd)":/workspace \
-        -v /tmp/.X11-unix:/tmp/.X11-unix \
-        --name ${CONTAINER_NAME} \
-        ${IMAGE_NAME}
+  echo "Reusing existing venv at ${VENV_DIR}"
 fi
 
-echo -e "----------------------------------------"
-echo -e "Building ..."
-docker exec ${CONTAINER_NAME} bash -c "cd /workspace && ./tools/build.sh"
+echo "----------------------------------------"
+echo "Installing GATO into the venv  (pip install -e .${EXTRAS}) ..."
+"${VENV_DIR}/bin/python" -m pip install --upgrade pip
+"${VENV_DIR}/bin/python" -m pip install -e "${REPO_ROOT}${EXTRAS}"
 
-echo -e "----------------------------------------"
-echo -e "Setup complete."
-echo -e " - to enter the container: 'docker exec -it ${CONTAINER_NAME} bash'"
-echo -e " - to use the venv: 'source .venv/bin/activate'"
-#docker exec -it ${CONTAINER_NAME} bash
+if (( DO_REGEN )); then
+  echo "----------------------------------------"
+  echo "Generating grid.cuh for each robot (tools/regen_grid.py) ..."
+  "${VENV_DIR}/bin/python" "${SCRIPT_DIR}/regen_grid.py"
+fi
+
+echo "----------------------------------------"
+echo "Setup complete."
+echo " - activate:  source .venv/bin/activate"
+echo " - build:     ./tools/build.sh   (or: cmake -DPLANT=... -DKNOTS=... && cmake --build)"
+(( WANT_EXAMPLES )) || echo " - to run the examples you also need the runtime stack: ./tools/install.sh --examples"

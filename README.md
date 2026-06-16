@@ -10,38 +10,27 @@ git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
 ```
 
-Docker is used for containerization and [uv](https://docs.astral.sh/uv/) is used as a Python package/project manager.
-
-Setup
+GATO installs host-native (assumes CUDA is installed on the host) into a
+project-local `.venv`, using only the Python standard-library `venv` + `pip`
+— no Docker, no `uv` (same lightweight model as GRiD's `base_install.sh`).
 
 ```sh
-./tools/install.sh
+./tools/install.sh            # lean: codegen + build deps + submodules + regen grid.cuh
+./tools/install.sh --examples #   + runtime to run the MPC/benchmark examples (torch, pinocchio, viz)
+./tools/install.sh --dev      #   + test tooling (pytest)
+./tools/install.sh --all      #   + examples + dev
 ```
 
-Docker
+The lean default is all you need to generate code and build the solver. The
+heavy runtime (torch, pinocchio, Qt/meshcat viz) is only pulled in by
+`--examples`. Then activate and build:
 
 ```sh
-./tools/docker.sh
-'''
-
-Manual Installation
-'''sh
-git submodule update --init --recursive
-uv sync
 source .venv/bin/activate
-docker build -t gato . # build image
-docker run -d -it --gpus all --network host -e DISPLAY=:0 -v $(pwd):/workspace -v /tmp/.X11-unix:/tmp/.X11-unix --name gato-container gato # run container
-docker exec -it gato-container bash # enter container
-docker exec -it --workdir /workspace gato-container bash # enter container in the workspace directory
-
-docker stop gato-container && docker rm gato-container # stop and remove
-```
-
-GATO
-
-```sh
 ./tools/build.sh
 ```
+
+Docker is still available (optional, for reproducible builds) via `./tools/docker.sh`.
 
 ### Build Options
 
@@ -64,8 +53,8 @@ Built Python modules are written to `python/bsqp/` as `bsqpN{N}_{plant}.so`.
 - CUDA 12.6
 - C++17
 - gcc 11.4.0
-- Python 3.10.12
-- Docker 28.1.0
+- Python >= 3.10
+- Docker 28.1.0 (optional — only for the containerized build)
 
 ## Usage
 
