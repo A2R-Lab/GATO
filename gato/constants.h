@@ -7,7 +7,10 @@ using namespace sqp;
 
 namespace gato {
 namespace constants {
-    constexpr uint32_t REFERENCE_TRAJ_SIZE = grid::EE_POS_SIZE * KNOT_POINTS;
+    // EE pose size (xyz + orientation). The generated grid.cuh no longer exposes grid::EE_POS_SIZE
+    // (it now uses NUM_EES); the pose dimension is 6 per end-effector.
+    constexpr uint32_t EE_POS_SIZE = 6;
+    constexpr uint32_t REFERENCE_TRAJ_SIZE = EE_POS_SIZE * KNOT_POINTS;
     constexpr uint32_t STATE_SIZE = grid::NUM_JOINTS * 2; // positions, velocities
     constexpr uint32_t CONTROL_SIZE = grid::NUM_JOINTS; // torques
     constexpr uint32_t STATE_SIZE_SQ = STATE_SIZE * STATE_SIZE;

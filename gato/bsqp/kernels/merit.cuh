@@ -45,7 +45,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // current state, control, and next state
         T*                  s_reference_traj_k = s_xux_k + STATE_S_CONTROL + STATE_SIZE;
-        T*                  s_temp = s_reference_traj_k + grid::EE_POS_SIZE;
+        T*                  s_temp = s_reference_traj_k + EE_POS_SIZE;
 
 
         T* d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
@@ -60,7 +60,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         }
 
         T* d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
-        block::copy<T, grid::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
+        block::copy<T, EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
         __syncthreads();
 
         // cost function
@@ -95,7 +95,7 @@ template<typename T>
 __host__ size_t getComputeMeritBatchedSMemSize()
 {
         size_t size = sizeof(T)
-                      * (2 * STATE_SIZE + CONTROL_SIZE + grid::EE_POS_SIZE +                                                                                          // reference_traj_k
+                      * (2 * STATE_SIZE + CONTROL_SIZE + EE_POS_SIZE +                                                                                          // reference_traj_k
                          max(gato::plant::trackingcost_TempMemCt_Shared(STATE_SIZE, CONTROL_SIZE, KNOT_POINTS), gato::plant::forwardDynamics_TempMemSize_Shared()));  // TODO: verify this
         return size;
 }

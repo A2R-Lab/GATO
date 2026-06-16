@@ -636,13 +636,13 @@ __device__ __forceinline__ const T* getOffsetTraj(const T* batch, uint32_t solve
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetReferenceTraj(T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * grid::EE_POS_SIZE;
+        return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * EE_POS_SIZE;
 }
 
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ const T* getOffsetReferenceTraj(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * grid::EE_POS_SIZE;
+        return batch + solve_idx * REFERENCE_TRAJ_SIZE + knot_idx * EE_POS_SIZE;
 }
 
 // compute pointer to a (STATE_SIZE) vector from a batch (BATCH_SIZE X (KNOT_POINTS + 2))
