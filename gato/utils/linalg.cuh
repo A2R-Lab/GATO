@@ -547,13 +547,13 @@ namespace gato {
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ T* getOffsetWrench(T* batch, uint32_t solve_idx)
 {
-        return batch + solve_idx * 6;
+        return batch + solve_idx * 6 * grid::NUM_BODIES;   // [K3] body-major f_ext: 6*NUM_BODIES per solve
 }
 
 template<typename T, uint32_t BatchSize>
 __device__ __forceinline__ const T* getOffsetWrench(const T* batch, uint32_t solve_idx)
 {
-        return batch + solve_idx * 6;
+        return batch + solve_idx * 6 * grid::NUM_BODIES;   // [K3] body-major f_ext: 6*NUM_BODIES per solve
 }
 
 // compute pointer to a (STATE_SIZE) vector from a batch (BATCH_SIZE X KNOT_POINTS)

@@ -60,7 +60,7 @@ class BSQP {
 
         ~BSQP() { freeMemory(); }
 
-        void set_f_ext_batch(T* h_f_ext_batch) { gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_batch, 6 * BatchSize * sizeof(T), cudaMemcpyHostToDevice)); }
+        void set_f_ext_batch(T* h_f_ext_batch) { gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_batch, 6 * grid::NUM_BODIES * BatchSize * sizeof(T), cudaMemcpyHostToDevice)); }
 
         // Hyperparameter setters (batched)
         void set_rho_penalty_batch(const T* h_rho_penalty_batch, bool set_as_reset_default = true)
@@ -239,8 +239,8 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_rho_penalty_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_drho_batch_, BT));
 
-                gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * BT));
-                gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * BT));
+                gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * grid::NUM_BODIES * BT));
+                gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * grid::NUM_BODIES * BT));
 
                 // Batched hyperparameters
                 gpuErrchk(cudaMalloc(&d_mu_batch_, BT));
