@@ -32,120 +32,27 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
                 return;
         }
 
-        // ----- Shared Memory -----
-        // 5 vectors + 32 + 4
+        // glass::pcg manages its own shared layout within s_mem (5 padded vectors +
+        // warp-dot scratch + 5 static scalars). getSolvePCGBatchedSMemSize() stays >=
+        // glass::pcg_smem_size (not tightened in this swap).
         extern __shared__ T s_mem[];
-        block::zeroSharedMemory<T, 5 * VEC_SIZE_PADDED>(s_mem);
 
-        // vectors
-        T* s_A_p_vector = s_mem;
-        T* s_x_vector = s_A_p_vector + VEC_SIZE_PADDED;
-        T* s_r_vector = s_x_vector + VEC_SIZE_PADDED;
-        T* s_z_vector = s_r_vector + VEC_SIZE_PADDED;
-        T* s_p_vector = s_z_vector + VEC_SIZE_PADDED;
-
-        // scratch for dot product
-        T* s_scratch = s_p_vector + VEC_SIZE_PADDED;
-
-        // scalars
-        __shared__ T s_rho, s_rho_new, s_alpha, s_beta, s_rho_init;
-
-        uint32_t iterations = 0;
-
-        __syncthreads();
-
-        // get A, M_inv, b, x pointers for current batch
+        // get S, P_inv, b, x pointers for this batch element (padded vectors).
         const T* d_A_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_A_batch, solve_idx, 0);
         const T* d_M_inv_matrix = getOffsetBlockRowPadded<T, BatchSize>(d_M_inv_batch, solve_idx, 0);
-
-        // getOffsetStatePadded points to the start of data, we want to point to the start of padding
-        const T* d_b_vector = getOffsetStatePadded<T, BatchSize>(d_b_batch, solve_idx, 0) - STATE_SIZE;  // TODO: consider using shared memory for b
+        // getOffsetStatePadded points to the start of data; back up one block to the padding start.
+        const T* d_b_vector = getOffsetStatePadded<T, BatchSize>(d_b_batch, solve_idx, 0) - STATE_SIZE;
         T* d_x_vector = getOffsetStatePadded<T, BatchSize>(d_x_batch, solve_idx, 0) - STATE_SIZE;
 
-        // copy x to shared memory
-        block::copy<T, VEC_SIZE_PADDED>(s_x_vector, d_x_vector);
-        __syncthreads();
-
-        // ----- Init PCG -----
-
-        // r = b - A * x
-        block::btdMatrixVectorProduct<T, KNOT_POINTS, STATE_SIZE>(s_r_vector, d_A_matrix, s_x_vector);
-        __syncthreads();
-
-        block::vecSub<T, VEC_SIZE_PADDED>(s_r_vector, d_b_vector, s_r_vector);
-        __syncthreads();
-
-        // z, p = M^-1 * r
-        block::btdMatrixVectorProduct<T, KNOT_POINTS, STATE_SIZE>(s_z_vector, s_p_vector, d_M_inv_matrix, s_r_vector);
-        __syncthreads();
-
-        // rho = r^T * z
-        block::dot<T>(&s_rho, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
-        __syncthreads();
-
-        if (abs(s_rho) < abs_tol) {
-                if (threadIdx.x == 0) { d_iterations[solve_idx] = 0; }
-                __syncthreads();
-                return;
-        }
-
-        // initial residual norm for relative tolerance
-        if (threadIdx.x == 0) { s_rho_init = abs(s_rho); }
-        __syncthreads();
-
-        // ----- PCG Loop -----
-        for (uint32_t i = 0; i < max_pcg_iters; i++) {
-                iterations++;
-
-                // A_p = A * p
-                block::btdMatrixVectorProduct<T, KNOT_POINTS, STATE_SIZE>(s_A_p_vector, d_A_matrix, s_p_vector);
-                __syncthreads();
-
-                // alpha = rho / (p^T * A_p)
-                block::dot<T>(&s_alpha, s_p_vector, s_A_p_vector, s_scratch, VEC_SIZE_PADDED);
-                __syncthreads();
-                if (threadIdx.x == 0) { s_alpha = s_rho / s_alpha; }
-                __syncthreads();
-
-                // x = x + alpha * p
-                // r = r - alpha * A_p
-#pragma unroll
-                for (uint32_t j = threadIdx.x; j < VEC_SIZE_PADDED; j += blockDim.x) {
-                        s_x_vector[j] += s_alpha * s_p_vector[j];
-                        s_r_vector[j] -= s_alpha * s_A_p_vector[j];
-                }
-                __syncthreads();
-
-                // z = M^-1 * r
-                block::btdMatrixVectorProduct<T, KNOT_POINTS, STATE_SIZE>(s_z_vector, d_M_inv_matrix, s_r_vector);
-                __syncthreads();
-
-                // rho_new = r^T * z
-                block::dot<T>(&s_rho_new, s_r_vector, s_z_vector, s_scratch, VEC_SIZE_PADDED);
-                __syncthreads();
-
-                // check for convergence using absolute and relative tolerance
-                if (abs(s_rho_new) < (abs_tol + epsilon * s_rho_init)) { break; }
-
-                // beta = rho_new / rho
-                // rho = rho_new
-                if (threadIdx.x == 0) {
-                        s_beta = s_rho_new / s_rho;
-                        s_rho = s_rho_new;
-                }
-                __syncthreads();
-
-                // p = z + beta * p
-#pragma unroll
-                for (uint32_t j = threadIdx.x; j < VEC_SIZE_PADDED; j += blockDim.x) { s_p_vector[j] = s_z_vector[j] + s_beta * s_p_vector[j]; }
-                __syncthreads();
-        }
-        // ----- End PCG -----
-
-        // save stats for current batch
-        if (threadIdx.x == 0) { d_iterations[solve_idx] = iterations; }
-
-        block::copy<T, VEC_SIZE_PADDED>(d_x_vector, s_x_vector);
+        // Block-wide preconditioned CG (GLASS). S (=d_A) / P_inv (=d_M_inv) are the same
+        // [L|D|R] row-major block-tridiagonal strips block::btdMatrixVectorProduct consumed;
+        // x/b are the same (KNOT_POINTS+2)*STATE_SIZE padded vectors. glass::pcg seeds from x,
+        // iterates, and writes the solution back to x. Convergence on the preconditioned residual
+        // |rho| < abs_tol + rel_tol*|rho_init| matches the old loop. Read-only S/P_inv/b are
+        // const-cast (glass::pcg does not write them).
+        glass::pcg<T, STATE_SIZE, KNOT_POINTS>(
+            d_x_vector, const_cast<T*>(d_A_matrix), const_cast<T*>(d_M_inv_matrix), const_cast<T*>(d_b_vector),
+            s_mem, max_pcg_iters, /*rel_tol=*/epsilon, abs_tol, &d_iterations[solve_idx]);
 }
 
 template<typename T>
