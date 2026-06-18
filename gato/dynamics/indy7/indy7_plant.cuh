@@ -225,6 +225,117 @@ namespace plant {
                 return grid::FD_DU_MAX_SHARED_MEM_COUNT;
         }
 
+        // ===================================================================
+        // grid_plant::tracking_cost ADAPTER (replaces the hand-rolled cost below)
+        //
+        // Bridges GATO's scalar cost weights + device-constexpr joint limits to the
+        // per-ELEMENT buffer contract of grid_plant::tracking_cost[_gradient/_hessian]
+        // (the composable preset that owns the EE-pose + quadratic + barrier cost math).
+        // All buffers are carved from a caller scratch slab and built cooperatively.
+        // ===================================================================
+
+        // Worst-case scratch (T elements) for the value / grad+hess adapters.
+        template<typename T>
+        __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
+        {
+                return (2 * NX + 2 * NU + 6) + (4 * NQ + 2 * NU) + 6 * NEE
+                       + grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT;
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
+        {
+                return (2 * NX + 2 * NU + 6) + (4 * NQ + 2 * NU) + 6 * NEE + 6 * NQ * NEE
+                       + grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
+        }
+
+        // Build the per-element weight/target/bound buffers. ee_weight = q_cost (running)
+        // or N_cost (terminal). u_cost=0 (+ caller's mu_u=0) disables the control reg/barrier
+        // on the terminal value knot. s_eePos_traj is the 6-wide reference (only xyz used).
+        template<typename T>
+        __device__ void buildTrackingCostBuffers(
+            T* s_Q, T* s_R, T* s_W, T* s_x_des, T* s_u_des, T* s_ee_des,
+            T* s_q_lo, T* s_q_hi, T* s_qd_lo, T* s_qd_hi, T* s_u_lo, T* s_u_hi,
+            const T* s_eePos_traj, T qd_cost, T u_cost, T ee_weight)
+        {
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                for (int i = tid; i < NX; i += nth) { s_Q[i] = (i < NQ) ? static_cast<T>(0) : qd_cost; s_x_des[i] = static_cast<T>(0); }
+                for (int i = tid; i < NU; i += nth) { s_R[i] = u_cost; s_u_des[i] = static_cast<T>(0); }
+                for (int i = tid; i < 3;  i += nth) { s_W[i] = ee_weight; s_ee_des[i] = s_eePos_traj[i]; }
+                for (int i = tid; i < NQ; i += nth) {
+                        s_q_lo[i]  = JOINT_LIMITS<T>()[i][0]; s_q_hi[i]  = JOINT_LIMITS<T>()[i][1];
+                        s_qd_lo[i] = VEL_LIMITS<T>()[i][0];   s_qd_hi[i] = VEL_LIMITS<T>()[i][1];
+                }
+                for (int i = tid; i < NU; i += nth) { s_u_lo[i] = CTRL_LIMITS<T>()[i][0]; s_u_hi[i] = CTRL_LIMITS<T>()[i][1]; }
+        }
+
+        // VALUE adapter (replaces trackingcost). Returns the total scalar cost for one knot.
+        template<typename T>
+        __device__ T trackingCostValue(
+            const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
+            const grid::robotModel<T>* d_robotModel,
+            T q_cost, T qd_cost, T u_cost, T N_cost,
+            T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal)
+        {
+                T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
+                T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
+                T* s_q_lo = s_ee_des + 3;   T* s_q_hi = s_q_lo + NQ;
+                T* s_qd_lo = s_q_hi + NQ;   T* s_qd_hi = s_qd_lo + NQ;
+                T* s_u_lo = s_qd_hi + NQ;   T* s_u_hi = s_u_lo + NU;
+                T* s_eePos = s_u_hi + NU;   T* s_scratch = s_eePos + 6 * NEE;
+
+                const T ee_w = is_terminal ? N_cost : q_cost;
+                const T u_w  = is_terminal ? static_cast<T>(0) : u_cost;        // terminal knot: no control reg
+                const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost; // terminal knot: no ctrl barrier
+                buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
+                                            s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
+                                            s_eePos_traj, qd_cost, u_w, ee_w);
+                __syncthreads();
+                __shared__ T s_out[1];
+                grid_plant::tracking_cost<T, 0>(s_out, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+                                                s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, mu_u,
+                                                s_eePos, s_scratch, d_robotModel);
+                __syncthreads();
+                return s_out[0];
+        }
+
+        // GRAD+HESS adapter (replaces trackingCostGradientAndHessian). ee_weight = q_cost
+        // (running, at s_x) or N_cost (terminal, at x_{k+1} — see _lastblock rewire / PR #17).
+        // For a terminal R-less call, pass throwaway s_rk/s_Rk.
+        template<typename T>
+        __device__ void trackingCostGradHess(
+            const T* s_x, const T* s_u, const T* s_eePos_traj,
+            T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp,
+            const grid::robotModel<T>* d_robotModel,
+            T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight)
+        {
+                T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
+                T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
+                T* s_q_lo = s_ee_des + 3;   T* s_q_hi = s_q_lo + NQ;
+                T* s_qd_lo = s_q_hi + NQ;   T* s_qd_hi = s_qd_lo + NQ;
+                T* s_u_lo = s_qd_hi + NQ;   T* s_u_hi = s_u_lo + NU;
+                T* s_eePos = s_u_hi + NU;   T* s_eePosGrad = s_eePos + 6 * NEE;
+                T* s_scratch = s_eePosGrad + 6 * NQ * NEE;
+
+                buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
+                                            s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
+                                            s_eePos_traj, qd_cost, u_cost, ee_weight);
+                __syncthreads();
+                // grid_plant writes s_Qk/s_Rk COLUMN-major; GATO's old code was row-major
+                // (i*NX+j). The tracking Hessian is SYMMETRIC, so identical — do NOT "fix".
+                grid_plant::tracking_cost_gradient<T, 0>(s_qk, s_rk, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+                                                         s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                         s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
+                                                         s_eePos, s_eePosGrad, s_scratch, d_robotModel);
+                __syncthreads();
+                grid_plant::tracking_cost_hessian<T, 0>(s_Qk, s_Rk, s_x, s_u,
+                                                        s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                        s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
+                                                        s_eePosGrad, s_scratch, d_robotModel);
+                __syncthreads();
+        }
+
         template<typename T>
         __device__ T trackingcost(uint32_t                   state_size,
                                   uint32_t                   control_size,
