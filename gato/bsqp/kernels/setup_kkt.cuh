@@ -76,19 +76,38 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 block::copy<T, STATE_P_CONTROL>(d_B_k, s_B_k);
                 block::copy<T, STATE_SIZE>(d_c_k, s_c_k);  // c_k+1 = e_k
 
+                const grid::robotModel<T>* d_robotModel = (const grid::robotModel<T>*)d_GRiD_mem;
                 if (knot_idx < KNOT_POINTS - 2) {
 
-                        gato::plant::trackingCostGradientAndHessian<T>(STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_GRiD_mem, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                        // running knot k: EE weight q_cost, at state x_k = s_xux_k.
+                        gato::plant::trackingCostGradHess<T>(
+                            s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
+                            s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
+                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/q_cost);
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
-                        T* s_Q_last = s_c_k + STATE_SIZE;
-                        T* s_q_last = s_Q_last + STATE_SIZE_SQ;
-                        s_temp = s_q_last + STATE_SIZE;
+                        T* s_Q_last  = s_c_k + STATE_SIZE;
+                        T* s_q_last  = s_Q_last + STATE_SIZE_SQ;
+                        T* s_R_dummy = s_q_last + STATE_SIZE;          // throwaway terminal R (no control at x_{k+1})
+                        T* s_r_dummy = s_R_dummy + CONTROL_SIZE_SQ;
+                        s_temp       = s_r_dummy + CONTROL_SIZE;
 
-                        // compute Q_k, q_k, R_k, r_k, Q_last, q_last
-                        gato::plant::trackingCostGradientAndHessian_lastblock<T>(
-                            STATE_SIZE, CONTROL_SIZE, s_xux_k, s_reference_traj_k, s_Q_k, s_q_k, s_R_k, s_r_k, s_Q_last, s_q_last, s_temp, d_GRiD_mem, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                        // running knot k: EE weight q_cost, at state x_k.
+                        gato::plant::trackingCostGradHess<T>(
+                            s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
+                            s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
+                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/q_cost);
+                        __syncthreads();
+
+                        // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
+                        // the OLD _lastblock used x_k + q_cost here, so N_cost had no effect).
+                        // R block discarded (the terminal state has no control).
+                        T* s_xkp1 = s_xux_k + STATE_SIZE + CONTROL_SIZE;
+                        gato::plant::trackingCostGradHess<T>(
+                            s_xkp1, s_xkp1, &s_reference_traj_k[EE_POS_SIZE],
+                            s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
+                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/N_cost);
 
                         // c_0 = x_0 - x_s
                         T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
@@ -122,7 +141,9 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
                          STATE_SIZE +                    // c_k
                          STATE_SIZE_SQ +                 // Q_last
                          STATE_SIZE +                    // q_last
-                         max(max(grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT, gato::plant::trackingCostGradientAndHessian_TempMemSize_Shared()),
+                         CONTROL_SIZE_SQ +               // R_dummy (throwaway terminal R)
+                         CONTROL_SIZE +                  // r_dummy
+                         max(gato::plant::trackingCostGradHess_TempMemCt<T>(),
                          gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared()));
         return size;
 }
