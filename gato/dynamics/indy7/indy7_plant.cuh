@@ -442,8 +442,9 @@ namespace plant {
                                                                  T        ctrl_lim_cost)
         {
                 trackingCostGradientAndHessian<T>(state_size, control_size, s_xux, s_eePos_traj, s_Qk, s_qk, s_Rk, s_rk, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                T* s_xkp1 = s_xux + state_size + control_size;
                 trackingCostGradientAndHessian<T, false>(
-                    state_size, control_size, s_xux, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                    state_size, control_size, s_xkp1, &s_eePos_traj[6], s_Qkp1, s_qkp1, nullptr, nullptr, s_temp, d_dynMem_const, N_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
         }
 
         __host__ __device__ constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared()
