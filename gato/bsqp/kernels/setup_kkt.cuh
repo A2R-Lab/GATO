@@ -40,7 +40,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1
         T*                  s_reference_traj_k = s_xux_k + 2 * STATE_SIZE + CONTROL_SIZE;
-        T*                  s_Q_k = s_reference_traj_k + 2 * EE_POS_SIZE;
+        T*                  s_Q_k = s_reference_traj_k + 2 * constants::EE_POS_SIZE;
         T*                  s_R_k = s_Q_k + STATE_SIZE_SQ;
         T*                  s_q_k = s_R_k + CONTROL_SIZE_SQ;
         T*                  s_r_k = s_q_k + STATE_SIZE;
@@ -67,7 +67,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 T* d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
 
                 block::copy<T, STATE_S_CONTROL + STATE_SIZE>(s_xux_k, d_xu_traj_k);
-                block::copy<T, 2 * EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);  // TODO: is this correct?
+                block::copy<T, 2 * constants::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);  // TODO: is this correct?
                 __syncthreads();
 
                 compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
@@ -106,7 +106,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                         // R block discarded (the terminal state has no control).
                         T* s_xkp1 = s_xux_k + STATE_SIZE + CONTROL_SIZE;
                         gato::plant::trackingCostGradHess<T>(
-                            s_xkp1, s_xkp1, &s_reference_traj_k[EE_POS_SIZE],
+                            s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
                             qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/N_cost);
 
@@ -132,7 +132,7 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
 {
         size_t size = sizeof(T)
                       * (STATE_S_CONTROL + STATE_SIZE +  // xux_k
-                         2 * EE_POS_SIZE +         // reference_traj_k
+                         2 * constants::EE_POS_SIZE +         // reference_traj_k
                          STATE_SIZE_SQ +                 // Q_k
                          CONTROL_SIZE_SQ +               // R_k
                          STATE_SIZE +                    // q_k

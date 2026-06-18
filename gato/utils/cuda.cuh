@@ -32,10 +32,12 @@ void printDeviceInfo() {
       exit(EXIT_FAILURE);
    }
    std::cout << "Device name: " << prop.name << std::endl;
-   // memory clock rate, bus width, peak memory bandwidth
+   // bus width, peak memory bandwidth (memoryClockRate was removed in CUDA 13)
+#if CUDART_VERSION < 13000
    std::cout << "Memory clock rate: " << prop.memoryClockRate << " kHz" << std::endl;
-   std::cout << "Bus width: " << prop.memoryBusWidth << " bits" << std::endl;
    std::cout << "Peak memory bandwidth: " << 2.0 * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1.0e6 << " GB/s" << std::endl;
+#endif
+   std::cout << "Bus width: " << prop.memoryBusWidth << " bits" << std::endl;
    // total global memory, shared memory, concurrent kernels
    std::cout << "Total global memory: " << prop.totalGlobalMem / 1024 / 1024 << " MB" << std::endl;
    std::cout << "Shared memory per block: " << prop.sharedMemPerBlock / 1024 << " kB" << std::endl;
