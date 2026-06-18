@@ -2,3 +2,7 @@
 	path = external/GRiD
 	url = git@github.com:A2R-Lab/GRiD.git
 	branch = modernizing-tests
+[submodule "external/GLASS"]
+	path = external/GLASS
+	url = git@github.com:A2R-Lab/GLASS.git
+	branch = main

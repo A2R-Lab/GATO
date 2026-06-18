@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
+#include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 
 using namespace sqp;
 using namespace gato;

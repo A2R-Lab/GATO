@@ -2,7 +2,7 @@
 # mkdir build && cd build cmake .. cmake --build . --parallel
 #
 
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.22)
 project(GATO LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,7 +21,17 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC -DNDEBUG")
 set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -G -g")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -use_fast_math -O3")
 
-set(CMAKE_CUDA_ARCHITECTURES 89 86 75)
+# "native" (CMake 3.24+) detects the local GPU at configure time and compiles
+# only for that architecture. On older CMake (e.g. 3.22 on Ubuntu 22.04), fall
+# back to a broad list of recent arches. Override at configure time with: cmake
+# -DCMAKE_CUDA_ARCHITECTURES="75;86;87;89;100;120" ..
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+    set(CMAKE_CUDA_ARCHITECTURES native)
+  else()
+    set(CMAKE_CUDA_ARCHITECTURES 75 86 89)
+  endif()
+endif()
 message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)
@@ -39,6 +49,8 @@ include_directories(${CMAKE_SOURCE_DIR}/gato)
 # --- Executable Targets ---
 add_executable(bsqp examples/bsqp.cu)
 target_compile_definitions(bsqp PRIVATE KNOT_POINTS=16 PLANT_INDY7=1)
+# Top-level GLASS (global `glass::`, distinct from grid.cuh's vendored `grid::glass`).
+target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/external/GLASS)
 
 # --- Python Bindings ---
 
@@ -65,6 +77,7 @@ foreach(plant ${PLANT})
       COMPONENT python)
 
     target_include_directories(${MODULE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/gato
+                                                      ${CMAKE_SOURCE_DIR}/external/GLASS
                                                       ${CUDA_INCLUDE_DIRS})
 
     # Define plant type at compile time
