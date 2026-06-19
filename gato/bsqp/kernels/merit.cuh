@@ -61,7 +61,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         }
 
         T* d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
-        block::copy<T, constants::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);
+        glass::copy<T, constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
         __syncthreads();
 
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks

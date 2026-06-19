@@ -32,8 +32,8 @@ void simForwardBatchedKernel(
     T *s_uk = s_xk + STATE_SIZE;
     T *s_temp = s_uk + CONTROL_SIZE;
 
-    block::copy<T, STATE_SIZE>(s_xk, d_xk);
-    block::copy<T, CONTROL_SIZE>(s_uk, d_uk);
+    glass::copy<T, STATE_SIZE>(d_xk, s_xk);
+    glass::copy<T, CONTROL_SIZE>(d_uk, s_uk);
 
     sim_step<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
         s_xkp1,
@@ -46,7 +46,7 @@ void simForwardBatchedKernel(
     );
     __syncthreads();
 
-    block::copy<T, STATE_SIZE>(d_xkp1, s_xkp1);
+    glass::copy<T, STATE_SIZE>(s_xkp1, d_xkp1);
 }
 
 template <typename T>

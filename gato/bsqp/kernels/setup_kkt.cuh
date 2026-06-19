@@ -66,16 +66,16 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 T* d_B_k = getOffsetStatePControl<T, BatchSize>(d_B_batch, solve_idx, knot_idx);
                 T* d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
 
-                block::copy<T, STATE_S_CONTROL + STATE_SIZE>(s_xux_k, d_xu_traj_k);
-                block::copy<T, 2 * constants::EE_POS_SIZE>(s_reference_traj_k, d_reference_traj_k);  // TODO: is this correct?
+                glass::copy<T, STATE_S_CONTROL + STATE_SIZE>(d_xu_traj_k, s_xux_k);
+                glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);  // TODO: is this correct?
                 __syncthreads();
 
                 compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
                 __syncthreads();
 
-                block::copy<T, STATE_SIZE_SQ>(d_A_k, s_A_k);
-                block::copy<T, STATE_P_CONTROL>(d_B_k, s_B_k);
-                block::copy<T, STATE_SIZE>(d_c_k, s_c_k);  // c_k+1 = e_k
+                glass::copy<T, STATE_SIZE_SQ>(s_A_k, d_A_k);
+                glass::copy<T, STATE_P_CONTROL>(s_B_k, d_B_k);
+                glass::copy<T, STATE_SIZE>(s_c_k, d_c_k);  // c_k+1 = e_k
 
                 const grid::robotModel<T>* d_robotModel = (const grid::robotModel<T>*)d_GRiD_mem;
                 if (knot_idx < KNOT_POINTS - 2) {
@@ -113,17 +113,17 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                         // c_0 = x_0 - x_s
                         T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
                         T* d_xu_0 = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
-                        block::vecSub<T, STATE_SIZE>(d_c_0, d_xu_0, d_x_s_batch + solve_idx * STATE_SIZE);
+                        glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * STATE_SIZE, d_c_0);
                         __syncthreads();
 
-                        block::copy<T, STATE_SIZE_SQ>(d_Q_k + STATE_SIZE_SQ, s_Q_last);
-                        block::copy<T, STATE_SIZE>(d_q_k + STATE_SIZE, s_q_last);
+                        glass::copy<T, STATE_SIZE_SQ>(s_Q_last, d_Q_k + STATE_SIZE_SQ);
+                        glass::copy<T, STATE_SIZE>(s_q_last, d_q_k + STATE_SIZE);
                 }
 
-                block::copy<T, STATE_SIZE_SQ>(d_Q_k, s_Q_k);
-                block::copy<T, CONTROL_SIZE_SQ>(d_R_k, s_R_k);
-                block::copy<T, STATE_SIZE>(d_q_k, s_q_k);
-                block::copy<T, CONTROL_SIZE>(d_r_k, s_r_k);
+                glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
+                glass::copy<T, CONTROL_SIZE_SQ>(s_R_k, d_R_k);
+                glass::copy<T, STATE_SIZE>(s_q_k, d_q_k);
+                glass::copy<T, CONTROL_SIZE>(s_r_k, d_r_k);
         }
 }
 
