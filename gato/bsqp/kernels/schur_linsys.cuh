@@ -70,16 +70,16 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 const T* d_q_k = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx);
                 const T* d_q_kp1 = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx + 1);
                 const T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
-                glass::copy<T, STATE_SIZE>(d_q_k, s_q_k);
-                glass::copy<T, STATE_SIZE>(d_q_kp1, s_q_kp1);
-                glass::copy<T, CONTROL_SIZE>(d_r_k, s_r_k);
+                glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_k), s_q_k);
+                glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_kp1), s_q_kp1);
+                glass::copy<T, CONTROL_SIZE>(const_cast<T*>(d_r_k), s_r_k);
 
                 const T* d_A_k = getOffsetStateSq<T, BatchSize>(d_A_batch, solve_idx, knot_idx);
                 const T* d_B_k = getOffsetStatePControl<T, BatchSize>(d_B_batch, solve_idx, knot_idx);
                 const T* d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);
-                glass::copy<T, STATE_SIZE_SQ>(d_A_k, s_A_k);
-                glass::copy<T, STATE_P_CONTROL>(d_B_k, s_B_k);
-                glass::copy<T, STATE_SIZE>(static_cast<T>(-1), d_c_k, s_gamma_k);
+                glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_A_k), s_A_k);
+                glass::copy<T, STATE_P_CONTROL>(const_cast<T*>(d_B_k), s_B_k);
+                glass::copy<T, STATE_SIZE>(static_cast<T>(-1), const_cast<T*>(d_c_k), s_gamma_k);
                 __syncthreads();
 
                 // ----- Compute theta_k, phi_k, and gamma_k -----
@@ -171,8 +171,8 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 const T* d_q_0 = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, 0);
                 const T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_0, s_Q_k);
-                glass::copy<T, STATE_SIZE>(d_q_0, s_q_k);
-                glass::copy<T, STATE_SIZE>(d_c_0, s_gamma_k);
+                glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_0), s_q_k);
+                glass::copy<T, STATE_SIZE>(const_cast<T*>(d_c_0), s_gamma_k);
                 block::loadIdentity<T, STATE_SIZE>(s_Q_k_inv);  // coupled to block::invertMatrix (augmented)
                 __syncthreads();
 
