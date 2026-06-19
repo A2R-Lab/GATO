@@ -370,15 +370,6 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // Q_inv_k * (q_k - (lambda_k - A_k^T * lambda_kp1))
-                // T sum;
-                // //#pragma unroll
-                // for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
-                //     sum = static_cast<T>(0);
-                //     for (uint32_t j = 0; j < STATE_SIZE; j++) {
-                //         sum += s_Q_k_inv[i + STATE_SIZE * j] * s_A_k[j];
-                //     }
-                //     s_scratch[i] = sum;
-                // }
                 glass::gemm<T, STATE_SIZE, STATE_SIZE, 1>(static_cast<T>(1), s_Q_k_inv, s_A_k, s_scratch);
                 __syncthreads();
 
