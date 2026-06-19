@@ -45,7 +45,7 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
         T* d_x_vector = getOffsetStatePadded<T, BatchSize>(d_x_batch, solve_idx, 0) - STATE_SIZE;
 
         // Block-wide preconditioned CG (GLASS). S (=d_A) / P_inv (=d_M_inv) are the same
-        // [L|D|R] row-major block-tridiagonal strips block::btdMatrixVectorProduct consumed;
+        // [L|D|R] row-major block-tridiagonal strips that glass::bdmv consumes internally;
         // x/b are the same (KNOT_POINTS+2)*STATE_SIZE padded vectors. glass::pcg seeds from x,
         // iterates, and writes the solution back to x. Convergence on the preconditioned residual
         // |rho| < abs_tol + rel_tol*|rho_init| matches the old loop. Read-only S/P_inv/b are
