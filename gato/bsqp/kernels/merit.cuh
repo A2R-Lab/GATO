@@ -72,7 +72,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
-                constraint_k = compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
+                constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
         } else {
                 d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
                 d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);

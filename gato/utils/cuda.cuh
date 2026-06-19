@@ -4,10 +4,14 @@
 #include <cstdio>
 #include <iostream>
 
+// grid.cuh (always pulled in via settings.h -> *_plant.cuh) defines gpuAssert + gpuErrchk
+// unconditionally; guard on the macro so we defer to it when present (avoids a same-TU
+// redefinition / ODR clash) and only provide our own when cuda.cuh is used standalone.
+#ifndef gpuErrchk
 #ifndef NDEBUG //disable gpuAssert in No Debug mode
-void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudaSuccess) 
+   if (code != cudaSuccess)
    {
       fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
       if (abort) exit(code);
@@ -17,6 +21,7 @@ void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 #else
 #define gpuErrchk(ans) ans
 #endif
+#endif // gpuErrchk
 
 void printDeviceInfo() {
    int deviceCount = 0;

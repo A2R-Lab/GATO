@@ -9,8 +9,10 @@
 
 using namespace sqp;
 using namespace gato;
-using namespace gato::plant;
 using namespace gato::constants;
+// NOTE: no file-scope `using namespace gato::plant` — it leaks plant:: symbols into every
+// other kernel header sharing this TU (caused a gato::plant::EE_POS_SIZE vs constants:: clash
+// in merit.cuh). Qualify plant calls explicitly instead.
 
 template<typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
@@ -70,7 +72,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);  // TODO: is this correct?
                 __syncthreads();
 
-                compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+                gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
                 __syncthreads();
 
                 glass::copy<T, STATE_SIZE_SQ>(s_A_k, d_A_k);

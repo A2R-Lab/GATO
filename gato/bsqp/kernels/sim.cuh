@@ -10,7 +10,8 @@
 using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
-using namespace gato::plant;
+// no file-scope `using namespace gato::plant` (it leaks across kernel headers in the shared
+// TU); qualify plant:: calls explicitly.
 
 template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__
@@ -35,7 +36,7 @@ void simForwardBatchedKernel(
     glass::copy<T, STATE_SIZE>(d_xk, s_xk);
     glass::copy<T, CONTROL_SIZE>(d_uk, s_uk);
 
-    sim_step<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
+    gato::plant::sim_step<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
         s_xkp1,
         s_xk,
         s_uk,
