@@ -683,11 +683,22 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 53822573d0f79f2f37f3f8cdfe362d5b81ce7abc
+    // Pinned commit: ac3c6ccc1f4369692f9477137acde2ddbdf787c2
     namespace glass {
     
     // BEGIN GLASS src/base/L1/reduce.cuh
     
+    /**
+     * @brief Sum reduction: `x[0] = Σ x[i]` (in-place, destructive).
+     *
+     * Default `threadIdx`-based halving reduce; the block cooperatively sums the
+     * vector and leaves the total in `x[0]` (the input is overwritten). NumPy
+     * equivalent: `np.sum(x)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @param n  Number of elements.
+     * @param x  In/out vector of length `n`; the sum lands in `x[0]`.
+     */
     // default threadIdx-based halving reduce; result in x[0]
     template <typename T>
     __device__ void reduce(uint32_t n, T *x)
@@ -705,6 +716,15 @@ namespace grid {
         if (rank == 0) { for (uint32_t i = 1; i < left; i++) x[0] += x[i]; }
     }
     
+    /**
+     * @brief Sum reduction: `x[0] = Σ x[i]` (in-place), compile-time size.
+     *
+     * Compile-time-`N` overload of the halving reduce. NumPy equivalent: `np.sum(x)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @tparam N  Number of elements (compile-time constant).
+     * @param x  In/out vector of length `N`; the sum lands in `x[0]`.
+     */
     template <typename T, uint32_t N>
     __device__ void reduce(T *x)
     {
@@ -722,6 +742,16 @@ namespace grid {
     }
     
     namespace low_memory {
+        /**
+         * @brief Sum reduction: `x[0] = Σ x[i]` (in-place), low-memory variant.
+         *
+         * Thread 0 serially accumulates all elements into `x[0]`; uses no scratch.
+         * NumPy equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n  Number of elements.
+         * @param x  In/out vector of length `n`; the sum lands in `x[0]`.
+         */
         template <typename T>
         __device__ void reduce(uint32_t n, T *x)
         {
@@ -730,6 +760,16 @@ namespace grid {
             __syncthreads();
         }
     
+        /**
+         * @brief Sum reduction: `x[0] = Σ x[i]` (in-place), low-memory, compile-time size.
+         *
+         * Compile-time-`N` overload; thread 0 serially accumulates into `x[0]`.
+         * NumPy equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x  In/out vector of length `N`; the sum lands in `x[0]`.
+         */
         template <typename T, uint32_t N>
         __device__ void reduce(T *x)
         {
@@ -740,6 +780,18 @@ namespace grid {
     }
     
     namespace high_speed {
+        /**
+         * @brief Sum reduction: `x[0] = Σ x[i]` (in-place), warp-shuffle variant.
+         *
+         * Accumulates with a warp-shuffle reduction plus an inter-warp reduction
+         * through shared scratch; the total lands in `x[0]`. NumPy equivalent:
+         * `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n          Number of elements.
+         * @param x          In/out vector of length `n`; the sum lands in `x[0]`.
+         * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+         */
         // warp-shuffle + inter-warp reduce; s_scratch: ceil(blockDim/32)*sizeof(T); result in x[0]
         template <typename T>
         __device__ void reduce(uint32_t n, T *x, T *s_scratch)
@@ -761,6 +813,17 @@ namespace grid {
             __syncthreads();
         }
     
+        /**
+         * @brief Sum reduction: `x[0] = Σ x[i]` (in-place), warp-shuffle, compile-time size.
+         *
+         * Compile-time-`N` overload of the warp-shuffle reduce. NumPy equivalent:
+         * `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x          In/out vector of length `N`; the sum lands in `x[0]`.
+         * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+         */
         template <typename T, uint32_t N>
         __device__ void reduce(T *x, T *s_scratch)
         {
@@ -794,6 +857,22 @@ namespace grid {
         // threads (s_scratch[0] holds the total on return); the routine ends on a
         // __syncthreads(), so s_scratch is safe to reuse afterwards.  Threads that
         // have no contribution should pass partial = 0.
+        /**
+         * @brief Block-sum of a per-thread register value: returns `Σ partial`.
+         *
+         * Reduces one PER-THREAD contribution `partial` (one per thread) across the
+         * block and returns the total to EVERY thread, with no intermediate `x[]`
+         * buffer. This is the entry point for fused "compute-a-partial-then-sum"
+         * patterns (e.g. cost/barrier kernels). The result is also broadcast through
+         * `s_scratch[0]`; the routine ends on a `__syncthreads()`, so `s_scratch` is
+         * safe to reuse afterwards. Threads with no contribution should pass `0`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param partial    This thread's contribution to the block sum.
+         * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp);
+         *                   on return `s_scratch[0]` holds the total.
+         * @return The block-wide total `Σ partial`, identical on every thread.
+         */
         template <typename T>
         __device__ T reduce(T partial, T *s_scratch)
         {
@@ -816,10 +895,92 @@ namespace grid {
             return total;
         }
     }
+    
+    namespace warp {
+        // Single-warp reductions: raw __shfl, no shared scratch, no inter-warp combine.
+        // For warp-per-problem kernels (one 32-lane warp owns the reduction). The
+        // caller must run a full warp (mask 0xffffffff); partial-warp callers must
+        // pass 0 from inactive lanes. Distinct from high_speed::reduce, which is
+        // block-scoped (warp-shuffle + shared inter-warp combine).
+    
+        /**
+         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp.
+         *
+         * One 32-lane warp sums the vector with `__shfl_down_sync`; the total lands in
+         * `x[0]` (input overwritten). No shared scratch, no inter-warp combine. NumPy
+         * equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n  Number of elements.
+         * @param x  In/out vector of length `n`; the sum lands in `x[0]`.
+         */
+        template <typename T>
+        __device__ void reduce(uint32_t n, T *x)
+        {
+            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < n; i += 32) val += x[i];
+            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            if (lane == 0) x[0] = val;
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp, compile-time size.
+         *
+         * Compile-time-`N` overload. NumPy equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x  In/out vector of length `N`; the sum lands in `x[0]`.
+         */
+        template <typename T, uint32_t N>
+        __device__ void reduce(T *x)
+        {
+            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < N; i += 32) val += x[i];
+            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            if (lane == 0) x[0] = val;
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Warp-sum of a per-lane register value: returns `Σ partial` on every lane.
+         *
+         * Reduces one PER-LANE contribution across a single warp and broadcasts the
+         * total back to all 32 lanes — no `x[]` buffer, no shared scratch. The entry
+         * point for fused "compute-a-partial-then-sum" patterns inside a warp (e.g.
+         * row-norm / residual accumulation). Inactive lanes should pass `0`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param partial  This lane's contribution.
+         * @return The warp-wide total `Σ partial`, identical on every lane.
+         */
+        template <typename T>
+        __device__ T reduce(T partial)
+        {
+            T val = partial;
+            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            return __shfl_sync(0xffffffff, val, 0);
+        }
+    }
     // END GLASS src/base/L1/reduce.cuh
     
     // BEGIN GLASS src/base/L1/dot.cuh
     
+    /**
+     * @brief Inner product: `y[0] = x · y` (DOT), in-place.
+     *
+     * Multiplies the vectors element-wise into `y`, then runs a block-wide halving
+     * reduce so the scalar result lands in `y[0]` (uses `y` as scratch — it is
+     * overwritten). NumPy equivalent: `np.dot(x, y)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @param n  Number of elements.
+     * @param x  Input vector of length `n`.
+     * @param y  In/out vector of length `n`; the dot product lands in `y[0]`.
+     */
     // in-place: y = x·y (result in y[0]); uses halving reduce on y
     template <typename T>
     __device__ void dot(uint32_t n, T *x, T *y)
@@ -831,6 +992,17 @@ namespace grid {
         reduce<T>(n, y);
     }
     
+    /**
+     * @brief Inner product: `y[0] = x · y` (DOT), in-place, compile-time size.
+     *
+     * Compile-time-`N` overload; the scalar result lands in `y[0]` (uses `y` as
+     * scratch). NumPy equivalent: `np.dot(x, y)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @tparam N  Number of elements (compile-time constant).
+     * @param x  Input vector of length `N`.
+     * @param y  In/out vector of length `N`; the dot product lands in `y[0]`.
+     */
     template <typename T, uint32_t N>
     __device__ void dot(T *x, T *y)
     {
@@ -842,6 +1014,19 @@ namespace grid {
     }
     
     namespace low_memory {
+        /**
+         * @brief Inner product: `out[0] = x · y` (DOT), low-memory variant.
+         *
+         * Writes the element-wise products into `out`, then thread 0 serially
+         * accumulates them into `out[0]`, leaving `x` and `y` untouched. NumPy
+         * equivalent: `np.dot(x, y)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n    Number of elements.
+         * @param x    Input vector of length `n`.
+         * @param y    Input vector of length `n`.
+         * @param out  Length-`n` scratch/output buffer; the result lands in `out[0]`.
+         */
         // out: length-n scratch; result in out[0]
         template <typename T>
         __device__ void dot(uint32_t n, T *x, T *y, T *out)
@@ -856,6 +1041,20 @@ namespace grid {
     }
     
     namespace high_speed {
+        /**
+         * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle variant.
+         *
+         * Accumulates the element-wise products with a warp-shuffle reduction plus
+         * an inter-warp reduction through shared scratch, leaving `x` and `y`
+         * untouched. NumPy equivalent: `np.dot(x, y)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n          Number of elements.
+         * @param x          Input vector of length `n`.
+         * @param y          Input vector of length `n`.
+         * @param out        Output buffer; the result lands in `out[0]`.
+         * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+         */
         // s_scratch: ceil(blockDim/32)*sizeof(T); result in out[0]
         template <typename T>
         __device__ void dot(uint32_t n, T *x, T *y, T *out, T *s_scratch)
@@ -877,6 +1076,19 @@ namespace grid {
             __syncthreads();
         }
     
+        /**
+         * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle, compile-time size.
+         *
+         * Compile-time-`N` overload of the warp-shuffle dot product. NumPy
+         * equivalent: `np.dot(x, y)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x          Input vector of length `N`.
+         * @param y          Input vector of length `N`.
+         * @param out        Output buffer; the result lands in `out[0]`.
+         * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+         */
         template <typename T, uint32_t N>
         __device__ void dot(T *x, T *y, T *out, T *s_scratch)
         {
@@ -908,6 +1120,23 @@ namespace grid {
     // With SX=SY=1 this is a plain scalar dot.  The inner loop is fully unrolled
     // by the compiler since N, SX, SY are all compile-time constants.
     
+    /**
+     * @brief Per-thread strided inner product: `Σ x[i*SX] * y[i*SY]` (DOT, strided).
+     *
+     * A single thread independently walks the full `N`-length product with
+     * compile-time strides, returning the scalar result. There is NO block-wide
+     * reduction — intended for use inside an already thread-parallel outer loop
+     * (e.g. GRiD generated kernels). With `SX = SY = 1` this is a plain scalar dot;
+     * the inner loop is fully unrolled. NumPy equivalent: `np.dot(x[::SX], y[::SY])`.
+     *
+     * @tparam T   Scalar type (e.g. `float`, `double`).
+     * @tparam N   Number of products to accumulate (compile-time constant).
+     * @tparam SX  Element stride into `x` (compile-time, default 1).
+     * @tparam SY  Element stride into `y` (compile-time, default 1).
+     * @param x  Input vector, accessed at indices `0, SX, 2*SX, …`.
+     * @param y  Input vector, accessed at indices `0, SY, 2*SY, …`.
+     * @return The strided inner product `Σ x[i*SX] * y[i*SY]`.
+     */
     template <typename T, uint32_t N, uint32_t SX = 1, uint32_t SY = 1>
     __device__ T dot_strided(const T* x, const T* y)
     {
@@ -917,6 +1146,20 @@ namespace grid {
         return res;
     }
     
+    /**
+     * @brief Per-thread strided inner product, store-to-pointer overload.
+     *
+     * Same per-thread strided dot as the value-returning overload, but writes the
+     * scalar result to `*out`. NumPy equivalent: `out[0] = np.dot(x[::SX], y[::SY])`.
+     *
+     * @tparam T   Scalar type (e.g. `float`, `double`).
+     * @tparam N   Number of products to accumulate (compile-time constant).
+     * @tparam SX  Element stride into `x` (compile-time, default 1).
+     * @tparam SY  Element stride into `y` (compile-time, default 1).
+     * @param x    Input vector, accessed at indices `0, SX, 2*SX, …`.
+     * @param y    Input vector, accessed at indices `0, SY, 2*SY, …`.
+     * @param out  Destination for the scalar result.
+     */
     template <typename T, uint32_t N, uint32_t SX = 1, uint32_t SY = 1>
     __device__ void dot_strided(const T* x, const T* y, T* out)
     {
@@ -957,6 +1200,28 @@ namespace grid {
     //
     // s_scratch must hold ceil(blockDim/32) elements of T.
     
+    /**
+     * @brief Block-cooperative strided inner product with coalesced loads (DOT, strided).
+     *
+     * Computes the same value as `dot_strided<T,N,SX,SY>` (`Σ x[i*SX] * y[i*SY]`),
+     * but the WHOLE block cooperates on one dot product: the `i`-loop is distributed
+     * across threads with a block stride so consecutive ranks touch addresses `SX`
+     * apart, turning a per-warp strided gather into a coalesced burst when `SX` is
+     * the inner contiguous axis. Partial sums are combined via warp-shuffle plus a
+     * shared-scratch block reduction; the scalar result is broadcast to `*out`
+     * (visible to all threads after the trailing barrier). Requires a block-wide,
+     * `__syncthreads`-safe launch — use `dot_strided` instead in a per-thread
+     * context. NumPy equivalent: `np.dot(x[::SX], y[::SY])`.
+     *
+     * @tparam T   Scalar type (e.g. `float`, `double`).
+     * @tparam N   Number of products to accumulate (compile-time constant).
+     * @tparam SX  Element stride into `x` (compile-time, default 1).
+     * @tparam SY  Element stride into `y` (compile-time, default 1).
+     * @param x          Input vector, accessed at indices `0, SX, 2*SX, …`.
+     * @param y          Input vector, accessed at indices `0, SY, 2*SY, …`.
+     * @param out        Destination for the scalar result (broadcast to all threads).
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+     */
     template <typename T, uint32_t N, uint32_t SX = 1, uint32_t SY = 1>
     __device__ void dot_strided_coalesced(const T* x, const T* y, T* out, T* s_scratch)
     {
@@ -1041,6 +1306,25 @@ namespace grid {
     
     // ─── runtime variants ─────────────────────────────────────────────────────────
     
+    /**
+     * @brief Matrix-vector product: `y = alpha * A * x + beta * y` (GEMV).
+     *
+     * Threads are distributed over the output rows of the `m×n` matrix `A`. Set
+     * `TRANSPOSE=true` to compute `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`
+     * (`A` is column-major by default). NumPy equivalent: `y = alpha*A@x + beta*y`
+     * (or `alpha*A.T@x + beta*y` when transposed).
+     *
+     * @tparam T          Scalar type (e.g. `float`, `double`).
+     * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+     * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+     * @param m      Number of rows of `A`.
+     * @param n      Number of columns of `A`.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `m*n` elements.
+     * @param x      Input vector (length `n`, or `m` when transposed).
+     * @param beta   Scalar multiplier on the prior `y`.
+     * @param y      In/out vector (length `m`, or `n` when transposed).
+     */
     template <typename T, bool TRANSPOSE = false, bool ROW_MAJOR = false>
     __device__ void gemv(uint32_t m, uint32_t n, T alpha, T *A, T *x, T beta, T *y)
     {
@@ -1049,6 +1333,23 @@ namespace grid {
         gemv_impl<T, TRANSPOSE, ROW_MAJOR>(rank, size, m, n, alpha, A, x, beta, y);
     }
     
+    /**
+     * @brief Matrix-vector product: `y = alpha * A * x` (GEMV), no-beta overload.
+     *
+     * Same as the full GEMV but overwrites `y` (no `beta * y` term). Set
+     * `TRANSPOSE=true` for `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`. NumPy
+     * equivalent: `y = alpha*A@x` (or `alpha*A.T@x` when transposed).
+     *
+     * @tparam T          Scalar type (e.g. `float`, `double`).
+     * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+     * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+     * @param m      Number of rows of `A`.
+     * @param n      Number of columns of `A`.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `m*n` elements.
+     * @param x      Input vector (length `n`, or `m` when transposed).
+     * @param y      Output vector (length `m`, or `n` when transposed).
+     */
     template <typename T, bool TRANSPOSE = false, bool ROW_MAJOR = false>
     __device__ void gemv(uint32_t m, uint32_t n, T alpha, T *A, T *x, T *y)
     {
@@ -1057,6 +1358,24 @@ namespace grid {
         gemv_impl<T, TRANSPOSE, ROW_MAJOR>(rank, size, m, n, alpha, A, x, y);
     }
     
+    /**
+     * @brief Matrix-vector product with explicit layout control: `y = alpha * A * x + beta * y` (GEMV).
+     *
+     * Like `gemv` but exposes the per-matrix layout flag explicitly (no defaults),
+     * for callers that want full control over `TRANSPOSE` and the storage order of
+     * `A`. NumPy equivalent: `y = alpha*A@x + beta*y` (or `alpha*A.T@x + beta*y`).
+     *
+     * @tparam T           Scalar type (e.g. `float`, `double`).
+     * @tparam TRANSPOSE   When true, multiply by `Aᵀ` instead of `A`.
+     * @tparam ROW_MAJOR_A When true, `A` is stored row-major.
+     * @param m      Number of rows of `A`.
+     * @param n      Number of columns of `A`.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `m*n` elements.
+     * @param x      Input vector (length `n`, or `m` when transposed).
+     * @param beta   Scalar multiplier on the prior `y`.
+     * @param y      In/out vector (length `m`, or `n` when transposed).
+     */
     template <typename T, bool TRANSPOSE, bool ROW_MAJOR_A>
     __device__ void gemv_ex(uint32_t m, uint32_t n, T alpha, T *A, T *x, T beta, T *y)
     {
@@ -1065,6 +1384,22 @@ namespace grid {
         gemv_impl<T, TRANSPOSE, ROW_MAJOR_A>(rank, size, m, n, alpha, A, x, beta, y);
     }
     
+    /**
+     * @brief Matrix-vector product with explicit layout control: `y = alpha * A * x` (GEMV), no-beta overload.
+     *
+     * Like the full `gemv_ex` but overwrites `y` (no `beta * y` term). NumPy
+     * equivalent: `y = alpha*A@x` (or `alpha*A.T@x` when transposed).
+     *
+     * @tparam T           Scalar type (e.g. `float`, `double`).
+     * @tparam TRANSPOSE   When true, multiply by `Aᵀ` instead of `A`.
+     * @tparam ROW_MAJOR_A When true, `A` is stored row-major.
+     * @param m      Number of rows of `A`.
+     * @param n      Number of columns of `A`.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `m*n` elements.
+     * @param x      Input vector (length `n`, or `m` when transposed).
+     * @param y      Output vector (length `m`, or `n` when transposed).
+     */
     template <typename T, bool TRANSPOSE, bool ROW_MAJOR_A>
     __device__ void gemv_ex(uint32_t m, uint32_t n, T alpha, T *A, T *x, T *y)
     {
@@ -1126,6 +1461,24 @@ namespace grid {
     
     // ─── compile-time size variants ───────────────────────────────────────────────
     
+    /**
+     * @brief Matrix-vector product: `y = alpha * A * x + beta * y` (GEMV), compile-time size.
+     *
+     * Compile-time-`M`,`N` overload; the inner column loop is fully unrolled. Set
+     * `TRANSPOSE=true` for `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`. NumPy
+     * equivalent: `y = alpha*A@x + beta*y` (or `alpha*A.T@x + beta*y`).
+     *
+     * @tparam T          Scalar type (e.g. `float`, `double`).
+     * @tparam M          Number of rows of `A` (compile-time constant).
+     * @tparam N          Number of columns of `A` (compile-time constant).
+     * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+     * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `M*N` elements.
+     * @param x      Input vector (length `N`, or `M` when transposed).
+     * @param beta   Scalar multiplier on the prior `y`.
+     * @param y      In/out vector (length `M`, or `N` when transposed).
+     */
     template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
     __device__ void gemv(T alpha, T *A, T *x, T beta, T *y)
     {
@@ -1134,6 +1487,22 @@ namespace grid {
         gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, x, beta, y);
     }
     
+    /**
+     * @brief Matrix-vector product: `y = alpha * A * x` (GEMV), compile-time size, no-beta overload.
+     *
+     * Compile-time-`M`,`N` overload that overwrites `y` (no `beta * y` term). NumPy
+     * equivalent: `y = alpha*A@x` (or `alpha*A.T@x` when transposed).
+     *
+     * @tparam T          Scalar type (e.g. `float`, `double`).
+     * @tparam M          Number of rows of `A` (compile-time constant).
+     * @tparam N          Number of columns of `A` (compile-time constant).
+     * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+     * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A      Input matrix of `M*N` elements.
+     * @param x      Input vector (length `N`, or `M` when transposed).
+     * @param y      Output vector (length `M`, or `N` when transposed).
+     */
     template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
     __device__ void gemv(T alpha, T *A, T *x, T *y)
     {
@@ -1154,6 +1523,24 @@ namespace grid {
     // distributed over rows, and the inner column loop is fully unrolled by the
     // compiler since N and ROW_STRIDE are compile-time constants.
     
+    /**
+     * @brief Column-major GEMV with an explicit leading dimension: `y = alpha * A * x + beta * y`.
+     *
+     * Compile-time-`M`,`N` matrix-vector product where `A[i][j] = A[i + j*ROW_STRIDE]`,
+     * letting an `M×N` matrix be addressed inside a larger array (e.g. a spatial 6×6
+     * embedded in a wider buffer, as in GRiD). When `ROW_STRIDE == M` this is
+     * identical to `glass::gemv<T,M,N>`. NumPy equivalent: `y = alpha*A@x + beta*y`.
+     *
+     * @tparam T           Scalar type (e.g. `float`, `double`).
+     * @tparam M           Number of rows of `A` (compile-time constant).
+     * @tparam N           Number of columns of `A` (compile-time constant).
+     * @tparam ROW_STRIDE  Column-major leading dimension of `A` (default `M`).
+     * @param A      Input matrix, addressed at `A[row + col*ROW_STRIDE]`.
+     * @param x      Input vector of length `N`.
+     * @param y      In/out vector of length `M`.
+     * @param alpha  Scalar multiplier on the product.
+     * @param beta   Scalar multiplier on the prior `y`.
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t ROW_STRIDE = M>
     __device__ void row_strided_gemv(const T* A, const T* x, T* y, T alpha, T beta)
     {
@@ -1167,6 +1554,21 @@ namespace grid {
         }
     }
     
+    /**
+     * @brief Column-major GEMV with an explicit leading dimension: `y = alpha * A * x`, no-beta overload.
+     *
+     * No-`beta` variant of the strided GEMV that overwrites `y`, with
+     * `A[i][j] = A[i + j*ROW_STRIDE]`. NumPy equivalent: `y = alpha*A@x`.
+     *
+     * @tparam T           Scalar type (e.g. `float`, `double`).
+     * @tparam M           Number of rows of `A` (compile-time constant).
+     * @tparam N           Number of columns of `A` (compile-time constant).
+     * @tparam ROW_STRIDE  Column-major leading dimension of `A` (default `M`).
+     * @param A      Input matrix, addressed at `A[row + col*ROW_STRIDE]`.
+     * @param x      Input vector of length `N`.
+     * @param y      Output vector of length `M`.
+     * @param alpha  Scalar multiplier on the product.
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t ROW_STRIDE = M>
     __device__ void row_strided_gemv(const T* A, const T* x, T* y, T alpha)
     {
@@ -1244,6 +1646,40 @@ namespace grid {
     // must be DISJOINT (each output row written exactly once); with ATOMIC_Y they
     // may overlap freely (results are atomically summed).
     
+    /**
+     * @brief Segmented (batched) column-major GEMV: `y_seg = alpha*A_seg*x_seg + beta*y_seg` for each segment.
+     *
+     * Computes `segments` independent small GEMVs concurrently in one block. Each
+     * `A_seg` is `M×N`, column-major with leading dimension `ROW_STRIDE`, and base
+     * offsets into the flat `A`/`x`/`y` arrays come from the descriptor arrays. A
+     * single block-stride loop walks the flattened `segments * OUT_ROWS` outputs
+     * (`OUT_ROWS = TRANSPOSE ? N : M`). Optional flags: `TRANSPOSE` computes
+     * `Aᵀ_seg · x_seg` (the leaf→root direction); `ATOMIC_Y` accumulates into `y`
+     * via `atomicAdd` so segments may overlap (`beta` is then ignored — pre-scale
+     * `y` yourself); `FUSE_SCALED_ADD` folds an extra per-segment `S * scalar` term
+     * into the single `y` store (non-atomic path only).
+     *
+     * @tparam T               Scalar type (e.g. `float`, `double`).
+     * @tparam M               Rows per segment matrix (compile-time constant).
+     * @tparam N               Columns per segment matrix (compile-time constant).
+     * @tparam ROW_STRIDE      Column-major leading dimension of each `A_seg` (default `M`).
+     * @tparam FUSE_SCALED_ADD When true, add `S[seg]*scalar[seg]` into the output (non-atomic only).
+     * @tparam TRANSPOSE       When true, each segment computes `Aᵀ_seg · x_seg`.
+     * @tparam ATOMIC_Y        When true, accumulate into `y` with `atomicAdd` (overlap-safe).
+     * @tparam IDX_T           Index type of the offset descriptor arrays (default `int`).
+     * @param segments    Number of independent GEMVs.
+     * @param seg_a_off   Per-segment base element offsets of `A_seg` within `A`.
+     * @param seg_x_off   Per-segment base element offsets of `x_seg` within `x`.
+     * @param seg_y_off   Per-segment base element offsets of `y_seg` within `y`.
+     * @param A           Flat backing array of all segment matrices.
+     * @param x           Flat backing array of all segment input vectors.
+     * @param y           Flat backing array of all segment output vectors (in/out).
+     * @param alpha       Scalar multiplier on each segment product.
+     * @param beta        Scalar multiplier on the prior `y` (ignored under `ATOMIC_Y`).
+     * @param seg_s_off   Per-segment offsets of `S_seg` within `S` (FUSE only).
+     * @param S           Flat backing array for the fused scaled-add term (FUSE only).
+     * @param scalar      Per-segment multiplier for the fused scaled-add (FUSE only).
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t ROW_STRIDE = M,
               bool FUSE_SCALED_ADD = false, bool TRANSPOSE = false,
               bool ATOMIC_Y = false, typename IDX_T = int>
@@ -1286,6 +1722,34 @@ namespace grid {
         }
     }
     
+    /**
+     * @brief Segmented (batched) column-major GEMV, no-beta overload: `y_seg = alpha*A_seg*x_seg` per segment.
+     *
+     * No-`beta` variant of `segmented_row_strided_gemv`: each segment overwrites its
+     * `y_seg` (optionally plus the fused scaled-add) or computes the transpose. This
+     * also serves as the `ATOMIC_Y` entry point, since atomic accumulate takes no
+     * `beta` (see the full overload's note on beta-under-atomic).
+     *
+     * @tparam T               Scalar type (e.g. `float`, `double`).
+     * @tparam M               Rows per segment matrix (compile-time constant).
+     * @tparam N               Columns per segment matrix (compile-time constant).
+     * @tparam ROW_STRIDE      Column-major leading dimension of each `A_seg` (default `M`).
+     * @tparam FUSE_SCALED_ADD When true, add `S[seg]*scalar[seg]` into the output (non-atomic only).
+     * @tparam TRANSPOSE       When true, each segment computes `Aᵀ_seg · x_seg`.
+     * @tparam ATOMIC_Y        When true, accumulate into `y` with `atomicAdd` (overlap-safe).
+     * @tparam IDX_T           Index type of the offset descriptor arrays (default `int`).
+     * @param segments    Number of independent GEMVs.
+     * @param seg_a_off   Per-segment base element offsets of `A_seg` within `A`.
+     * @param seg_x_off   Per-segment base element offsets of `x_seg` within `x`.
+     * @param seg_y_off   Per-segment base element offsets of `y_seg` within `y`.
+     * @param A           Flat backing array of all segment matrices.
+     * @param x           Flat backing array of all segment input vectors.
+     * @param y           Flat backing array of all segment output vectors (out, or accumulated under `ATOMIC_Y`).
+     * @param alpha       Scalar multiplier on each segment product.
+     * @param seg_s_off   Per-segment offsets of `S_seg` within `S` (FUSE only).
+     * @param S           Flat backing array for the fused scaled-add term (FUSE only).
+     * @param scalar      Per-segment multiplier for the fused scaled-add (FUSE only).
+     */
     // No-beta overload: y_seg = alpha * A_seg * x_seg (+ fused scaled add), or its
     // transpose.  Doubles as the ATOMIC_Y entry point (atomic accumulate takes no
     // beta — see the header note on beta-under-atomic).
@@ -1451,6 +1915,23 @@ namespace grid {
     
     // ─── runtime variants ─────────────────────────────────────────────────────────
     
+    /**
+     * @brief General matrix-matrix multiply: `C = alpha * A * op(B) + beta * C` (GEMM).
+     *
+     * Runtime-size, single-block, flat-element parallelism: each thread owns output
+     * elements strided over the block. Storage order is uniform across A, B, C
+     * (`ROW_MAJOR` flag; false = column-major). NumPy equivalent:
+     * `C = alpha * A @ B + beta * C`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T` (pure-SIMT path requires B square).
+     * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+     * @param m,n,k  Dimensions: A is m x n, B is n x k (or k x n when TRANSPOSE_B), C is m x (TRANSPOSE_B ? n : k).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param C      In/out result matrix.
+     */
     template <typename T, bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
     __device__ void gemm(uint32_t m, uint32_t n, uint32_t k,
                          T alpha, T *A, T *B, T beta, T *C)
@@ -1460,6 +1941,21 @@ namespace grid {
         gemm_impl<T, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(rank, size, m, n, k, alpha, A, B, beta, C);
     }
     
+    /**
+     * @brief General matrix-matrix multiply with implicit `beta = 0`: `C = alpha * A * op(B)` (GEMM).
+     *
+     * Runtime-size overload that overwrites C (the existing C is not read), avoiding
+     * the `beta * C` term. Single-block, flat-element parallelism; uniform storage
+     * order. NumPy equivalent: `C = alpha * A @ B`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T` (pure-SIMT path requires B square).
+     * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+     * @param m,n,k  Dimensions: A is m x n, B is n x k (or k x n when TRANSPOSE_B), C is m x (TRANSPOSE_B ? n : k).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param C      Output result matrix (overwritten).
+     */
     template <typename T, bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
     __device__ void gemm(uint32_t m, uint32_t n, uint32_t k,
                          T alpha, T *A, T *B, T *C)
@@ -1469,6 +1965,22 @@ namespace grid {
         gemm_impl<T, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(rank, size, m, n, k, alpha, A, B, C);
     }
     
+    /**
+     * @brief GEMM with per-matrix layout control: `C = alpha * A * op(B) + beta * C`.
+     *
+     * Like `gemm` but the storage order of A, B and C is set independently rather
+     * than by a single uniform flag. Runtime-size, single-block. NumPy equivalent:
+     * `C = alpha * A @ B + beta * C`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+     * @tparam ROW_MAJOR_A/ROW_MAJOR_B/ROW_MAJOR_C  Storage order per matrix (false = column-major).
+     * @param m,n,k  Dimensions: A is m x n, B is n x k (or k x n when TRANSPOSE_B), C is m x (TRANSPOSE_B ? n : k).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param C      In/out result matrix.
+     */
     template <typename T, bool TRANSPOSE_B,
               bool ROW_MAJOR_A, bool ROW_MAJOR_B, bool ROW_MAJOR_C>
     __device__ void gemm_ex(uint32_t m, uint32_t n, uint32_t k,
@@ -1479,6 +1991,20 @@ namespace grid {
         gemm_impl<T, TRANSPOSE_B, ROW_MAJOR_A, ROW_MAJOR_B, ROW_MAJOR_C>(rank, size, m, n, k, alpha, A, B, beta, C);
     }
     
+    /**
+     * @brief GEMM with per-matrix layout control and implicit `beta = 0`: `C = alpha * A * op(B)`.
+     *
+     * Per-matrix-layout overload that overwrites C (the existing C is not read).
+     * Runtime-size, single-block. NumPy equivalent: `C = alpha * A @ B`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+     * @tparam ROW_MAJOR_A/ROW_MAJOR_B/ROW_MAJOR_C  Storage order per matrix (false = column-major).
+     * @param m,n,k  Dimensions: A is m x n, B is n x k (or k x n when TRANSPOSE_B), C is m x (TRANSPOSE_B ? n : k).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param C      Output result matrix (overwritten).
+     */
     template <typename T, bool TRANSPOSE_B,
               bool ROW_MAJOR_A, bool ROW_MAJOR_B, bool ROW_MAJOR_C>
     __device__ void gemm_ex(uint32_t m, uint32_t n, uint32_t k,
@@ -1491,6 +2017,23 @@ namespace grid {
     
     // ─── compile-time size variants ───────────────────────────────────────────────
     
+    /**
+     * @brief Compile-time-size GEMM: `C = alpha * A * op(B) + beta * C` (GEMM).
+     *
+     * Dimensions are template parameters so the compiler unrolls the inner loops and
+     * replaces the `el % M` / `el / M` index math with magic-number multiplies.
+     * Single-block, flat-element parallelism, uniform storage order. NumPy
+     * equivalent: `C = alpha * A @ B + beta * C`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K (or K x N when TRANSPOSE_B), C is M x (TRANSPOSE_B ? N : K).
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+     * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param C      In/out result matrix.
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
     __device__ void gemm(T alpha, T *A, T *B, T beta, T *C)
@@ -1500,6 +2043,21 @@ namespace grid {
         gemm_impl_ct<T, M, N, K, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(rank, size, alpha, A, B, beta, C);
     }
     
+    /**
+     * @brief Compile-time-size GEMM with implicit `beta = 0`: `C = alpha * A * op(B)`.
+     *
+     * Compile-time-size overload that overwrites C (the existing C is not read).
+     * Single-block, flat-element parallelism, uniform storage order. NumPy
+     * equivalent: `C = alpha * A @ B`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K (or K x N when TRANSPOSE_B), C is M x (TRANSPOSE_B ? N : K).
+     * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+     * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices.
+     * @param C      Output result matrix (overwritten).
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
     __device__ void gemm(T alpha, T *A, T *B, T *C)
@@ -1509,7 +2067,77 @@ namespace grid {
         gemm_impl_ct<T, M, N, K, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(rank, size, alpha, A, B, C);
     }
     
+    // ─── single-warp compile-time GEMM ───────────────────────────────────────────
+    namespace warp {
+        /**
+         * @brief Single-warp compile-time-size GEMM: `C = alpha * A * op(B) + beta * C`.
+         *
+         * One 32-lane warp computes the product with flat per-element parallelism
+         * (lanes stride over the `M * Ccols` outputs) — same semantics as the
+         * block-scoped compile-time `gemm`, but scoped to a single warp for
+         * warp-per-problem kernels (e.g. 4×4 homogeneous-transform multiplies). No
+         * inter-lane communication, no sync. `C` must not alias `A`/`B`. NumPy:
+         * `C = alpha * A @ op(B) + beta * C`.
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K (or K x N when TRANSPOSE_B), C is M x (TRANSPOSE_B ? N : K).
+         * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+         * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+         * @param C      In/out result matrix.
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
+        __device__ void gemm(T alpha, T *A, T *B, T beta, T *C)
+        {
+            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(lane, 32u, alpha, A, B, beta, C);
+        }
+    
+        /**
+         * @brief Single-warp compile-time-size GEMM with implicit `beta = 0`: `C = alpha * A * op(B)`.
+         *
+         * Overwrites C (the existing C is not read). Otherwise identical to the
+         * beta overload above. NumPy: `C = alpha * A @ op(B)`.
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K (or K x N when TRANSPOSE_B), C is M x (TRANSPOSE_B ? N : K).
+         * @tparam TRANSPOSE_B  If true, computes `A @ B^T`.
+         * @tparam ROW_MAJOR  Storage order for A, B and C (false = column-major / Fortran).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param C      Output result matrix (overwritten).
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_B = false, bool ROW_MAJOR = false>
+        __device__ void gemm(T alpha, T *A, T *B, T *C)
+        {
+            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_B, ROW_MAJOR, ROW_MAJOR, ROW_MAJOR>(lane, 32u, alpha, A, B, C);
+        }
+    }
+    
     // ─── tiled GEMM (shared-memory staging, column-major only) ───────────────────
+    /**
+     * @brief Tiled GEMM with shared-memory staging: `C = alpha * A * B + beta * C`.
+     *
+     * Column-major only. Stages `TILE`-wide column blocks of A and the matching rows
+     * of B into the caller-provided shared-memory scratch, accumulating the product
+     * across tiles. Single-block; best when A/B columns can be reused from shared
+     * memory. NumPy equivalent: `C = alpha * A @ B + beta * C`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TILE  Column-block width staged per pass.
+     * @param m,n,k  Dimensions: A is m x n, B is n x k, C is m x k.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices (column-major).
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param C      In/out result matrix.
+     * @param s_A    Shared scratch of `m * TILE` elements for the A tile.
+     * @param s_B    Shared scratch of `TILE * k` elements for the B tile.
+     */
     template <typename T, int TILE = 8>
     __device__ void gemm_tiled(uint32_t m, uint32_t n, uint32_t k,
                                 T alpha, T *A, T *B, T beta, T *C,
@@ -1545,6 +2173,23 @@ namespace grid {
     }
     
     // ─── auto-dispatch: tiled when scratch provided and m*k <= blockDim ──────────
+    /**
+     * @brief Auto-dispatching GEMM: `C = alpha * A * B + beta * C` (column-major).
+     *
+     * Selects `gemm_tiled` when shared-memory scratch is provided and one output
+     * element fits per thread (`m * k <= blockDim`); otherwise falls back to the
+     * plain `gemm`. Single-block. NumPy equivalent: `C = alpha * A @ B + beta * C`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam TILE  Tile width passed through to `gemm_tiled`.
+     * @param m,n,k  Dimensions: A is m x n, B is n x k, C is m x k.
+     * @param alpha  Scalar multiplier on the product.
+     * @param A,B    Input matrices (column-major).
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param C      In/out result matrix.
+     * @param s_A    Optional shared scratch for the A tile (nullptr selects the plain path).
+     * @param s_B    Optional shared scratch for the B tile.
+     */
     template <typename T, int TILE = 8>
     __device__ void gemm_dispatch(uint32_t m, uint32_t n, uint32_t k,
                                    T alpha, T *A, T *B, T beta, T *C,
@@ -1558,6 +2203,23 @@ namespace grid {
     }
     
     namespace high_speed {
+        /**
+         * @brief High-speed (tiled) GEMM: `C = alpha * A * B + beta * C` (column-major).
+         *
+         * `glass::high_speed::gemm` — a thin alias that always takes the shared-memory
+         * tiled path (`gemm_tiled`). Requires the caller to supply scratch. NumPy
+         * equivalent: `C = alpha * A @ B + beta * C`.
+         *
+         * @tparam T  Scalar type.
+         * @tparam TILE  Tile width passed through to `gemm_tiled`.
+         * @param m,n,k  Dimensions: A is m x n, B is n x k, C is m x k.
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices (column-major).
+         * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+         * @param C      In/out result matrix.
+         * @param s_A    Shared scratch of `m * TILE` elements for the A tile.
+         * @param s_B    Shared scratch of `TILE * k` elements for the B tile.
+         */
         template <typename T, int TILE = 8>
         __device__ void gemm(uint32_t m, uint32_t n, uint32_t k,
                              T alpha, T *A, T *B, T beta, T *C,
@@ -1580,6 +2242,25 @@ namespace grid {
     // compiler magic-multiply since M is compile-time.  The inner N-loop is fully
     // unrolled since N, A_RS, B_RS are all compile-time constants.
     
+    /**
+     * @brief Strided compile-time GEMM: `C = alpha * A * B + beta * C` with custom leading dims.
+     *
+     * Column-major GEMM where A and B carry explicit leading dimensions (column
+     * strides): `A[i][j] = A[i + j*A_RS]`, `B[j][l] = B[j + l*B_RS]`. Output C is
+     * standard column-major with LDC = M. When `A_RS == M` and `B_RS == N` this is
+     * identical to `glass::gemm<T,M,N,K>`. Single-block, flat-element parallelism;
+     * the inner N-loop is fully unrolled. NumPy equivalent:
+     * `C = alpha * A @ B + beta * C` on the strided sub-views.
+     *
+     * @tparam T  Scalar type.
+     * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K, C is M x K.
+     * @tparam A_RS  Column stride (leading dimension) of A (default M).
+     * @tparam B_RS  Column stride (leading dimension) of B (default N).
+     * @param A,B    Input matrices (column-major, strided).
+     * @param C      In/out result matrix (column-major, LDC = M).
+     * @param alpha  Scalar multiplier on the product.
+     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               uint32_t A_RS = M, uint32_t B_RS = N>
     __device__ void row_strided_gemm(const T* A, const T* B, T* C, T alpha, T beta)
@@ -1595,6 +2276,21 @@ namespace grid {
         }
     }
     
+    /**
+     * @brief Strided compile-time GEMM with implicit `beta = 0`: `C = alpha * A * B`.
+     *
+     * Same as the four-scalar overload but overwrites C (the existing C is not
+     * read). Column-major with explicit leading dims `A_RS` / `B_RS` for A and B;
+     * LDC = M. NumPy equivalent: `C = alpha * A @ B`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam M,N,K  Compile-time dimensions: A is M x N, B is N x K, C is M x K.
+     * @tparam A_RS  Column stride (leading dimension) of A (default M).
+     * @tparam B_RS  Column stride (leading dimension) of B (default N).
+     * @param A,B    Input matrices (column-major, strided).
+     * @param C      Output result matrix (overwritten; column-major, LDC = M).
+     * @param alpha  Scalar multiplier on the product.
+     */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               uint32_t A_RS = M, uint32_t B_RS = N>
     __device__ void row_strided_gemm(const T* A, const T* B, T* C, T alpha)
@@ -1666,6 +2362,39 @@ namespace grid {
     // a_idx / b_idx may repeat or alias freely.  No alpha/beta — pure C = A*B
     // overwrite (or, under ATOMIC_C, pure += accumulate into pre-zeroed C).
     
+    /**
+     * @brief Indexed/gather batched square GEMM: `C[c_idx[p]] = op(A[a_idx[p]]) * op(B[b_idx[p]])`.
+     *
+     * For each pair `p` in `[0, pairs)` multiplies two `DIM x DIM` column-major
+     * matrices selected by index into flat base buffers (`a_idx[p]` is a MATRIX
+     * index, so the matrix lives at offset `a_idx[p] * DIM * DIM`), computing all
+     * pairs concurrently in a single block. This is the indexed/gather analogue of
+     * `row_strided_gemm`, useful for assembling many independent small (e.g. 4x4
+     * SE(3)) products from index lists. No alpha/beta — a pure overwrite
+     * (`C = op(A) * op(B)`) unless `ATOMIC_C` is set.
+     *
+     * Layout flags read the factors transposed in place (matrices stay square
+     * `DIM x DIM`, so the output is always `DIM x DIM`):
+     * `TRANSPOSE_A` gives `A_p^T * B_p`, `TRANSPOSE_B` gives `A_p * B_p^T`, and both
+     * give `A_p^T * B_p^T`. Without `ATOMIC_C`, distinct pairs MUST target distinct
+     * `c_idx` slots (each output written once); `a_idx` / `b_idx` may alias freely.
+     *
+     * @tparam T  Scalar type.
+     * @tparam DIM  Compile-time matrix dimension (square; inner loop fully unrolled).
+     * @tparam TRANSPOSE_A  If true, the left factor is read transposed (`C_p = A_p^T * ...`).
+     * @tparam TRANSPOSE_B  If true, the right factor is read transposed (`... * B_p^T`).
+     * @tparam ATOMIC_C  If true, accumulate via atomicAdd (`C[c_idx[p]] += ...`), allowing
+     *                   several pairs to share a `c_idx` slot; the caller must PRE-ZERO
+     *                   (or pre-load) the touched C slots, and no beta is applied.
+     * @tparam IDX_T  Index type of the *_idx arrays.
+     * @param pairs   Number of independent GEMMs.
+     * @param a_idx   Per-pair matrix slot of the left factor in `A_base` (length `pairs`).
+     * @param b_idx   Per-pair matrix slot of the right factor in `B_base` (length `pairs`).
+     * @param c_idx   Per-pair matrix slot of the destination in `C_base` (length `pairs`).
+     * @param A_base  Flat array of `DIM x DIM` left-factor matrices.
+     * @param B_base  Flat array of `DIM x DIM` right-factor matrices.
+     * @param C_base  Flat array of `DIM x DIM` destination matrices (written, or accumulated if ATOMIC_C).
+     */
     template <typename T, uint32_t DIM = 4, bool TRANSPOSE_A = false,
               bool TRANSPOSE_B = false, bool ATOMIC_C = false, typename IDX_T = int>
     __device__ void indexed_batched_gemm(
@@ -1701,6 +2430,20 @@ namespace grid {
     
     // BEGIN GLASS src/base/L3/inv.cuh
     
+    /**
+     * @brief In-place matrix inverse via Gauss-Jordan on an augmented `[A | I]` layout.
+     *
+     * Reduces a column-major augmented `dimA x (2*dimA)` matrix `[A | I]` so that on
+     * return columns `dimA..2*dimA-1` hold `A^-1`. Single-block; the pivot loop is
+     * serial (pivot-to-pivot dependency) while each pivot's cell updates are
+     * parallelized across the block. NumPy equivalent: `Ainv = np.linalg.inv(A)`.
+     *
+     * @tparam T  Scalar type.
+     * @param dimA    Matrix dimension (A is dimA x dimA).
+     * @param A       In/out augmented `[A | I]` buffer (column-major, dimA x 2*dimA);
+     *                on return its right half holds `A^-1`.
+     * @param s_temp  Shared scratch of `(2*dimA + 1) * sizeof(T)` bytes.
+     */
     // Gauss-Jordan inversion of an augmented dimA×(2*dimA) matrix in-place.
     // Expected layout: column-major [A | I]; on return columns dimA..2*dimA-1 hold A^-1.
     // s_temp: (2*dimA+1)*sizeof(T) bytes.
@@ -1726,13 +2469,155 @@ namespace grid {
         }
     }
     
+    /**
+     * @brief Compile-time-size in-place matrix inverse (augmented `[A | I]` Gauss-Jordan).
+     *
+     * Same as the runtime `invertMatrix` but with the dimension as a template
+     * parameter. NumPy equivalent: `Ainv = np.linalg.inv(A)`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam N  Matrix dimension (A is N x N).
+     * @param A       In/out augmented `[A | I]` buffer (column-major, N x 2*N);
+     *                on return its right half holds `A^-1`.
+     * @param s_temp  Shared scratch of `(2*N + 1) * sizeof(T)` bytes.
+     */
     template <typename T, uint32_t N>
     __device__ void invertMatrix(T *A, T *s_temp)
     {
         invertMatrix<T>(N, A, s_temp);
     }
     
+    /**
+     * @brief Fused in-place inverse of TWO independent matrices (augmented `[A | I]`).
+     *
+     * Inverts `A` (dimA x dimA) and `B` (dimB x dimB) simultaneously in one block by
+     * interleaving their Gauss-Jordan sweeps over a shared `MAX_DIM = max(dimA, dimB)`
+     * pivot loop (a matrix sits idle once its dimension is exhausted). Same augmented
+     * `[V | I]` convention as the single-matrix `invertMatrix`: each buffer is
+     * column-major `dim x (2*dim)` and on return its right half holds the inverse.
+     * Fewer barriers than two separate calls. NumPy: `Ainv, Binv = inv(A), inv(B)`.
+     *
+     * @tparam T  Scalar type.
+     * @param dimA,dimB  Matrix dimensions.
+     * @param MAX_DIM    `max(dimA, dimB)` — the shared pivot-loop length.
+     * @param A,B        In/out augmented `[V | I]` buffers (column-major, dim x 2*dim).
+     * @param s_temp     Shared scratch of `(2*dimA + 2*dimB + 2) * sizeof(T)` bytes.
+     */
+    template <typename T>
+    __device__ void invertMatrix(uint32_t dimA, uint32_t dimB, uint32_t MAX_DIM, T *A, T *B, T *s_temp)
+    {
+        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
+        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        T *s_memA = s_temp;
+        T *s_memB = &s_memA[2*dimA + 1];
+        for (unsigned pivRC = 0; pivRC < MAX_DIM; pivRC++) {
+            bool AActive = pivRC < dimA;
+            bool BActive = pivRC < dimB;
+            unsigned pivOffA = pivRC * dimA;
+            unsigned pivOffB = pivRC * dimB;
+            for (unsigned ind = rank; ind < MAX_DIM; ind += size) {
+                if (AActive && ind < dimA) s_memA[ind] = A[ind + pivOffA];
+                if (BActive && ind < dimB) s_memB[ind] = B[ind + pivOffB];
+            }
+            for (unsigned ind = rank; ind < MAX_DIM + 1; ind += size) {
+                if (AActive && ind < dimA + 1) s_memA[ind + dimA] = A[ind*dimA + pivRC + pivOffA];
+                if (BActive && ind < dimB + 1) s_memB[ind + dimB] = B[ind*dimB + pivRC + pivOffB];
+            }
+            __syncthreads();
+            for (unsigned ind = rank; ind < MAX_DIM*(MAX_DIM + 1); ind += size) {
+                if (AActive && ind < dimA*(dimA + 1)) {
+                    unsigned row = ind % dimA, col = ind / dimA;
+                    if (row == pivRC) A[pivOffA + ind] /= s_memA[pivRC];
+                    else A[pivOffA + ind] -= s_memA[row] / s_memA[pivRC] * s_memA[dimA + col];
+                }
+                if (BActive && ind < dimB*(dimB + 1)) {
+                    unsigned row = ind % dimB, col = ind / dimB;
+                    if (row == pivRC) B[pivOffB + ind] /= s_memB[pivRC];
+                    else B[pivOffB + ind] -= s_memB[row] / s_memB[pivRC] * s_memB[dimB + col];
+                }
+            }
+            __syncthreads();
+        }
+    }
     
+    /**
+     * @brief Fused in-place inverse of THREE independent matrices (augmented `[A | I]`).
+     *
+     * Inverts `A`,`B`,`C` simultaneously in one block over a shared
+     * `MAX_DIM = max(dimA, dimB, dimC)` pivot loop (each matrix idles once exhausted).
+     * Same augmented `[V | I]` convention as the single-matrix `invertMatrix`. Used by
+     * GATO's Schur kernel (Q_k, Q_kp1, R_k). NumPy: invert each independently.
+     *
+     * @tparam T  Scalar type.
+     * @param dimA,dimB,dimC  Matrix dimensions.
+     * @param MAX_DIM         `max(dimA, dimB, dimC)` — the shared pivot-loop length.
+     * @param A,B,C           In/out augmented `[V | I]` buffers (column-major, dim x 2*dim).
+     * @param s_temp          Shared scratch of `(2*dimA + 2*dimB + 2*dimC + 3) * sizeof(T)` bytes.
+     */
+    template <typename T>
+    __device__ void invertMatrix(uint32_t dimA, uint32_t dimB, uint32_t dimC, uint32_t MAX_DIM, T *A, T *B, T *C, T *s_temp)
+    {
+        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
+        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        T *s_memA = s_temp;
+        T *s_memB = &s_memA[2*dimA + 1];
+        T *s_memC = &s_memB[2*dimB + 1];
+        for (unsigned pivRC = 0; pivRC < MAX_DIM; pivRC++) {
+            bool AActive = pivRC < dimA;
+            bool BActive = pivRC < dimB;
+            bool CActive = pivRC < dimC;
+            unsigned pivOffA = pivRC * dimA;
+            unsigned pivOffB = pivRC * dimB;
+            unsigned pivOffC = pivRC * dimC;
+            for (unsigned ind = rank; ind < MAX_DIM; ind += size) {
+                if (AActive && ind < dimA) s_memA[ind] = A[ind + pivOffA];
+                if (BActive && ind < dimB) s_memB[ind] = B[ind + pivOffB];
+                if (CActive && ind < dimC) s_memC[ind] = C[ind + pivOffC];
+            }
+            for (unsigned ind = rank; ind < MAX_DIM + 1; ind += size) {
+                if (AActive && ind < dimA + 1) s_memA[ind + dimA] = A[ind*dimA + pivRC + pivOffA];
+                if (BActive && ind < dimB + 1) s_memB[ind + dimB] = B[ind*dimB + pivRC + pivOffB];
+                if (CActive && ind < dimC + 1) s_memC[ind + dimC] = C[ind*dimC + pivRC + pivOffC];
+            }
+            __syncthreads();
+            for (unsigned ind = rank; ind < MAX_DIM*(MAX_DIM + 1); ind += size) {
+                if (AActive && ind < dimA*(dimA + 1)) {
+                    unsigned row = ind % dimA, col = ind / dimA;
+                    if (row == pivRC) A[pivOffA + ind] /= s_memA[pivRC];
+                    else A[pivOffA + ind] -= s_memA[row] / s_memA[pivRC] * s_memA[dimA + col];
+                }
+                if (BActive && ind < dimB*(dimB + 1)) {
+                    unsigned row = ind % dimB, col = ind / dimB;
+                    if (row == pivRC) B[pivOffB + ind] /= s_memB[pivRC];
+                    else B[pivOffB + ind] -= s_memB[row] / s_memB[pivRC] * s_memB[dimB + col];
+                }
+                if (CActive && ind < dimC*(dimC + 1)) {
+                    unsigned row = ind % dimC, col = ind / dimC;
+                    if (row == pivRC) C[pivOffC + ind] /= s_memC[pivRC];
+                    else C[pivOffC + ind] -= s_memC[row] / s_memC[pivRC] * s_memC[dimC + col];
+                }
+            }
+            __syncthreads();
+        }
+    }
+    
+    
+    /**
+     * @brief Dense (no augmented buffer) in-place matrix inverse via dual-update Gauss-Jordan.
+     *
+     * Inverts a column-major `dimA x dimA` matrix without materializing the `[A | I]`
+     * augmented layout: tracks A and a separate inverse buffer through the same
+     * `[A | I] -> [I | A^{-1}]` reduction. On return BOTH `A` and `Ainv` hold
+     * `A^{-1}` (callers that want the original A preserved should copy it first).
+     * Single-block: serial pivot loop, block-parallel per-pivot updates. NumPy
+     * equivalent: `Ainv = np.linalg.inv(A)`.
+     *
+     * @tparam T  Scalar type.
+     * @param dimA    Matrix dimension (A is dimA x dimA).
+     * @param A       In/out column-major dimA x dimA matrix; on return holds `A^{-1}`.
+     * @param Ainv    Workspace column-major dimA x dimA; on return also holds `A^{-1}`.
+     * @param s_temp  Shared scratch of `3 * dimA * sizeof(T)` bytes.
+     */
     // Block-cooperative Gauss-Jordan inversion of a dimA×dimA matrix.
     //   A:    in/out, column-major dimA×dimA.  On return: A := A^{-1}.
     //   Ainv: workspace, column-major dimA×dimA (overwritten).  On return: A^{-1}.
@@ -1784,6 +2669,19 @@ namespace grid {
         }
     }
     
+    /**
+     * @brief Compile-time-size dense in-place matrix inverse (dual-update Gauss-Jordan).
+     *
+     * Same as the runtime `invertMatrix_dense` but with the dimension as a template
+     * parameter; on return both `A` and `Ainv` hold `A^{-1}`. NumPy equivalent:
+     * `Ainv = np.linalg.inv(A)`.
+     *
+     * @tparam T  Scalar type.
+     * @tparam N  Matrix dimension (A is N x N).
+     * @param A       In/out column-major N x N matrix; on return holds `A^{-1}`.
+     * @param Ainv    Workspace column-major N x N; on return also holds `A^{-1}`.
+     * @param s_temp  Shared scratch of `3 * N * sizeof(T)` bytes.
+     */
     template <typename T, uint32_t N>
     __device__ void invertMatrix_dense(T *A, T *Ainv, T *s_temp)
     {
@@ -9631,6 +10529,66 @@ namespace grid {
                 o[14] = p[2]*c[12]  + p[6]*c[13]  + p[10]*c[14] + p[14];
             }
             o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1;
+        }
+    }
+
+    /**
+     * Single-joint homogeneous-transform builder: writes joint j's 4x4 local transform (16 cells) into s_Xj at an EXPLICIT angle theta, sourcing the constant cells from the pre-loaded s_XmatsHom and overriding only the q-dependent cells. Robot-general (switch over the parser's per-joint Xmats). Lets a caller re-evaluate one perturbed joint without recomputing the whole chain (coordinate-descent candidate FK / suffix recompute).
+     *
+     * Notes:
+     *   Assumes the constant (q-independent) cells of s_XmatsHom are pre-loaded.
+     *
+     * @param s_Xj is the 16-element destination for joint j's local transform
+     * @param s_XmatsHom is the pointer to the per-joint homogeneous transforms (16 per joint)
+     * @param j is the joint id to (re)build
+     * @param theta is the joint angle to evaluate at
+     */
+    template <typename T>
+    __device__ __forceinline__
+    void update_XmatHom_joint(T *s_Xj, const T *s_XmatsHom, int j, T theta) {
+        const T s = static_cast<T>(sin(theta));
+        const T c = static_cast<T>(cos(theta));
+        (void)s; (void)c;
+        #pragma unroll
+        for (int m = 0; m < 16; ++m) { s_Xj[m] = s_XmatsHom[16*j + m]; }
+        switch (j) {
+            case 0: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[1] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[5] = static_cast<T>(c);
+            } break;
+            case 1: {
+                s_Xj[0] = static_cast<T>(s);
+                s_Xj[2] = static_cast<T>(-c);
+                s_Xj[4] = static_cast<T>(c);
+                s_Xj[6] = static_cast<T>(s);
+            } break;
+            case 2: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[1] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[5] = static_cast<T>(c);
+            } break;
+            case 3: {
+                s_Xj[1] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(-s);
+                s_Xj[5] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(-c);
+            } break;
+            case 4: {
+                s_Xj[0] = static_cast<T>(s);
+                s_Xj[2] = static_cast<T>(-c);
+                s_Xj[4] = static_cast<T>(c);
+                s_Xj[6] = static_cast<T>(s);
+            } break;
+            case 5: {
+                s_Xj[1] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(-s);
+                s_Xj[5] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(-c);
+            } break;
+            default: break;
         }
     }
 
@@ -28058,125 +29016,137 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_43, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_44 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_44, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
+                auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_45, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+                auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+                auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_49 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_49 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
+                auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_54 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_54 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_54, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_55 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
+                auto _grid_kern_alias_55 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_55, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_56 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+                auto _grid_kern_alias_56 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_56, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+                auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_57, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_60 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_61 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_62 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_63 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_60 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_61 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_62 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_63 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_64 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_64 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_65 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
+                auto _grid_kern_alias_65 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_66 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+                auto _grid_kern_alias_66 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_66, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_67 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+                auto _grid_kern_alias_67 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_67, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_68 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_68 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_68, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_69 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_69 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_69, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_70 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_70, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_71 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_71, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_72 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_72, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_73 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_73, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_74 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_74, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_75 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_75, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_70 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_70, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_71 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_71, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_76 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_76, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_77 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_77, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_72 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_72, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_73 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_73, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_78 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_78, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_79 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_79, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_74 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_74, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_75 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_75, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_80 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_80, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_81 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_81, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_76 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_76, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_77 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_77, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_82 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_82, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_83 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_83, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_78 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_78, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_79 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_79, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_84 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_84, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_85 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_85, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_80 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_80, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_81 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_81, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_86 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_86, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_87 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_87, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (COM_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_82 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_82, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_83 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_83, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_88 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_88, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_89 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_89, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_84 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_84, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_85 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_85, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_90 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_90, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_91 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_91, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             if (ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
                 gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_86 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_86, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_87 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_87, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_92 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_92, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_93 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_93, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
         }
 
