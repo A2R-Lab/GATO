@@ -215,6 +215,7 @@ class BSQP:
 
     def reset(self):
         self.reset_dual()
+        self.reset_rho()  # adapted rho is solver state -> a full reset must clear it too
         self.set_f_ext_B(np.zeros((self.batch_size, 6)))
         self.XU_B = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu))
 
