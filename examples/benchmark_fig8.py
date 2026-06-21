@@ -1,5 +1,6 @@
 import sys
 import time
+import argparse
 import numpy as np
 import pickle
 from datetime import datetime
@@ -74,71 +75,70 @@ def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, 
     return result
 
 
-def main():
-    """Main benchmark runner."""
-    
-    # Configuration
-    config = {
-        'urdf_path': "examples/indy7_description/indy7.urdf",
-        'model_dir': "examples/indy7_description/",
-        'batch_sizes': [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
-        'N': 64,  # Horizon length
-        'dt': 0.01,
-        'sim_time': 10.0,
-        'sim_dt': 0.001,
-        'start_config': 'ready',  # Use named config from INDY7_START_CONFIGS
-    }
-    
-    # Override batch sizes if needed for testing
-    # config['batch_sizes'] = [1, 32, 128]  # Quick test
-    
-    # Load robot model
-    model, _, _ = pin.buildModelsFromUrdf(config['urdf_path'], config['model_dir'])
-    
-    # Generate figure-8 trajectory
-    fig8_traj = figure8(config['dt'], **FIG8_DEFAULT_PARAMS)
-    
-    # Get starting configuration
-    x_start = np.hstack((
-        INDY7_START_CONFIGS[config['start_config']], 
-        np.zeros(6)
-    ))
-    
-    # Results storage
+def _parse_int_list(s):
+    return [int(x) for x in str(s).split(',') if x != '']
+
+
+def run_sweep(model, model_path, batch_sizes, N, dt, sim_time, sim_dt, x_start,
+              fig8_traj, save=True):
+    """Run a batch-size sweep at a single horizon N. Saves a heatmap-compatible
+    per-N pickle (a bare list of per-batch result dicts, named
+    ``benchmark_fig8_{N}N.pkl`` — the format plots/fig8_benchmark_heatmap.ipynb
+    globs/loads) and returns the results list."""
     results = []
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
     print("=" * 60)
-    print("GATO Figure-8 Tracking Benchmark")
+    print(f"GATO Figure-8 Tracking Benchmark — N={N}, dt={dt}, sim_time={sim_time}s")
     print("=" * 60)
-    print(f"Config: N={config['N']}, dt={config['dt']}, sim_time={config['sim_time']}s")
-    print(f"Starting from: {config['start_config']} configuration")
-    
-    # Run benchmarks
-    for batch_size in config['batch_sizes']:
-        result = run_single_benchmark(
-            model=model,
-            batch_size=batch_size,
-            N=config['N'],
-            dt=config['dt'],
-            sim_time=config['sim_time'],
-            sim_dt=config['sim_dt'],
-            fig8_traj=fig8_traj,
-            x_start=x_start,
-            model_path=config['urdf_path'],
-        )
-        results.append(result)
-    
-    # Save results
-    output_file = f"benchmark_fig8_{timestamp}.pkl"
-    with open(output_file, 'wb') as f:
-        pickle.dump({
-            'config': config,
-            'results': results,
-            'timestamp': timestamp
-        }, f)
-    print(f"\nResults saved to: {output_file}")
-    
+    for batch_size in batch_sizes:
+        results.append(run_single_benchmark(
+            model=model, batch_size=batch_size, N=N, dt=dt, sim_time=sim_time,
+            sim_dt=sim_dt, fig8_traj=fig8_traj, x_start=x_start, model_path=model_path,
+        ))
+    if save:
+        output_file = f"benchmark_fig8_{N}N.pkl"
+        with open(output_file, 'wb') as f:
+            pickle.dump(results, f)  # bare list -> heatmap notebook format
+        print(f"\nResults saved to: {output_file}")
+    return results
+
+
+def main():
+    """Main benchmark runner (Fig 3 scalability: batch-size sweep over horizons N)."""
+    p = argparse.ArgumentParser(description="GATO Fig-3 scalability benchmark.")
+    p.add_argument('--plant', default='indy7', help="plant_type (indy7/iiwa14)")
+    p.add_argument('--urdf', default=None, help="override URDF path")
+    p.add_argument('--N', default='64',
+                   help="comma-separated horizons, e.g. '8,16,32,64,128' for the heatmap")
+    p.add_argument('--batch-sizes', default=','.join(map(str, STANDARD_BATCH_SIZES)),
+                   help="comma-separated batch sizes")
+    p.add_argument('--dt', type=float, default=0.01)
+    p.add_argument('--sim-time', type=float, default=10.0)
+    p.add_argument('--sim-dt', type=float, default=0.001)
+    p.add_argument('--start-config', default='ready')
+    p.add_argument('--quick', action='store_true',
+                   help="small subset (batch 1,32,128 @ N=64) for a wiring smoke")
+    args = p.parse_args()
+
+    urdf_path = args.urdf or f"examples/{args.plant}_description/{args.plant}.urdf"
+    model_dir = urdf_path.rsplit('/', 1)[0] + '/'
+    N_list = _parse_int_list(args.N)
+    batch_sizes = _parse_int_list(args.batch_sizes)
+    if args.quick:
+        N_list, batch_sizes = [64], [1, 32, 128]
+
+    model, _, _ = pin.buildModelsFromUrdf(urdf_path, model_dir)
+    fig8_traj = figure8(args.dt, **FIG8_DEFAULT_PARAMS)
+    start_cfg = INDY7_START_CONFIGS[args.start_config] if args.plant == 'indy7' \
+        else np.zeros(model.nq)
+    x_start = np.hstack((start_cfg, np.zeros(model.nv)))
+
+    results = []
+    for N in N_list:
+        results.extend(run_sweep(
+            model, urdf_path, batch_sizes, N, args.dt, args.sim_time, args.sim_dt,
+            x_start, fig8_traj, save=True,
+        ))
+
     # Print summary table
     print("\n" + "=" * 100)
     print("SUMMARY")
