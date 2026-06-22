@@ -50,3 +50,4 @@ python/gato.egg-info/
 uv.lock
 
 deprecated/
+baselines/osqp_fig8_results.pkl
