@@ -31,7 +31,10 @@ namespace plant {
         template<class T>
         __host__ __device__ constexpr T GRAVITY()
         {
-                return static_cast<T>(9.81);
+                // -9.81: match the physical downward gravity of the pinocchio MPC sim.
+                // grid.cuh treats +g as upward base accel (= -pinocchio); a positive
+                // scalar inverts the solver's gravity compensation (see iiwa14_plant.cuh).
+                return static_cast<T>(-9.81);
         }
 
         // template<class T>
