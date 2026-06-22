@@ -83,6 +83,15 @@ class BSQP:
         )
         self.model = pin.buildModelFromUrdf(model_path)
         self.data = self.model.createData()
+        # The solver/grid.cuh optimizes the EE-position cost in the URDF "EE" frame
+        # (grid.cuh is codegen'd with fixed_target_name="EE"). The last JOINT origin
+        # (oMi[njoints-1]) sits ~0.04 m short of it, so the success metric MUST use
+        # the "EE" frame or it reports a spurious 4 cm of tracking error. Resolve the
+        # frame id once; fall back to the last joint only if the URDF has no "EE".
+        if self.model.existFrame("EE"):
+            self.ee_frame_id = self.model.getFrameId("EE")
+        else:
+            self.ee_frame_id = None
         self.batch_size = batch_size
         self.N = N
         self.dt = dt
@@ -215,7 +224,13 @@ class BSQP:
         return self.XU_B, result["sqp_time_us"]
 
     def ee_pos(self, q):
+        # Measure the SAME frame the solver optimizes (URDF "EE"), not the last
+        # joint origin, so the success/tracking metric matches the cost the solver
+        # actually minimizes (see ee_frame_id resolution in __init__).
         pin.forwardKinematics(self.model, self.data, q)
+        if self.ee_frame_id is not None:
+            pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)
+            return self.data.oMf[self.ee_frame_id].translation
         return self.data.oMi[self.model.njoints - 1].translation
 
     def reset(self):
