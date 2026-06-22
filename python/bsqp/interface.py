@@ -58,6 +58,11 @@ class BSQP:
         self.lib = base
         self.solver_class = getattr(base, class_name)
         self.plant_type = plant_type
+        # Body-major external-force buffer width is 6*NUM_BODIES per solve (the GPU
+        # d_f_ext_batch_ buffer + set_f_ext_batch upload are sized to this). Exposed
+        # by the module; fall back to the pinocchio nv (== NUM_BODIES for a fixed
+        # serial chain) for older modules that don't export it.
+        self.n_bodies = int(getattr(base, "NUM_BODIES", 0))
 
         self.solver = self.solver_class(
             dt,
@@ -225,8 +230,26 @@ class BSQP:
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def set_f_ext_B(self, f_ext_B):
-        self.f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
-        self.solver.set_f_ext_batch(self.f_ext_B)
+        # The GPU wrench buffer is body-major: 6*NUM_BODIES per solve. Accept either
+        # a per-solve 6-vector EE wrench (scattered into the end-effector body slot)
+        # or a full body-major (batch, 6*NUM_BODIES) array, and always upload a
+        # correctly-sized contiguous buffer (a short buffer makes set_f_ext_batch's
+        # cudaMemcpy over-read host memory -> garbage wrench -> NaN dynamics).
+        f_ext_B = np.asarray(f_ext_B, dtype=np.float32).reshape(self.batch_size, -1)
+        self.f_ext_B = f_ext_B
+        nb = self.n_bodies or self.model.nv
+        body_major = np.zeros((self.batch_size, 6 * nb), dtype=np.float32)
+        if f_ext_B.shape[1] == 6:
+            ee = 6 * (nb - 1)  # end-effector body slot
+            body_major[:, ee:ee + 6] = f_ext_B
+        elif f_ext_B.shape[1] == 6 * nb:
+            body_major[:] = f_ext_B
+        else:
+            raise ValueError(
+                f"f_ext_B must have width 6 (EE wrench) or {6 * nb} (body-major "
+                f"6*NUM_BODIES); got {f_ext_B.shape[1]}"
+            )
+        self.solver.set_f_ext_batch(np.ascontiguousarray(body_major))
         
     def reset_rho(self):
         self.solver.reset_rho()

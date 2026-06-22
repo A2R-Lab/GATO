@@ -239,6 +239,7 @@ class PyBSQP {
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, PLANT_SUFFIX), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;  // to check num knots for current module
+        m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve
 
 
 #ifdef USE_DOUBLES
