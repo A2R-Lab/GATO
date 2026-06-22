@@ -6,3 +6,6 @@
 	path = external/GLASS
 	url = git@github.com:A2R-Lab/GLASS.git
 	branch = main
+[submodule "baselines/sqpcpu"]
+	path = baselines/sqpcpu
+	url = https://github.com/EmreAdabag/sqpcpu
