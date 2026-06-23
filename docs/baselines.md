@@ -15,7 +15,22 @@ Provenance + reproduction for the paper's comparison baselines. The harnesses li
 - **Status:** construction-validated (solver + model build, goal set loads). Runs on Indy7 (the
   migrated Indy7 dynamics are validated). iiwa14 is blocked by the FD-NaN bug (see archaeology).
 
-## MPCGPU / GBD-PCG baseline (iiwa14) — builds on sm_120, runtime port pending
+## OSQP / CPU baseline (Indy7) — runs
+- **What:** the paper's CPU/OSQP competitor — a pure-Python single-solve SQP (pinocchio +
+  `scipy.sparse` + OSQP), the `Thneed` class in the `sqpcpu` submodule
+  (`baselines/sqpcpu/pinocchio_template.py`). A genuine CPU *solver* competitor (unlike the
+  Pinocchio-sim baseline above, which uses the GPU solver). No C++/pybind build needed.
+- **File:** [baselines/run_osqp_fig8.py](../baselines/run_osqp_fig8.py) — drives `Thneed` through the
+  same Indy7 figure-8 MPC loop as `examples/benchmark_fig8.py` (same trajectory, dt, sim_dt).
+- **Deps:** pinocchio + scipy + osqp. The GATO `.venv` lacks pinocchio; use the GRiD venv
+  (`../GRiD/.venv`) — `pip install osqp` into it if missing (the only extra over pinocchio/scipy).
+- **Run:** `../GRiD/.venv/bin/python baselines/run_osqp_fig8.py --N 8,16,32,64 --sim-time 5`.
+- **Status:** runs. CPU solve time scales cleanly with horizon: **N=8/16/32/64 → 5.7/12.5/32/72
+  ms/solve** at `max_qp_iters=5` (real-time budget). Tracking is tight at N≤16 (~0.01–0.02 m); long
+  horizons need more SQP iters to converge (N=32 reaches <0.02 m only at ~20 iters / ~135 ms),
+  itself an honest illustration of the CPU/GPU gap the figure shows.
+
+## MPCGPU / GBD-PCG baseline (iiwa14) — builds AND runs on sm_120 (ported)
 The cited GPU competitor ([arXiv:2309.08079](https://arxiv.org/abs/2309.08079)). Build it from its
 **frozen pins** (do NOT point it at the migrated GRiD): canonical source `origin/adu/multisolve-v1`
 (submodules: MPCGPU `0efde8c`, GRiD `032ed027`, GBD-PCG `0b4bd64`, GLASS `90a7a21`, qdldl `12dbdf0`).
@@ -37,11 +52,21 @@ Then apply three compat patches (the frozen code targets sm_75/86/89 + CUDA 12.2
 `data/trajfiles/{start}_{goal}_{eepos.traj,traj.csv}`, writes `build/results/<prefix>_overall_stats.csv`:
 Average/Std/Min/Max/Median/Q1/Q3 solve times). Config: iiwa14, N=32, PCG, 20 SQP iters, cooperative launch.
 
-**Status — BUILD ✅, RUNTIME ⛔ on sm_120.** The binary builds clean and launches, but
-`compute_merit_kernel` throws `cudaErrorIllegalAddress` (`gato/solvers/sqp/sqp_pcg.cuh:190` catches
-the launch at :183) on Blackwell. This is an in-kernel out-of-bounds specific to sm_120 (the 2024
-code predates Blackwell), **not** a build error — so collecting MPCGPU timing needs a focused sm_120
-runtime port (e.g. cooperative-launch occupancy / SM-count assumptions, or smem opt-in). This is the
-"clean up MPCGPU" follow-up; the build recipe above is the starting point. (The old GRiD `032ed027`
-iiwa14 dynamics themselves are fine — the old GATO `sim_forward` is finite — so the crash is in the
-MPCGPU solver kernels, not the dynamics.)
+**Status — BUILD ✅, RUNTIME ✅ on sm_120 (ported 2026-06-22, branch `fix/sm120-runtime-smem`).**
+The illegal-access was two genuine shared-memory sizing bugs (silently absorbed on sm_75/86/89,
+fatal on Blackwell's tighter bounds), **not** a cooperative-launch/occupancy issue:
+1. **Plant `forwardDynamics` split `s_XITemp` at twice the XImats offset** (`iiwa14_plant.cuh`
+   `[1008]`→`[504]`, `indy7_plant.cuh` `[864]`→`[432]`) — pushing `forward_dynamics_inner`'s scratch
+   ~500 floats past the `FD_DYNAMIC_SHARED_MEM_COUNT=1444` budget. (Matches each plant's own
+   `forwardDynamicsAndGradient` s_vaf offset and the canonical `grid::forward_dynamics_device`.)
+   This was the `compute_merit_kernel` crash (merit calls `integratorError`→`forwardDynamics`).
+2. **`end_effector_positions_kernel` launched with no dynamic-smem argument** (`mpcsim.cuh:172/216/323`,
+   `mpcsim_n.cuh:168/234`) — the kernel uses `extern __shared__` (`EE_POS_SHARED_MEM_COUNT` floats);
+   the grid host wrapper passes that size, these launches did not. This was the second crash at
+   `mpcsim.cuh:216`.
+
+Both fixes are one-liners (committed on `fix/sm120-runtime-smem` off `adu/multisolve-v1`).
+**Verified run** (iiwa14, N=32, PCG, 20 SQP iters): tracking err avg 0.071 m / final 0.0053 m;
+**linsys (PCG) solve time median 74–113 µs** (Q1 ~23–35 µs, depends on PCG exit tol), written to
+`build/results/32_PCG_*_overall_stats.csv` (rows = tracking-error stats, then linsys-time stats).
+These are the GPU-competitor bars for the Fig-3 comparison.
