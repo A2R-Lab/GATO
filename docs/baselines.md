@@ -3,6 +3,15 @@
 Provenance + reproduction for the paper's comparison baselines. The harnesses live on old branches
 (see [archaeology.md](archaeology.md)); this records how to build/run them today.
 
+## What the paper's Fig-3 actually is (IV-B scalability)
+**Robot Indy7 (6-DoF), figure-8 tracking, N=64, h=0.01, batch M∈[1,2,4,…,128], 1 SQP iter** — GATO
+(GPU, batched) vs **OSQP (CPU)** and **MPCGPU (GPU)** single-solve baselines. Reported speedup
+**18–21× over CPU, 1.4–16× over GPU** as batch grows. So the fair comparison runs ALL THREE on Indy7
+fig8 N=64 (NOT iiwa14 — that robot is only Fig-4/Table-I/hardware). Per-control-step solve time is the
+metric. Assemble with [baselines/assemble_fig3.py](../baselines/assemble_fig3.py) once all three are
+collected. **Status: GATO + OSQP harnesses ready (indy7 fig8 N=64); MPCGPU indy7 build ready. Timing
+collection is HELD until the GPU is quiet (clean perf numbers).**
+
 ## CPU / Pinocchio-sim MPC baseline (Indy7) — ported, runs
 - **What:** drives the GATO BSQP solver in closed loop with a Pinocchio RK4 simulator + Pinocchio FK
   (a Pinocchio-physics MPC baseline — *not* a CPU-solver competitor; it uses the GPU solver).
@@ -30,10 +39,23 @@ Provenance + reproduction for the paper's comparison baselines. The harnesses li
   horizons need more SQP iters to converge (N=32 reaches <0.02 m only at ~20 iters / ~135 ms),
   itself an honest illustration of the CPU/GPU gap the figure shows.
 
-## MPCGPU / GBD-PCG baseline (iiwa14) — builds AND runs on sm_120 (ported)
+## MPCGPU / GBD-PCG baseline — builds AND runs on sm_120 (ported), iiwa14 AND indy7
 The cited GPU competitor ([arXiv:2309.08079](https://arxiv.org/abs/2309.08079)). Build it from its
 **frozen pins** (do NOT point it at the migrated GRiD): canonical source `origin/adu/multisolve-v1`
 (submodules: MPCGPU `0efde8c`, GRiD `032ed027`, GBD-PCG `0b4bd64`, GLASS `90a7a21`, qdldl `12dbdf0`).
+
+**For Fig-3 (indy7 fig8 N=64) — branch `fig3/indy7-mpcgpu`** (off the sm_120-fix branch). MPCGPU ships
+iiwa14-only (`track_iiwa_pcg.cu`; `rbd_plant.cuh` has indy7 commented). The port (commit `94fdbe3`):
+switch `rbd_plant.cuh`→indy7; `gato.cuh` `KNOT_POINTS=64`, `TIMESTEP=0.01`; add iiwa14-era constant
+aliases `EE_POS_SHARED_MEM_COUNT`/`DEE_POS_SHARED_MEM_COUNT` to `indy7_grid.cuh` (indy7 grid names them
+`*_DYNAMIC_*`); `indy7_plant.cuh` `#include "cost_settings.h"` (was missing `settings.cuh`) + rename
+`trackingcost`→`trackingCost` (merit kernel needs the capital-C value fn); `SQP_MAX_ITER=1` (match
+GATO fig8); `mpcsim.cuh` returns full per-step `sqp_times` (not just linsys) for a fair
+per-control-step metric. The 0_0 trajfiles are the GATO `figure8()` indy7 ref (regen:
+`data/trajfiles/gen_indy7_fig8.py`; iiwa14 originals in `*.iiwa14.bak`). Build OK (links clean,
+sm_120). **CAVEAT:** indy7 plant `GRAVITY()=0.0` (self-consistent between MPCGPU's solver+sim, doesn't
+affect solve TIME — the Fig-3 metric); tracking is loose at 1 SQP iter (expected — that's the
+real-time budget; GATO gets quality from batching, not iters). **Timing run HELD until GPU quiet.**
 
 **Reproduce the build (verified 2026-06-21 on RTX 5090 / sm_120 / CUDA 13.2):**
 ```bash
