@@ -58,22 +58,38 @@ Built Python modules are written to `python/bsqp/` as `bsqpN{N}_{plant}.so`.
 
 ## Usage
 
-See [batch_sqp.cu](examples/bsqp.cu) for a minimal example of a batched trajectory optimization solve in C++/CUDA. Example Jupyter notebooks using GATO for MPC are in [examples/](examples/)
+See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve, and the intro Python demos in
+[examples/](examples/) (`01_single_solve.py`, `02_batched_solve.py`, `03_mpc_loop.py`).
 
 ## Reproducing the paper
 
-The experiments from [the paper](https://arxiv.org/abs/2510.07625) (fixed-base Indy7 6-DoF +
-iiwa14 7-DoF). Build the needed `(plant, N)` modules first (see Installation). Recovered measured
-data lets several figures re-plot **without a GPU**; provenance for every harness and dataset is in
-[docs/archaeology.md](docs/archaeology.md).
+Committed scripts that regenerate the data and figures from
+[the paper](https://arxiv.org/abs/2510.07625) live in
+**[examples/paper-figures/](examples/paper-figures/)** — one `reproduce_figN_*.py` per figure. Each
+regenerates its data on the GPU **by default**, re-renders from saved/recovered data with `--replot`,
+and runs a fast smoke with `--quick`. Run from the repo root:
 
-| Paper element | How to run | Output / data |
+```bash
+python examples/paper-figures/reproduce_fig4_hparam.py --replot   # Tier A: no GPU, bundled data
+python examples/paper-figures/reproduce_fig3_scalability.py        # Tier B: GPU re-run (default)
+python examples/paper-figures/make_all.py --quick                  # smoke every figure
+```
+
+Build the needed `(plant, N)` modules first (one shot):
+`cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;16;32;64;128" -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4`.
+
+| Paper element | Script | Notes |
 |---|---|---|
-| **CS1 hyperparameter** (Fig 4) — iiwa14 per-batch ρ, merit-vs-SQP-iter | open [examples/gato_hparam_batch.ipynb](examples/gato_hparam_batch.ipynb); the "Load and plot from saved results" cell re-plots from the bundled results — **no GPU** | `examples/gato_hparam_batch_results.pkl` (84 KB, recovered) |
-| **Fig 3 scalability** — batch×N solve time | `python examples/benchmark_fig8.py --plant indy7 --N 8,16,32,64,128` | per-N `benchmark_fig8_{N}N.pkl`, then [plots/fig8_benchmark_heatmap.ipynb](plots/fig8_benchmark_heatmap.ipynb) |
-| Fig 3 (recovered point-to-point grid) | already bundled | `data/fig3_scalability_p2p/` (23/24 cells) |
-| **CS2 disturbance** (Fig 5) — Indy7 fig8 under external force | `ExperimentRunner(urdf).run_batch_experiments(f_ext=<6D force>, ...)` | tracking error vs. batch |
-| **CS3a pick-place / Table I** — iiwa14 + pendulum, success-rate-vs-batch | `from bsqp.experiment_runner import run_pickplace_tableI; run_pickplace_tableI()` | per-batch success rate |
+| **Fig-3 left** scalability (Indy7 fig-8, GATO vs OSQP/MPCGPU) | `reproduce_fig3_scalability.py` | GATO + OSQP-CPU; MPCGPU line optional |
+| **Fig-3 right** GATO (N×M) heat map | `reproduce_fig3_heatmap.py` | needs indy7 N∈{8..128} |
+| **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` |
+| **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | force sweep + EE trajectories |
+| **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | ⚠️ gated on a known iiwa14 instability (see below) |
+
+See [examples/paper-figures/README.md](examples/paper-figures/README.md) for the full build matrix,
+reproducibility tiers, hardware/config delta, and honest caveats (MPCGPU/CPU baselines, the Fig-7
+instability). Fig-6 (sim snapshot) and Fig-8 / Table-II (hardware) are not reproducible in software.
+Provenance for every recovered dataset is in [docs/archaeology.md](docs/archaeology.md).
 
 ## Related
 

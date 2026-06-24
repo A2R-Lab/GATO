@@ -54,3 +54,9 @@ deprecated/
 baselines/osqp_fig8_results.pkl
 benchmark_fig8_*N.pkl
 build_matrix/
+
+# paper-figures: regenerated data + rendered figures are artifacts (recovered/
+# bundled datasets live elsewhere, e.g. examples/gato_hparam_batch_results.pkl)
+examples/paper-figures/data/*.pkl
+examples/paper-figures/*.png
+examples/paper-figures/*.txt
