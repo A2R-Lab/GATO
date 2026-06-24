@@ -28,11 +28,21 @@ unfairness. Implication: the baselines need not match GATO's *tracking* — but 
 an honest cost (issues 1–3 below are about the TIME, now that the quality gap is confirmed real).
 Repro: `run_mpc_fig8(..., pace_by_solve_time=False)` reports `goal_distances_knot0`.
 
-### ⚠️ OPEN FAIRNESS ISSUES (block publishing Fig-3 as-is — found 2026-06-23)
-1. **Baselines' solve TIME is not yet an honest bar.** (Tracking gap is real — verified above — so this
-   is purely about making each baseline's *time* representative of a well-posed solve, not about
-   matching GATO's quality.) Both baselines currently produce a poorly-conditioned/degenerate solve
-   whose time is inflated or variable; fix the conditioning (issue 2) and the metric (issue 3) first.
+### ✅ RESOLVED 2026-06-24: OSQP/CPU baseline now CONVERGES at 1 SQP iter (root cause = mismatched weights)
+The earlier "~0.9 m, never locks on" was **NOT a solver-quality gap** — `Thneed`'s default cost weights
+(Q_cost=100/dQ_cost=0.01, ratio 10000) weight EE-tracking ~50× more aggressively than GATO's indy7 fig8
+weights (q_cost=2/qd_cost=0.01, ratio 200), so the closed loop commanded violent torques (|u|≈120–180 Nm),
+joint velocities exploded (|dq|→134), the line search rejected steps (α→0), and it diverged. **Fix
+(fairness-correct): use GATO's OWN weights** — `run_osqp_fig8.py` now imports `DEFAULT_SOLVER_PARAMS`
+(q_cost/qd_cost/u_cost/N_cost/q_lim_cost/rho) and passes them to `Thneed`, so the CPU baseline solves the
+*identical weighted problem*. Result at **1 SQP iter** (matching GATO): **tracking 0.090 m** (final ~0.056 m,
+matching GATO's 0.059 m), **11.96 ± 1.86 ms/solve** (stable; was 37–74 ±46). So GATO's win is **speed, not
+quality** — exactly the Fig-3 point. (Decomposition of the 11.96 ms full `sqp()`: pinocchio matrix assembly
+~2.5 ms + `osqp.solve()` ~0.7 ms [25 ADMM iters, well-conditioned] + Python line-search ~5.6 ms; the line
+search is interpreter-bound, so a C++ impl would be faster — note when citing the CPU bar.)
+
+### ⚠️ REMAINING FAIRNESS ISSUES
+1. ~~Baselines' solve TIME not honest~~ — **OSQP DONE** (above). MPCGPU still open (issues below).
 2. **OSQP is conditioning-bound, not just "slow CPU".** Thneed's EE-pos Hessian is the rank-1
    `Q·(Jᵀr)(Jᵀr)ᵀ` outer product (`pinocchio_template.py:257`) — nearly singular. At 1 SQP iter with
    OSQP's default `sigma`=1e-6 the KKT goes indefinite ("not quasidefinite" → NaN). Adding `sigma`=0.01

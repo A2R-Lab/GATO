@@ -16,13 +16,22 @@ G = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, G + '/python')
 sys.path.insert(0, G + '/baselines/sqpcpu')
 from bsqp.common import figure8
-from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, DEFAULT_SOLVER_PARAMS
 from pinocchio_template import Thneed
 
+# Use GATO's OWN indy7 fig8 cost weights so the CPU baseline solves the IDENTICAL weighted
+# problem (fairness). With Thneed's old defaults (Q=100/dQ=0.01, ratio 10000 vs GATO's 200) the
+# closed loop commanded violent torques and diverged (~0.9 m); matched weights track to ~0.056 m.
+SP = DEFAULT_SOLVER_PARAMS  # q_cost/qd_cost/u_cost/N_cost/q_lim_cost/rho
 
-def run_one(urdf, N, dt, sim_time, sim_dt, fig8_traj, x_start, max_qp_iters=5, sigma=1e-6):
+
+def run_one(urdf, N, dt, sim_time, sim_dt, fig8_traj, x_start, max_qp_iters=1, sigma=None):
+    if sigma is None:
+        sigma = SP['rho']  # GATO's adaptive-rho init (0.01) as the OSQP primal Levenberg reg
     t = Thneed(urdf_filename=urdf, eepos_frame_name="EE", N=N, dt=dt,
-               max_qp_iters=max_qp_iters, sigma=sigma)
+               max_qp_iters=max_qp_iters, sigma=sigma,
+               Q_cost=SP['q_cost'], dQ_cost=SP['qd_cost'], R_cost=SP['u_cost'],
+               QN_cost=SP['N_cost'], Qlim_cost=SP['q_lim_cost'])
     nq, nv, nx, nu = t.nq, t.nv, t.nx, t.nu
     q = x_start[:nq].copy(); dq = x_start[nq:nx].copy()
     # warm start: stack current state across the horizon
@@ -71,12 +80,12 @@ def main():
     p.add_argument('--sim-time', type=float, default=5.0)
     p.add_argument('--sim-dt', type=float, default=0.001)
     p.add_argument('--start-config', default='ready')
-    p.add_argument('--max-qp-iters', type=int, default=5,
-                   help="SQP iters/step. Real-time budget=5; longer N needs more to converge "
-                        "(N=32 tracks <0.02m only at ~20, at ~135ms/solve).")
-    p.add_argument('--sigma', type=float, default=1e-6,
-                   help="OSQP primal Levenberg reg (rho*I on the Hessian). Match GATO's rho "
-                        "(~0.01) for a fair 1-SQP-iter run; default 1e-6 needs >=5 iters.")
+    p.add_argument('--max-qp-iters', type=int, default=1,
+                   help="SQP iters/step. Default 1 to match GATO's 1-iter real-time budget; with "
+                        "GATO-matched cost weights the closed loop tracks at 1 iter (~0.056 m).")
+    p.add_argument('--sigma', type=float, default=None,
+                   help="OSQP primal Levenberg reg (rho*I on the Hessian). Default = GATO's rho "
+                        "(DEFAULT_SOLVER_PARAMS['rho']=0.01); keeps the 1-iter KKT quasidefinite.")
     p.add_argument('--out', default=G + '/baselines/osqp_fig8_results.pkl')
     args = p.parse_args()
 
