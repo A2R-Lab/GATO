@@ -133,11 +133,20 @@ class MPC_GATO:
         else:
             self.force_estimator = None
             
-    def run_mpc_fig8(self, x_start, fig8_traj, sim_dt=0.001, sim_time=5.0):
+    def run_mpc_fig8(self, x_start, fig8_traj, sim_dt=0.001, sim_time=5.0,
+                     pace_by_solve_time=True):
         """
         Run MPC controller tracking figure-8 trajectory.
-        
+
+        pace_by_solve_time: if True (default, real-time MPC), advance the sim by the
+            measured wall-clock solve time each control step (a faster solver re-plans
+            more often). If False, advance a fixed `dt` per solve — matches the OSQP/CPU
+            baseline harness (baselines/run_osqp_fig8.py) for an apples-to-apples
+            per-solve tracking-quality comparison independent of solve speed.
+
         Returns only essential statistics for visualization and analysis.
+        `goal_distances` uses goal knot 1 (one step ahead); `goal_distances_knot0` uses
+        goal knot 0 (the baseline's convention).
         """
         # Initialize essential statistics
         stats = {
@@ -194,9 +203,9 @@ class MPC_GATO:
             u_last = XU_best[self.nx:self.nx+self.nu]
             
             # Simulate forward with current control
-            timestep = solve_time
+            timestep = solve_time if pace_by_solve_time else self.dt
             nsteps = int(timestep/sim_dt)
-            
+
             for i in range(nsteps):
                 offset = int(i/(self.dt/sim_dt))
                 u_idx = self.nx + (self.nx+self.nu)*min(offset, self.N-1)
@@ -244,10 +253,12 @@ class MPC_GATO:
             # Collect essential statistics
             ee_pos = self.solver.ee_pos(q)
             goal_dist = np.linalg.norm(ee_pos[:3] - ee_g[6:9])
-            
+            goal_dist0 = np.linalg.norm(ee_pos[:3] - ee_g[0:3])  # baseline convention (knot 0)
+
             stats['timestamps'].append(total_sim_time)
             stats['solve_times'].append(gpu_solve_time/1000.0)  # Convert to ms
             stats['goal_distances'].append(goal_dist)
+            stats.setdefault('goal_distances_knot0', []).append(goal_dist0)
             stats['ee_actual'].append(ee_pos.copy())
             stats['joint_positions'].append(q.copy())
             stats['joint_velocities'].append(dq.copy())

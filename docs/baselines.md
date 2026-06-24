@@ -18,13 +18,21 @@ collected.
 | **OSQP (CPU)** | **~37–74 ms** (±high) | **~0.9 m (does NOT lock on)** | conditioning-bound; see fairness note |
 | **MPCGPU (GPU)** | **0.293 ms** *(linsys median; NOT full-solve)* | **~0.61 m** | GRAVITY=0; reported stat is PCG-linsys only, full sqp_times collected but not printed |
 
+### ✅ VERIFICATION #1 (2026-06-24): the tracking gap is REAL, not a measurement artifact
+Driving GATO batch=1 under the OSQP baseline's *exact* conditions — fixed-`dt` pacing (not real-time
+solve-time pacing), knot-0 goal metric, identical 500 control steps, same robot/traj/N=64/dt/`rk4`
+rollout — GATO tracks **0.0593 m** (vs 0.0600 m under real-time pacing; pacing & metric-alignment are
+negligible). OSQP is ~0.9 m under the same harness. So the ~15× gap is **genuine solver quality**
+(trapezoidal integrator + adaptive rho 1e-3→10 + the batched solve), NOT harness/pacing/metric
+unfairness. Implication: the baselines need not match GATO's *tracking* — but their solve *TIME* must be
+an honest cost (issues 1–3 below are about the TIME, now that the quality gap is confirmed real).
+Repro: `run_mpc_fig8(..., pace_by_solve_time=False)` reports `goal_distances_knot0`.
+
 ### ⚠️ OPEN FAIRNESS ISSUES (block publishing Fig-3 as-is — found 2026-06-23)
-1. **Both baselines track ~10–16× worse than GATO** (~0.6–0.9 m vs 0.056 m) on the *same* robot/traj/N.
-   Two independent codebases agreeing at ~0.6–0.9 m while GATO alone hits 0.056 m means the baselines
-   are not yet driven to a usable solve — so their *timing* is not apples-to-apples (a solver that
-   doesn't converge can be arbitrarily fast/slow). GATO's edge is real (trapezoidal integrator +
-   adaptive rho 1e-3→10 + warm-start shifting in `run_mpc_fig8`), but the baselines need to at least
-   track before their solve time is a fair bar.
+1. **Baselines' solve TIME is not yet an honest bar.** (Tracking gap is real — verified above — so this
+   is purely about making each baseline's *time* representative of a well-posed solve, not about
+   matching GATO's quality.) Both baselines currently produce a poorly-conditioned/degenerate solve
+   whose time is inflated or variable; fix the conditioning (issue 2) and the metric (issue 3) first.
 2. **OSQP is conditioning-bound, not just "slow CPU".** Thneed's EE-pos Hessian is the rank-1
    `Q·(Jᵀr)(Jᵀr)ᵀ` outer product (`pinocchio_template.py:257`) — nearly singular. At 1 SQP iter with
    OSQP's default `sigma`=1e-6 the KKT goes indefinite ("not quasidefinite" → NaN). Adding `sigma`=0.01
