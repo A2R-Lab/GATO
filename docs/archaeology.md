@@ -90,3 +90,43 @@ Instead, consolidation brings the canonical artifacts onto `cleanup-modernizatio
 **provenance-credited file ports** — each commit names its source `branch:SHA`, and this document is
 the history record. The old branches remain on `origin` until consolidation is verified and deletion
 is explicitly approved.
+
+---
+
+# Phase-3 disposition — working branches created 2026-06-22..24 (this campaign)
+
+The 24-branch table above is the *origin archaeology* (old pre-migration worlds). This section is the
+**delete / merge / keep call for the branches THIS campaign created**, plus the current gate status.
+GATO has two remotes: `origin` = A2R-Lab/GATO (canonical), `adu-fork` = alexanderdu15/GATO (the
+student fork that holds the MPCGPU `adu/multisolve-v1` lineage). All four branches below are
+**local-only / UNPUSHED**.
+
+### GATO repo (`~/Desktop/GATO`)
+| Branch | Base | Disposition | Why / next step |
+|---|---|---|---|
+| `cleanup-modernization` | `main` (migrated trunk) | **MERGE → origin/main** (via PR, when ready) | The consolidation trunk: iiwa14 dynamics fixes (`f6f8d71` NaN, `8462c04` gravity, `1f3d297` EE-frame), OSQP/MPCGPU baseline harnesses, `archaeology.md`/`baselines.md`. This is the keeper; everything lands here. Not yet pushed. |
+| `fix/sm120-runtime-smem` | `adu/multisolve-v1` (MPCGPU) | **MERGE → MPCGPU upstream** (feature-branch PR; we own it, keep minimal) | Two genuine shared-memory bugs in the frozen MPCGPU baseline, fatal on Blackwell sm_120 (FD `s_XITemp` split 1008→504 / 864→432; `end_effector_positions_kernel` launched with no dynamic-smem arg). Real fixes worth upstreaming. Worktree `/tmp/gato_mpcgpu`. |
+| `fig3/indy7-mpcgpu` | `fix/sm120-runtime-smem` | **KEEP** (paused-baseline artifact) | MPCGPU iiwa14→indy7 port for the fair Fig-3 (KNOT=64, h=0.01, 1 SQP iter, indy7 trajfiles). Baselines are **PAUSED** pending fairness fixes — keep as the repro artifact; revisit when baselines resume. Do NOT merge into the modern GATO trunk (different lineage). |
+
+### sqpcpu submodule (`baselines/sqpcpu`, student repo EmreAdabag/sqpcpu)
+| Branch | Base | Disposition | Why / next step |
+|---|---|---|---|
+| `fig3-fair-sigma` | `master` (`4bbd9ee`) | **KEEP local** (paused-baseline; PR to student repo later) | Adds optional `sigma` (OSQP primal Levenberg reg) to `Thneed` for a fair 1-SQP-iter run. Not pushed to the student's `master` (fork pulls held pending the student). |
+
+### Submodule pins (informational — not GATO-campaign branches)
+`external/GRiD @ modernizing-tests fc8787c`, `external/GLASS @ main ac3c6cc` are the unification
+pins; their own branches (`gato-unification`, `perf-cleanup`, `t4-mimic-fold`, …) belong to the
+GRiD/GLASS projects, not this campaign — dispositioned by their own memories.
+
+### ⛔ Deletion gate — NOT cleared (no branch deletions yet)
+Deletion of the origin PORT-SOURCE / DROP-safe branches was gated on **all** of:
+1. iiwa14 dynamics validated — ✅ done (`f6f8d71`/`8462c04`/`1f3d297`).
+2. Baselines complete (Fig-3 assembled) — ❌ **PAUSED** (3 open fairness gaps, see `baselines.md`).
+3. Consolidation merged to `origin/main` — ❌ `cleanup-modernization` still local/unpushed.
+4. Explicit user approval to delete — ❌ not given.
+
+→ **No deletions are performed.** When (2)–(4) clear: PR `cleanup-modernization`→`origin/main`,
+verify the consolidated artifacts, then delete the origin PORT-SOURCE/DROP-safe branches per the
+24-branch table; PR `fix/sm120-runtime-smem` to MPCGPU; decide `fig3/indy7-mpcgpu` + `fig3-fair-sigma`
+fate alongside the resumed baselines. Fork-side branch deletions (the `gato-unification` twins, etc.)
+stay held until the student sync lands.
