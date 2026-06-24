@@ -9,8 +9,36 @@ Provenance + reproduction for the paper's comparison baselines. The harnesses li
 **18–21× over CPU, 1.4–16× over GPU** as batch grows. So the fair comparison runs ALL THREE on Indy7
 fig8 N=64 (NOT iiwa14 — that robot is only Fig-4/Table-I/hardware). Per-control-step solve time is the
 metric. Assemble with [baselines/assemble_fig3.py](../baselines/assemble_fig3.py) once all three are
-collected. **Status: GATO + OSQP harnesses ready (indy7 fig8 N=64); MPCGPU indy7 build ready. Timing
-collection is HELD until the GPU is quiet (clean perf numbers).**
+collected.
+
+### Raw timings collected 2026-06-23 (quiet RTX 5090 / sm_120), indy7 fig8 N=64, 1 SQP iter
+| solver | per-step solve time | closed-loop tracking | notes |
+|---|---|---|---|
+| **GATO** batch=1 | **0.133 ms** | 0.056 m | stable; batch 4→0.449, 8→0.657, 16→0.841, 32→1.151, 64→1.795, 128→3.140 ms (5.4× throughput @128). batch=2 unsupported ("must be >3 for exploitation") |
+| **OSQP (CPU)** | **~37–74 ms** (±high) | **~0.9 m (does NOT lock on)** | conditioning-bound; see fairness note |
+| **MPCGPU (GPU)** | **0.293 ms** *(linsys median; NOT full-solve)* | **~0.61 m** | GRAVITY=0; reported stat is PCG-linsys only, full sqp_times collected but not printed |
+
+### ⚠️ OPEN FAIRNESS ISSUES (block publishing Fig-3 as-is — found 2026-06-23)
+1. **Both baselines track ~10–16× worse than GATO** (~0.6–0.9 m vs 0.056 m) on the *same* robot/traj/N.
+   Two independent codebases agreeing at ~0.6–0.9 m while GATO alone hits 0.056 m means the baselines
+   are not yet driven to a usable solve — so their *timing* is not apples-to-apples (a solver that
+   doesn't converge can be arbitrarily fast/slow). GATO's edge is real (trapezoidal integrator +
+   adaptive rho 1e-3→10 + warm-start shifting in `run_mpc_fig8`), but the baselines need to at least
+   track before their solve time is a fair bar.
+2. **OSQP is conditioning-bound, not just "slow CPU".** Thneed's EE-pos Hessian is the rank-1
+   `Q·(Jᵀr)(Jᵀr)ᵀ` outer product (`pinocchio_template.py:257`) — nearly singular. At 1 SQP iter with
+   OSQP's default `sigma`=1e-6 the KKT goes indefinite ("not quasidefinite" → NaN). Adding `sigma`=0.01
+   (matching GATO's rho; now threaded through `Thneed`/`run_osqp_fig8 --sigma`) removes the NaN but
+   tracking is still ~0.9 m and time is high-variance (OSQP grinds many internal ADMM iters). Result:
+   ~280–550× "speedup" vs the paper's 18–21× — i.e. our OSQP is mis-tuned, not a fair CPU bar.
+   Integrator-consistency (euler vs rk4 rollout) does NOT fix it — error grows either way.
+3. **MPCGPU stat is linsys-only.** 0.293 ms is the PCG solve, not the full SQP step (GATO's 0.133 ms
+   IS full-step). `mpcsim.cuh` collects `sqp_times` too (line 281) — need to print/return those (or
+   build TIME_LINSYS=0) for a parity metric. Also GRAVITY=0 on the indy7 port.
+
+**Until these are resolved the three numbers are recorded but NOT assembled into a published Fig-3.**
+Raw artifacts: `baselines/benchmark_fig8_64N.pkl` (GATO), `baselines/osqp_fig8_results.pkl` (OSQP),
+`baselines/mpcgpu_indy7_fig8_N64.csv` (MPCGPU, linsys).
 
 ## CPU / Pinocchio-sim MPC baseline (Indy7) — ported, runs
 - **What:** drives the GATO BSQP solver in closed loop with a Pinocchio RK4 simulator + Pinocchio FK

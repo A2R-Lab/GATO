@@ -33,8 +33,9 @@
 
 *.pyc
 
-# Ignore build directory
+# Ignore build directories (CMake module-matrix builds: build, build_val, build_iiwa64, ...)
 /build/
+/build_*/
 
 # Ignore CMake generated files
 CMakeCache.txt

@@ -20,8 +20,9 @@ from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 from pinocchio_template import Thneed
 
 
-def run_one(urdf, N, dt, sim_time, sim_dt, fig8_traj, x_start, max_qp_iters=5):
-    t = Thneed(urdf_filename=urdf, eepos_frame_name="EE", N=N, dt=dt, max_qp_iters=max_qp_iters)
+def run_one(urdf, N, dt, sim_time, sim_dt, fig8_traj, x_start, max_qp_iters=5, sigma=1e-6):
+    t = Thneed(urdf_filename=urdf, eepos_frame_name="EE", N=N, dt=dt,
+               max_qp_iters=max_qp_iters, sigma=sigma)
     nq, nv, nx, nu = t.nq, t.nv, t.nx, t.nu
     q = x_start[:nq].copy(); dq = x_start[nq:nx].copy()
     # warm start: stack current state across the horizon
@@ -73,6 +74,9 @@ def main():
     p.add_argument('--max-qp-iters', type=int, default=5,
                    help="SQP iters/step. Real-time budget=5; longer N needs more to converge "
                         "(N=32 tracks <0.02m only at ~20, at ~135ms/solve).")
+    p.add_argument('--sigma', type=float, default=1e-6,
+                   help="OSQP primal Levenberg reg (rho*I on the Hessian). Match GATO's rho "
+                        "(~0.01) for a fair 1-SQP-iter run; default 1e-6 needs >=5 iters.")
     p.add_argument('--out', default=G + '/baselines/osqp_fig8_results.pkl')
     args = p.parse_args()
 
@@ -88,8 +92,9 @@ def main():
     results = []
     for N in Ns:
         r = run_one(args.urdf, N, args.dt, args.sim_time, args.sim_dt, fig8_traj, x_start,
-                    max_qp_iters=args.max_qp_iters)
+                    max_qp_iters=args.max_qp_iters, sigma=args.sigma)
         r['max_qp_iters'] = args.max_qp_iters
+        r['sigma'] = args.sigma
         results.append(r)
         print(f"  N={N:3d}: {r['avg_cpu_time_ms']:8.3f} ± {r['std_cpu_time_ms']:6.3f} ms/solve "
               f"| tracking {r['avg_goal_distance']:.4f} m (max {r['max_goal_distance']:.4f}) "
