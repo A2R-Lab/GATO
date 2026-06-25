@@ -354,8 +354,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 
                 } else {  // last knot
 // no lambda_next, set scratch to 0
-#pragma unroll
-                        for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) { s_scratch[i] = static_cast<T>(0.0); }
+                        glass::set_const<T, STATE_SIZE>(static_cast<T>(0), s_scratch);
                 }
                 const T* d_lambda_k = getOffsetStatePadded<T, BatchSize>(d_lambda_batch, solve_idx, knot_idx);
                 __syncthreads();
@@ -384,8 +383,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 if (knot_idx == KNOT_POINTS - 1) {
 
                         T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
-#pragma unroll
-                        for (uint32_t i = threadIdx.x; i < CONTROL_SIZE; i += blockDim.x) { d_r_k[i] = static_cast<T>(0); }
+                        glass::set_const<T, CONTROL_SIZE>(static_cast<T>(0), d_r_k);
 
                         return;
                 }  // Regular case

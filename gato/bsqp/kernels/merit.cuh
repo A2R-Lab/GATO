@@ -54,10 +54,11 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
         T* d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
 
+        // line-search trial step: s_xux_k = d_xu_k + alpha * d_dz_k (axpby z = 1*x + alpha*y)
         if (knot_idx == KNOT_POINTS - 1) {
-                for (int i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) { s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i]; }
+                glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
         } else {
-                for (int i = threadIdx.x; i < STATE_SIZE + STATE_S_CONTROL; i += blockDim.x) { s_xux_k[i] = d_xu_k[i] + alpha * d_dz_k[i]; }
+                glass::axpby<T, STATE_SIZE + STATE_S_CONTROL>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
         }
 
         T* d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
@@ -80,7 +81,10 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                         s_temp[i] = abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  // initial state constraint error
                 }
                 __syncthreads();
-                block::reduce<T>(STATE_SIZE, s_temp);  // TODO: use warp reduce instead
+                // block-wide GLASS reduce (sum -> s_temp[0]); NOT glass::warp::reduce: this block
+                // runs MAX_PERF_LEVEL_THREADS (multi-warp), and warp::reduce's contract is one
+                // 32-lane warp owning the reduction, so it is unsafe across >1 warp here.
+                glass::reduce<T, STATE_SIZE>(s_temp);
                 __syncthreads();
                 constraint_k = s_temp[0];
         }
