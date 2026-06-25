@@ -3,10 +3,16 @@ import numpy as np
 
 class ForceEstimator:
     
-    def __init__(self, batch_size, initial_radius=10.0, min_radius=1.0, max_radius=100.0, smoothing_factor=0.3):
+    def __init__(self, batch_size, initial_radius=10.0, min_radius=1.0, max_radius=100.0,
+                 smoothing_factor=0.3, seed=0):
 
         assert batch_size > 3, "Batch size must be > 3 for exploitation + exploration strategy"
-        
+
+        # Dedicated RNG so the disturbance-hypothesis sampling is REPRODUCIBLE. With the old
+        # global np.random the pick-place closed loop was non-deterministic run-to-run (and
+        # occasionally diverged); seed=None falls back to fresh entropy if non-determinism is wanted.
+        self._rng = np.random.default_rng(seed)
+
         self.batch_size = batch_size
         self.dim = 6  # 6D force/torque vector
         
@@ -62,7 +68,7 @@ class ForceEstimator:
         """
         Generate a random 3x3 rotation matrix using a uniformly random unit quaternion.
         """
-        u1, u2, u3 = np.random.rand(3)
+        u1, u2, u3 = self._rng.random(3)
         q1 = np.sqrt(1.0 - u1) * np.sin(2.0 * np.pi * u2)
         q2 = np.sqrt(1.0 - u1) * np.cos(2.0 * np.pi * u2)
         q3 = np.sqrt(u1) * np.sin(2.0 * np.pi * u3)

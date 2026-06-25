@@ -40,6 +40,7 @@ class MPC_GATO:
         plant_type='indy7',
         pendulum_config=None,
         solver_params=None,
+        fe_seed=0,
     ):
         """
         Initialize MPC controller.
@@ -113,7 +114,8 @@ class MPC_GATO:
         self.dt = dt
         self.batch_size = batch_size
         self.track_full_stats = track_full_stats
-        
+        self.fe_seed = fe_seed
+
         # Setup external forces if provided
         self.setup_external_forces(constant_f_ext)
         
@@ -140,7 +142,8 @@ class MPC_GATO:
                 initial_radius=5.0,
                 min_radius=2.0,
                 max_radius=20.0,
-                smoothing_factor=0.5
+                smoothing_factor=0.5,
+                seed=self.fe_seed,
             )
         else:
             self.force_estimator = None
