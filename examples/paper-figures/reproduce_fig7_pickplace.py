@@ -10,10 +10,16 @@ randomized scenarios (pendulum length 0.3-0.7 m, initial angle 0-0.6 rad, dampin
 iters, PCG tol 1e-6, 1 kHz RK4 sim. Success = EE within 5 cm of each goal in <5 s
 with total joint velocity < 1.0 rad/s.
 
->>> CAVEAT: the iiwa14 closed-loop pick-place case has a KNOWN instability that is
-parked solver-robustness R&D (see docs/baselines.md / project memory). The harness,
-Table, and CDF are correct in STRUCTURE, but the success numbers may not yet match
-the paper until that fix lands. The script runs and produces the figure regardless.
+>>> STATUS (2026-06-25, see docs/baselines.md "pick-place Phase-0"):
+The dominant Table-I bug is FIXED — the ForceEstimator (the CS3 batched-robustness
+mechanism) was silently disabled by a CWD-relative import, so every batch size behaved
+like batch-1 (all-zero Table-I). With it live, batching now demonstrably helps (batch>1
+succeeds where batch=1 fails), and the FE sampling is now SEEDED (reproducible runs).
+>>> CAVEAT: a residual FE-robustness gap remains (parked Phase-2 R&D): the estimate is
+high-variance and doesn't fully converge to a large *swinging* payload, so the success
+*magnitudes* may not match the paper exactly. The curve SHAPE (success rising with batch)
+and the CDF are correct; ship with this caveat. The script runs and produces the figure
+regardless (NaN scenarios are caught per-batch and counted as failures, not crashes).
 
 Examples::
     python examples/paper-figures/reproduce_fig7_pickplace.py            # 100 scenarios (slow)
