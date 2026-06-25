@@ -6,11 +6,23 @@ from .interface import BSQP
 from .common import rk4
 from .config import DEFAULT_SOLVER_PARAMS
 
-# Import force estimator if available
-sys.path.append('./examples')
+# Import the force estimator (CS3 batched-disturbance robustness). force_estimator.py
+# lives in <repo>/examples; resolve it relative to THIS file so the import works from any
+# CWD (the old './examples' was CWD-relative and silently failed unless run from repo root,
+# which disabled the force estimator — and thus all batched robustness — without warning).
+import os as _os
+_examples_dir = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), '..', '..', 'examples'))
+if _examples_dir not in sys.path:
+    sys.path.append(_examples_dir)
 try:
     from force_estimator import ForceEstimator
 except ImportError:
+    import warnings as _warnings
+    _warnings.warn(
+        f"ForceEstimator could not be imported (looked in {_examples_dir}); batched "
+        "force-hypothesis robustness (CS3 pick-place) will be DISABLED.",
+        RuntimeWarning,
+    )
     ForceEstimator = None
 
 
