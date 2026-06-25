@@ -9,8 +9,10 @@ This is a thin orchestrator over the canonical generators:
   - GATO:   examples/benchmark_fig8.py        -> benchmark_fig8_64N.pkl
   - OSQP:   baselines/run_osqp_fig8.py         -> baselines/osqp_fig8_results.pkl
   - MPCGPU: baselines/mpcgpu_indy7_fig8_N64.csv (built separately; OPTIONAL — the
-            plot degrades gracefully if absent. Its tracking fix + PR are deferred
-            until Fig-3 is otherwise complete; see docs/baselines.md.)
+            plot degrades gracefully if absent). MPCGPU is single-solve (whole-GPU
+            cooperative), so a batch of M costs M x per-solve -> drawn as a LINEAR
+            line (the paper's ~0.2 ms -> ~28 ms over M=1..128); GATO's sub-linear
+            batched curve is the win. Per-solve = MEDIAN of the CSV. See docs/baselines.md.
 
 DEFAULT regenerates GATO + OSQP on the GPU/CPU then assembles the plot. ``--replot``
 just assembles from existing pkls. NOTE: the OSQP baseline is the single-solve
@@ -72,11 +74,16 @@ def load_osqp():
 
 
 def load_mpcgpu():
+    """Per-solve MPCGPU time in ms (MEDIAN, col 4) — the representative stat; the average
+    (col 0) is inflated by first-step JIT/warmup outliers. Last CSV line = solve-time stats
+    row 'Average,Std,Min,Max,Median,Q1,Q3' in microseconds."""
     if not os.path.exists(MPCGPU_CSV):
         return None
     with open(MPCGPU_CSV) as f:
         lines = [l.strip() for l in f if l.strip()]
-    return float(lines[-1].split(",")[0]) / 1000.0  # avg us -> ms
+    cols = lines[-1].split(",")
+    median_us = float(cols[4]) if len(cols) > 4 else float(cols[0])
+    return median_us / 1000.0  # us -> ms (per single solve)
 
 
 def report(gato, osqp_ms, mpcgpu_ms):
@@ -85,10 +92,13 @@ def report(gato, osqp_ms, mpcgpu_ms):
     for m in sorted(gato):
         g = gato[m]
         cpu = f"{osqp_ms / g:6.1f}x" if osqp_ms else "n/a"
-        gpu = f"{mpcgpu_ms / g:6.1f}x" if mpcgpu_ms else "n/a"
+        # MPCGPU at batch m = m sequential single-solves -> mpcgpu_ms * m
+        gpu = f"{(mpcgpu_ms * m) / g:6.1f}x" if mpcgpu_ms else "n/a"
         lines.append(f"{m:>5} {g:>9.3f} {cpu:>13} {gpu:>15}")
-    lines.append(f"OSQP-CPU (single, batch=1): {osqp_ms:.3f} ms" if osqp_ms else "OSQP: missing")
-    lines.append(f"MPCGPU (single, batch=1):   {mpcgpu_ms:.3f} ms" if mpcgpu_ms else "MPCGPU: missing")
+    lines.append(f"OSQP-CPU (single solve): {osqp_ms:.3f} ms" if osqp_ms else "OSQP: missing")
+    if mpcgpu_ms:
+        lines.append(f"MPCGPU (single solve): {mpcgpu_ms:.3f} ms/solve -> xM sequential "
+                     f"({mpcgpu_ms:.2f}..{mpcgpu_ms*max(gato):.1f} ms over M=1..{max(gato)})")
     txt = "\n".join(lines)
     print(txt)
     with open(os.path.join(C.FIG_DIR, "fig3_scalability.txt"), "w") as f:
@@ -102,9 +112,14 @@ def plot(gato, osqp_ms, mpcgpu_ms):
     fig = plt.figure(figsize=(7, 5))
     plt.plot(M, ms, "o-", color="#00693E", label="GATO (GPU, batched)")
     if osqp_ms:
-        plt.axhline(osqp_ms, ls="--", color="#C90016", label=f"OSQP CPU: {osqp_ms:.1f} ms")
+        plt.axhline(osqp_ms, ls="--", color="#C90016",
+                    label=f"OSQP CPU (single solve): {osqp_ms:.1f} ms")
     if mpcgpu_ms:
-        plt.axhline(mpcgpu_ms, ls="--", color="#003192", label=f"MPCGPU GPU: {mpcgpu_ms:.2f} ms")
+        # MPCGPU is single-solve (whole-GPU cooperative), so a batch of M problems costs
+        # M x per-solve (sequential) -> a LINEAR line, not flat. This is exactly GATO's
+        # batching advantage: GATO stays sub-linear while MPCGPU scales 1:1 with M.
+        plt.plot(M, [mpcgpu_ms * m for m in M], "s--", color="#003192",
+                 label=f"MPCGPU GPU (xM seq): {mpcgpu_ms:.2f} ms/solve")
     plt.xscale("log", base=2)
     plt.yscale("log")
     plt.xlabel("Batch Size")
