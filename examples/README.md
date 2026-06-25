@@ -18,6 +18,10 @@ python examples/02_batched_solve.py
 python examples/03_mpc_loop.py
 ```
 
+For a live, interactive tour of the same APIs (plus a no-GPU Fig-4 re-plot), open
+[`explore.ipynb`](explore.ipynb) — it wraps the three demos above and points at the
+paper-figure scripts.
+
 There are also exploratory Jupyter notebooks here (`gato_hparam_batch.ipynb`,
 `gato_pickplace.ipynb`, `gato_fig8_tracking.ipynb`) with inline plots; the committed,
 CLI-runnable reproduction path is the scripts in `paper-figures/` (below).
