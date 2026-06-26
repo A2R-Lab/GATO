@@ -54,7 +54,9 @@ migrated to `glass::`.
 - `gato/{constants.h, settings.h, types.cuh}` — dims, build flags, KKT/Schur structs.
 - `python/bsqp/` — `mpc_controller.py` (`MPC_GATO`: `run_mpc_fig8`, `run_mpc_goals`,
   `setup_external_forces`), `config.py` (robot/experiment configs), `experiment_runner.py`.
-- `examples/` — robot URDFs + experiment notebooks (paper reproduction). `plots/` — figures.
+- `examples/` — user-facing demos (`01/02/03`, `explore.ipynb`) + robot URDFs + `force_estimator*.py`.
+  `examples/paper-figures/` — `reproduce_fig*.py` + `visualizations.ipynb`. `examples/benchmarks/` —
+  `benchmark_fig8.py`/`benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/` + `plots/`.
 - `external/GRiD` (pinned to `modernizing-tests`), `external/GLASS` (pinned to `main`).
 - `tools/regen_grid.py` — regenerate the vendored `grid.cuh` from `external/GRiD`.
 
