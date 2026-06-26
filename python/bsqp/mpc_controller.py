@@ -37,7 +37,7 @@ class MPC_GATO:
         batch_size=1,
         constant_f_ext=None,
         track_full_stats=False,
-        plant_type='indy7',
+        plant_type=None,  # None => BSQP auto-detects from model_path ('iiwa'->iiwa14 else indy7)
         pendulum_config=None,
         solver_params=None,
         fe_seed=0,
@@ -53,7 +53,9 @@ class MPC_GATO:
             batch_size: Number of parallel trajectories
             constant_f_ext: Constant external force/torque (optional)
             track_full_stats: If True, track all stats; if False, only essential ones
-            plant_type: Plant identifier used for selecting dynamics (e.g., 'indy7', 'iiwa14')
+            plant_type: Plant identifier selecting the CUDA module (e.g., 'indy7', 'iiwa14').
+                None (default) auto-detects from model_path ('iiwa' -> iiwa14, else indy7) so an
+                iiwa14 model no longer silently loads the indy7 solver (STATE_SIZE mismatch).
             pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
         """
         # Store original model for solver (without pendulum)
