@@ -22,8 +22,9 @@ For a live, interactive tour of the same APIs (plus a no-GPU Fig-4 re-plot), ope
 [`explore.ipynb`](explore.ipynb) — it wraps the three demos above and points at the
 paper-figure scripts.
 
-There are also exploratory Jupyter notebooks here (`gato_hparam_batch.ipynb`,
-`gato_pickplace.ipynb`, `gato_fig8_tracking.ipynb`) with inline plots; the committed,
+For *qualitative* paper visualizations (figure-8 EE tracking + 3D pick-place trajectories
+that the headless scripts don't render), see
+[`paper-figures/visualizations.ipynb`](paper-figures/visualizations.ipynb). The committed,
 CLI-runnable reproduction path is the scripts in `paper-figures/` (below).
 
 ## Paper reproduction — `paper-figures/`
