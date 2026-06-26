@@ -566,7 +566,7 @@ namespace plant {
         __host__ __device__ constexpr unsigned trackingCostGradientAndHessian_TempMemSize_Shared()
         {
                 // s_eePos (6) + s_eePos_grad (6*NQ) + s_scratch (EE-gradient arena, >= 144+190=334).
-                // END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT (503) safely bounds the scratch.
+                // END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT (391) safely bounds the scratch.
                 return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT + 6 + 6 * NQ;
         }
 }  // namespace plant
