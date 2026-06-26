@@ -34,7 +34,7 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
 
         // glass::pcg manages its own shared layout within s_mem (5 padded vectors +
         // warp-dot scratch + 5 static scalars). getSolvePCGBatchedSMemSize() stays >=
-        // glass::pcg_smem_size (not tightened in this swap).
+        // glass::pcg_scratch_bytes (now returns bytes; GATO sizes its own smem, so unaffected).
         extern __shared__ T s_mem[];
 
         // get S, P_inv, b, x pointers for this batch element (padded vectors).

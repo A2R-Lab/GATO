@@ -114,17 +114,17 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // theta_k = (A_k * Q_k_inv * A_k^T) + (B_k * R_k_inv * B_k^T) + (Q_kp1_inv)
-                glass::gemm<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, true>(static_cast<T>(1), s_A_Q_inv, s_A_k, static_cast<T>(1), s_theta_k);
-                // B non-square (S x C): glass TRANSPOSE_B requires square B, so use gemm_ex reading B col-major as B^T row-major
-                glass::gemm_ex<T, false, false, true, false>(STATE_SIZE, CONTROL_SIZE, STATE_SIZE, static_cast<T>(1), s_B_R_inv, s_B_k, static_cast<T>(1), s_theta_k);
+                glass::gemm<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, /*TA=*/false, /*TB=*/true>(static_cast<T>(1), s_A_Q_inv, s_A_k, static_cast<T>(1), s_theta_k);
+                // B_R_inv (S x C) * B_k^T: new glass::gemm handles rectangular TRANSPOSE_B natively (gemm_ex removed)
+                glass::gemm<T, /*TA=*/false, /*TB=*/true, /*ROW_MAJOR_C=*/false>(STATE_SIZE, STATE_SIZE, CONTROL_SIZE, static_cast<T>(1), s_B_R_inv, s_B_k, static_cast<T>(1), s_theta_k);
                 // __syncthreads();
 
                 // gamma_k
-                glass::gemm<T, STATE_SIZE, STATE_SIZE, 1>(static_cast<T>(1), s_Q_kp1_inv, s_q_kp1, static_cast<T>(1), s_gamma_k);
+                glass::gemm<T, STATE_SIZE, 1, STATE_SIZE>(static_cast<T>(1), s_Q_kp1_inv, s_q_kp1, static_cast<T>(1), s_gamma_k);
                 __syncthreads();
-                glass::gemm<T, STATE_SIZE, STATE_SIZE, 1>(static_cast<T>(-1), s_A_Q_inv, s_q_k, static_cast<T>(1), s_gamma_k);
+                glass::gemm<T, STATE_SIZE, 1, STATE_SIZE>(static_cast<T>(-1), s_A_Q_inv, s_q_k, static_cast<T>(1), s_gamma_k);
                 __syncthreads();
-                glass::gemm<T, STATE_SIZE, CONTROL_SIZE, 1>(static_cast<T>(-1), s_B_R_inv, s_r_k, static_cast<T>(1), s_gamma_k);
+                glass::gemm<T, STATE_SIZE, 1, CONTROL_SIZE>(static_cast<T>(-1), s_B_R_inv, s_r_k, static_cast<T>(1), s_gamma_k);
                 __syncthreads();
                 T* d_gamma_k = getOffsetStatePadded<T, BatchSize>(d_gamma_batch, solve_idx, knot_idx + 1);
                 glass::copy<T, STATE_SIZE>(static_cast<T>(-1), s_gamma_k, d_gamma_k);
@@ -203,7 +203,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 }
 
                 // gamma_0 = - Q_0_inv * q_0 (c_0 is already in s_gamma_0)
-                glass::gemm<T, STATE_SIZE, STATE_SIZE, 1>(static_cast<T>(-1), s_Q_k_inv, s_q_k, static_cast<T>(1), s_gamma_k);
+                glass::gemm<T, STATE_SIZE, 1, STATE_SIZE>(static_cast<T>(-1), s_Q_k_inv, s_q_k, static_cast<T>(1), s_gamma_k);
                 __syncthreads();
 
                 // save gamma_0
@@ -369,7 +369,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // Q_inv_k * (q_k - (lambda_k - A_k^T * lambda_kp1))
-                glass::gemm<T, STATE_SIZE, STATE_SIZE, 1>(static_cast<T>(1), s_Q_k_inv, s_A_k, s_scratch);
+                glass::gemm<T, STATE_SIZE, 1, STATE_SIZE>(static_cast<T>(1), s_Q_k_inv, s_A_k, s_scratch);
                 __syncthreads();
 
                 // store to dz
@@ -402,7 +402,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 const T* d_lambda_kp1 = getOffsetStatePadded<T, BatchSize>(d_lambda_batch, solve_idx, knot_idx + 1);
 
                 // s_scratch = -(B_k^T * lambda_kp1)
-                glass::gemm<T, 1, STATE_SIZE, CONTROL_SIZE>(static_cast<T>(-1), const_cast<T*>(d_lambda_kp1), s_B_k, s_scratch);
+                glass::gemm<T, 1, CONTROL_SIZE, STATE_SIZE>(static_cast<T>(-1), const_cast<T*>(d_lambda_kp1), s_B_k, s_scratch);
                 __syncthreads();
 
                 T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
@@ -410,7 +410,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // s_B_k = R_inv_k * s_scratch
-                glass::gemm<T, CONTROL_SIZE, CONTROL_SIZE, 1>(static_cast<T>(1), s_R_k_inv, s_scratch, s_B_k);
+                glass::gemm<T, CONTROL_SIZE, 1, CONTROL_SIZE>(static_cast<T>(1), s_R_k_inv, s_scratch, s_B_k);
                 __syncthreads();
 
                 // store to dz
