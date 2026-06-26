@@ -61,3 +61,6 @@ build_matrix/
 examples/paper-figures/data/*.pkl
 examples/paper-figures/*.png
 examples/paper-figures/*.txt
+
+# local task/runbook files — not tracked
+docs/open-tasks/
