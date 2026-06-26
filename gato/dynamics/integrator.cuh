@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include "glass.cuh"
 #include "constants.h"
 #include "settings.h"
 
@@ -227,7 +228,7 @@ __device__ T compute_integrator_error(T* s_xuk, T* s_xkp1, T* s_temp, void* d_dy
         }
         integrator_error_inner<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_err, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, s_extra_temp);
         __syncthreads();
-        block::reduce<T>(STATE_SIZE, s_err);
+        ::glass::reduce<T>(STATE_SIZE, s_err);
         __syncthreads();
         return s_err[0];
 }

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include "grid.cuh"
+#include "glass.cuh"
 #include "settings.h"
 #include "utils/linalg.cuh"
 // #include <random>
@@ -397,7 +398,7 @@ namespace plant {
                 }
                 __syncthreads();
 
-                block::reduce<T>(threadsNeeded + 3, s_cost_vec);
+                ::glass::reduce<T>(threadsNeeded + 3, s_cost_vec);
                 __syncthreads();
 
                 return s_cost_vec[0];
