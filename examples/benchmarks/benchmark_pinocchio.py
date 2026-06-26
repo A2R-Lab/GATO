@@ -17,6 +17,10 @@ sys.path.append('./python/bsqp')
 sys.path.append('./python')
 from bsqp.interface import BSQP
 
+# output pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=990)
 
@@ -66,7 +70,7 @@ class PinocchioBenchmark:
             'usefext': self.use_f_ext,
             'timestamp': time.strftime('%Y-%m-%d_%H-%M-%S')
         }
-        pickle.dump(config, open(f'data/benchmark_stats{file_prefix}_benchmark_config.pkl', 'wb'))
+        pickle.dump(config, open(os.path.join(_DATA_DIR, f'benchmark_stats{file_prefix}_benchmark_config.pkl'), 'wb'))
         
         # Initialize BSQP solver
         f_ext_B_std = 0.0 if not use_f_ext else 1.0
@@ -391,7 +395,7 @@ class PinocchioBenchmark:
             )
         
         # Save final statistics
-        pickle.dump(allstats, open(f'data/benchmark_stats{self.file_prefix}_stats_final.pkl', 'wb'))
+        pickle.dump(allstats, open(os.path.join(_DATA_DIR, f'benchmark_stats{self.file_prefix}_stats_final.pkl'), 'wb'))
         
         return allstats
 

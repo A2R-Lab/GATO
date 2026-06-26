@@ -6,14 +6,14 @@ per-step solve time against the BatchThneed CPU baseline and the MPCGPU GPU
 baseline as M grows over [1, 2, 4, ..., 128].
 
 This is a thin orchestrator over the canonical generators:
-  - GATO:        examples/benchmark_fig8.py            -> benchmark_fig8_64N.pkl (batched GPU)
-  - BatchThneed: baselines/run_batchthneed_fig8.py     -> baselines/batchthneed_fig8_results.pkl
+  - GATO:        examples/benchmarks/benchmark_fig8.py -> data/benchmark_fig8_64N.pkl (batched GPU)
+  - BatchThneed: benchmarks/baselines/run_batchthneed_fig8.py -> baselines/batchthneed_fig8_results.pkl
                  The paper's CPU competitor: threaded C++ BatchThneed solves M problems across
                  cores -> SUB-LINEAR (flat to core count, then linear), the fair CPU line. Build
-                 via baselines/build_cpu_baseline.sh (no ROS; reuses the venv's cmeel pinocchio).
+                 via benchmarks/baselines/build_cpu_baseline.sh (no ROS; reuses cmeel pinocchio).
                  (Single-solve OSQP was dropped: BatchThneed is faster even at M=1, so OSQP added
                  nothing — see docs/baselines.md.)
-  - MPCGPU:      baselines/mpcgpu_indy7_fig8_N64.csv   (built separately; OPTIONAL). Single-solve
+  - MPCGPU:      benchmarks/baselines/mpcgpu_indy7_fig8_N64.csv (built separately; OPTIONAL). Single-solve
                  (whole-GPU cooperative), so a batch of M costs M x per-solve -> drawn as a LINEAR
                  line (~0.2 -> ~28 ms over M=1..128). Per-solve = MEDIAN of the CSV.
 All baselines degrade gracefully if absent; GATO's sub-linear curve under both batched baselines
@@ -37,9 +37,9 @@ import numpy as np
 import _common as C
 
 N = 64
-GATO_PKL = os.path.join(C.REPO, f"benchmark_fig8_{N}N.pkl")
-BATCHTHNEED_PKL = os.path.join(C.REPO, "baselines", "batchthneed_fig8_results.pkl")
-MPCGPU_CSV = os.path.join(C.REPO, "baselines", "mpcgpu_indy7_fig8_N64.csv")
+GATO_PKL = os.path.join(C.BENCH_DATA, f"benchmark_fig8_{N}N.pkl")
+BATCHTHNEED_PKL = os.path.join(C.BENCH_DIR, "baselines", "batchthneed_fig8_results.pkl")
+MPCGPU_CSV = os.path.join(C.BENCH_DIR, "baselines", "mpcgpu_indy7_fig8_N64.csv")
 VENV = os.path.join(os.path.dirname(C.REPO), "GRiD", ".venv", "bin", "python")
 PY = VENV if os.path.exists(VENV) else "python"
 
@@ -50,7 +50,7 @@ def _run(cmd):
 
 
 def regen_gato(batch_sizes, sim_time):
-    _run([PY, "examples/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
+    _run([PY, "examples/benchmarks/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
           "--batch-sizes", batch_sizes, "--sim-time", str(sim_time)])
 
 

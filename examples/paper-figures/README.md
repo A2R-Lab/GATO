@@ -61,7 +61,7 @@ Scripts emit a clear "module not built" error naming the cmake line if a module 
 - **MPCGPU line (Fig-3):** the GPU baseline is built separately from frozen pins (see
   `docs/baselines.md`); its indy7 tracking fix + PR are deferred until Fig-3 is otherwise
   complete. `reproduce_fig3_scalability.py` plots it only if
-  `baselines/mpcgpu_indy7_fig8_N64.csv` is present, and degrades gracefully otherwise.
+  `benchmarks/baselines/mpcgpu_indy7_fig8_N64.csv` is present, and degrades gracefully otherwise.
 - **OSQP CPU bar:** the committed baseline is the single-solve Python `Thneed`
   (interpreter-bound; conservative). The paper's CPU bar is a multi-threaded C++
   `BatchThneed` (needs osqp/OsqpEigen/pinocchio-C++ — a backlog item).

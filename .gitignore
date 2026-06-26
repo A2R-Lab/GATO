@@ -51,10 +51,13 @@ python/gato.egg-info/
 uv.lock
 
 deprecated/
-baselines/batchthneed_fig8_results.pkl
-baselines/sqpcpu_env.sh
-benchmark_fig8_*N.pkl
-build_matrix/
+
+# benchmarks: regenerated/local artifacts (recovered datasets under
+# examples/benchmarks/data/ are tracked explicitly and unaffected by these)
+examples/benchmarks/baselines/batchthneed_fig8_results.pkl
+examples/benchmarks/baselines/sqpcpu_env.sh
+examples/benchmarks/data/benchmark_fig8_*.pkl
+examples/benchmarks/data/benchmark_stats*.pkl
 
 # paper-figures: regenerated data + rendered figures are artifacts (recovered/
 # bundled datasets live elsewhere, e.g. examples/gato_hparam_batch_results.pkl)

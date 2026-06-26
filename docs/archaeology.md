@@ -17,7 +17,7 @@ all 24 branches (2026-06-21). Paper = *GATO: GPU-Accelerated Batched Trajectory 
 |---|---|---|---|
 | **CS1 hyperparameter** (Fig 4): iiwa14 per-batch ρ, normalized-merit-vs-SQP-iter | clean nb `case_study_1:examples/gato_hparam_batch.ipynb` | **YES** — `batch_rho:examples/gato_hparam_batch_results_adaptive_rho_2.pkl` (84 KB) | `examples/gato_hparam_batch.ipynb` + `examples/gato_hparam_batch_results.pkl` (re-plots Fig 4, **no GPU needed**) |
 | **Fig 3 scalability** (Indy7 batch×N solve-time) | `experiment_plots:benchmark_fig8.py` (fig8, modern API, batch≤1024) **and** `a2rlab03:benchmark.py` (`class Benchmark`, mujoco point-to-point — produced the surviving data) | **PARTIAL** — 23/24 point-to-point cells (missing `batch128_N64`); fig8-heatmap input data **lost** | `data/fig3_scalability_p2p/` (p2p grid); harness consolidation pending |
-| **Fig 3 heatmap** | `experiment_plots:plots/fig8_benchmark_heatmap.ipynb` (+ rendered PNG) | input `benchmark_fig8_*.pkl` **lost** → re-run | `plots/fig8_benchmark_heatmap.ipynb` + `plots/gato_solve_time_heatmap.png` |
+| **Fig 3 heatmap** | `experiment_plots:plots/fig8_benchmark_heatmap.ipynb` (+ rendered PNG) | input `benchmark_fig8_*.pkl` **lost** → re-run | `examples/benchmarks/plots/fig8_benchmark_heatmap.ipynb` + `examples/benchmarks/plots/gato_solve_time_heatmap.png` |
 | **Fig 3 CPU baseline** | `a2rlab03:benchmark_pinocchio.py` (pinocchio-sim MPC driving the GPU solver — **not** OSQP) | none | pending (port: dead ctor kwargs `f_ext_B_std=` to remove) |
 | **CS2 disturbance** (Fig 5): Indy7 fig8 under random external force | old `benchmark.py` (`usefext`/`f_ext_std` random-force batch) + modern `MPC_GATO.setup_external_forces` | **none** (figures only) → re-run from scratch | pending |
 | **CS3a pick-place / Table I**: iiwa14 + pendulum, success-rate-vs-batch | `hardware:examples/gato_pick&place.ipynb` (batch sweep) + `_cem.ipynb` (success-aggregation figure) + `_sept_9.ipynb` (cleanest MPC class) | none → re-run | `examples/gato_pickplace.ipynb` (basic demo); batch-sweep + Table-I driver pending |
@@ -108,7 +108,7 @@ student fork that holds the MPCGPU `adu/multisolve-v1` lineage). All four branch
 | `fix/sm120-runtime-smem` | `adu/multisolve-v1` (MPCGPU) | **MERGE → MPCGPU upstream** (feature-branch PR; we own it, keep minimal) | Two genuine shared-memory bugs in the frozen MPCGPU baseline, fatal on Blackwell sm_120 (FD `s_XITemp` split 1008→504 / 864→432; `end_effector_positions_kernel` launched with no dynamic-smem arg). Real fixes worth upstreaming. Worktree `/tmp/gato_mpcgpu`. |
 | `fig3/indy7-mpcgpu` | `fix/sm120-runtime-smem` | **KEEP** (paused-baseline artifact) | MPCGPU iiwa14→indy7 port for the fair Fig-3 (KNOT=64, h=0.01, 1 SQP iter, indy7 trajfiles). Baselines are **PAUSED** pending fairness fixes — keep as the repro artifact; revisit when baselines resume. Do NOT merge into the modern GATO trunk (different lineage). |
 
-### sqpcpu submodule (`baselines/sqpcpu`, student repo EmreAdabag/sqpcpu)
+### sqpcpu submodule (`examples/benchmarks/baselines/sqpcpu`, student repo EmreAdabag/sqpcpu)
 | Branch | Base | Disposition | Why / next step |
 |---|---|---|---|
 | `fig3-fair-sigma` | `master` (`4bbd9ee`) | **KEEP local** (paused-baseline; PR to student repo later) | Adds optional `sigma` (OSQP primal Levenberg reg) to `Thneed` for a fair 1-SQP-iter run. Not pushed to the student's `master` (fork pulls held pending the student). |

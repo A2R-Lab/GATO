@@ -156,7 +156,7 @@ class MPC_GATO:
         pace_by_solve_time: if True (default, real-time MPC), advance the sim by the
             measured wall-clock solve time each control step (a faster solver re-plans
             more often). If False, advance a fixed `dt` per solve — matches the CPU
-            baseline harness (baselines/run_batchthneed_fig8.py) for an apples-to-apples
+            baseline harness (examples/benchmarks/baselines/run_batchthneed_fig8.py) for an apples-to-apples
             per-solve tracking-quality comparison independent of solve speed.
 
         Returns only essential statistics for visualization and analysis.

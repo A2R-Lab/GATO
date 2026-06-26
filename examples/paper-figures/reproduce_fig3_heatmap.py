@@ -36,14 +36,14 @@ PY = VENV if os.path.exists(VENV) else "python"
 
 def regen_N(N, batch_sizes, sim_time):
     print(f"[paper-figures] $ benchmark_fig8.py --N {N}")
-    subprocess.run([PY, "examples/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
+    subprocess.run([PY, "examples/benchmarks/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
                     "--batch-sizes", batch_sizes, "--sim-time", str(sim_time)],
                    cwd=C.REPO, check=True)
 
 
 def load_all():
     rows = []
-    for pf in sorted(glob.glob(os.path.join(C.REPO, "benchmark_fig8_*.pkl"))):
+    for pf in sorted(glob.glob(os.path.join(C.BENCH_DATA, "benchmark_fig8_*.pkl"))):
         with open(pf, "rb") as f:
             for r in pickle.load(f):
                 if "error" not in r and r.get("avg_gpu_time_ms") is not None:
@@ -112,7 +112,7 @@ def main():
 
     if not args.replot:
         for N in N_list:
-            pkl = os.path.join(C.REPO, f"benchmark_fig8_{N}N.pkl")
+            pkl = os.path.join(C.BENCH_DATA, f"benchmark_fig8_{N}N.pkl")
             if args.regen or not os.path.exists(pkl):
                 C.require_module("indy7", N)
                 regen_N(N, batch_sizes, sim_time)

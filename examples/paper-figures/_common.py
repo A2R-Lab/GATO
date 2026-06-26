@@ -24,6 +24,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 DATA_DIR = os.path.join(HERE, "data")            # regenerated pkls land here
 FIG_DIR = HERE                                    # figures render next to scripts
+BENCH_DIR = os.path.join(REPO, "examples", "benchmarks")   # benchmark scripts + baselines + data
+BENCH_DATA = os.path.join(BENCH_DIR, "data")               # benchmark pkls (GATO sweep, recovered)
 
 # make the GATO python package importable no matter the CWD
 for _p in (os.path.join(REPO, "python"), os.path.join(REPO, "python", "bsqp")):

@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import argparse
@@ -5,6 +6,9 @@ import numpy as np
 import pickle
 from datetime import datetime
 import pinocchio as pin
+
+# benchmark pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 # Add paths
 sys.path.append('./python/bsqp')
@@ -95,7 +99,8 @@ def run_sweep(model, model_path, batch_sizes, N, dt, sim_time, sim_dt, x_start,
             sim_dt=sim_dt, fig8_traj=fig8_traj, x_start=x_start, model_path=model_path,
         ))
     if save:
-        output_file = f"benchmark_fig8_{N}N.pkl"
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        output_file = os.path.join(_DATA_DIR, f"benchmark_fig8_{N}N.pkl")
         with open(output_file, 'wb') as f:
             pickle.dump(results, f)  # bare list -> heatmap notebook format
         print(f"\nResults saved to: {output_file}")
