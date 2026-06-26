@@ -36,10 +36,9 @@ source baselines/sqpcpu_env.sh
 ```
 Provisional (non-quiet): M=1→2.5ms, 8→3.2, 16→3.5, 64→11.8 ms. Sub-linear (threaded), ~paper shape.
 
-## 3. OSQP single-solve reference (CPU) — faint reference line only
-```
-~/Desktop/GRiD/.venv/bin/python baselines/run_osqp_fig8.py --N 64 --sim-time 5
-```
+## 3. (REMOVED) OSQP single-solve reference
+Dropped 2026-06-26 (user): BatchThneed is faster than single-solve OSQP even at M=1, so the OSQP line
+was meaningless. `run_osqp_fig8.py` + `osqp_fig8_results.pkl` deleted; not part of the pipeline anymore.
 
 ## 4. MPCGPU per-solve (GPU) — the linear xM line
 Q_COST is set to 1.0 (clean 293us; the tradeoff at Q=10/100 inflates time — see baselines.md). Rebuild
@@ -57,7 +56,7 @@ Expect median ~293 us (gravity-off, 1 SQP iter). load_mpcgpu() uses col 4 (media
 ```
 ~/Desktop/GRiD/.venv/bin/python examples/paper-figures/reproduce_fig3_scalability.py --replot
 ```
-Should draw: GATO (sub-linear), BatchThneed (sub-linear CPU), MPCGPU (linear xM), OSQP (faint ref).
+Should draw: GATO (sub-linear), BatchThneed (sub-linear CPU), MPCGPU (linear xM).
 
 ## 6. Fig-7 + Table-I pick-place (GPU) — success is correctness, mean-time is timing
 FE import bug FIXED + FE seeded (seed=0 default). Batching now helps (batch8 3/5 vs batch1 0/5 on the

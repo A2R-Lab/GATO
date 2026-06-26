@@ -51,7 +51,6 @@ python/gato.egg-info/
 uv.lock
 
 deprecated/
-baselines/osqp_fig8_results.pkl
 baselines/batchthneed_fig8_results.pkl
 baselines/sqpcpu_env.sh
 benchmark_fig8_*N.pkl

@@ -2,8 +2,8 @@
 
 Paper IV-B: at each control step solve a batch of M trajectory-optimization
 problems (N=64, h=0.01, warm-started from the previous step) and compare GATO's
-per-step solve time against the OSQP CPU baseline and the MPCGPU GPU baseline as
-M grows over [1, 2, 4, ..., 128].
+per-step solve time against the BatchThneed CPU baseline and the MPCGPU GPU
+baseline as M grows over [1, 2, 4, ..., 128].
 
 This is a thin orchestrator over the canonical generators:
   - GATO:        examples/benchmark_fig8.py            -> benchmark_fig8_64N.pkl (batched GPU)
@@ -11,15 +11,15 @@ This is a thin orchestrator over the canonical generators:
                  The paper's CPU competitor: threaded C++ BatchThneed solves M problems across
                  cores -> SUB-LINEAR (flat to core count, then linear), the fair CPU line. Build
                  via baselines/build_cpu_baseline.sh (no ROS; reuses the venv's cmeel pinocchio).
-  - OSQP:        baselines/run_osqp_fig8.py            -> baselines/osqp_fig8_results.pkl
-                 single-solve Python Thneed; drawn as a faint reference line only.
+                 (Single-solve OSQP was dropped: BatchThneed is faster even at M=1, so OSQP added
+                 nothing — see docs/baselines.md.)
   - MPCGPU:      baselines/mpcgpu_indy7_fig8_N64.csv   (built separately; OPTIONAL). Single-solve
                  (whole-GPU cooperative), so a batch of M costs M x per-solve -> drawn as a LINEAR
                  line (~0.2 -> ~28 ms over M=1..128). Per-solve = MEDIAN of the CSV.
 All baselines degrade gracefully if absent; GATO's sub-linear curve under both batched baselines
 is the figure's point. See docs/baselines.md.
 
-DEFAULT regenerates GATO + OSQP then assembles the plot (BatchThneed/MPCGPU read if present).
+DEFAULT regenerates GATO then assembles the plot (BatchThneed/MPCGPU read if present).
 ``--replot`` just assembles from existing pkls.
 
 Examples::
@@ -38,7 +38,6 @@ import _common as C
 
 N = 64
 GATO_PKL = os.path.join(C.REPO, f"benchmark_fig8_{N}N.pkl")
-OSQP_PKL = os.path.join(C.REPO, "baselines", "osqp_fig8_results.pkl")
 BATCHTHNEED_PKL = os.path.join(C.REPO, "baselines", "batchthneed_fig8_results.pkl")
 MPCGPU_CSV = os.path.join(C.REPO, "baselines", "mpcgpu_indy7_fig8_N64.csv")
 VENV = os.path.join(os.path.dirname(C.REPO), "GRiD", ".venv", "bin", "python")
@@ -55,26 +54,11 @@ def regen_gato(batch_sizes, sim_time):
           "--batch-sizes", batch_sizes, "--sim-time", str(sim_time)])
 
 
-def regen_osqp(sim_time):
-    _run([PY, "baselines/run_osqp_fig8.py", "--N", str(N), "--sim-time", str(sim_time)])
-
-
 def load_gato():
     with open(GATO_PKL, "rb") as f:
         rows = pickle.load(f)
     return {int(r["batch_size"]): float(r["avg_gpu_time_ms"])
             for r in rows if r.get("success") and r.get("avg_gpu_time_ms") is not None}
-
-
-def load_osqp():
-    if not os.path.exists(OSQP_PKL):
-        return None
-    with open(OSQP_PKL, "rb") as f:
-        rows = pickle.load(f)
-    for r in rows:
-        if int(r["N"]) == N:
-            return float(r["avg_cpu_time_ms"])
-    return None
 
 
 def load_batchthneed():
@@ -102,18 +86,13 @@ def load_mpcgpu():
     return median_us / 1000.0  # us -> ms (per single solve)
 
 
-def report(gato, osqp_ms, mpcgpu_ms, batchcpu=None):
+def report(gato, mpcgpu_ms, batchcpu=None):
     lines = [f"=== Fig-3 (left): Indy7 fig8, N={N}, solve time vs batch ===",
              f"{'M':>5} {'GATO ms':>9} {'vs BatchCPU':>12} {'vs MPCGPU(GPU)':>15}"]
     for m in sorted(gato):
         g = gato[m]
-        # BatchThneed at batch m (threaded) vs GATO; falls back to single-solve OSQP if absent
-        if batchcpu and m in batchcpu:
-            cpu = f"{batchcpu[m] / g:6.1f}x"
-        elif osqp_ms:
-            cpu = f"{osqp_ms / g:6.1f}x*"
-        else:
-            cpu = "n/a"
+        # BatchThneed at batch m (threaded) vs GATO
+        cpu = f"{batchcpu[m] / g:6.1f}x" if (batchcpu and m in batchcpu) else "n/a"
         # MPCGPU at batch m = m sequential single-solves -> mpcgpu_ms * m
         gpu = f"{(mpcgpu_ms * m) / g:6.1f}x" if mpcgpu_ms else "n/a"
         lines.append(f"{m:>5} {g:>9.3f} {cpu:>12} {gpu:>15}")
@@ -121,7 +100,6 @@ def report(gato, osqp_ms, mpcgpu_ms, batchcpu=None):
         bm = sorted(batchcpu)
         lines.append(f"BatchThneed CPU (threaded): {batchcpu[bm[0]]:.2f}..{batchcpu[bm[-1]]:.1f} ms "
                      f"over M={bm[0]}..{bm[-1]}")
-    lines.append(f"OSQP-CPU (single solve): {osqp_ms:.3f} ms" if osqp_ms else "OSQP: missing")
     if mpcgpu_ms:
         lines.append(f"MPCGPU (single solve): {mpcgpu_ms:.3f} ms/solve -> xM sequential "
                      f"({mpcgpu_ms:.2f}..{mpcgpu_ms*max(gato):.1f} ms over M=1..{max(gato)})")
@@ -131,7 +109,7 @@ def report(gato, osqp_ms, mpcgpu_ms, batchcpu=None):
         f.write(txt + "\n")
 
 
-def plot(gato, osqp_ms, mpcgpu_ms, batchcpu=None):
+def plot(gato, mpcgpu_ms, batchcpu=None):
     plt = C.set_paper_rcParams()
     M = sorted(gato)
     ms = [gato[m] for m in M]
@@ -143,9 +121,6 @@ def plot(gato, osqp_ms, mpcgpu_ms, batchcpu=None):
         bm = sorted(batchcpu)
         plt.plot(bm, [batchcpu[m] for m in bm], "^-", color="#C90016",
                  label="BatchThneed (CPU, batched/threaded)")
-    if osqp_ms:
-        plt.axhline(osqp_ms, ls=":", color="#C90016", alpha=0.6,
-                    label=f"OSQP CPU (single solve): {osqp_ms:.1f} ms")
     if mpcgpu_ms:
         # MPCGPU is single-solve (whole-GPU cooperative), so a batch of M problems costs
         # M x per-solve (sequential) -> a LINEAR line, not flat. This is exactly GATO's
@@ -167,7 +142,6 @@ def main():
     C.add_repro_args(p)
     p.add_argument("--batch-sizes", default="1,2,4,8,16,32,64,128")
     p.add_argument("--sim-time", type=float, default=5.0)
-    p.add_argument("--skip-osqp", action="store_true")
     args = p.parse_args()
 
     if not args.replot:
@@ -178,15 +152,12 @@ def main():
             print("[quick] tiny subset — NOT paper numbers")
         if args.regen or not os.path.exists(GATO_PKL):
             regen_gato(batch_sizes, sim_time)
-        if not args.skip_osqp and (args.regen or not os.path.exists(OSQP_PKL)):
-            regen_osqp(sim_time)
 
     gato = load_gato()
-    osqp_ms = load_osqp()
     mpcgpu_ms = load_mpcgpu()
     batchcpu = load_batchthneed()
-    report(gato, osqp_ms, mpcgpu_ms, batchcpu)
-    plot(gato, osqp_ms, mpcgpu_ms, batchcpu)
+    report(gato, mpcgpu_ms, batchcpu)
+    plot(gato, mpcgpu_ms, batchcpu)
 
 
 if __name__ == "__main__":

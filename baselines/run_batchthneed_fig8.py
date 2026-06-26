@@ -1,7 +1,7 @@
 """Batched-CPU baseline for Fig-3 (the paper's *actual* CPU competitor): pysqpcpu.BatchThneed.
 
-Unlike the single-solve Python `Thneed` (run_osqp_fig8.py), this is the multi-threaded C++
-BatchThneed — it solves a batch of M trajectory-optimization problems across `num_threads`
+This is the multi-threaded C++ `BatchThneed` — it solves a batch of M
+trajectory-optimization problems across `num_threads`
 CPU cores in one call, so its per-step time scales SUB-LINEARLY with M (flat until the core
 count, then linear), exactly like the paper's Fig-3 CPU line (~3 ms -> ~30 ms over M=1..128).
 That is the fair comparison to GATO's batched GPU solve; single-solve x M overstates the CPU.
