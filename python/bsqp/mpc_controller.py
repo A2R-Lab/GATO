@@ -265,8 +265,14 @@ class MPC_GATO:
             # Select best trajectory
             best_id = self.evaluate_best_trajectory(x_last, u_last, x_curr, max(sim_dt, round(timestep / sim_dt) * sim_dt))
             XU_best = XU_batch_new[best_id, :]
-            XU_batch[:, :] = XU_best
-            
+            # Time-shift warm-start (real-time-iteration): roll the winning trajectory forward one
+            # stage so knot k inherits old knot k+1, duplicating the final stage. Matches MPCGPU's
+            # one-stage just_shift and the CPU baseline, so all three share the SAME warm-start scheme
+            # (knot-0 state is overwritten with the measured x_curr at the top of the next step).
+            stride = self.nx + self.nu
+            XU_shifted = np.concatenate([XU_best[stride:], XU_best[-stride:]])
+            XU_batch[:, :] = XU_shifted
+
             # Collect essential statistics
             ee_pos = self.solver.ee_pos(q)
             goal_dist = np.linalg.norm(ee_pos[:3] - ee_g[6:9])
@@ -288,7 +294,12 @@ class MPC_GATO:
                     stats['sqp_iters'].append(int(sqp_iters[0]))
                 else:
                     stats['sqp_iters'].append(int(sqp_iters))
-                
+                # measurement: collect per-solve PCG iteration counts (batch elem 0)
+                pcg_iters = solver_stats.get('pcg_iters', [])
+                if isinstance(pcg_iters, np.ndarray) and pcg_iters.size > 0:
+                    stats.setdefault('pcg_iters', []).append(
+                        [int(v) for v in (pcg_iters[:, 0] if pcg_iters.ndim == 2 else pcg_iters)])
+
         # Convert to numpy arrays
         for key in stats:
             if stats[key]:
