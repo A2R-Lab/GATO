@@ -1,7 +1,23 @@
+import glob
 import importlib
+import os
+import re
+
 import numpy as np
-import pinocchio as pin
-import torch
+
+from .common import _require_pin
+
+
+def available():
+    """Discover built solver modules in this package: {(plant, N): filename}."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    found = {}
+    for so in sorted(glob.glob(os.path.join(here, "bsqpN*_*.so"))):
+        m = re.match(r"bsqpN(\d+)_([A-Za-z0-9_]+?)\.", os.path.basename(so))
+        if m:
+            found[(m.group(2), int(m.group(1)))] = os.path.basename(so)
+    return found
+
 
 class BSQP:
     def __init__(
@@ -33,20 +49,33 @@ class BSQP:
         # Dynamically import the correct bsqp_N* module and get the solver class
         # The modules should be named like 'bsqpN{N}_{plant_type}', e.g., 'bsqpN32_indy7'
         
-        # Auto-detect plant type from model_path if not explicitly specified
+        # Auto-detect plant type from model_path if not explicitly specified.
+        # Unknown robots are a hard error (a wrong plant silently runs the wrong
+        # dynamics with mismatched state size).
         if plant_type is None:
-            if 'iiwa' in model_path.lower():
-                plant_type = 'iiwa14'
-            else:
-                plant_type = 'indy7'  # default
+            plants = sorted({p for p, _ in available()})
+            low = model_path.lower()
+            # match the plant name or its alpha prefix (iiwa14 -> "iiwa") in the path
+            matches = [p for p in plants
+                       if p in low or re.sub(r"\d+$", "", p) in os.path.basename(low)]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Could not auto-detect plant from model_path={model_path!r}; "
+                    f"pass plant_type explicitly. Built plants: {plants or 'none'}"
+                )
+            plant_type = matches[0]
 
         # Build the module name for the given N and plant
-        module_name = f"bsqp.bsqpN{N}_{plant_type}"
+        module_name = f"gato.bsqpN{N}_{plant_type}"
         try:
             base = importlib.import_module(module_name)
         except ImportError as e:
             raise ValueError(
-                f"Number of knots {N} not supported (could not import {module_name}): {e}"
+                f"No compiled module for plant={plant_type!r}, N={N} "
+                f"(could not import {module_name}): {e}\n"
+                f"Built modules: {sorted(available()) or 'none'} — build with, e.g.:\n"
+                f"  cmake -S . -B build -DPLANT={plant_type} -DKNOTS={N} && "
+                f"cmake --build build --parallel 4"
             )
 
         # Build the class name for the given batch_size
@@ -81,6 +110,7 @@ class BSQP:
             ctrl_lim_cost,
             rho,  # rho
         )
+        pin = _require_pin()
         self.model = pin.buildModelFromUrdf(model_path)
         self.data = self.model.createData()
         # The solver/grid.cuh optimizes the EE-position cost in the URDF "EE" frame
@@ -227,6 +257,7 @@ class BSQP:
         # Measure the SAME frame the solver optimizes (URDF "EE"), not the last
         # joint origin, so the success/tracking metric matches the cost the solver
         # actually minimizes (see ee_frame_id resolution in __init__).
+        pin = _require_pin()
         pin.forwardKinematics(self.model, self.data, q)
         if self.ee_frame_id is not None:
             pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)

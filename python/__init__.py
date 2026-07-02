@@ -1,1 +1,0 @@
-from bsqp.interface import BSQP

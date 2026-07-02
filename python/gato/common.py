@@ -4,7 +4,23 @@ Shared functions used by both benchmark scripts and notebooks.
 """
 
 import numpy as np
-import pinocchio as pin
+
+
+def _require_pin():
+    """Import pinocchio on first use, with an actionable error.
+
+    The base install is numpy-only; pinocchio is only needed by the model/EE
+    metric layers (BSQP model loading, rk4, MPC_GATO) and ships in the
+    [examples] extra.
+    """
+    try:
+        import pinocchio as pin
+    except ImportError as e:
+        raise ImportError(
+            "pinocchio is required for this feature (robot model / EE metrics / sim); "
+            "install it with: pip install -e '.[examples]'"
+        ) from e
+    return pin
 
 
 def figure8(dt, A_x=0.4, A_z=0.4, offset=[0.0, 0.5, 0.6], period=6, cycles=5, theta=np.pi/4):
@@ -63,6 +79,7 @@ def rk4(model, data, q, dq, u, dt, fext=None):
         q_next: Joint positions at next timestep
         dq_next: Joint velocities at next timestep
     """
+    pin = _require_pin()
     if fext is None:
         fext = pin.StdVec_Force()
         for _ in range(model.njoints):
@@ -97,26 +114,6 @@ def initialize_warm_start(x_start, N, nx, nu):
         start_idx = i * (nx + nu)
         XU[start_idx:start_idx+nx] = x_start
     return XU
-
-def collect_tracking_stats(q, dq, ee_goal, model, data, gpu_time_us, solver_stats):
-    """
-    Collect tracking statistics for a single MPC step.
-    
-    Returns:
-        Dictionary with tracking metrics
-    """
-    ee_pos = get_ee_position(model, data, q)
-    goal_dist = np.linalg.norm(ee_pos[:3] - ee_goal[6:9])
-    
-    return {
-        'goal_distance': goal_dist,
-        'ee_actual': ee_pos.copy(),
-        'ee_goal': ee_goal[6:9].copy(),
-        'gpu_time_ms': gpu_time_us / 1000.0,
-        'sqp_iters': solver_stats.get('sqp_iters', 0),
-        'pcg_iters': solver_stats.get('pcg_iters', [0])[0] if 'pcg_iters' in solver_stats else 0
-    }
-
 
 def sample_axis_angle(mag_range=(0.0, 0.6)):
     """

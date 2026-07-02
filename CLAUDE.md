@@ -52,7 +52,7 @@ migrated to `glass::`.
   (thin adapters: dimension aliases, EE-cost/dynamics wrappers calling grid's `_inner` fns).
 - `gato/utils/` — `linalg.cuh` (GATO helpers), `cuda.cuh` (error macros).
 - `gato/{constants.h, settings.h, types.cuh}` — dims, build flags, KKT/Schur structs.
-- `python/bsqp/` — `mpc_controller.py` (`MPC_GATO`: `run_mpc_fig8`, `run_mpc_goals`,
+- `python/gato/` — the Python package (`import gato`): `mpc_controller.py` (`MPC_GATO`: `run_mpc_fig8`, `run_mpc_goals`,
   `setup_external_forces`), `config.py` (robot/experiment configs), `experiment_runner.py`.
 - `examples/` — user-facing demos (`01/02/03`, `explore.ipynb`) + robot URDFs + `force_estimator*.py`.
   `examples/paper-figures/` — `reproduce_fig*.py` + `visualizations.ipynb`. `examples/benchmarks/` —

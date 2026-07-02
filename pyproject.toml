@@ -38,7 +38,8 @@ examples = [
     "osqp>=0.6.7.post3",
     "meshcat>=0.3.2",
     "pyqt5>=5.15.11",
-    "tdqm>=0.0.1",
+    "tqdm>=4.60",
+    "gymnasium>=0.29",
     "jupyter>=1.1.1",
     "ipykernel>=6.29.5",
 ]
@@ -52,4 +53,10 @@ dev = [
 package-dir = {"" = "python"}
 
 [tool.setuptools.packages.find]
-include = ["bsqp"]
+where = ["python"]
+include = ["gato*"]
+
+# Ship prebuilt solver modules with the package when they exist (built by CMake
+# into python/gato/).
+[tool.setuptools.package-data]
+gato = ["*.so", "_registry.json"]

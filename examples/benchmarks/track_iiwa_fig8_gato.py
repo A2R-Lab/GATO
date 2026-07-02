@@ -11,7 +11,7 @@ import numpy as np
 sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import iiwa_fig8_shared as fig8mod
-from bsqp.mpc_controller import MPC_GATO
+from gato.mpc_controller import MPC_GATO
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
 DT = fig8mod.DT

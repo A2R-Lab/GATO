@@ -52,7 +52,7 @@ RECOVERED = "examples/gato_hparam_batch_results.pkl"
 
 
 def build_solver(urdf, B, q_cost, qd_cost, u_cost, N_cost, max_iters, *, rho_batch=None, rho=1e-3):
-    from bsqp.interface import BSQP
+    from gato.interface import BSQP
     return BSQP(
         model_path=urdf, batch_size=B, N=N, dt=DT,
         max_sqp_iters=max_iters, kkt_tol=0.0, max_pcg_iters=MAX_PCG_ITERS,

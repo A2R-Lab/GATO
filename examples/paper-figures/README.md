@@ -40,7 +40,7 @@ Not reproducible in software: **Fig-6** (meshcat sim snapshot) and **Fig-8 / Tab
 - **Tier C — hardware-only (not reproducible):** Fig-6, Fig-8, Table-II.
 
 ## Build matrix
-Each `(plant, N)` is a compile-time module `python/bsqp/bsqpN{N}_{plant}.so`. Build all
+Each `(plant, N)` is a compile-time module `python/gato/bsqpN{N}_{plant}.so`. Build all
 the suite needs in one shot from the repo root:
 
 ```bash

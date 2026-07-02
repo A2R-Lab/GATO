@@ -80,8 +80,8 @@ def _summarize(stats, fe_log, label):
 
 def _make_mpc(model, urdf, batch_size, pendulum_config, fe_override=None, solver_override=None):
     """Build an MPC_GATO that logs the FE estimate magnitude each control step."""
-    from bsqp.mpc_controller import MPC_GATO  # puts <repo>/examples on sys.path on import
-    from bsqp.config import PICKPLACE_SOLVER_PARAMS
+    from gato.mpc_controller import MPC_GATO  # puts <repo>/examples on sys.path on import
+    from gato.config import PICKPLACE_SOLVER_PARAMS
     from force_estimator import ForceEstimator
 
     sp = dict(PICKPLACE_SOLVER_PARAMS)
@@ -122,8 +122,8 @@ def main():
                          "fixes the FE divergence (Phase-1 tuning, success-rate only)")
     args = ap.parse_args()
 
-    from bsqp.experiment_runner import ExperimentRunner
-    from bsqp.config import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_MPC_DEFAULTS,
+    from gato.experiment_runner import ExperimentRunner
+    from gato.config import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_MPC_DEFAULTS,
                              PENDULUM_DEFAULT_PARAMS, IIWA14_START_CONFIGS)
 
     urdf = C.URDFS["iiwa14"]

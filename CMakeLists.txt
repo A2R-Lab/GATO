@@ -89,7 +89,7 @@ foreach(plant ${PLANT})
 
     set_target_properties(
       ${MODULE_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
-                                ${CMAKE_SOURCE_DIR}/python/bsqp)
+                                ${CMAKE_SOURCE_DIR}/python/gato)
     target_link_libraries(${MODULE_NAME} PRIVATE ${CUDA_LIBRARIES})
 
   endforeach()

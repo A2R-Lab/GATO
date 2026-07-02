@@ -14,9 +14,9 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import pinocchio as pin
-from bsqp.mpc_controller import MPC_GATO
-from bsqp.common import figure8
-from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+from gato.mpc_controller import MPC_GATO
+from gato.common import figure8
+from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
 URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
 # M=1 here for a clean, deterministic tracking demo. (Batched solves are shown in

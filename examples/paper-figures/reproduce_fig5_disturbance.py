@@ -30,9 +30,9 @@ STEADY_FRAC = 0.5       # average the back half of the run for "steady-state"
 
 
 def _run_one(model, urdf, M, force_N, sim_time):
-    from bsqp.mpc_controller import MPC_GATO
-    from bsqp.common import figure8
-    from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+    from gato.mpc_controller import MPC_GATO
+    from gato.common import figure8
+    from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
     f_ext = np.array([0.0, 0.0, -float(force_N), 0.0, 0.0, 0.0])
     mpc = MPC_GATO(model, model_path=urdf, N=N, dt=DT, batch_size=M, plant_type="indy7",
                    constant_f_ext=f_ext, track_full_stats=False)

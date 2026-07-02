@@ -45,7 +45,7 @@ cmake --build . --parallel
 - `PLANT`: semicolon-separated list of plant targets (`indy7`, `iiwa14`).
 - `KNOTS`: semicolon-separated list of horizon lengths.
 
-Built Python modules are written to `python/bsqp/` as `bsqpN{N}_{plant}.so`.
+Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
 
 ### Requirements
 

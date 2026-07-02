@@ -28,7 +28,7 @@ BENCH_DIR = os.path.join(REPO, "examples", "benchmarks")   # benchmark scripts +
 BENCH_DATA = os.path.join(BENCH_DIR, "data")               # benchmark pkls (GATO sweep, recovered)
 
 # make the GATO python package importable no matter the CWD
-for _p in (os.path.join(REPO, "python"), os.path.join(REPO, "python", "bsqp")):
+for _p in (os.path.join(REPO, "python"),):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -60,10 +60,10 @@ def require_module(plant, N):
     """
     import importlib
     try:
-        importlib.import_module(f"bsqp.bsqpN{N}_{plant}")
+        importlib.import_module(f"gato.bsqpN{N}_{plant}")
     except ImportError as e:
         raise SystemExit(
-            f"\n[paper-figures] Missing compiled module bsqp.bsqpN{N}_{plant} "
+            f"\n[paper-figures] Missing compiled module gato.bsqpN{N}_{plant} "
             f"({e}).\nBuild it first, e.g.:\n"
             f"  cmake -S . -B build -DPLANT=\"{plant}\" -DKNOTS=\"{N}\" "
             f"-DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4\n"
@@ -91,7 +91,7 @@ def set_paper_rcParams():
 
 def batch_color(batch_size):
     """Color for a batch size (falls back through config.BATCH_COLORS)."""
-    from bsqp.config import BATCH_COLORS
+    from gato.config import BATCH_COLORS
     return BATCH_COLORS.get(int(batch_size), None)
 
 

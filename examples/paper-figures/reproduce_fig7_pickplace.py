@@ -36,9 +36,9 @@ DT = 0.01
 
 
 def run(n_scenarios, batch_sizes, max_time):
-    from bsqp.experiment_runner import ExperimentRunner
-    from bsqp.common import sample_pendulum_params
-    from bsqp.config import PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS
+    from gato.experiment_runner import ExperimentRunner
+    from gato.common import sample_pendulum_params
+    from gato.config import PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS
 
     urdf = C.URDFS["iiwa14"]
     C.require_module("iiwa14", N)

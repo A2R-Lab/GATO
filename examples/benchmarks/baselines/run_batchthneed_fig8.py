@@ -20,8 +20,8 @@ import numpy as np
 
 G = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, G + '/python')
-from bsqp.common import figure8, rk4
-from bsqp.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, DEFAULT_SOLVER_PARAMS
+from gato.common import figure8, rk4
+from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, DEFAULT_SOLVER_PARAMS
 
 SP = DEFAULT_SOLVER_PARAMS  # GATO's OWN indy7 fig8 weights, so the CPU solves the identical problem
 

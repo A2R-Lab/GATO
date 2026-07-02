@@ -14,11 +14,11 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
 sys.path.insert(0, BENCH)                                   # iiwa_fig8_shared
-sys.path.insert(0, os.path.dirname(BENCH) + "/../python")   # bsqp (…/GATO/python)
+sys.path.insert(0, os.path.dirname(BENCH) + "/../python")   # gato (…/GATO/python)
 sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
 import iiwa_fig8_shared as fig8mod
-from bsqp.common import rk4
-from bsqp.config import DEFAULT_SOLVER_PARAMS as SP
+from gato.common import rk4
+from gato.config import DEFAULT_SOLVER_PARAMS as SP
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
 DT = fig8mod.DT

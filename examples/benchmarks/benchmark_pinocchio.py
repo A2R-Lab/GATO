@@ -12,10 +12,10 @@ import os
 from tqdm import tqdm
 import pickle
 
-# Add the bsqp interface to path
-sys.path.append('./python/bsqp')
+# Add the gato package to path
 sys.path.append('./python')
-from bsqp.interface import BSQP
+sys.path.append('./python')
+from gato.interface import BSQP
 
 # output pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")

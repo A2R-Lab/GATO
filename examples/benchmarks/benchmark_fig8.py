@@ -11,12 +11,12 @@ import pinocchio as pin
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 # Add paths
-sys.path.append('./python/bsqp')
+sys.path.append('./python')
 sys.path.append('./python')
 
-from bsqp.mpc_controller import MPC_GATO
-from bsqp.common import figure8
-from bsqp.config import (
+from gato.mpc_controller import MPC_GATO
+from gato.common import figure8
+from gato.config import (
     STANDARD_BATCH_SIZES,
     FIG8_DEFAULT_PARAMS,
     INDY7_START_CONFIGS,
