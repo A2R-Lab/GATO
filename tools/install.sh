@@ -44,6 +44,38 @@ if (( WANT_EXAMPLES || WANT_DEV )); then
 fi
 
 echo "----------------------------------------"
+echo "Preflight checks (host-native build needs CUDA toolkit + CMake + Python>=3.10)..."
+PREFLIGHT_OK=1
+if command -v nvcc >/dev/null 2>&1; then
+  NVCC_VER="$(nvcc --version | sed -n 's/.*release \([0-9.]*\).*/\1/p')"
+  echo " - nvcc ${NVCC_VER} found"
+  MAJOR="${NVCC_VER%%.*}"
+  if (( MAJOR < 12 )); then
+    echo "   WARNING: CUDA ${NVCC_VER} < 12.x — recent GPUs (e.g. sm_120 needs >=12.8) will not compile" >&2
+  fi
+else
+  echo " - ERROR: nvcc not found. Install a CUDA toolkit matching your GPU arch" >&2
+  echo "   (e.g. sm_120/RTX 50xx needs CUDA >=12.8) and put nvcc on PATH." >&2
+  PREFLIGHT_OK=0
+fi
+if command -v nvidia-smi >/dev/null 2>&1; then
+  echo " - GPU: $(nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>/dev/null | head -1)"
+else
+  echo " - WARNING: nvidia-smi not found (no driver?) — build works, running does not" >&2
+fi
+if command -v cmake >/dev/null 2>&1; then
+  CMAKE_VER="$(cmake --version | head -1 | awk '{print $3}')"
+  echo " - cmake ${CMAKE_VER} found (>=3.24 recommended for CUDA arch 'native')"
+else
+  echo " - ERROR: cmake not found (apt install cmake, or pip install cmake)" >&2
+  PREFLIGHT_OK=0
+fi
+if (( ! PREFLIGHT_OK )); then
+  echo "Preflight failed — fix the errors above and re-run." >&2
+  exit 1
+fi
+
+echo "----------------------------------------"
 echo "Initializing submodules (GRiD + nested GRiDCodeGenerator/URDFParser/RBDReference/GLASS)..."
 git -C "${REPO_ROOT}" submodule update --init --recursive
 
@@ -71,6 +103,6 @@ echo "Setup complete."
 echo " - activate:  source .venv/bin/activate"
 echo " - build:     ./tools/build.sh   (or: cmake -DPLANT=... -DKNOTS=... && cmake --build)"
 (( WANT_EXAMPLES )) || echo " - to run the examples you also need the runtime stack: ./tools/install.sh --examples"
-echo " - paper Fig-3 CPU baseline (optional): ./baselines/build_cpu_baseline.sh builds the threaded"
-echo "     BatchThneed (pysqpcpu) — osqp+osqp-eigen into a LOCAL prefix, reusing the venv's cmeel"
-echo "     pinocchio (NO ROS, NO source pinocchio). Then: source baselines/sqpcpu_env.sh"
+echo " - paper Fig-3 CPU baseline (optional): ./examples/benchmarks/baselines/build_cpu_baseline.sh"
+echo "     builds the threaded BatchThneed (pysqpcpu) — osqp+osqp-eigen into a LOCAL prefix, reusing"
+echo "     the venv's cmeel pinocchio (NO ROS). Then: source examples/benchmarks/baselines/sqpcpu_env.sh"

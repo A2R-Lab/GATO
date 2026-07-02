@@ -6,7 +6,7 @@ source "$(dirname "$0")/common.sh"
 printf "\n${CYAN}${BOLD}--------------------------------------------------${RESET}\n"
 
 printf "${ARROW} Removing build directories...\n"
-rm -rf build bindings/build 2>/dev/null || sudo rm -rf build bindings/build
+rm -rf build build_* 2>/dev/null || sudo rm -rf build build_*
 
 if docker ps -q -f name=^/gato-container$ | grep -q .; then
     printf "${ARROW} Stopping running container '${YELLOW}gato-container${RESET}'...\n"

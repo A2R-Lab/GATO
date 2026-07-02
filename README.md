@@ -3,16 +3,27 @@
 
 Numerical experiments and the open-source solver from  ["GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"](https://arxiv.org/abs/2510.07625)
 
-## Installation
+## Installation (host-native — no Docker needed)
+
+Prerequisites (Linux):
+
+- an NVIDIA driver + **CUDA toolkit ≥ 12.x matching your GPU architecture**
+  (e.g. RTX 50xx / sm_120 needs CUDA ≥ 12.8) with `nvcc` on `PATH`
+- `apt install build-essential cmake python3-dev python3-venv git`
+  (CMake ≥ 3.24 recommended so the build auto-detects your GPU arch; older
+  CMake falls back to a fixed arch list — override with
+  `-DCMAKE_CUDA_ARCHITECTURES=...`)
+- Python ≥ 3.10
 
 ```sh
 git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
 ```
 
-GATO installs host-native (assumes CUDA is installed on the host) into a
-project-local `.venv`, using only the Python standard-library `venv` + `pip`
-— no Docker, no `uv` (same lightweight model as GRiD's `base_install.sh`).
+GATO installs host-native into a project-local `.venv`, using only the Python
+standard-library `venv` + `pip` — no Docker, no `uv` (same lightweight model as
+GRiD's `base_install.sh`). The install script runs a preflight check (nvcc,
+GPU, cmake) and tells you exactly what's missing.
 
 ```sh
 ./tools/install.sh            # lean: codegen + build deps + submodules + regen grid.cuh
@@ -27,10 +38,11 @@ heavy runtime (torch, pinocchio, Qt/meshcat viz) is only pulled in by
 
 ```sh
 source .venv/bin/activate
-./tools/build.sh
+./tools/build.sh              # incremental; --clean to reconfigure; PLANT=/KNOTS=/ARCH= to subset
 ```
 
-Docker is still available (optional, for reproducible builds) via `./tools/docker.sh`.
+Docker remains available as an **optional** fallback for reproducible builds
+(`./tools/docker.sh` — a thin image that wraps the same `tools/install.sh`).
 
 ### Build Options
 
@@ -49,12 +61,12 @@ Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
 
 ### Requirements
 
-- Ubuntu 22.04
-- CUDA 12.6
-- C++17
-- gcc 11.4.0
-- Python >= 3.10
-- Docker 28.1.0 (optional — only for the containerized build)
+- Linux (developed on Ubuntu 22.04/24.04)
+- CUDA toolkit ≥ 12.x matching your GPU arch (sm_120 needs ≥ 12.8)
+- A C++17 host compiler (gcc 11+)
+- CMake ≥ 3.22 (≥ 3.24 recommended for automatic GPU-arch detection)
+- Python ≥ 3.10
+- Docker (optional — only for the containerized build)
 
 ## Usage
 

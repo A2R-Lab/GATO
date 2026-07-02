@@ -67,3 +67,6 @@ examples/paper-figures/*.txt
 
 # local task/runbook files — not tracked
 docs/open-tasks/
+
+# python bytecode caches
+__pycache__/

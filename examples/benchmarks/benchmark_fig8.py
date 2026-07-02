@@ -24,7 +24,7 @@ from gato.config import (
 )
 
 
-def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start, model_path=None):
+def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start, model_path=None, plant='indy7'):
     """Run a single benchmark configuration."""
     
     print(f"\nBatch={batch_size}, N={N}")
@@ -38,7 +38,7 @@ def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, 
             dt=dt,
             batch_size=batch_size,
             model_path=model_path,
-            plant_type='indy7',
+            plant_type=plant,
             constant_f_ext=None,  # No external force
             track_full_stats=True  # Track SQP iterations
         )
@@ -84,10 +84,10 @@ def _parse_int_list(s):
 
 
 def run_sweep(model, model_path, batch_sizes, N, dt, sim_time, sim_dt, x_start,
-              fig8_traj, save=True):
+              fig8_traj, save=True, plant='indy7'):
     """Run a batch-size sweep at a single horizon N. Saves a heatmap-compatible
     per-N pickle (a bare list of per-batch result dicts, named
-    ``benchmark_fig8_{N}N.pkl`` — the format plots/fig8_benchmark_heatmap.ipynb
+    ``benchmark_fig8_{N}N.pkl`` — the format paper-figures/reproduce_fig3_heatmap.py
     globs/loads) and returns the results list."""
     results = []
     print("=" * 60)
@@ -96,7 +96,7 @@ def run_sweep(model, model_path, batch_sizes, N, dt, sim_time, sim_dt, x_start,
     for batch_size in batch_sizes:
         results.append(run_single_benchmark(
             model=model, batch_size=batch_size, N=N, dt=dt, sim_time=sim_time,
-            sim_dt=sim_dt, fig8_traj=fig8_traj, x_start=x_start, model_path=model_path,
+            sim_dt=sim_dt, fig8_traj=fig8_traj, x_start=x_start, model_path=model_path, plant=plant,
         ))
     if save:
         os.makedirs(_DATA_DIR, exist_ok=True)
@@ -124,7 +124,9 @@ def main():
                    help="small subset (batch 1,32,128 @ N=64) for a wiring smoke")
     args = p.parse_args()
 
-    urdf_path = args.urdf or f"examples/{args.plant}_description/{args.plant}.urdf"
+    PLANT_URDFS = {"indy7": "examples/indy7_description/indy7.urdf",
+                   "iiwa14": "examples/iiwa_description/iiwa14.urdf"}
+    urdf_path = args.urdf or PLANT_URDFS[args.plant]
     model_dir = urdf_path.rsplit('/', 1)[0] + '/'
     N_list = _parse_int_list(args.N)
     batch_sizes = _parse_int_list(args.batch_sizes)
@@ -141,7 +143,7 @@ def main():
     for N in N_list:
         results.extend(run_sweep(
             model, urdf_path, batch_sizes, N, args.dt, args.sim_time, args.sim_dt,
-            x_start, fig8_traj, save=True,
+            x_start, fig8_traj, save=True, plant=args.plant,
         ))
 
     # Print summary table

@@ -18,7 +18,9 @@ which reproduce_fig3_scalability.py reads as the batched-CPU line.
 import sys, os, time, argparse, pickle
 import numpy as np
 
-G = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# repo root: this file lives at examples/benchmarks/baselines/ (3 levels down)
+G = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+BASELINES = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, G + '/python')
 from gato.common import figure8, rk4
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, DEFAULT_SOLVER_PARAMS
@@ -92,7 +94,7 @@ def main():
     p.add_argument('--start-config', default='ready')
     p.add_argument('--max-qp-iters', type=int, default=1)
     p.add_argument('--num-threads', type=int, default=0, help="0 = use all cores (os.cpu_count)")
-    p.add_argument('--out', default=G + '/baselines/batchthneed_fig8_results.pkl')
+    p.add_argument('--out', default=os.path.join(BASELINES, 'batchthneed_fig8_results.pkl'))
     args = p.parse_args()
 
     pysqpcpu = _import_pysqpcpu()

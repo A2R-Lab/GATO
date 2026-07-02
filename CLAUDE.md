@@ -56,7 +56,7 @@ migrated to `glass::`.
   `setup_external_forces`), `config.py` (robot/experiment configs), `experiment_runner.py`.
 - `examples/` — user-facing demos (`01/02/03`, `explore.ipynb`) + robot URDFs + `force_estimator*.py`.
   `examples/paper-figures/` — `reproduce_fig*.py` + `visualizations.ipynb`. `examples/benchmarks/` —
-  `benchmark_fig8.py`/`benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/` + `plots/`.
+  `benchmark_fig8.py`/`benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/`.
 - `external/GRiD` (pinned to `modernizing-tests`), `external/GLASS` (pinned to `main`).
 - `tools/regen_grid.py` — regenerate the vendored `grid.cuh` from `external/GRiD`.
 
