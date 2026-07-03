@@ -6,8 +6,8 @@ Provides utilities for running batch experiments with different configurations.
 import numpy as np
 from typing import Dict, List
 import pinocchio as pin
-from .config import (
-    IIWA14_START_CONFIGS,
+from gato.config import IIWA14_START_CONFIGS
+from _common import (
     PICKPLACE_SOLVER_PARAMS,
     PICKPLACE_MPC_DEFAULTS,
     PICKPLACE_DEFAULT_GOALS,
@@ -78,7 +78,7 @@ class ExperimentRunner:
             {batch_size: {success_rate, n_reached, n_total, per_sequence:[...],
                           avg_solve_time_ms, success}} (also stored on self.results).
         """
-        from .mpc_controller import MPC_GATO
+        from gato.mpc_gato import MPC_GATO
 
         if batch_sizes is None:
             from .config import STANDARD_BATCH_SIZES

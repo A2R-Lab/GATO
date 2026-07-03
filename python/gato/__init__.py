@@ -10,12 +10,18 @@ try:
 except Exception:  # not installed (e.g. sys.path use from a checkout)
     __version__ = "0.0.2"
 
-from .interface import BSQP, available
+from .interface import BSQP, SolveResult, SolverStats, available
 
 # Heavy-dependency exports resolved lazily (PEP 562) so `import gato` works in a
 # numpy-only environment.
 _LAZY = {
-    "MPC_GATO": ".mpc_controller",
+    "MPC_GATO": ".mpc_gato",
+    "MPCController": ".controller",
+    "StepResult": ".controller",
+    "HypothesisBatch": ".hypotheses",
+    "ForceHypothesisBatch": ".hypotheses",
+    "ForceEstimator": ".estimators",
+    "CEMForceEstimator": ".estimators",
 }
 
 
@@ -27,4 +33,4 @@ def __getattr__(name):
     raise AttributeError(f"module 'gato' has no attribute {name!r}")
 
 
-__all__ = ["BSQP", "available", "__version__", *sorted(_LAZY)]
+__all__ = ["BSQP", "SolveResult", "SolverStats", "available", "__version__", *sorted(_LAZY)]

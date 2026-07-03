@@ -49,28 +49,7 @@ DEFAULT_SOLVER_PARAMS = {
     'rho': 0.01
 }
 
-PICKPLACE_SOLVER_PARAMS = {
-    'max_sqp_iters': 5,
-    'kkt_tol': 0.0,
-    'max_pcg_iters': 100,
-    'pcg_tol': 1e-6,
-    'solve_ratio': 1.0,
-    'mu': 10.0,
-    'q_cost': 5.0,
-    'qd_cost': 1e-2,
-    'u_cost': 5e-7,
-    'N_cost': 50.0,
-    'q_lim_cost': 0.0,
-    'vel_lim_cost': 0.0,
-    'ctrl_lim_cost': 0.0,
-    'rho': 0.001
-}
 
-PICKPLACE_MPC_DEFAULTS = {
-    'goal_timeout': 5.0,
-    'goal_threshold': 0.05,
-    'velocity_threshold': 1.0
-}
 
 # Visualization colors for different batch sizes
 BATCH_COLORS = {
@@ -86,19 +65,4 @@ BATCH_COLORS = {
     1024: '#000000'  # Black
 }
 
-# Pendulum parameter defaults
-PENDULUM_DEFAULT_PARAMS = {
-    'mass': 15.0,           # kg
-    'length': 0.3,          # m
-    'damping': 0.4,         # Nms/rad
-    'initial_angle': np.array([0.3, 0.0, 0.0])  # axis-angle (radians)
-}
 
-# Default pick&place goal sequence (IIWA14 workspace)
-PICKPLACE_DEFAULT_GOALS = [
-    np.array([0.5, -0.1865, 0.5]),
-    np.array([0.5, 0.5, 0.2]),
-    np.array([0.3, 0.3, 0.8]),
-    np.array([0.6, -0.5, 0.2]),
-    np.array([0.0, -0.5, 0.8])
-]

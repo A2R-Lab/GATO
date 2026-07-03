@@ -153,3 +153,87 @@ def add_repro_args(parser):
 
 def parse_int_list(s):
     return [int(x) for x in str(s).split(",") if x != ""]
+
+
+# ---- paper-experiment constants (moved from gato.config/gato.common: these are
+# CS3 pick-place experiment settings, not solver API) ----
+
+PICKPLACE_SOLVER_PARAMS = {
+    'max_sqp_iters': 5,
+    'kkt_tol': 0.0,
+    'max_pcg_iters': 100,
+    'pcg_tol': 1e-6,
+    'solve_ratio': 1.0,
+    'mu': 10.0,
+    'q_cost': 5.0,
+    'qd_cost': 1e-2,
+    'u_cost': 5e-7,
+    'N_cost': 50.0,
+    'q_lim_cost': 0.0,
+    'vel_lim_cost': 0.0,
+    'ctrl_lim_cost': 0.0,
+    'rho': 0.001
+}
+
+PICKPLACE_MPC_DEFAULTS = {
+    'goal_timeout': 5.0,
+    'goal_threshold': 0.05,
+    'velocity_threshold': 1.0
+}
+
+# Pendulum parameter defaults
+PENDULUM_DEFAULT_PARAMS = {
+    'mass': 15.0,           # kg
+    'length': 0.3,          # m
+    'damping': 0.4,         # Nms/rad
+    'initial_angle': np.array([0.3, 0.0, 0.0])  # axis-angle (radians)
+}
+
+# Default pick&place goal sequence (IIWA14 workspace)
+PICKPLACE_DEFAULT_GOALS = [
+    np.array([0.5, -0.1865, 0.5]),
+    np.array([0.5, 0.5, 0.2]),
+    np.array([0.3, 0.3, 0.8]),
+    np.array([0.6, -0.5, 0.2]),
+    np.array([0.0, -0.5, 0.8])
+]
+
+
+def sample_axis_angle(mag_range=(0.0, 0.6)):
+    """
+    Sample random axis-angle vector for pendulum initial condition.
+    
+    Args:
+        mag_range: Tuple of (min_magnitude, max_magnitude) in radians
+        
+    Returns:
+        3D axis-angle vector
+    """
+    mag = np.random.uniform(*mag_range)
+    # Random direction on unit sphere
+    v = np.random.normal(size=3)
+    n = np.linalg.norm(v) + 1e-12
+    axis = v / n
+    return axis * mag
+
+
+def sample_pendulum_params(length_range=(0.3, 0.7), damping_range=(0.1, 0.6), 
+                          angle_range=(0.0, 0.6), mass=15.0):
+    """
+    Sample random pendulum configuration for parameter sweeps.
+    
+    Args:
+        length_range: Tuple of (min, max) pendulum length in meters
+        damping_range: Tuple of (min, max) damping coefficient in Nms/rad
+        angle_range: Tuple of (min, max) initial angle magnitude in radians
+        mass: Fixed mass in kg
+        
+    Returns:
+        Dictionary with pendulum configuration
+    """
+    return {
+        'mass': mass,
+        'length': np.random.uniform(*length_range),
+        'damping': np.random.uniform(*damping_range),
+        'initial_angle': sample_axis_angle(angle_range)
+    }

@@ -30,7 +30,7 @@ STEADY_FRAC = 0.5       # average the back half of the run for "steady-state"
 
 
 def _run_one(model, urdf, M, force_N, sim_time):
-    from gato.mpc_controller import MPC_GATO
+    from gato.mpc_gato import MPC_GATO
     from gato.common import figure8
     from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
     f_ext = np.array([0.0, 0.0, -float(force_N), 0.0, 0.0, 0.0])

@@ -36,9 +36,9 @@ DT = 0.01
 
 
 def run(n_scenarios, batch_sizes, max_time):
-    from gato.experiment_runner import ExperimentRunner
-    from gato.common import sample_pendulum_params
-    from gato.config import PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS
+    from _pickplace_runner import ExperimentRunner
+    from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS,
+                         PICKPLACE_MPC_DEFAULTS, sample_pendulum_params)
 
     urdf = C.URDFS["iiwa14"]
     C.require_module("iiwa14", N)

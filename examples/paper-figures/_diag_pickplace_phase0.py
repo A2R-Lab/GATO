@@ -80,36 +80,42 @@ def _summarize(stats, fe_log, label):
 
 def _make_mpc(model, urdf, batch_size, pendulum_config, fe_override=None, solver_override=None):
     """Build an MPC_GATO that logs the FE estimate magnitude each control step."""
-    from gato.mpc_controller import MPC_GATO  # puts <repo>/examples on sys.path on import
-    from gato.config import PICKPLACE_SOLVER_PARAMS
-    from force_estimator import ForceEstimator
+    from gato.mpc_gato import MPC_GATO
+    from _common import PICKPLACE_SOLVER_PARAMS
+    from gato.estimators import ForceEstimator
+    from gato.hypotheses import ForceHypothesisBatch
 
     sp = dict(PICKPLACE_SOLVER_PARAMS)
     if solver_override:
         sp.update(solver_override)
 
-    class _DiagMPC(MPC_GATO):
+    # Instrument the hypothesis selection: log the FE estimate magnitude each tick
+    class _LoggingHypotheses(ForceHypothesisBatch):
         def __init__(self, *a, **k):
             super().__init__(*a, **k)
             self.fe_log = []
 
-        def evaluate_best_trajectory(self, *a, **k):
-            bid = super().evaluate_best_trajectory(*a, **k)
-            if self.force_estimator is not None:
-                st = self.force_estimator.get_stats()
-                self.fe_log.append(
-                    (float(np.linalg.norm(st["smoothed_estimate"][:3])),
-                     float(st["radius"]), int(bid))
-                )
+        def select(self, *a, **k):
+            bid = super().select(*a, **k)
+            st = self.estimator.get_stats()
+            self.fe_log.append(
+                (float(np.linalg.norm(st["smoothed_estimate"][:3])),
+                 float(st["radius"]), int(bid))
+            )
             return bid
 
-    mpc = _DiagMPC(
+    mpc = MPC_GATO(
         model, model_path=urdf, N=N, dt=DT, batch_size=batch_size,
         plant_type="iiwa14", pendulum_config=pendulum_config,
         solver_params=sp, track_full_stats=True,
     )
-    if fe_override is not None and mpc.force_estimator is not None:
-        mpc.force_estimator = ForceEstimator(batch_size=batch_size, **fe_override)
+    if mpc.controller.hypotheses is not None:
+        est = mpc.controller.hypotheses.estimator
+        if fe_override is not None:
+            # same alpha/beta tuning as the default MPC_GATO estimator
+            est = ForceEstimator(batch_size=batch_size, alpha=0.6, beta=0.5, **fe_override)
+        mpc.controller.hypotheses = _LoggingHypotheses(est, mpc.solver_model)
+    mpc.fe_log_source = mpc.controller.hypotheses  # .fe_log lives here (None at B=1)
     return mpc
 
 
@@ -122,9 +128,10 @@ def main():
                          "fixes the FE divergence (Phase-1 tuning, success-rate only)")
     args = ap.parse_args()
 
-    from gato.experiment_runner import ExperimentRunner
-    from gato.config import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_MPC_DEFAULTS,
-                             PENDULUM_DEFAULT_PARAMS, IIWA14_START_CONFIGS)
+    from _pickplace_runner import ExperimentRunner
+    from gato.config import IIWA14_START_CONFIGS
+    from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_MPC_DEFAULTS,
+                         PENDULUM_DEFAULT_PARAMS)
 
     urdf = C.URDFS["iiwa14"]
     C.require_module("iiwa14", N)
@@ -165,7 +172,7 @@ def main():
             goal_timeout=md["goal_timeout"], goal_threshold=md["goal_threshold"],
             velocity_threshold=md["velocity_threshold"],
         )
-        rec = _summarize(stats, getattr(mpc, "fe_log", None), label)
+        rec = _summarize(stats, getattr(mpc.fe_log_source, "fe_log", None) if getattr(mpc, "fe_log_source", None) is not None else None, label)
         records.append(rec)
         print(f"  -> reached {rec['goals_reached']}/{rec['goals_total']}  "
               f"gd[min/final/max]={rec['gd_min']:.3f}/{rec['gd_final']:.3f}/{rec['gd_max']:.3f}m  "

@@ -1,0 +1,461 @@
+"""MPC_GATO: the closed-loop simulation driver used by the paper experiments.
+
+This is a *driver*, not the controller: it owns the pinocchio RK4 simulation
+(including the unmodeled pendulum payload and ground-truth disturbance), the
+wall-clock pacing, task logic (figure-8 windowing / goal switching), and stat
+collection. The per-tick solver interaction lives in gato.controller.MPCController
+(warm start, hypothesis batch, best-of-batch selection, time shift) — users with
+their own sim or hardware loop should use MPCController/MPCPolicy directly.
+"""
+import time
+
+import numpy as np
+import pinocchio as pin
+
+from .controller import MPCController
+from .estimators import ForceEstimator
+from .hypotheses import ForceHypothesisBatch
+from .interface import BSQP
+from .common import rk4
+from .config import DEFAULT_SOLVER_PARAMS
+
+
+class MPC_GATO:
+
+    def __init__(
+        self,
+        model,
+        model_path,
+        N=32,
+        dt=0.03125,
+        batch_size=1,
+        constant_f_ext=None,
+        track_full_stats=False,
+        plant_type=None,  # None => BSQP auto-detects from model_path
+        pendulum_config=None,
+        solver_params=None,
+        fe_seed=0,
+    ):
+        """
+        Initialize MPC driver.
+
+        Args:
+            model: Pinocchio model (for the SIM; a pendulum may be appended to a copy)
+            model_path: Path to URDF file
+            N: Prediction horizon (knot points)
+            dt: Time step
+            batch_size: Number of parallel trajectories (>1 enables force hypotheses)
+            constant_f_ext: Ground-truth constant external EE wrench applied in the sim
+            track_full_stats: If True, track all stats; if False, only essential ones
+            plant_type: Plant identifier selecting the CUDA module (e.g., 'indy7',
+                'iiwa14'). None auto-detects from model_path.
+            pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
+            solver_params: overrides merged onto config.DEFAULT_SOLVER_PARAMS
+            fe_seed: seed for the force-estimator hypothesis sampling
+        """
+        # Store original model for solver (without pendulum)
+        self.solver_model = model
+
+        # Add pendulum to simulation model if configured
+        if pendulum_config is not None:
+            self.model = self._add_pendulum_to_model(model.copy(), pendulum_config)
+            self.pendulum_config = pendulum_config
+            self.has_pendulum = True
+            self.nq_robot = self.solver_model.nq
+            self.nv_robot = self.solver_model.nv
+        else:
+            self.model = model
+            self.pendulum_config = None
+            self.has_pendulum = False
+            self.nq_robot = model.nq
+            self.nv_robot = model.nv
+
+        self.model.gravity.linear = np.array([0, 0, -9.81])
+        self.data = self.model.createData()
+
+        # Initialize solver with configurable parameters
+        solver_cfg = DEFAULT_SOLVER_PARAMS.copy()
+        if solver_params is not None:
+            solver_cfg.update(solver_params)
+
+        self.solver = BSQP(
+            model_path=model_path,
+            batch_size=batch_size,
+            N=N,
+            dt=dt,
+            plant_type=plant_type,
+            max_sqp_iters=solver_cfg['max_sqp_iters'],
+            kkt_tol=solver_cfg['kkt_tol'],
+            max_pcg_iters=solver_cfg['max_pcg_iters'],
+            pcg_tol=solver_cfg['pcg_tol'],
+            solve_ratio=solver_cfg['solve_ratio'],
+            mu=solver_cfg['mu'],
+            q_cost=solver_cfg['q_cost'],
+            qd_cost=solver_cfg['qd_cost'],
+            u_cost=solver_cfg['u_cost'],
+            N_cost=solver_cfg['N_cost'],
+            q_lim_cost=solver_cfg['q_lim_cost'],
+            vel_lim_cost=solver_cfg['vel_lim_cost'],
+            ctrl_lim_cost=solver_cfg['ctrl_lim_cost'],
+            rho=solver_cfg['rho'],
+        )
+
+        self.solver_params = solver_cfg
+
+        self.nq = self.model.nq
+        self.nv = self.model.nv
+        self.nx = self.nq_robot + self.nv_robot  # Solver state dimension (robot only)
+        self.nu = self.solver_model.nv           # Control dimension (robot only)
+        self.N = N
+        self.dt = dt
+        self.batch_size = batch_size
+        self.track_full_stats = track_full_stats
+        self.fe_seed = fe_seed
+
+        # Ground-truth external force applied in the SIM (what the batch hypothesizes about)
+        self.setup_external_forces(constant_f_ext)
+
+        # Hypothesis batch (B > 1): fibonacci-sphere force estimator, same tuning +
+        # alpha/beta as the paper experiments
+        hypotheses = None
+        if batch_size > 1:
+            estimator = ForceEstimator(
+                batch_size=batch_size,
+                initial_radius=5.0,
+                min_radius=2.0,
+                max_radius=20.0,
+                smoothing_factor=0.5,
+                seed=fe_seed,
+                alpha=0.6,
+                beta=0.5,
+            )
+            hypotheses = ForceHypothesisBatch(estimator, self.solver_model, ee_frame="EE")
+
+        self.controller = MPCController(self.solver, hypotheses=hypotheses,
+                                        warm_start="shift", reset_rho_each_step=True)
+
+    @property
+    def force_estimator(self):
+        """The hypothesis estimator (None at batch_size == 1)."""
+        h = self.controller.hypotheses
+        return h.estimator if h is not None else None
+
+    def setup_external_forces(self, constant_f_ext):
+        """Setup ground-truth external forces for the simulation."""
+        self.constant_f_ext_world = constant_f_ext if constant_f_ext is not None else np.zeros(6)
+
+        self.actual_f_ext = pin.StdVec_Force()
+        for _ in range(self.model.njoints):
+            self.actual_f_ext.append(pin.Force.Zero())
+
+        if constant_f_ext is not None:
+            self.actual_f_ext[-1] = pin.Force(constant_f_ext[:3], constant_f_ext[3:])
+
+    def _play_control(self, xu_best, q, dq, timestep, sim_dt, total_sim_time,
+                      accumulated_time):
+        """Advance the sim by ~timestep using the trajectory's per-knot controls.
+
+        Returns (q, dq, total_sim_time, accumulated_time). When timestep spans
+        several knots (wall-clock pacing slower than dt), each sub-step plays the
+        control of the knot it falls in.
+        """
+        nsteps = int(timestep / sim_dt)
+        for i in range(nsteps):
+            offset = int(i / (self.dt / sim_dt))
+            u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
+            u = xu_best[u_idx:u_idx + self.nu]
+            u_aug = self._augment_control(u, dq)
+            q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+            total_sim_time += sim_dt
+
+        # Handle residual time
+        if timestep % sim_dt > 1e-5:
+            accumulated_time += timestep % sim_dt
+            if accumulated_time >= sim_dt:
+                accumulated_time = 0.0
+                offset = int(nsteps / (self.dt / sim_dt))
+                u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
+                u = xu_best[u_idx:u_idx + self.nu]
+                u_aug = self._augment_control(u, dq)
+                q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+                total_sim_time += sim_dt
+
+        return q, dq, total_sim_time, accumulated_time
+
+    def _augment_control(self, u, dq):
+        """Robot torques + passive pendulum damping when the payload is attached."""
+        if not self.has_pendulum:
+            return u
+        damping = self.pendulum_config.get('damping', 0.4)
+        u_aug = np.zeros(self.nv)
+        u_aug[:self.nu] = u
+        u_aug[self.nv_robot:] = -damping * dq[self.nv_robot:]
+        return u_aug
+
+    def run_mpc_fig8(self, x_start, fig8_traj, sim_dt=0.001, sim_time=5.0,
+                     pace_by_solve_time=True):
+        """
+        Run MPC tracking a figure-8 trajectory.
+
+        pace_by_solve_time: if True (default, real-time MPC), advance the sim by the
+            measured wall-clock solve time each control step (a faster solver re-plans
+            more often). If False, advance a fixed `dt` per solve — matches the CPU
+            baseline harness for an apples-to-apples per-solve tracking comparison.
+
+        Returns (None, stats). `goal_distances` uses goal knot 1 (one step ahead);
+        `goal_distances_knot0` uses goal knot 0 (the baseline's convention).
+        """
+        stats = {
+            'timestamps': [],
+            'solve_times': [],        # GPU solve time in ms
+            'goal_distances': [],     # Tracking error in meters
+            'ee_actual': [],          # Actual end-effector positions
+            'joint_positions': [],    # Joint positions over time
+            'joint_velocities': [],   # Joint velocities over time
+        }
+        if self.track_full_stats:
+            stats['sqp_iters'] = []
+
+        total_sim_time = 0.0
+        accumulated_time = 0.0
+
+        x_curr = x_start
+        q = x_start[:self.nq]
+        dq = x_start[self.nq:self.nx]
+
+        ee_g = fig8_traj[:6 * self.N]
+
+        # Reset + warm-up solve (each batch row keeps its own solution)
+        self.controller.reset(x_curr)
+        res = self.controller.warmup(x_curr, ee_g)
+        xu_best = res.xu[0, :]
+
+        print(f"\nRunning MPC: N={self.N}, batch={self.batch_size}, time={sim_time}s")
+        if np.any(self.constant_f_ext_world):
+            print(f"External force: {self.constant_f_ext_world[:3]}")
+
+        solve_time = self.dt
+        while total_sim_time < sim_time:
+
+            # Simulate forward with the current best trajectory's controls
+            timestep = solve_time if pace_by_solve_time else self.dt
+            q, dq, total_sim_time, accumulated_time = self._play_control(
+                xu_best, q, dq, timestep, sim_dt, total_sim_time, accumulated_time)
+            x_curr = np.concatenate([q, dq])
+
+            # Check if trajectory is complete
+            eepos_offset = int(total_sim_time / self.dt)
+            if eepos_offset >= len(fig8_traj) / 6 - 6 * self.N:
+                break
+            ee_g = fig8_traj[6 * eepos_offset:6 * (eepos_offset + self.N)]
+
+            # One controller tick (hypotheses -> solve -> select winner -> time shift)
+            dt_realized = max(sim_dt, round(timestep / sim_dt) * sim_dt)
+            start = time.time()
+            r = self.controller.step(x_curr, ee_g, dt_elapsed=dt_realized)
+            solve_time = time.time() - start
+            xu_best = r.xu_best
+
+            # Collect essential statistics
+            ee_pos = self.solver.ee_pos(q)
+            goal_dist = np.linalg.norm(ee_pos[:3] - ee_g[6:9])
+            goal_dist0 = np.linalg.norm(ee_pos[:3] - ee_g[0:3])  # baseline convention (knot 0)
+
+            stats['timestamps'].append(total_sim_time)
+            stats['solve_times'].append(r.solve.solve_time_us / 1000.0)  # ms
+            stats['goal_distances'].append(goal_dist)
+            stats.setdefault('goal_distances_knot0', []).append(goal_dist0)
+            stats['ee_actual'].append(ee_pos.copy())
+            stats['joint_positions'].append(q.copy())
+            stats['joint_velocities'].append(dq.copy())
+
+            if self.track_full_stats:
+                stats['sqp_iters'].append(int(r.solve.stats.sqp_iters[0]))
+                pcg_iters = r.solve.stats.pcg_iters
+                if pcg_iters.size > 0:
+                    stats.setdefault('pcg_iters', []).append(
+                        [int(v) for v in pcg_iters[:, 0]])
+
+        # Convert to numpy arrays
+        for key in stats:
+            if stats[key]:
+                try:
+                    stats[key] = np.array(stats[key])
+                except (ValueError, TypeError):
+                    pass
+
+        print(f"Avg error: {np.mean(stats['goal_distances']):.4f}m")
+        print(f"Avg solve time: {np.mean(stats['solve_times']):.3f}ms")
+
+        return None, stats
+
+    def _add_pendulum_to_model(self, model, config):
+        """Add a 3D pendulum (spherical joint) to the end-effector."""
+        mass = config.get('mass', 15.0)
+        length = config.get('length', 0.3)
+
+        ee_joint_id = model.njoints - 1  # Last joint is EE
+        pendulum_joint_id = model.addJoint(
+            ee_joint_id,
+            pin.JointModelSpherical(),
+            pin.SE3.Identity(),
+            "pendulum_joint"
+        )
+
+        # Create inertia for pendulum bob (point mass at distance)
+        com = np.array([0.0, 0.0, -length])  # Center of mass along -Z
+        inertia_matrix = np.diag([0.001, 0.001, 0.001])  # Small inertia at COM
+        pendulum_inertia = pin.Inertia(mass, com, inertia_matrix)
+        model.appendBodyToJoint(pendulum_joint_id, pendulum_inertia, pin.SE3.Identity())
+
+        return model
+
+    def run_mpc_goals(
+        self,
+        x_start,
+        goals,
+        sim_dt=0.001,
+        goal_timeout=5.0,
+        goal_threshold=0.05,
+        velocity_threshold=1.0
+    ):
+        """
+        Run MPC tracking discrete goal positions (pick-place style).
+
+        Args:
+            x_start: Initial state (robot only, no pendulum)
+            goals: List of 3D goal positions np.array([x, y, z])
+            sim_dt: Simulation timestep
+            goal_timeout: Max time per goal before timeout
+            goal_threshold: Distance threshold for goal reached (m)
+            velocity_threshold: Velocity threshold for goal reached (rad/s L1 norm)
+
+        Returns (None, stats) with per-goal outcomes/reach times + tracking stats.
+        """
+        stats = {
+            'timestamps': [],
+            'solve_times': [],
+            'goal_distances': [],
+            'ee_actual': [],
+            'joint_positions': [],
+            'joint_velocities': [],
+            'best_trajectory_id': []
+        }
+        if self.track_full_stats:
+            stats['sqp_iters'] = []
+            stats['pcg_iters'] = []
+
+        stats['goal_outcomes'] = ['not_reached'] * len(goals)
+        stats['goal_reached_times'] = [None] * len(goals)
+        stats['time_to_all_reached'] = None
+
+        total_sim_time = 0.0
+        accumulated_time = 0.0
+
+        # Initialize augmented state with pendulum if configured
+        if self.has_pendulum:
+            x_start_aug = np.zeros(self.nq + self.nv)
+            x_start_aug[:self.nx] = x_start  # Robot state
+            pendulum_init = self.pendulum_config.get('initial_angle', np.array([0.3, 0.0, 0.0]))
+            x_start_aug[self.nq_robot:self.nq_robot + 3] = pendulum_init
+            q = x_start_aug[:self.nq]
+            dq = x_start_aug[self.nq:]
+        else:
+            q = x_start[:self.nq]
+            dq = x_start[self.nq:]
+
+        # Solver uses robot-only state
+        x_curr = x_start
+
+        current_goal_idx = 0
+        current_goal = goals[current_goal_idx]
+        ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+
+        # Reset + warm-up solve
+        self.controller.reset(x_curr)
+        res = self.controller.warmup(x_curr, ee_g)
+        xu_best = res.xu[0, :]
+
+        print(f"\nRunning MPC: N={self.N}, batch={self.batch_size}, {len(goals)} goals")
+        if self.has_pendulum:
+            print(f"Pendulum: mass={self.pendulum_config['mass']}kg, length={self.pendulum_config['length']}m")
+
+        goal_start_time = total_sim_time
+        solve_time = self.dt
+
+        while total_sim_time < goal_timeout * len(goals):
+
+            # Simulate forward (wall-clock paced)
+            timestep = solve_time
+            q, dq, total_sim_time, accumulated_time = self._play_control(
+                xu_best, q, dq, timestep, sim_dt, total_sim_time, accumulated_time)
+
+            # Update solver state (robot only)
+            q_robot = q[:self.nq_robot] if self.has_pendulum else q
+            dq_robot = dq[:self.nv_robot] if self.has_pendulum else dq
+            x_curr = np.concatenate([q_robot, dq_robot])
+
+            # Check goal reached or timeout
+            ee_pos = self.solver.ee_pos(q_robot)
+            current_dist = np.linalg.norm(ee_pos - current_goal)
+            current_vel = np.linalg.norm(dq_robot, ord=1)
+            reached = (current_dist < goal_threshold) and (current_vel < velocity_threshold)
+            timeout = (total_sim_time - goal_start_time) >= goal_timeout
+
+            if reached or timeout:
+                if reached:
+                    stats['goal_outcomes'][current_goal_idx] = 'reached'
+                    stats['goal_reached_times'][current_goal_idx] = total_sim_time
+                else:
+                    stats['goal_outcomes'][current_goal_idx] = 'timeout'
+
+                current_goal_idx += 1
+                if current_goal_idx >= len(goals):
+                    break
+
+                current_goal = goals[current_goal_idx]
+                ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+                goal_start_time = total_sim_time
+
+            # One controller tick
+            dt_realized = max(sim_dt, round(timestep / sim_dt) * sim_dt)
+            start = time.time()
+            r = self.controller.step(x_curr, ee_g, dt_elapsed=dt_realized)
+            solve_time = time.time() - start
+            xu_best = r.xu_best
+
+            # Collect statistics
+            stats['timestamps'].append(total_sim_time)
+            stats['solve_times'].append(r.solve.solve_time_us / 1000.0)  # ms
+            stats['goal_distances'].append(current_dist)
+            stats['ee_actual'].append(ee_pos.copy())
+            stats['joint_positions'].append(q_robot.copy())
+            stats['joint_velocities'].append(dq_robot.copy())
+            stats['best_trajectory_id'].append(r.best_id)
+
+            if self.track_full_stats:
+                stats['sqp_iters'].append(int(r.solve.stats.sqp_iters[0]))
+                pcg_iters = r.solve.stats.pcg_iters
+                stats['pcg_iters'].append(int(pcg_iters[0, 0]) if pcg_iters.size else 0)
+
+        # Convert to numpy arrays
+        for key in stats:
+            if isinstance(stats[key], list) and len(stats[key]) > 0:
+                if key not in ['goal_outcomes', 'goal_reached_times', 'time_to_all_reached']:
+                    try:
+                        stats[key] = np.array(stats[key])
+                    except (ValueError, TypeError):
+                        pass
+
+        # Compute time to all-goals-reached if all were reached
+        if all([o == 'reached' for o in stats['goal_outcomes']]):
+            reached_times = [t for t in stats['goal_reached_times'] if t is not None]
+            if len(reached_times) == len(goals):
+                stats['time_to_all_reached'] = float(np.max(reached_times))
+
+        goals_reached = sum(1 for o in stats['goal_outcomes'] if o == 'reached')
+        print(f"Goals reached: {goals_reached}/{len(goals)}")
+        if len(stats['solve_times']) > 0:
+            print(f"Avg solve time: {np.mean(stats['solve_times']):.3f}ms")
+
+        return None, stats

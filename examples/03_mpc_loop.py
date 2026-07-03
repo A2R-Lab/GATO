@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import pinocchio as pin
-from gato.mpc_controller import MPC_GATO
+from gato.mpc_gato import MPC_GATO
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 

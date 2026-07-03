@@ -14,7 +14,7 @@ _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 sys.path.append('./python')
 sys.path.append('./python')
 
-from gato.mpc_controller import MPC_GATO
+from gato.mpc_gato import MPC_GATO
 from gato.common import figure8
 from gato.config import (
     STANDARD_BATCH_SIZES,
