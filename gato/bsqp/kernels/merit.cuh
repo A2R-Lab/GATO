@@ -14,7 +14,7 @@ using namespace gato;
 using namespace gato::constants;
 
 
-template<typename T, uint32_t BatchSize, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
+template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
@@ -49,10 +49,10 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         T*                  s_temp = s_reference_traj_k + constants::EE_POS_SIZE;
 
 
-        T* d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
-        T* d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
+        T* d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
+        T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx);
         T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
-        T* d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
+        T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
 
         // line-search trial step: s_xux_k = d_xu_k + alpha * d_dz_k (axpby z = 1*x + alpha*y)
         if (knot_idx == KNOT_POINTS - 1) {
@@ -61,7 +61,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                 glass::axpby<T, STATE_SIZE + STATE_S_CONTROL>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
         }
 
-        T* d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
+        T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
         glass::copy<T, constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
         __syncthreads();
 
@@ -75,8 +75,8 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
                 constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
         } else {
-                d_xu_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
-                d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
+                d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
+                d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, 0);
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
                         s_temp[i] = abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  // initial state constraint error
                 }
@@ -106,12 +106,13 @@ __host__ size_t getComputeMeritBatchedSMemSize()
         return size;
 }
 
-template<typename T, uint32_t BatchSize, uint32_t NumAlphas>
-__host__ void computeMeritBatched(T*                          d_merit_batch,
+template<typename T, uint32_t NumAlphas>
+__host__ void computeMeritBatched(uint32_t                    batch_size,
+                                  T*                          d_merit_batch,
                                   T*                          d_dz_batch,
                                   T*                          d_xu_traj_batch,
                                   T*                          d_f_ext_batch,
-                                  ProblemInputs<T, BatchSize> inputs,
+                                  ProblemInputs<T> inputs,
                                   T*                          d_mu_batch,
                                   void*                       d_GRiD_mem,
                                   T                           q_cost,
@@ -122,13 +123,13 @@ __host__ void computeMeritBatched(T*                          d_merit_batch,
                                   T                           vel_lim_cost,
                                   T                           ctrl_lim_cost)
 {
-        dim3   grid(KNOT_POINTS, BatchSize, NumAlphas);
+        dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
 
-        gpuErrchk(cudaMemset(d_merit_batch, 0, BatchSize * NumAlphas * sizeof(T)));
+        gpuErrchk(cudaMemset(d_merit_batch, 0, batch_size * NumAlphas * sizeof(T)));
 
-        computeMeritBatchedKernel<T, BatchSize><<<grid, thread_block, s_mem_size>>>(d_merit_batch,
+        computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_batch,
                                                                                     d_dz_batch,
                                                                                     d_xu_traj_batch,
                                                                                     inputs.d_x_s_batch,

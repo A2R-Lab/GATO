@@ -14,7 +14,7 @@ using namespace gato::constants;
 // other kernel header sharing this TU (caused a gato::plant::EE_POS_SIZE vs constants:: clash
 // in merit.cuh). Qualify plant calls explicitly instead.
 
-template<typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
+template<typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T*    d_R_batch,
                                             T*    d_q_batch,
@@ -55,18 +55,18 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
         for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
 
                 // Input pointers
-                T* d_xu_traj_k = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, knot_idx);
-                T* d_reference_traj_k = getOffsetReferenceTraj<T, BatchSize>(d_reference_traj_batch, solve_idx, knot_idx);
-                T* d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
+                T* d_xu_traj_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
+                T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
+                T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
 
                 // Output pointers
-                T* d_Q_k = getOffsetStateSq<T, BatchSize>(d_Q_batch, solve_idx, knot_idx);
-                T* d_R_k = getOffsetControlSq<T, BatchSize>(d_R_batch, solve_idx, knot_idx);
-                T* d_q_k = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx);
-                T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
-                T* d_A_k = getOffsetStateSq<T, BatchSize>(d_A_batch, solve_idx, knot_idx);
-                T* d_B_k = getOffsetStatePControl<T, BatchSize>(d_B_batch, solve_idx, knot_idx);
-                T* d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
+                T* d_Q_k = getOffsetStateSq<T>(d_Q_batch, solve_idx, knot_idx);
+                T* d_R_k = getOffsetControlSq<T>(d_R_batch, solve_idx, knot_idx);
+                T* d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
+                T* d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
+                T* d_A_k = getOffsetStateSq<T>(d_A_batch, solve_idx, knot_idx);
+                T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
+                T* d_c_k = getOffsetState<T>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
 
                 glass::copy<T, STATE_S_CONTROL + STATE_SIZE>(d_xu_traj_k, s_xux_k);
                 glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);  // TODO: is this correct?
@@ -113,8 +113,8 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                             qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/N_cost);
 
                         // c_0 = x_0 - x_s
-                        T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
-                        T* d_xu_0 = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
+                        T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
+                        T* d_xu_0 = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
                         glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * STATE_SIZE, d_c_0);
                         __syncthreads();
 
@@ -151,14 +151,14 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
         return size;
 }
 
-template<typename T, uint32_t BatchSize>
-__host__ void setupKKTSystemBatched(KKTSystem<T, BatchSize> kkt, ProblemInputs<T, BatchSize> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
+template<typename T>
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
 {
-        dim3   grid(KNOT_POINTS, BatchSize);
+        dim3   grid(KNOT_POINTS, batch_size);
         dim3   block(KKT_THREADS);
         size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>();  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
 
-        setupKKTSystemBatchedKernel<T, BatchSize><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
+        setupKKTSystemBatchedKernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
                                                                                kkt.d_R_batch,
                                                                                kkt.d_q_batch,
                                                                                kkt.d_r_batch,

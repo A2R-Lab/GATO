@@ -11,7 +11,7 @@ using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T* __restrict__       d_S_batch,
                                                                               T* __restrict__       d_P_inv_batch,
                                                                               T* __restrict__       d_gamma_batch,
@@ -56,9 +56,9 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
 
                 // ----- Populate shared memory -----
 
-                T* d_Q_k = getOffsetStateSq<T, BatchSize>(d_Q_batch, solve_idx, knot_idx);
-                T* d_Q_kp1 = getOffsetStateSq<T, BatchSize>(d_Q_batch, solve_idx, knot_idx + 1);
-                T* d_R_k = getOffsetControlSq<T, BatchSize>(d_R_batch, solve_idx, knot_idx);
+                T* d_Q_k = getOffsetStateSq<T>(d_Q_batch, solve_idx, knot_idx);
+                T* d_Q_kp1 = getOffsetStateSq<T>(d_Q_batch, solve_idx, knot_idx + 1);
+                T* d_R_k = getOffsetControlSq<T>(d_R_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_k, s_Q_k);
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_kp1, s_Q_kp1);
                 glass::copy<T, CONTROL_SIZE_SQ>(d_R_k, s_R_k);
@@ -67,16 +67,16 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 glass::loadIdentity<T, CONTROL_SIZE>(s_R_k_inv);
 
 
-                const T* d_q_k = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx);
-                const T* d_q_kp1 = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx + 1);
-                const T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
+                const T* d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
+                const T* d_q_kp1 = getOffsetState<T>(d_q_batch, solve_idx, knot_idx + 1);
+                const T* d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_k), s_q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_kp1), s_q_kp1);
                 glass::copy<T, CONTROL_SIZE>(const_cast<T*>(d_r_k), s_r_k);
 
-                const T* d_A_k = getOffsetStateSq<T, BatchSize>(d_A_batch, solve_idx, knot_idx);
-                const T* d_B_k = getOffsetStatePControl<T, BatchSize>(d_B_batch, solve_idx, knot_idx);
-                const T* d_c_k = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, knot_idx + 1);
+                const T* d_A_k = getOffsetStateSq<T>(d_A_batch, solve_idx, knot_idx);
+                const T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
+                const T* d_c_k = getOffsetState<T>(d_c_batch, solve_idx, knot_idx + 1);
                 glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_A_k), s_A_k);
                 glass::copy<T, STATE_P_CONTROL>(const_cast<T*>(d_B_k), s_B_k);
                 glass::copy<T, STATE_SIZE>(static_cast<T>(-1), const_cast<T*>(d_c_k), s_gamma_k);
@@ -126,7 +126,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
                 glass::gemm<T, STATE_SIZE, 1, CONTROL_SIZE>(static_cast<T>(-1), s_B_R_inv, s_r_k, static_cast<T>(1), s_gamma_k);
                 __syncthreads();
-                T* d_gamma_k = getOffsetStatePadded<T, BatchSize>(d_gamma_batch, solve_idx, knot_idx + 1);
+                T* d_gamma_k = getOffsetStatePadded<T>(d_gamma_batch, solve_idx, knot_idx + 1);
                 glass::copy<T, STATE_SIZE>(static_cast<T>(-1), s_gamma_k, d_gamma_k);
 
 
@@ -135,8 +135,8 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 // S_k (right diag: phi_k^T, left diag: phi_k, next main diag: theta_k)
                 // S_k is stored in row-major order
                 // k refers to knot, not block row
-                T* d_S_k_right = getOffsetBlockRowPadded<T, BatchSize>(d_S_batch, solve_idx, knot_idx) + 2 * STATE_SIZE;
-                T* d_S_k_left = getOffsetBlockRowPadded<T, BatchSize>(d_S_batch, solve_idx, knot_idx + 1);
+                T* d_S_k_right = getOffsetBlockRowPadded<T>(d_S_batch, solve_idx, knot_idx) + 2 * STATE_SIZE;
+                T* d_S_k_left = getOffsetBlockRowPadded<T>(d_S_batch, solve_idx, knot_idx + 1);
                 T* d_S_kp1_main = d_S_k_left + STATE_SIZE;
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
@@ -157,7 +157,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // main diag: theta_k_inv (offset by STATE_SIZE)
-                T* d_P_inv_k = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx + 1) + STATE_SIZE;
+                T* d_P_inv_k = getOffsetBlockRowPadded<T>(d_P_inv_batch, solve_idx, knot_idx + 1) + STATE_SIZE;
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
                         uint32_t x = i % STATE_SIZE;
@@ -167,9 +167,9 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
 
         } else {  // last knot deals with Q_0 computations
 
-                T*       d_Q_0 = getOffsetStateSq<T, BatchSize>(d_Q_batch, solve_idx, 0);
-                const T* d_q_0 = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, 0);
-                const T* d_c_0 = getOffsetState<T, BatchSize>(d_c_batch, solve_idx, 0);
+                T*       d_Q_0 = getOffsetStateSq<T>(d_Q_batch, solve_idx, 0);
+                const T* d_q_0 = getOffsetState<T>(d_q_batch, solve_idx, 0);
+                const T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_0, s_Q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_0), s_q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_c_0), s_gamma_k);
@@ -181,7 +181,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // store -Q_0 in P_inv
-                T* d_P_inv_0 = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, 0) + STATE_SIZE;
+                T* d_P_inv_0 = getOffsetBlockRowPadded<T>(d_P_inv_batch, solve_idx, 0) + STATE_SIZE;
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
                         uint32_t x = i % STATE_SIZE;
@@ -194,7 +194,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // save Q_0_inv to S (S is row-major)
-                T* d_S_0 = getOffsetBlockRowPadded<T, BatchSize>(d_S_batch, solve_idx, 0) + STATE_SIZE;
+                T* d_S_0 = getOffsetBlockRowPadded<T>(d_S_batch, solve_idx, 0) + STATE_SIZE;
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
                         uint32_t x = i % STATE_SIZE;
@@ -207,12 +207,12 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // save gamma_0
-                T* d_gamma_k = getOffsetStatePadded<T, BatchSize>(d_gamma_batch, solve_idx, 0);
+                T* d_gamma_k = getOffsetStatePadded<T>(d_gamma_batch, solve_idx, 0);
                 glass::copy<T, STATE_SIZE>(s_gamma_k, d_gamma_k);
         }
 }
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T* __restrict__ d_S_batch, T* __restrict__ d_P_inv_batch)
 {
         // launched with grid of (KNOT_POINTS - 1, solve_idx)
@@ -227,9 +227,9 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T
         T* s_scratch = s_phi_k + STATE_SIZE_SQ;
 
         // load theta_k_inv, theta_km1_inv from P_inv, phi_k from S
-        T* d_P_inv_k_main = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx + 1) + STATE_SIZE;
-        T* d_P_inv_km1_main = getOffsetBlockRowPadded<T, BatchSize>(d_P_inv_batch, solve_idx, knot_idx) + STATE_SIZE;
-        T* d_S_k_left = getOffsetBlockRowPadded<T, BatchSize>(d_S_batch, solve_idx, knot_idx + 1);
+        T* d_P_inv_k_main = getOffsetBlockRowPadded<T>(d_P_inv_batch, solve_idx, knot_idx + 1) + STATE_SIZE;
+        T* d_P_inv_km1_main = getOffsetBlockRowPadded<T>(d_P_inv_batch, solve_idx, knot_idx) + STATE_SIZE;
+        T* d_S_k_left = getOffsetBlockRowPadded<T>(d_S_batch, solve_idx, knot_idx + 1);
 #pragma unroll
         for (uint32_t i = threadIdx.x; i < STATE_SIZE_SQ; i += blockDim.x) {
                 uint32_t x = i % STATE_SIZE;
@@ -294,19 +294,19 @@ __host__ size_t getFormSchurSystemBatched2SMemSize()
         return size;
 }
 
-template<typename T, uint32_t BatchSize>
-__host__ void formSchurSystemBatched(SchurSystem<T, BatchSize> schur, KKTSystem<T, BatchSize> kkt, T* d_rho_penalty_batch)
+template<typename T>
+__host__ void formSchurSystemBatched(uint32_t batch_size, SchurSystem<T> schur, KKTSystem<T> kkt, T* d_rho_penalty_batch)
 {
-        dim3           grid1(KNOT_POINTS, BatchSize);
-        dim3           grid2(KNOT_POINTS - 1, BatchSize);
+        dim3           grid1(KNOT_POINTS, batch_size);
+        dim3           grid2(KNOT_POINTS - 1, batch_size);
         dim3           thread_block(SCHUR_THREADS);
         const uint32_t s_mem_size1 = getFormSchurSystemBatched1SMemSize<T>();
         const uint32_t s_mem_size2 = getFormSchurSystemBatched2SMemSize<T>();
 
-        formSchurSystemBatchedKernel1<T, BatchSize><<<grid1, thread_block, s_mem_size1>>>(
+        formSchurSystemBatchedKernel1<T><<<grid1, thread_block, s_mem_size1>>>(
             schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch);
 
-        formSchurSystemBatchedKernel2<T, BatchSize><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch);
+        formSchurSystemBatchedKernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch);
 }
 
 // --------------------------------------------------
@@ -314,7 +314,7 @@ __host__ void formSchurSystemBatched(SchurSystem<T, BatchSize> schur, KKTSystem<
 // dz = G_inv * (g - C^T * lambda)
 // dz_state_k = Q_k_inv * (q_k - (A_k^T * lambda_kp1 + lambda_k))
 // dz_control_k = R_k_inv * (r_k - (B_k^T * lambda_kp1))
-template<typename T, uint32_t BatchSize>
+template<typename T>
 __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restrict__       d_dz_batch,
                                                                     const T* __restrict__ d_lambda_batch,
                                                                     const T* __restrict__ d_Q_inv_batch,
@@ -336,18 +336,18 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 T* s_A_k = s_Q_k_inv + STATE_SIZE_SQ;
                 T* s_scratch = s_A_k + STATE_SIZE_SQ;
 
-                const T* d_Q_k_inv = getOffsetStateSq<T, BatchSize>(d_Q_inv_batch, solve_idx, knot_idx);
+                const T* d_Q_k_inv = getOffsetStateSq<T>(d_Q_inv_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_Q_k_inv), s_Q_k_inv);
 
                 // -A_k^T * lambda_kp1
                 if (knot_idx < KNOT_POINTS - 1) {
                         // load A_k
-                        const T* d_A_k = getOffsetStateSq<T, BatchSize>(d_A_batch, solve_idx, knot_idx);
+                        const T* d_A_k = getOffsetStateSq<T>(d_A_batch, solve_idx, knot_idx);
                         glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_A_k), s_A_k);
                         __syncthreads();
 
                         // A_k^T * lambda_next (x^T * A is equivalent to A^T * x)
-                        const T* d_lambda_kp1 = getOffsetStatePadded<T, BatchSize>(d_lambda_batch, solve_idx, knot_idx + 1);
+                        const T* d_lambda_kp1 = getOffsetStatePadded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
                         __syncthreads();
 
                         glass::gemm<T, 1, STATE_SIZE, STATE_SIZE>(static_cast<T>(-1), const_cast<T*>(d_lambda_kp1), s_A_k, s_scratch);
@@ -356,7 +356,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 // no lambda_next, set scratch to 0
                         glass::set_const<T, STATE_SIZE>(static_cast<T>(0), s_scratch);
                 }
-                const T* d_lambda_k = getOffsetStatePadded<T, BatchSize>(d_lambda_batch, solve_idx, knot_idx);
+                const T* d_lambda_k = getOffsetStatePadded<T>(d_lambda_batch, solve_idx, knot_idx);
                 __syncthreads();
 
                 // scratch += lambda_k
@@ -364,7 +364,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // q_k - (lambda_k - A_k^T * lambda_kp1)
-                T* d_q_k = getOffsetState<T, BatchSize>(d_q_batch, solve_idx, knot_idx);
+                T* d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
                 glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_q_k, static_cast<T>(-1), s_scratch, s_A_k);
                 __syncthreads();
 
@@ -373,7 +373,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // store to dz
-                T* d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx);
+                T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE>(static_cast<T>(-1), s_scratch, d_dz_k);
                 // store KKT residual for state row: q_k - (lambda_k - A_k^T * lambda_kp1)
                 glass::copy<T, STATE_SIZE>(s_A_k, d_q_k);
@@ -382,7 +382,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 
                 if (knot_idx == KNOT_POINTS - 1) {
 
-                        T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
+                        T* d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
                         glass::set_const<T, CONTROL_SIZE>(static_cast<T>(0), d_r_k);
 
                         return;
@@ -392,20 +392,20 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 T* s_B_k = s_R_k_inv + CONTROL_SIZE_SQ;
                 T* s_scratch = s_B_k + STATE_P_CONTROL;
 
-                const T* d_R_k_inv = getOffsetControlSq<T, BatchSize>(d_R_inv_batch, solve_idx, knot_idx);
-                const T* d_B_k = getOffsetStatePControl<T, BatchSize>(d_B_batch, solve_idx, knot_idx);
+                const T* d_R_k_inv = getOffsetControlSq<T>(d_R_inv_batch, solve_idx, knot_idx);
+                const T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
                 glass::copy<T, CONTROL_SIZE_SQ>(const_cast<T*>(d_R_k_inv), s_R_k_inv);
                 glass::copy<T, STATE_P_CONTROL>(const_cast<T*>(d_B_k), s_B_k);
                 __syncthreads();
 
                 // r_k - (- B_k^T * lambda_next) (x^T * A is equivalent to A^T * x)
-                const T* d_lambda_kp1 = getOffsetStatePadded<T, BatchSize>(d_lambda_batch, solve_idx, knot_idx + 1);
+                const T* d_lambda_kp1 = getOffsetStatePadded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
 
                 // s_scratch = -(B_k^T * lambda_kp1)
                 glass::gemm<T, 1, CONTROL_SIZE, STATE_SIZE>(static_cast<T>(-1), const_cast<T*>(d_lambda_kp1), s_B_k, s_scratch);
                 __syncthreads();
 
-                T* d_r_k = getOffsetControl<T, BatchSize>(d_r_batch, solve_idx, knot_idx);
+                T* d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
                 glass::axpby<T, CONTROL_SIZE>(static_cast<T>(1), d_r_k, static_cast<T>(-1), s_scratch, s_scratch);
                 __syncthreads();
 
@@ -414,7 +414,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // store to dz
-                T* d_dz_k = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, knot_idx) + STATE_SIZE;
+                T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx) + STATE_SIZE;
                 glass::copy<T, CONTROL_SIZE>(static_cast<T>(-1), s_B_k, d_dz_k);
                 // store KKT residual for control row: r_k - ( -B_k^T * lambda_kp1 )
                 glass::copy<T, CONTROL_SIZE>(s_scratch, d_r_k);
@@ -433,12 +433,12 @@ __host__ size_t getComputeDzBatchedSMemSize()
         return size;
 }
 
-template<typename T, uint32_t BatchSize>
-__host__ void computeDzBatched(T* d_dz_batch, T* d_lambda_batch, KKTSystem<T, BatchSize> kkt)
+template<typename T>
+__host__ void computeDzBatched(uint32_t batch_size, T* d_dz_batch, T* d_lambda_batch, KKTSystem<T> kkt)
 {
-        dim3           grid(KNOT_POINTS, BatchSize, 2);
+        dim3           grid(KNOT_POINTS, batch_size, 2);
         dim3           thread_block(DZ_THREADS);
         const uint32_t s_mem_size = getComputeDzBatchedSMemSize<T>();
 
-        computeDzBatchedKernel<T, BatchSize><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch);
+        computeDzBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch);
 }

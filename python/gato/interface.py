@@ -78,11 +78,12 @@ class BSQP:
                 f"cmake --build build --parallel 4"
             )
 
-        # Build the class name for the given batch_size
-        class_name = f"BSQP_{batch_size}_float"
+        # batch_size is a runtime constructor argument (one class per precision)
+        class_name = "BSQP_float"
         if not hasattr(base, class_name):
             raise ValueError(
-                f"Batch size {batch_size} not supported in module {module_name}"
+                f"Module {module_name} does not export {class_name} — rebuild the "
+                f"solver modules (old per-batch-size builds are incompatible)"
             )
         self.lib = base
         self.solver_class = getattr(base, class_name)
@@ -94,6 +95,7 @@ class BSQP:
         self.n_bodies = int(getattr(base, "NUM_BODIES", 0))
 
         self.solver = self.solver_class(
+            batch_size,
             dt,
             max_sqp_iters,
             kkt_tol,

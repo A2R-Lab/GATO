@@ -9,7 +9,7 @@ using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
 
-template<typename T, uint32_t BatchSize, uint32_t NumAlphas>
+template<typename T, uint32_t NumAlphas>
 __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho)
 {
         // launched with batch_size blocks
@@ -90,20 +90,20 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
         // Only proceed with trajectory update if line search was successful
         if (line_search_success) {
                 const T step_size = s_merit[0];
-                T*      d_xu_traj = getOffsetTraj<T, BatchSize>(d_xu_traj_batch, solve_idx, 0);
-                T*      d_dz = getOffsetTraj<T, BatchSize>(d_dz_batch, solve_idx, 0);
+                T*      d_xu_traj = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
+                T*      d_dz = getOffsetTraj<T>(d_dz_batch, solve_idx, 0);
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
         }
 }
 
-template<typename T, uint32_t BatchSize, uint32_t NumAlphas>
-__host__ void lineSearchAndUpdateBatched(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho)
+template<typename T, uint32_t NumAlphas>
+__host__ void lineSearchAndUpdateBatched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho)
 {
-        dim3   grid(BatchSize);
+        dim3   grid(batch_size);
         dim3   thread_block(LINE_SEARCH_THREADS);
         size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas;
 
-        lineSearchAndUpdateBatchedKernel<T, BatchSize, NumAlphas>
+        lineSearchAndUpdateBatchedKernel<T, NumAlphas>
             <<<grid, thread_block, s_mem_size>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho);
 }

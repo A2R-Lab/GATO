@@ -20,7 +20,7 @@ int main()
     T        solve_ratio = 1.0;
     T        mu = 1.0;
 
-    BSQP<T, 16> bsqp(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    BSQP<T> bsqp(batch_size, dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
     // Generate synthetic reference trajectory data instead of loading from file
     std::vector<T> reference_traj(6 * N * batch_size, 0.0);
@@ -55,12 +55,12 @@ int main()
     gpuErrchk(cudaMalloc(&d_xu_traj_batch, ((12 + 6) * (N - 1) + 12) * batch_size * sizeof(T)));
     gpuErrchk(cudaMemcpy(d_xu_traj_batch, xu_traj_batch.data(), ((12 + 6) * (N - 1) + 12) * batch_size * sizeof(T), cudaMemcpyHostToDevice));
 
-    ProblemInputs<T, BatchSize> inputs;
+    ProblemInputs<T> inputs;
     inputs.timestep = dt;
     inputs.d_x_s_batch = d_x_0_batch;
     inputs.d_reference_traj_batch = d_reference_traj_batch;
 
-    SQPStats<T, BatchSize> stats = bsqp.solve(d_xu_traj_batch, inputs);
+    SQPStats<T> stats = bsqp.solve(d_xu_traj_batch, inputs);
 
     std::vector<T> h_xu_traj(TRAJ_SIZE * BatchSize);
     gpuErrchk(cudaMemcpy(h_xu_traj.data(), d_xu_traj_batch, TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));

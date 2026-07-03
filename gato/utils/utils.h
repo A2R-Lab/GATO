@@ -50,8 +50,8 @@ std::vector<std::vector<T>> readCSVToVecVec(const std::string& filename) {
     return vec;
 }
 
-template<typename T, uint32_t BatchSize>
-bool checkIfBatchTrajsMatch(T* d_xu_traj_batch) {
+template<typename T>
+bool checkIfBatchTrajsMatch(uint32_t BatchSize, T* d_xu_traj_batch) {
     std::vector<T> h_xu_traj_batch(TRAJ_SIZE * BatchSize);
     gpuErrchk(cudaMemcpy(h_xu_traj_batch.data(), d_xu_traj_batch, 
         TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));

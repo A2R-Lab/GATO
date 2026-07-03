@@ -13,7 +13,7 @@ using namespace gato::constants;
 // no file-scope `using namespace gato::plant` (it leaks across kernel headers in the shared
 // TU); qualify plant:: calls explicitly.
 
-template <typename T, uint32_t BatchSize, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
+template <typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__
 void simForwardBatchedKernel(
     T *d_xkp1_batch,
@@ -25,7 +25,7 @@ void simForwardBatchedKernel(
 ) {
     const uint32_t solve_idx = blockIdx.y;
     T *d_xkp1 = d_xkp1_batch + solve_idx * STATE_SIZE;
-    T *d_f_ext = getOffsetWrench<T, BatchSize>(d_f_ext_batch, solve_idx);
+    T *d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
 
     extern __shared__ T s_mem[];
     T *s_xkp1 = s_mem;
@@ -63,9 +63,10 @@ size_t getSimForwardBatchedKernelSMemSize() {
     return size;
 }
 
-template <typename T, uint32_t BatchSize>
+template <typename T>
 __host__
 void simForwardBatched(
+    uint32_t batch_size,
     T *d_xkp1_batch,
     T *d_xk,
     T *d_uk,
@@ -73,11 +74,11 @@ void simForwardBatched(
     T *d_f_ext_batch,
     T dt
 ) {
-    dim3 grid(1, BatchSize);
+    dim3 grid(1, batch_size);
     dim3 block(SIM_FORWARD_THREADS);
     size_t s_mem_size = getSimForwardBatchedKernelSMemSize<T>();
 
-    simForwardBatchedKernel<T, BatchSize><<<grid, block, s_mem_size>>>(
+    simForwardBatchedKernel<T><<<grid, block, s_mem_size>>>(
         d_xkp1_batch,
         d_xk,
         d_uk,

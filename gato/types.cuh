@@ -10,7 +10,7 @@ using namespace gato::constants;
 
 // --------------------------------------------------
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 struct ProblemInputs {
         T     timestep;
         T*    d_x_s_batch;             // STATE_SIZE * batch_size
@@ -20,30 +20,29 @@ struct ProblemInputs {
 
 // --------------------------------------------------
 
-template<uint32_t BatchSize>
 struct PCGStats {
         double solve_time_us;
 
         std::vector<int> num_iterations;
         std::vector<int> converged;  // 1 if converged (pcg exit tol), 0 if not
 
-        PCGStats() : num_iterations(BatchSize, 0), converged(BatchSize, 0) {}
+        explicit PCGStats(uint32_t batch_size) : num_iterations(batch_size, 0), converged(batch_size, 0) {}
 };
 
 // --------------------------------------------------
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 struct LineSearchStats {
         // if line search failure, step_size = -1
         std::vector<T> min_merit;  // min merit
         std::vector<T> step_size;  // argmin of line search
 
-        LineSearchStats() : min_merit(BatchSize, 0.0), step_size(BatchSize, 0.0) {}
+        explicit LineSearchStats(uint32_t batch_size) : min_merit(batch_size, 0.0), step_size(batch_size, 0.0) {}
 };
 
 // --------------------------------------------------
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 struct SQPStats {
         double solve_time_us;  // using std::chrono::high_resolution_clock
 
@@ -52,15 +51,15 @@ struct SQPStats {
         std::vector<int> kkt_converged;  // 1 if converged, 0 if not
 
         // for each SQP iteration
-        std::vector<PCGStats<BatchSize>>           pcg_stats;
-        std::vector<LineSearchStats<T, BatchSize>> line_search_stats;
+        std::vector<PCGStats>           pcg_stats;
+        std::vector<LineSearchStats<T>> line_search_stats;
 
-        SQPStats() : sqp_iterations(BatchSize, 0), kkt_converged(BatchSize, 0) {}
+        explicit SQPStats(uint32_t batch_size) : sqp_iterations(batch_size, 0), kkt_converged(batch_size, 0) {}
 };
 
 // --------------------------------------------------
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 struct KKTSystem {
         T* d_Q_batch;
         T* d_R_batch;
@@ -73,7 +72,7 @@ struct KKTSystem {
 
 // --------------------------------------------------
 
-template<typename T, uint32_t BatchSize>
+template<typename T>
 struct SchurSystem {
         T* d_S_batch;
         T* d_P_inv_batch;

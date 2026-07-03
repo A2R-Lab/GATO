@@ -7,24 +7,13 @@
 
 namespace py = pybind11;
 
-template<typename T, uint32_t BatchSize>
+// batch_size is a runtime constructor argument (the solver kernels only use it
+// as the outermost grid dimension), so ONE binding class covers every batch size.
+template<typename T>
 class PyBSQP {
       public:
-        PyBSQP() : solver_()
-        {
-                // printDeviceInfo();
-                setL2PersistingAccess(1.0);
-                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xk_, STATE_SIZE * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
-
-                h_xkp1_batch_.resize(STATE_SIZE * BatchSize);
-        }
-
-        PyBSQP(const T        dt,
+        PyBSQP(const uint32_t batch_size,
+               const T        dt,
                const uint32_t max_sqp_iters,
                const T        kkt_tol,
                const uint32_t max_pcg_iters,
@@ -39,20 +28,19 @@ class PyBSQP {
                const T        vel_lim_cost,
                const T        ctrl_lim_cost,
                const T        rho)
-            : solver_(dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
+            : batch_size_(batch_size),
+              solver_(batch_size, dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
         {
-                // printDeviceInfo();
                 setL2PersistingAccess(1.0);
-                // std::cout << "T : " << typeid(T).name() << std::endl;
 
-                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * BatchSize * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * BatchSize * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_xk_, STATE_SIZE * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
 
-                h_xkp1_batch_.resize(STATE_SIZE * BatchSize);
+                h_xkp1_batch_.resize(STATE_SIZE * batch_size_);
         }
 
         ~PyBSQP()
@@ -65,81 +53,90 @@ class PyBSQP {
                 gpuErrchk(cudaFree(d_uk_));
         }
 
+        // shape/size validation: a wrong-width numpy array would otherwise silently
+        // over-read host memory in the cudaMemcpy below
+        void check_size(const py::buffer_info& buf, size_t expected, const char* name)
+        {
+                if (static_cast<size_t>(buf.size) != expected) {
+                        throw py::value_error(std::string(name) + ": expected " + std::to_string(expected) + " elements (batch_size=" + std::to_string(batch_size_) + "), got "
+                                              + std::to_string(buf.size));
+                }
+        }
+
         py::dict solve(py::array_t<T> xu_traj_batch, T timestep, py::array_t<T> x_s_batch, py::array_t<T> reference_traj_batch)
         {
                 py::buffer_info xu_buf = xu_traj_batch.request();
                 py::buffer_info xs_buf = x_s_batch.request();
                 py::buffer_info ref_buf = reference_traj_batch.request();
+                check_size(xu_buf, (size_t)TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
+                check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
 
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, xu_buf.ptr, TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * BatchSize * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
-                ProblemInputs<T, BatchSize> inputs;
+                ProblemInputs<T> inputs;
                 inputs.timestep = timestep;
                 inputs.d_x_s_batch = d_x_s_batch_;
                 inputs.d_reference_traj_batch = d_reference_traj_batch_;
 
                 // Solve
-                SQPStats<T, BatchSize> stats = solver_.solve(d_xu_traj_batch_, inputs);
+                SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
 
                 // Copy trajectory back to host
-                std::vector<T> h_xu_traj(TRAJ_SIZE * BatchSize);
-                gpuErrchk(cudaMemcpy(h_xu_traj.data(), d_xu_traj_batch_, TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+                std::vector<T> h_xu_traj(TRAJ_SIZE * batch_size_);
+                gpuErrchk(cudaMemcpy(h_xu_traj.data(), d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
 
                 // Copy final merits (computed at end of solve) and initial (pre-iteration) merits back to host
-                std::vector<T> h_final_merit(BatchSize);
-                std::vector<T> h_initial_merit(BatchSize);
+                std::vector<T> h_final_merit(batch_size_);
+                std::vector<T> h_initial_merit(batch_size_);
                 solver_.copy_final_merit_to_host(h_final_merit.data());
                 solver_.copy_initial_merit0_to_host(h_initial_merit.data());
 
-                py::dict result;
-                result["XU"] = py::array_t<T>({BatchSize, TRAJ_SIZE}, h_xu_traj.data());
-                result["sqp_time_us"] = stats.solve_time_us;
-                result["sqp_iters"] = py::array_t<int32_t>({BatchSize},                 // shape
-                                                           {sizeof(int32_t)},           // stride
-                                                           stats.sqp_iterations.data()  // data
-                );
-                result["kkt_converged"] = py::array_t<int32_t>({BatchSize},                // shape
-                                                               {sizeof(int32_t)},          // stride
-                                                               stats.kkt_converged.data()  // data
-                );
-                result["final_merit"] = py::array_t<T>({BatchSize}, {sizeof(T)}, h_final_merit.data());
-                result["initial_merit"] = py::array_t<T>({BatchSize}, {sizeof(T)}, h_initial_merit.data());
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
 
-                // Per-iteration stats: shape them as (iters, BatchSize)
+                py::dict result;
+                result["XU"] = py::array_t<T>({B, (py::ssize_t)TRAJ_SIZE}, h_xu_traj.data());
+                result["sqp_time_us"] = stats.solve_time_us;
+                result["sqp_iters"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.sqp_iterations.data());
+                result["kkt_converged"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.kkt_converged.data());
+                result["final_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_final_merit.data());
+                result["initial_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_initial_merit.data());
+
+                // Per-iteration stats: shape them as (iters, batch_size)
                 const size_t num_iters = stats.line_search_stats.size();
                 result["ls_num_iters"] = static_cast<int>(num_iters);
 
                 std::vector<float> pcg_times_us;
                 std::vector<int>   pcg_iters;
                 pcg_times_us.reserve(num_iters);
-                pcg_iters.reserve(num_iters * BatchSize);
+                pcg_iters.reserve(num_iters * batch_size_);
                 for (const auto& pcg_stat : stats.pcg_stats) {
                         pcg_times_us.push_back(pcg_stat.solve_time_us);
-                        for (size_t i = 0; i < BatchSize; ++i) { pcg_iters.push_back(pcg_stat.num_iterations[i]); }
+                        for (size_t i = 0; i < batch_size_; ++i) { pcg_iters.push_back(pcg_stat.num_iterations[i]); }
                 }
                 {
-                        std::vector<py::ssize_t> sh_times = { static_cast<py::ssize_t>(num_iters) };
+                        std::vector<py::ssize_t> sh_times = {static_cast<py::ssize_t>(stats.pcg_stats.size())};
                         result["pcg_times_us"] = py::array_t<float>(sh_times, pcg_times_us.data());
                 }
                 {
-                        std::vector<py::ssize_t> sh_iters = { static_cast<py::ssize_t>(num_iters), static_cast<py::ssize_t>(BatchSize) };
+                        std::vector<py::ssize_t> sh_iters = {static_cast<py::ssize_t>(stats.pcg_stats.size()), B};
                         result["pcg_iters"] = py::array_t<int>(sh_iters, pcg_iters.data());
                 }
 
                 std::vector<float> ls_min_merit;
                 std::vector<float> ls_step_size;
-                ls_min_merit.reserve(num_iters * BatchSize);
-                ls_step_size.reserve(num_iters * BatchSize);
+                ls_min_merit.reserve(num_iters * batch_size_);
+                ls_step_size.reserve(num_iters * batch_size_);
                 for (const auto& line_search_stat : stats.line_search_stats) {
-                        for (size_t i = 0; i < BatchSize; ++i) {
+                        for (size_t i = 0; i < batch_size_; ++i) {
                                 ls_min_merit.push_back(line_search_stat.min_merit[i]);
                                 ls_step_size.push_back(line_search_stat.step_size[i]);
                         }
                 }
                 {
-                        std::vector<py::ssize_t> sh = { static_cast<py::ssize_t>(num_iters), static_cast<py::ssize_t>(BatchSize) };
+                        std::vector<py::ssize_t> sh = {static_cast<py::ssize_t>(num_iters), B};
                         result["ls_min_merit"] = py::array_t<float>(sh, ls_min_merit.data());
                         result["ls_step_size"] = py::array_t<float>(sh, ls_step_size.data());
                 }
@@ -150,30 +147,35 @@ class PyBSQP {
         void set_f_ext_batch(py::array_t<T> f_ext_batch)
         {
                 py::buffer_info f_ext_buf = f_ext_batch.request();
+                check_size(f_ext_buf, (size_t)6 * grid::NUM_BODIES * batch_size_, "f_ext_batch");
                 solver_.set_f_ext_batch(static_cast<T*>(f_ext_buf.ptr));
         }
 
         void set_rho_penalty_batch(py::array_t<T> rho_batch, bool set_as_reset_default = true)
         {
                 py::buffer_info buf = rho_batch.request();
+                check_size(buf, batch_size_, "rho_batch");
                 solver_.set_rho_penalty_batch(static_cast<T*>(buf.ptr), set_as_reset_default);
         }
 
         void set_drho_batch(py::array_t<T> drho_batch, bool set_as_reset_default = true)
         {
                 py::buffer_info buf = drho_batch.request();
+                check_size(buf, batch_size_, "drho_batch");
                 solver_.set_drho_batch(static_cast<T*>(buf.ptr), set_as_reset_default);
         }
 
         void set_mu_batch(py::array_t<T> mu_batch)
         {
                 py::buffer_info buf = mu_batch.request();
+                check_size(buf, batch_size_, "mu_batch");
                 solver_.set_mu_batch(static_cast<T*>(buf.ptr));
         }
 
         void set_pcg_tol_batch(py::array_t<T> eps_batch)
         {
                 py::buffer_info buf = eps_batch.request();
+                check_size(buf, batch_size_, "pcg_tol_batch");
                 solver_.set_pcg_tol_batch(static_cast<T*>(buf.ptr));
         }
 
@@ -181,6 +183,8 @@ class PyBSQP {
         {
                 py::buffer_info xk_buf = xk.request();
                 py::buffer_info uk_buf = uk.request();
+                if (static_cast<size_t>(xk_buf.size) != STATE_SIZE) { throw py::value_error("xk: expected " + std::to_string(STATE_SIZE) + " elements, got " + std::to_string(xk_buf.size)); }
+                if (static_cast<size_t>(uk_buf.size) != CONTROL_SIZE) { throw py::value_error("uk: expected " + std::to_string(CONTROL_SIZE) + " elements, got " + std::to_string(uk_buf.size)); }
 
                 gpuErrchk(cudaMemcpy(d_xk_, xk_buf.ptr, STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_uk_, uk_buf.ptr, CONTROL_SIZE * sizeof(T), cudaMemcpyHostToDevice));
@@ -188,9 +192,9 @@ class PyBSQP {
                 solver_.sim_forward(d_xkp1_batch_, d_xk_, d_uk_, dt);
                 gpuErrchk(cudaDeviceSynchronize());
 
-                gpuErrchk(cudaMemcpy(h_xkp1_batch_.data(), d_xkp1_batch_, STATE_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_xkp1_batch_.data(), d_xkp1_batch_, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
 
-                return py::array_t<T>({BatchSize, STATE_SIZE}, h_xkp1_batch_.data());
+                return py::array_t<T>({static_cast<py::ssize_t>(batch_size_), (py::ssize_t)STATE_SIZE}, h_xkp1_batch_.data());
         }
 
         void reset_dual() { solver_.reset_dual(); }
@@ -198,10 +202,11 @@ class PyBSQP {
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
 
       private:
-        BSQP<T, BatchSize> solver_;
-        T*                 d_xu_traj_batch_;
-        T*                 d_x_s_batch_;
-        T*                 d_reference_traj_batch_;
+        uint32_t       batch_size_;
+        BSQP<T>        solver_;
+        T*             d_xu_traj_batch_;
+        T*             d_x_s_batch_;
+        T*             d_reference_traj_batch_;
 
         // for sim_forward
         T *            d_xkp1_batch_, *d_xk_, *d_uk_;
@@ -220,48 +225,30 @@ class PyBSQP {
 #define MODULE_NAME_HELPER(knot, plant) bsqpN##knot##_##plant
 #define MODULE_NAME(knot, plant) MODULE_NAME_HELPER(knot, plant)
 
-// Macro to register a PyBSQP class with the given precision type and batch size
-#define REGISTER_BSQP_CLASS(Type, BatchSize)                                                                                                                                                     \
-        py::class_<PyBSQP<Type, BatchSize>>(m, "BSQP_" #BatchSize "_" #Type)                                                                                                                     \
-            .def(py::init<>())                                                                                                                                                                     \
-            .def(py::init<const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type>()) \
-            .def("solve", &PyBSQP<Type, BatchSize>::solve)                                                                                                                                       \
-            .def("reset_dual", &PyBSQP<Type, BatchSize>::reset_dual)                                                                                                                             \
-            .def("set_f_ext_batch", &PyBSQP<Type, BatchSize>::set_f_ext_batch)                                                                                                                   \
-            .def("set_rho_penalty_batch", &PyBSQP<Type, BatchSize>::set_rho_penalty_batch, py::arg("rho_batch"), py::arg("set_as_reset_default") = true)                                      \
-            .def("set_drho_batch", &PyBSQP<Type, BatchSize>::set_drho_batch, py::arg("drho_batch"), py::arg("set_as_reset_default") = true)                                                     \
-            .def("set_mu_batch", &PyBSQP<Type, BatchSize>::set_mu_batch)                                                                                                                          \
-            .def("set_pcg_tol_batch", &PyBSQP<Type, BatchSize>::set_pcg_tol_batch)                                                                                                                \
-            .def("sim_forward", &PyBSQP<Type, BatchSize>::sim_forward)                                                                                                                           \
-            .def("reset_rho", &PyBSQP<Type, BatchSize>::reset_rho)                                                                                                                                \
-            .def("set_rho_adaptation", &PyBSQP<Type, BatchSize>::set_rho_adaptation)
+// Register the runtime-batch-size PyBSQP class for the given precision type
+#define REGISTER_BSQP_CLASS(Type)                                                                                                                                                                  \
+        py::class_<PyBSQP<Type>>(m, "BSQP_" #Type)                                                                                                                                                 \
+            .def(py::init<const uint32_t, const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, \
+                          const Type, const Type, const Type>())                                                                                                                                    \
+            .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
+            .def("reset_dual", &PyBSQP<Type>::reset_dual)                                                                                                                                          \
+            .def("set_f_ext_batch", &PyBSQP<Type>::set_f_ext_batch)                                                                                                                                \
+            .def("set_rho_penalty_batch", &PyBSQP<Type>::set_rho_penalty_batch, py::arg("rho_batch"), py::arg("set_as_reset_default") = true)                                                      \
+            .def("set_drho_batch", &PyBSQP<Type>::set_drho_batch, py::arg("drho_batch"), py::arg("set_as_reset_default") = true)                                                                   \
+            .def("set_mu_batch", &PyBSQP<Type>::set_mu_batch)                                                                                                                                      \
+            .def("set_pcg_tol_batch", &PyBSQP<Type>::set_pcg_tol_batch)                                                                                                                            \
+            .def("sim_forward", &PyBSQP<Type>::sim_forward)                                                                                                                                        \
+            .def("reset_rho", &PyBSQP<Type>::reset_rho)                                                                                                                                            \
+            .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, PLANT_SUFFIX), m)
 {
-        m.attr("KNOT_POINTS") = KNOT_POINTS;  // to check num knots for current module
+        m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve
 
-
 #ifdef USE_DOUBLES
-        REGISTER_BSQP_CLASS(double, 1);
-        REGISTER_BSQP_CLASS(double, 2);
-        REGISTER_BSQP_CLASS(double, 4);
-        REGISTER_BSQP_CLASS(double, 8);
-        REGISTER_BSQP_CLASS(double, 16);
-        REGISTER_BSQP_CLASS(double, 32);
-        REGISTER_BSQP_CLASS(double, 64);
-        REGISTER_BSQP_CLASS(double, 128);
+        REGISTER_BSQP_CLASS(double);
 #else
-        REGISTER_BSQP_CLASS(float, 1);
-        REGISTER_BSQP_CLASS(float, 2);
-        REGISTER_BSQP_CLASS(float, 4);
-        REGISTER_BSQP_CLASS(float, 8);
-        REGISTER_BSQP_CLASS(float, 16);
-        REGISTER_BSQP_CLASS(float, 32);
-        REGISTER_BSQP_CLASS(float, 64);
-        REGISTER_BSQP_CLASS(float, 128);
-        REGISTER_BSQP_CLASS(float, 256);
-        REGISTER_BSQP_CLASS(float, 512);
-        REGISTER_BSQP_CLASS(float, 1024);
+        REGISTER_BSQP_CLASS(float);
 #endif
 }
