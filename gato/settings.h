@@ -31,8 +31,9 @@ constexpr uint32_t SIM_FORWARD_THREADS = 128;
 
 // ----- Plant Selection -----
 // The plant adapter header is injected at compile time (CMake sets
-// -DGATO_PLANT_HEADER="dynamics/<name>/<name>_plant.cuh"), so adding a robot
-// needs no edits here.
+// -DGATO_PLANT_HEADER="dynamics/plant.cuh" and puts gato/dynamics/<name>/ on
+// the include path for grid.cuh + limits.cuh), so adding a robot needs no
+// edits here.
 #ifndef GATO_PLANT_HEADER
     #error "GATO_PLANT_HEADER must be defined (path to the plant adapter header)"
 #endif

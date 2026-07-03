@@ -5,13 +5,14 @@
 #include "glass.cuh"
 #include "settings.h"
 #include "utils/linalg.cuh"
-// #include <random>
-// #define RANDOM_MEAN 0
-// #define RANDOM_STDEV 0.001
-// std::default_random_engine randEng(time(0)); //seed
-// std::normal_distribution<double> randDist(RANDOM_MEAN, RANDOM_STDEV); //mean followed by stdiv
 
 using namespace sqp;
+
+// Generic plant adapter: everything robot-specific comes from the generated
+// grid.cuh (dimensions, dynamics, grid_plant costs) and the generated
+// limits.cuh (URDF <limit> tables). Both are resolved through the per-robot
+// include dir that CMake adds for each (plant, N) module — this file is
+// robot-agnostic and shared by all plants.
 
 namespace gato {
 namespace plant {
@@ -23,6 +24,10 @@ namespace plant {
         inline constexpr int NU          = grid::NUM_JOINTS;       // controls
         inline constexpr int NEE         = grid::NUM_EES;          // end-effector count
         inline constexpr int EE_POS_SIZE = 6;                      // pose size (xyz + orientation)
+
+        // Shared-memory extents of the grid:: inner buffers this adapter carves by hand.
+        inline constexpr int XIMATS_COUNT = 72 * grid::NUM_JOINTS; // X + I (6x6 each) per joint
+        inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES; // v, a, f (6 each) per body
 
         template<class T>
         __host__ __device__ constexpr T PI()
@@ -45,56 +50,37 @@ namespace plant {
                 return static_cast<T>(-0.1);
         }
 
-        template<class T>
-        __device__ constexpr T JOINT_LIMITS_DATA[7][2] = {
-            // from iiwa14.urdf
-            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-2.96706 - JOINT_LIMIT_MARGIN<T>(), 2.96706 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-2.09440 - JOINT_LIMIT_MARGIN<T>(), 2.09440 + JOINT_LIMIT_MARGIN<T>()},  // joint 5
-            {-3.05433 - JOINT_LIMIT_MARGIN<T>(), 3.05433 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
-        };
+}  // namespace plant
+}  // namespace gato
+
+// Per-robot limit tables ({JOINT,VEL,CTRL}_LIMITS_DATA<T>[NQ][2]), generated
+// from the URDF <limit> tags. They reference JOINT_LIMIT_MARGIN above.
+#include "limits.cuh"
+
+namespace gato {
+namespace plant {
+
+        static_assert(sizeof(JOINT_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
+                      "limits.cuh joint table does not match grid.cuh NUM_JOINTS");
+        static_assert(sizeof(VEL_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
+                      "limits.cuh velocity table does not match grid.cuh NUM_JOINTS");
+        static_assert(sizeof(CTRL_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
+                      "limits.cuh effort table does not match grid.cuh NUM_JOINTS");
 
         template<class T>
-        __device__ constexpr T VEL_LIMITS_DATA[7][2] = {
-            // from iiwa14.urdf
-            {-1.48353 - JOINT_LIMIT_MARGIN<T>(), 1.48353 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-1.48353 - JOINT_LIMIT_MARGIN<T>(), 1.48353 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-1.74533 - JOINT_LIMIT_MARGIN<T>(), 1.74533 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-1.30900 - JOINT_LIMIT_MARGIN<T>(), 1.30900 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-2.26893 - JOINT_LIMIT_MARGIN<T>(), 2.26893 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-2.35619 - JOINT_LIMIT_MARGIN<T>(), 2.35619 + JOINT_LIMIT_MARGIN<T>()},   // joint 5
-            {-2.35619 - JOINT_LIMIT_MARGIN<T>(), 2.35619 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
-        };
-
-        template<class T>
-        __device__ constexpr T CTRL_LIMITS_DATA[7][2] = {
-            // from iiwa14.urdf
-            {-320.0 - JOINT_LIMIT_MARGIN<T>(), 320.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-320.0 - JOINT_LIMIT_MARGIN<T>(), 320.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-176.0 - JOINT_LIMIT_MARGIN<T>(), 176.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-176.0 - JOINT_LIMIT_MARGIN<T>(), 176.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-110.0 - JOINT_LIMIT_MARGIN<T>(), 110.0 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-40.0 - JOINT_LIMIT_MARGIN<T>(), 40.0 + JOINT_LIMIT_MARGIN<T>()},   // joint 5
-            {-40.0 - JOINT_LIMIT_MARGIN<T>(), 40.0 + JOINT_LIMIT_MARGIN<T>()}   // joint 6
-        };
-
-        template<class T>
-        __host__ __device__ constexpr const T (&JOINT_LIMITS())[7][2]
+        __host__ __device__ constexpr const T (&JOINT_LIMITS())[NQ][2]
         {
                 return JOINT_LIMITS_DATA<T>;
         }
 
         template<class T>
-        __host__ __device__ constexpr const T (&VEL_LIMITS())[7][2]
+        __host__ __device__ constexpr const T (&VEL_LIMITS())[NQ][2]
         {
                 return VEL_LIMITS_DATA<T>;
         }
 
         template<class T>
-        __host__ __device__ constexpr const T (&CTRL_LIMITS())[7][2]
+        __host__ __device__ constexpr const T (&CTRL_LIMITS())[NQ][2]
         {
                 return CTRL_LIMITS_DATA<T>;
         }
@@ -113,68 +99,14 @@ namespace plant {
                 cudaFree((grid::robotModel<T>*)d_dynMem_const);
         }
 
-        template<class T>
-        __device__ T jointBarrier(T q, T q_min, T q_max)
-        {
-                T       dist_min = q - q_min;
-                T       dist_max = q_max - q;
-                dist_min = (dist_min <= 1e-10) ? 1e-10 : dist_min;
-                dist_max = (dist_max <= 1e-10) ? 1e-10 : dist_max;
-                return -log(dist_min) - log(dist_max);
-        }
-
-        template<class T>
-        __device__ T jointBarrierGradient(T q, T q_min, T q_max)
-        {
-                // Sign-preserving clamp so gradient points back inside even when violated
-                T dist_min = q - q_min;
-                T dist_max = q_max - q;
-                const T eps = static_cast<T>(1e-6);
-
-                // If inside and very close to boundary, grow magnitude to eps (same sign)
-                // If outside, keep sign and ensure magnitude at least eps
-                if (dist_min >= static_cast<T>(0)) {
-                        if (dist_min < eps) dist_min = eps;
-                } else {
-                        if (dist_min > -eps) dist_min = -eps;
-                }
-
-                if (dist_max >= static_cast<T>(0)) {
-                        if (dist_max < eps) dist_max = eps;
-                } else {
-                        if (dist_max > -eps) dist_max = -eps;
-                }
-
-                return (-static_cast<T>(1) / dist_min) + (static_cast<T>(1) / dist_max);
-        }
-
-        // Second derivative (Hessian) of the joint barrier:
-        // d^2/dq^2 [-log(q - q_min) - log(q_max - q)]
-        // = 1/(q - q_min)^2 + 1/(q_max - q)^2
-        template<class T>
-        __device__ T jointBarrierHessian(T q, T q_min, T q_max)
-        {
-                // Use magnitude clamp for curvature; sign does not affect squared term
-                T dist_min = q - q_min;
-                T dist_max = q_max - q;
-                const T eps = static_cast<T>(1e-6);
-
-                T abs_min = dist_min >= static_cast<T>(0) ? dist_min : -dist_min;
-                T abs_max = dist_max >= static_cast<T>(0) ? dist_max : -dist_max;
-                if (abs_min < eps) abs_min = eps;
-                if (abs_max < eps) abs_max = eps;
-
-                return static_cast<T>(1.0) / (abs_min * abs_min) + static_cast<T>(1.0) / (abs_max * abs_max);
-        }
-
         template<typename T>
         __device__ void forwardDynamics(T* s_qdd, T* s_q, T* s_qd, T* s_u, T* s_XITemp, void* d_dynMem_const, T* d_f_ext = nullptr)
         {
-                // TOPOLOGY_HELPERS_COUNT == 0 for iiwa14 (fixed serial chain); the inners never
+                // TOPOLOGY_HELPERS_COUNT == 0 for fixed serial chains; the inners never
                 // dereference a zero-count helper buffer, so a null pointer is safe.
                 int* s_topology_helpers = nullptr;
                 T* s_XImats = s_XITemp;
-                T* s_temp = &s_XITemp[504];
+                T* s_temp = &s_XITemp[XIMATS_COUNT];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
@@ -195,12 +127,12 @@ namespace plant {
                 T*                   s_XITemp = s_temp_in;
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
 
-                int* s_topology_helpers = nullptr;   // TOPOLOGY_HELPERS_COUNT == 0 (iiwa14 fixed chain)
+                int* s_topology_helpers = nullptr;   // TOPOLOGY_HELPERS_COUNT == 0 (fixed chain)
                 T* s_XImats = s_XITemp;
-                T* s_vaf = &s_XITemp[504];
-                T* s_dc_du = &s_vaf[126];
-                T* s_Minv = &s_dc_du[98];
-                T* s_temp = &s_Minv[49];
+                T* s_vaf = &s_XITemp[XIMATS_COUNT];
+                T* s_dc_du = &s_vaf[VAF_COUNT];
+                T* s_Minv = &s_dc_du[2 * NQ * NQ];
+                T* s_temp = &s_Minv[NQ * NQ];
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::minv_inner<T>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, /*d_workspace*/nullptr);
@@ -213,23 +145,22 @@ namespace plant {
                 grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, /*d_temp_spill*/nullptr, GRAVITY<T>());
 
                 // Option A: GATO keeps its own hand-composition df_du = -Minv * dc_du and packs
-                // dqdd/du = Minv into s_df_du[98..] itself (the integrator gradient reads it at offset 98).
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
-                        int row = ind % 7;
+                // dqdd/du = Minv into s_df_du[2*NQ*NQ..] itself (the integrator gradient reads it there).
+                for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 2 * NQ * NQ; ind += blockDim.x * blockDim.y) {
+                        int row = ind % NQ;
                         int dc_col_offset = ind - row;
                         // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
                         T val = static_cast<T>(0);
-                        #pragma unroll
-                        for(int col = 0; col < 7; col++) {
-                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
+#pragma unroll
+                        for (int col = 0; col < NQ; col++) {
+                                int index = (row <= col) * (col * NQ + row) + (row > col) * (row * NQ + col);
                                 val += s_Minv[index] * s_dc_du[dc_col_offset + col];
                         }
                         s_df_du[ind] = -val;
-
-                        if (INCLUDE_DU && ind < 49){
-                                int col = ind / 7;
-                                int index = (row <= col) * (col * 7 + row) + (row > col) * (row * 7 + col);
-                                s_df_du[ind + 98] = s_Minv[index];
+                        if (INCLUDE_DU && ind < NQ * NQ) {
+                                int col = ind / NQ;
+                                int index = (row <= col) * (col * NQ + row) + (row > col) * (row * NQ + col);
+                                s_df_du[ind + 2 * NQ * NQ] = s_Minv[index];
                         }
                 }
                 __syncthreads();
@@ -241,7 +172,7 @@ namespace plant {
         }
 
         // ===================================================================
-        // grid_plant::tracking_cost ADAPTER (replaces the hand-rolled cost below)
+        // grid_plant::tracking_cost ADAPTER
         //
         // Bridges GATO's scalar cost weights + device-constexpr joint limits to the
         // per-ELEMENT buffer contract of grid_plant::tracking_cost[_gradient/_hessian]

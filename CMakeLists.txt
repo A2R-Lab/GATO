@@ -54,17 +54,20 @@ if(GATO_BUILD_DEMO)
   target_compile_definitions(bsqp PRIVATE
     KNOT_POINTS=16
     GATO_PLANT_NAME=indy7
-    GATO_PLANT_HEADER="dynamics/indy7/indy7_plant.cuh")
+    GATO_PLANT_HEADER="dynamics/plant.cuh")
   # Top-level GLASS (global `glass::`, distinct from grid.cuh's vendored `grid::glass`).
-  target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/external/GLASS)
+  # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
+  target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/gato/dynamics/indy7
+                                          ${CMAKE_SOURCE_DIR}/external/GLASS)
   target_link_libraries(bsqp PRIVATE CUDA::cudart)
 endif()
 
 # --- Python Bindings ---
 
 # horizon length and plant options (configurable via -D at configure time).
-# Plants are discovered by convention: gato/dynamics/<name>/<name>_plant.cuh —
-# adding a robot requires NO CMake edits.
+# Plants are discovered by convention: gato/dynamics/<name>/{grid.cuh,limits.cuh}
+# (generated) + the shared gato/dynamics/plant.cuh adapter — adding a robot
+# requires NO CMake edits.
 set(KNOTS_DEFAULT "8;16;32;64;128")
 set(PLANT_DEFAULT "indy7;iiwa14")
 set(KNOTS "${KNOTS_DEFAULT}" CACHE STRING "Semicolon-separated horizon lengths (e.g., 32;64;128)")
@@ -77,23 +80,26 @@ string(REPLACE " " ";" PLANT "${PLANT}")
 message(STATUS "Configuring Python modules for PLANT='${PLANT}' KNOTS='${KNOTS}'")
 
 foreach(plant ${PLANT})
-  set(PLANT_HEADER_REL "dynamics/${plant}/${plant}_plant.cuh")
-  if(NOT EXISTS "${CMAKE_SOURCE_DIR}/gato/${PLANT_HEADER_REL}")
-    message(FATAL_ERROR "Plant '${plant}': missing ${CMAKE_SOURCE_DIR}/gato/${PLANT_HEADER_REL} "
-                        "(generate it with gato.build / tools/regen_grid.py)")
-  endif()
+  foreach(gen_header grid.cuh limits.cuh)
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}/${gen_header}")
+      message(FATAL_ERROR "Plant '${plant}': missing gato/dynamics/${plant}/${gen_header} "
+                          "(generate it with gato.build / tools/regen_grid.py)")
+    endif()
+  endforeach()
   foreach(knot ${KNOTS})
     set(MODULE_NAME "bsqpN${knot}_${plant}")
     message(STATUS "Configuring Python module: ${MODULE_NAME}")
     pybind11_add_module(${MODULE_NAME} SHARED python/bindings.cu)
 
+    # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
     target_include_directories(${MODULE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/gato
+                                                      ${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}
                                                       ${CMAKE_SOURCE_DIR}/external/GLASS)
 
     target_compile_definitions(${MODULE_NAME} PRIVATE
       KNOT_POINTS=${knot}
       GATO_PLANT_NAME=${plant}
-      GATO_PLANT_HEADER="${PLANT_HEADER_REL}")
+      GATO_PLANT_HEADER="dynamics/plant.cuh")
 
     set_target_properties(
       ${MODULE_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY

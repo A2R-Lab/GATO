@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <iostream>
 
-// grid.cuh (always pulled in via settings.h -> *_plant.cuh) defines gpuAssert + gpuErrchk
+// grid.cuh (always pulled in via settings.h -> dynamics/plant.cuh) defines gpuAssert + gpuErrchk
 // unconditionally; guard on the macro so we defer to it when present (avoids a same-TU
 // redefinition / ODR clash) and only provide our own when cuda.cuh is used standalone.
 #ifndef gpuErrchk
