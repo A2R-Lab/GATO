@@ -15,7 +15,7 @@ using namespace gato::constants;
 // in merit.cuh). Qualify plant calls explicitly instead.
 
 template<typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
-__global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
+__global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T*    d_R_batch,
                                             T*    d_q_batch,
                                             T*    d_r_batch,
@@ -34,10 +34,13 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T     N_cost,
                                             T     q_lim_cost,
                                             T     vel_lim_cost,
-                                            T     ctrl_lim_cost)
+                                            T     ctrl_lim_cost,
+                                            const int32_t* __restrict__ d_kkt_converged_batch,
+                                            const T* __restrict__       d_knot_cost_weights)  // optional (nullable) per-knot [ee,qd,u] triples
 {
         // kernel launched with 2D grid: (knot_idx, solve_idx)
         const uint32_t solve_idx = blockIdx.y;
+        if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: freeze (no KKT rebuild)
 
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1
@@ -68,8 +71,14 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                 T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
                 T* d_c_k = getOffsetState<T>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
 
+                // per-knot weight override (nullptr -> the scalar weights)
+                const T ee_w_k  = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 0] : q_cost;
+                const T qd_w_k  = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 1] : qd_cost;
+                const T u_w_k   = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 2] : u_cost;
+                const T ee_w_kp1 = d_knot_cost_weights ? d_knot_cost_weights[(knot_idx + 1) * 3 + 0] : N_cost;
+
                 glass::copy<T, STATE_S_CONTROL + STATE_SIZE>(d_xu_traj_k, s_xux_k);
-                glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);  // TODO: is this correct?
+                glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
                 __syncthreads();
 
                 gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
@@ -86,7 +95,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                         gato::plant::trackingCostGradHess<T>(
                             s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/q_cost);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k);
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
@@ -100,7 +109,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                         gato::plant::trackingCostGradHess<T>(
                             s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/q_cost);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k);
                         __syncthreads();
 
                         // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
@@ -110,7 +119,7 @@ __global__ void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                         gato::plant::trackingCostGradHess<T>(
                             s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
-                            qd_cost, u_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/N_cost);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1);
 
                         // c_0 = x_0 - x_s
                         T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
@@ -152,9 +161,9 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights)
 {
-        dim3   grid(KNOT_POINTS, batch_size);
+        dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
         size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>();  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
 
@@ -177,5 +186,7 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                N_cost,
                                                                                q_lim_cost,
                                                                                vel_lim_cost,
-                                                                               ctrl_lim_cost);
+                                                                               ctrl_lim_cost,
+                                                                               d_kkt_converged_batch,
+                                                                               d_knot_cost_weights);
 }

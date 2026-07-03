@@ -24,18 +24,16 @@ constexpr uint32_t KKT_THREADS = 128;
 constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
 constexpr uint32_t DZ_THREADS = 128;
-constexpr uint32_t MERIT_THREADS = 128;
 constexpr uint32_t LINE_SEARCH_THREADS = 512;
 constexpr uint32_t SIM_FORWARD_THREADS = 128;
 
 }  // namespace sqp
 
 // ----- Plant Selection -----
-// Plant type is defined at compile time via CMake
-#if defined(PLANT_INDY7)
-    #include "dynamics/indy7/indy7_plant.cuh"
-#elif defined(PLANT_IIWA14)
-    #include "dynamics/iiwa14/iiwa14_plant.cuh"
-#else
-    #error "Plant type must be defined: PLANT_INDY7 or PLANT_IIWA14"
+// The plant adapter header is injected at compile time (CMake sets
+// -DGATO_PLANT_HEADER="dynamics/<name>/<name>_plant.cuh"), so adding a robot
+// needs no edits here.
+#ifndef GATO_PLANT_HEADER
+    #error "GATO_PLANT_HEADER must be defined (path to the plant adapter header)"
 #endif
+#include GATO_PLANT_HEADER

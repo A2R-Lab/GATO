@@ -30,12 +30,15 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           T                     N_cost,
                                           T                     q_lim_cost,
                                           T                     vel_lim_cost,
-                                          T                     ctrl_lim_cost)
+                                          T                     ctrl_lim_cost,
+                                          const int32_t* __restrict__ d_kkt_converged_batch,
+                                          const T* __restrict__       d_knot_cost_weights)  // optional (nullable) per-knot [ee,qd,u] triples
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
         grid::robotModel<T>* d_robot_model = (grid::robotModel<T>*)d_GRiD_mem;
         const uint32_t       solve_idx = blockIdx.y;
+        if (d_kkt_converged_batch != nullptr && d_kkt_converged_batch[solve_idx]) return;  // converged: skip (line search skips too)
         const uint32_t       knot_idx = blockIdx.x;
         const uint32_t       alpha_idx = blockIdx.z;
         T                    alpha = 1.0 / (1 << alpha_idx);
@@ -65,10 +68,18 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         glass::copy<T, constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
         __syncthreads();
 
+        // per-knot weight override (nullptr -> the scalar weights); with per-knot weights
+        // the terminal EE weight is just the last knot's entry, so pass it as both the
+        // running (q_cost) and terminal (N_cost) arguments.
+        const T ee_w_k = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 0] : q_cost;
+        const T qd_w_k = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 1] : qd_cost;
+        const T u_w_k  = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 2] : u_cost;
+        const T eeN_w  = d_knot_cost_weights ? ee_w_k : N_cost;
+
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks
         // N_cost EE weight + drops the control reg/barrier, matching the old trackingcost).
         cost_k =
-            plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1));
+            plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1));
         __syncthreads();
 
         // constraint error
@@ -108,6 +119,8 @@ __host__ size_t getComputeMeritBatchedSMemSize()
 
 template<typename T, uint32_t NumAlphas>
 __host__ void computeMeritBatched(uint32_t                    batch_size,
+                                  const int32_t*              d_kkt_converged_batch,  // nullptr => no converged-skip (initial merit)
+                                  const T*                    d_knot_cost_weights,    // nullptr => scalar weights
                                   T*                          d_merit_batch,
                                   T*                          d_dz_batch,
                                   T*                          d_xu_traj_batch,
@@ -127,7 +140,10 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
 
-        gpuErrchk(cudaMemset(d_merit_batch, 0, batch_size * NumAlphas * sizeof(T)));
+        // The NumAlphas>1 merit buffer is re-zeroed by the line-search kernel after each
+        // read (and zeroed once at allocation), so only the 1-alpha targets (the merit
+        // scratch buffers, not slot-recycled) need clearing here.
+        if (NumAlphas == 1) { gpuErrchk(cudaMemset(d_merit_batch, 0, batch_size * NumAlphas * sizeof(T))); }
 
         computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_batch,
                                                                                     d_dz_batch,
@@ -144,5 +160,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     N_cost,
                                                                                     q_lim_cost,
                                                                                     vel_lim_cost,
-                                                                                    ctrl_lim_cost);
+                                                                                    ctrl_lim_cost,
+                                                                                    d_kkt_converged_batch,
+                                                                                    d_knot_cost_weights);
 }

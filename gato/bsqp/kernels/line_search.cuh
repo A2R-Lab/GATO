@@ -10,11 +10,14 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T, uint32_t NumAlphas>
-__global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho)
+__global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with batch_size blocks
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t tid = threadIdx.x;
+        // converged solve: freeze trajectory AND rho/drho adaptation (its merit slots were
+        // not written this iteration — the merit kernel skips converged solves too)
+        if (d_kkt_converged_batch[solve_idx]) return;
 
         __shared__ T        s_merit[NumAlphas];
         __shared__ uint32_t s_step_idx[NumAlphas];
@@ -74,7 +77,10 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
                 }
 
                 if (!line_search_success) {
-                        if (d_rho_penalty_batch[solve_idx] > RHO_MAX) {
+                        // rho saturated at RHO_MAX with a failing line search: reset so the
+                        // solver can escape (the clamp above makes `>` unreachable; `>=` is
+                        // the intended saturation test)
+                        if (adapt_rho && d_rho_penalty_batch[solve_idx] >= RHO_MAX) {
                                 d_rho_penalty_batch[solve_idx] = RHO_INIT;  // reset rho for next sqp solve
                         }
                         d_step_size_batch[solve_idx] = -1;
@@ -98,12 +104,12 @@ __global__ void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_bat
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void lineSearchAndUpdateBatched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho)
+__host__ void lineSearchAndUpdateBatched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch)
 {
-        dim3   grid(batch_size);
-        dim3   thread_block(LINE_SEARCH_THREADS);
-        size_t s_mem_size = sizeof(T) * NumAlphas + sizeof(uint32_t) * NumAlphas;
+        dim3 grid(batch_size);
+        dim3 thread_block(LINE_SEARCH_THREADS);
+        // the kernel's s_merit/s_step_idx arrays are static __shared__ — no dynamic smem needed
 
         lineSearchAndUpdateBatchedKernel<T, NumAlphas>
-            <<<grid, thread_block, s_mem_size>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho);
+            <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch);
 }

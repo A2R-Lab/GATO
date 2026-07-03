@@ -40,11 +40,15 @@ class PyBSQP {
                 gpuErrchk(cudaMalloc(&d_xk_, STATE_SIZE * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
 
+                // pinned staging: numpy -> pinned -> device beats numpy(pageable) -> device
+                gpuErrchk(cudaMallocHost(&h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T)));
+
                 h_xkp1_batch_.resize(STATE_SIZE * batch_size_);
         }
 
         ~PyBSQP()
         {
+                gpuErrchk(cudaFreeHost(h_xu_staging_));
                 gpuErrchk(cudaFree(d_xu_traj_batch_));
                 gpuErrchk(cudaFree(d_x_s_batch_));
                 gpuErrchk(cudaFree(d_reference_traj_batch_));
@@ -72,7 +76,8 @@ class PyBSQP {
                 check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
                 check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
 
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                memcpy(h_xu_staging_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
@@ -84,9 +89,12 @@ class PyBSQP {
                 // Solve
                 SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
 
-                // Copy trajectory back to host
-                std::vector<T> h_xu_traj(TRAJ_SIZE * batch_size_);
-                gpuErrchk(cudaMemcpy(h_xu_traj.data(), d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                // Copy trajectory back: device -> pinned -> straight into the output
+                // py::array (no intermediate std::vector + second copy)
+                const py::ssize_t Bs = static_cast<py::ssize_t>(batch_size_);
+                py::array_t<T>    xu_out({Bs, (py::ssize_t)TRAJ_SIZE});
+                gpuErrchk(cudaMemcpy(h_xu_staging_, d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                memcpy(xu_out.request().ptr, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T));
 
                 // Copy final merits (computed at end of solve) and initial (pre-iteration) merits back to host
                 std::vector<T> h_final_merit(batch_size_);
@@ -97,7 +105,7 @@ class PyBSQP {
                 const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
 
                 py::dict result;
-                result["XU"] = py::array_t<T>({B, (py::ssize_t)TRAJ_SIZE}, h_xu_traj.data());
+                result["XU"] = xu_out;
                 result["sqp_time_us"] = stats.solve_time_us;
                 result["sqp_iters"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.sqp_iterations.data());
                 result["kkt_converged"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.kkt_converged.data());
@@ -200,10 +208,27 @@ class PyBSQP {
         void reset_dual() { solver_.reset_dual(); }
         void reset_rho() { solver_.reset_rho(); }
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
+        void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
+
+        void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
+        {
+                solver_.set_cost_weights(q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+        }
+
+        void set_cost_weights_per_knot(py::array_t<T> knot_weights)
+        {
+                py::buffer_info buf = knot_weights.request();
+                if (static_cast<size_t>(buf.size) != 3 * KNOT_POINTS) {
+                        throw py::value_error("knot_weights: expected " + std::to_string(3 * KNOT_POINTS) + " elements ((KNOT_POINTS, 3) [ee, qd, u] triples), got " + std::to_string(buf.size));
+                }
+                solver_.set_cost_weights_per_knot(static_cast<T*>(buf.ptr));
+        }
+        void clear_cost_weights_per_knot() { solver_.clear_cost_weights_per_knot(); }
 
       private:
         uint32_t       batch_size_;
         BSQP<T>        solver_;
+        T*             h_xu_staging_;
         T*             d_xu_traj_batch_;
         T*             d_x_s_batch_;
         T*             d_reference_traj_batch_;
@@ -214,12 +239,9 @@ class PyBSQP {
 };
 
 
-#if defined(PLANT_INDY7)
-#define PLANT_SUFFIX indy7
-#elif defined(PLANT_IIWA14)
-#define PLANT_SUFFIX iiwa14
-#else
-#error "Unknown plant configuration for bindings"
+// the plant name token is injected at compile time (-DGATO_PLANT_NAME=<name>)
+#ifndef GATO_PLANT_NAME
+#error "GATO_PLANT_NAME must be defined (plant name token for the module name)"
 #endif
 
 #define MODULE_NAME_HELPER(knot, plant) bsqpN##knot##_##plant
@@ -239,9 +261,13 @@ class PyBSQP {
             .def("set_pcg_tol_batch", &PyBSQP<Type>::set_pcg_tol_batch)                                                                                                                            \
             .def("sim_forward", &PyBSQP<Type>::sim_forward)                                                                                                                                        \
             .def("reset_rho", &PyBSQP<Type>::reset_rho)                                                                                                                                            \
-            .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)
+            .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
+            .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
+            .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
+            .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
+            .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)
 
-PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, PLANT_SUFFIX), m)
+PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve

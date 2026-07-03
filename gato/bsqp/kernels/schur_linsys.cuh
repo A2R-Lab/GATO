@@ -22,11 +22,13 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                                                                               const T* __restrict__ d_A_batch,
                                                                               const T* __restrict__ d_B_batch,
                                                                               const T* __restrict__ d_c_batch,
-                                                                              const T* __restrict__ d_rho_penalty_batch)
+                                                                              const T* __restrict__ d_rho_penalty_batch,
+                                                                              const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with grid of (KNOT_POINTS, solve_idx)
         uint32_t knot_idx = blockIdx.x;
         uint32_t solve_idx = blockIdx.y;
+        if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: skip
 
         extern __shared__ T s_mem[];
 
@@ -213,11 +215,12 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
 }
 
 template<typename T>
-__global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T* __restrict__ d_S_batch, T* __restrict__ d_P_inv_batch)
+__global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T* __restrict__ d_S_batch, T* __restrict__ d_P_inv_batch, const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with grid of (KNOT_POINTS - 1, solve_idx)
         uint32_t knot_idx = blockIdx.x;
         uint32_t solve_idx = blockIdx.y;
+        if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: skip
 
         extern __shared__ T s_mem[];
 
@@ -295,7 +298,7 @@ __host__ size_t getFormSchurSystemBatched2SMemSize()
 }
 
 template<typename T>
-__host__ void formSchurSystemBatched(uint32_t batch_size, SchurSystem<T> schur, KKTSystem<T> kkt, T* d_rho_penalty_batch)
+__host__ void formSchurSystemBatched(uint32_t batch_size, SchurSystem<T> schur, KKTSystem<T> kkt, T* d_rho_penalty_batch, const int32_t* d_kkt_converged_batch)
 {
         dim3           grid1(KNOT_POINTS, batch_size);
         dim3           grid2(KNOT_POINTS - 1, batch_size);
@@ -304,9 +307,9 @@ __host__ void formSchurSystemBatched(uint32_t batch_size, SchurSystem<T> schur, 
         const uint32_t s_mem_size2 = getFormSchurSystemBatched2SMemSize<T>();
 
         formSchurSystemBatchedKernel1<T><<<grid1, thread_block, s_mem_size1>>>(
-            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch);
+            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
 
-        formSchurSystemBatchedKernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch);
+        formSchurSystemBatchedKernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch, d_kkt_converged_batch);
 }
 
 // --------------------------------------------------
@@ -322,11 +325,13 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                                                                     T* __restrict__       d_q_batch,
                                                                     T* __restrict__       d_r_batch,
                                                                     const T* __restrict__ d_A_batch,
-                                                                    const T* __restrict__ d_B_batch)
+                                                                    const T* __restrict__ d_B_batch,
+                                                                    const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with grid of size (KNOT_POINTS, batch_size, 2)
         const uint32_t knot_idx = blockIdx.x;
         const uint32_t solve_idx = blockIdx.y;
+        if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: freeze dz/residuals
 
         extern __shared__ T s_mem[];
 
@@ -434,11 +439,11 @@ __host__ size_t getComputeDzBatchedSMemSize()
 }
 
 template<typename T>
-__host__ void computeDzBatched(uint32_t batch_size, T* d_dz_batch, T* d_lambda_batch, KKTSystem<T> kkt)
+__host__ void computeDzBatched(uint32_t batch_size, T* d_dz_batch, T* d_lambda_batch, KKTSystem<T> kkt, const int32_t* d_kkt_converged_batch)
 {
         dim3           grid(KNOT_POINTS, batch_size, 2);
         dim3           thread_block(DZ_THREADS);
         const uint32_t s_mem_size = getComputeDzBatchedSMemSize<T>();
 
-        computeDzBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch);
+        computeDzBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
 }

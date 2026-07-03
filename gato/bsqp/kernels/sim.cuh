@@ -14,7 +14,7 @@ using namespace gato::constants;
 // TU); qualify plant:: calls explicitly.
 
 template <typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
-__global__
+__global__ __launch_bounds__(SIM_FORWARD_THREADS)
 void simForwardBatchedKernel(
     T *d_xkp1_batch,
     T *d_xk,
@@ -53,7 +53,7 @@ void simForwardBatchedKernel(
 template <typename T>
 __host__
 size_t getSimForwardBatchedKernelSMemSize() {
-    size_t size = sizeof(T) * 2 * (
+    size_t size = sizeof(T) * (
         STATE_SIZE + // xkp1
         STATE_SIZE + // xk
         CONTROL_SIZE + // uk

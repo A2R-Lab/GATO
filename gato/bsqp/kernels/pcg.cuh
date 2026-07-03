@@ -58,8 +58,8 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
 template<typename T>
 __host__ size_t getSolvePCGBatchedSMemSize()
 {
-        size_t size = sizeof(T) * (5 * VEC_SIZE_PADDED + 32 + 5 + PCG_THREADS);
-        return size;
+        // exact glass::pcg contract: 5 padded vectors + warp-dot scratch (5 scalars are static)
+        return glass::pcg_scratch_bytes<T, STATE_SIZE, KNOT_POINTS>(PCG_THREADS);
 }
 
 template<typename T>
