@@ -42,13 +42,12 @@ ref_B = np.tile(ref, (M, 1))
 XU_B = np.zeros((M, N * (nx + nu) - nu), dtype=np.float32)
 XU_B[:, :nx] = x0_B
 
-XU_B, solve_us = solver.solve(x0_B, ref_B, XU_B)
-stats = solver.get_stats()
+res = solver.solve(x0_B, ref_B, XU_B)
 
-merits = np.asarray(stats.get("final_merit")).reshape(-1)
+merits = res.stats.final_merit
 best = int(np.argmin(merits))
 print(f"GATO batched solve (Indy7, N={N}, M={M}) in one launch:")
-print(f"  GPU solve time : {solve_us / 1000.0:.3f} ms for all {M} solves")
+print(f"  GPU solve time : {res.solve_time_us / 1000.0:.3f} ms for all {M} solves")
 for i in range(M):
     mark = "  <- best" if i == best else ""
     print(f"  member {i}: rho={rho_batch[i]:.1e}  final_merit={merits[i]:.4f}{mark}")

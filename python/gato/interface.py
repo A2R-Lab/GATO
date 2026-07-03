@@ -2,6 +2,7 @@ import glob
 import importlib
 import os
 import re
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -17,6 +18,61 @@ def available():
         if m:
             found[(m.group(2), int(m.group(1)))] = os.path.basename(so)
     return found
+
+
+@dataclass(frozen=True)
+class SolverStats:
+    """Per-solve solver statistics (batch-shaped numpy arrays)."""
+    solve_time_us: int
+    sqp_iters: np.ndarray       # (B,) int32
+    kkt_converged: np.ndarray   # (B,) int32
+    final_merit: np.ndarray     # (B,) float32 — merit of the returned trajectory
+    initial_merit: np.ndarray   # (B,) float32 — merit before the first iteration
+    ls_num_iters: int           # SQP iterations that reached the line search
+    pcg_iters: np.ndarray       # (sqp_iters_run, B) int32
+    pcg_times_us: np.ndarray    # (sqp_iters_run,) float32
+    min_merit: np.ndarray       # (ls_num_iters, B) float32 — accepted merit per iter
+    step_size: np.ndarray       # (ls_num_iters, B) float32 — -1 marks a line-search failure
+
+
+@dataclass(frozen=True)
+class SolveResult:
+    """Result of one batched solve.
+
+    ``xu`` is the flat batch of trajectories, one row per solve:
+    ``[x_0, u_0, x_1, u_1, ..., x_{N-1}]`` with row length ``N*(nx+nu) - nu``.
+    """
+    xu: np.ndarray              # (B, N*(nx+nu)-nu) float32
+    solve_time_us: int
+    stats: SolverStats
+    nx: int
+    nu: int
+    N: int
+
+    @property
+    def batch_size(self):
+        return self.xu.shape[0]
+
+    def xu_b(self, b=0):
+        """Trajectory of batch entry b (flat)."""
+        return self.xu[b]
+
+    def u0(self, b=0):
+        """First control of batch entry b — what an MPC applies."""
+        return self.xu[b, self.nx:self.nx + self.nu]
+
+    def control_at(self, k, b=0):
+        """Control at knot k (clamped to the last control knot) of batch entry b."""
+        k = min(int(k), self.N - 2)  # last knot has no control
+        start = self.nx + (self.nx + self.nu) * k
+        return self.xu[b, start:start + self.nu]
+
+    @property
+    def diverged(self):
+        """(B,) bool — non-finite merit or trajectory."""
+        bad_merit = ~np.isfinite(self.stats.final_merit)
+        bad_xu = ~np.isfinite(self.xu).all(axis=1)
+        return bad_merit | bad_xu
 
 
 class BSQP:
@@ -94,6 +150,9 @@ class BSQP:
         # serial chain) for older modules that don't export it.
         self.n_bodies = int(getattr(base, "NUM_BODIES", 0))
 
+        self._cost_weights = dict(q_cost=q_cost, qd_cost=qd_cost, u_cost=u_cost,
+                                  N_cost=N_cost, q_lim_cost=q_lim_cost,
+                                  vel_lim_cost=vel_lim_cost, ctrl_lim_cost=ctrl_lim_cost)
         self.solver = self.solver_class(
             batch_size,
             dt,
@@ -140,18 +199,6 @@ class BSQP:
             dtype=np.float32,
         )
 
-        self.stats = {
-            "sqp_time_us": np.array([]),
-            "sqp_iters": np.array([]),
-            "kkt_converged": np.array([]),
-            "pcg_iters": np.array([]),
-            "pcg_times_us": np.array([]),
-            "min_merit": np.array([]),
-            "step_size": np.array([]),
-            "initial_merit": np.array([]),
-            "best_initial_merit": np.array([]),
-        }
-
         # Optional batched hyperparameters
         if rho_batch is not None:
             rho_batch = np.asarray(rho_batch, dtype=np.float32).reshape(self.batch_size)
@@ -166,7 +213,7 @@ class BSQP:
             self.solver.set_pcg_tol_batch(pcg_tol_batch)
 
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
-        # Ensure float32 inputs for CUDA bindings
+        """Solve the batch; returns a SolveResult (also stores xu as the next warm start)."""
         xcur_B = np.asarray(xcur_B, dtype=np.float32)
         eepos_goals_B = np.asarray(eepos_goals_B, dtype=np.float32)
         if XU_B is None:
@@ -175,85 +222,46 @@ class BSQP:
             XU_B = np.asarray(XU_B, dtype=np.float32)
         XU_B[:, : self.nx] = xcur_B
 
-        result = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
+        raw = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
 
-        # Copy raw results
-        self.XU_B = np.asarray(result["XU"], dtype=np.float32)
-        self.stats["sqp_time_us"] = int(result["sqp_time_us"])
-        self.stats["sqp_iters"] = np.asarray(result["sqp_iters"], dtype=np.int32).reshape(self.batch_size)
-        self.stats["kkt_converged"] = np.asarray(result["kkt_converged"], dtype=np.int32).reshape(self.batch_size)
-        self.stats["final_merit"] = np.asarray(result["final_merit"], dtype=np.float32).reshape(self.batch_size)
-        if "initial_merit" in result:
-            self.stats["initial_merit"] = np.asarray(result["initial_merit"], dtype=np.float32).reshape(self.batch_size)
-            if self.stats["initial_merit"].size:
-                self.stats["best_initial_merit"] = float(np.min(self.stats["initial_merit"]))
-            else:
-                self.stats["best_initial_merit"] = np.array([], dtype=np.float32)
-        self.stats["ls_num_iters"] = int(result.get("ls_num_iters", 0))
+        self.XU_B = np.asarray(raw["XU"], dtype=np.float32)
+        B = self.batch_size
+        stats = SolverStats(
+            solve_time_us=int(raw["sqp_time_us"]),
+            sqp_iters=np.asarray(raw["sqp_iters"], dtype=np.int32).reshape(B),
+            kkt_converged=np.asarray(raw["kkt_converged"], dtype=np.int32).reshape(B),
+            final_merit=np.asarray(raw["final_merit"], dtype=np.float32).reshape(B),
+            initial_merit=np.asarray(raw["initial_merit"], dtype=np.float32).reshape(B),
+            ls_num_iters=int(raw["ls_num_iters"]),
+            pcg_iters=np.asarray(raw["pcg_iters"], dtype=np.int32).reshape(-1, B),
+            pcg_times_us=np.asarray(raw["pcg_times_us"], dtype=np.float32).reshape(-1),
+            min_merit=np.asarray(raw["ls_min_merit"], dtype=np.float32).reshape(-1, B),
+            step_size=np.asarray(raw["ls_step_size"], dtype=np.float32).reshape(-1, B),
+        )
+        return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
+                           stats=stats, nx=self.nx, nu=self.nu, N=self.N)
 
-        # Normalize shapes for per-iteration stats
-        def _to_np(a, dtype=None):
-            arr = np.asarray(a)
-            if arr.dtype == object:
-                try:
-                    arr = np.asarray([np.asarray(v).reshape(-1) for v in arr.tolist()])
-                except Exception:
-                    arr = np.array([], dtype=(np.float32 if dtype is None else dtype))
-            if dtype is not None and arr.dtype != dtype:
-                arr = arr.astype(dtype)
-            return arr
+    def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
+                         q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):
+        """Update scalar cost weights at runtime (None keeps the current value)."""
+        w = self._cost_weights
+        for name, val in (("q_cost", q_cost), ("qd_cost", qd_cost), ("u_cost", u_cost),
+                          ("N_cost", N_cost), ("q_lim_cost", q_lim_cost),
+                          ("vel_lim_cost", vel_lim_cost), ("ctrl_lim_cost", ctrl_lim_cost)):
+            if val is not None:
+                w[name] = float(val)
+        self.solver.set_cost_weights(w["q_cost"], w["qd_cost"], w["u_cost"], w["N_cost"],
+                                     w["q_lim_cost"], w["vel_lim_cost"], w["ctrl_lim_cost"])
 
-        num_iters = self.stats["ls_num_iters"]
-        min_merit = _to_np(result.get("ls_min_merit", np.array([])), dtype=np.float32)
-        step_size = _to_np(result.get("ls_step_size", np.array([])), dtype=np.float32)
-        pcg_iters = _to_np(result.get("pcg_iters", np.array([])), dtype=np.int32)
-        pcg_times = _to_np(result.get("pcg_times_us", np.array([])), dtype=np.float32)
+    def set_cost_weights_per_knot(self, knot_weights):
+        """Per-knot [ee, qd, u] weight triples, shape (N, 3): overrides the scalar
+        q/qd/u/N weights (terminal EE weight = row N-1's ee entry). Enables
+        via-points, terminal-only goals, and horizon masking at runtime."""
+        w = np.ascontiguousarray(np.asarray(knot_weights, dtype=np.float32)).reshape(self.N, 3)
+        self.solver.set_cost_weights_per_knot(w)
 
-        # Ensure shapes: (iters, B) for min_merit/step_size/pcg_iters; (iters,) for pcg_times
-        if min_merit.size:
-            if min_merit.ndim == 1 and self.batch_size == 1 and num_iters == min_merit.shape[0]:
-                min_merit = min_merit.reshape(num_iters, 1)
-            elif min_merit.ndim == 2 and min_merit.shape[0] != num_iters and min_merit.size == num_iters * self.batch_size:
-                min_merit = min_merit.reshape(num_iters, self.batch_size)
-        if step_size.size:
-            if step_size.ndim == 1 and self.batch_size == 1 and num_iters == step_size.shape[0]:
-                step_size = step_size.reshape(num_iters, 1)
-            elif step_size.ndim == 2 and step_size.shape[0] != num_iters and step_size.size == num_iters * self.batch_size:
-                step_size = step_size.reshape(num_iters, self.batch_size)
-        if pcg_iters.size:
-            if pcg_iters.ndim == 1 and self.batch_size == 1 and num_iters == pcg_iters.shape[0]:
-                pcg_iters = pcg_iters.reshape(num_iters, 1)
-            elif pcg_iters.ndim == 2 and pcg_iters.shape[0] != num_iters and pcg_iters.size == num_iters * self.batch_size:
-                pcg_iters = pcg_iters.reshape(num_iters, self.batch_size)
-
-        self.stats["pcg_iters"] = pcg_iters
-        self.stats["pcg_times_us"] = pcg_times
-        self.stats["min_merit"] = min_merit
-        self.stats["step_size"] = step_size
-
-        # Derive per-iteration aggregates
-        ls_np = self.stats.get("min_merit", np.array([]))
-        if isinstance(ls_np, list):
-            ls_np = np.asarray(ls_np, dtype=np.float32)
-        if isinstance(ls_np, np.ndarray) and ls_np.size and ls_np.ndim == 2:
-            best_per_iter = np.min(ls_np.astype(np.float32), axis=1)
-            self.stats["best_merit_per_iter"] = best_per_iter
-            self.stats["best_merit_iter1"] = float(best_per_iter[0]) if best_per_iter.size > 0 else float("nan")
-        else:
-            self.stats["best_merit_per_iter"] = np.array([], dtype=np.float32)
-            self.stats["best_merit_iter1"] = float("nan")
-
-        # Normalized curve
-        if np.size(self.stats.get("best_initial_merit", [])):
-            denom = float(self.stats["best_initial_merit"]) if self.stats["best_initial_merit"] else None
-            if denom and denom != 0 and self.stats["best_merit_per_iter"].size:
-                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"] / denom
-            else:
-                self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
-        else:
-            self.stats["best_merit_per_iter_normalized"] = self.stats["best_merit_per_iter"]
-
-        return self.XU_B, result["sqp_time_us"]
+    def clear_cost_weights_per_knot(self):
+        self.solver.clear_cost_weights_per_knot()
 
     def ee_pos(self, q):
         # Measure the SAME frame the solver optimizes (URDF "EE"), not the last
@@ -305,5 +313,3 @@ class BSQP:
     def reset_dual(self):
         self.solver.reset_dual()
 
-    def get_stats(self):
-        return self.stats

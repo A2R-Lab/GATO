@@ -204,7 +204,7 @@ class MPC_GATO:
         
         # Warm up solve
         self.update_force_batch(q)
-        XU_batch, _ = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+        XU_batch = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch).xu
         XU_best = XU_batch[0, :]
         
         print(f"\nRunning MPC: N={self.N}, batch={self.batch_size}, time={sim_time}s")
@@ -259,7 +259,8 @@ class MPC_GATO:
             self.solver.reset_rho()
             
             start = time.time()
-            XU_batch_new, gpu_solve_time = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+            _res = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+            XU_batch_new, gpu_solve_time = _res.xu, _res.solve_time_us
             solve_time = time.time() - start
             
             # Select best trajectory
@@ -287,7 +288,7 @@ class MPC_GATO:
             stats['joint_velocities'].append(dq.copy())
             
             if self.track_full_stats:
-                solver_stats = self.solver.get_stats()
+                solver_stats = {'sqp_iters': _res.stats.sqp_iters, 'pcg_iters': _res.stats.pcg_iters}
                 # Get first element from batch for sqp_iters
                 sqp_iters = solver_stats['sqp_iters']
                 if isinstance(sqp_iters, np.ndarray):
@@ -481,7 +482,7 @@ class MPC_GATO:
         
         # Warm up solve
         self.update_force_batch(q[:self.nq_robot] if self.has_pendulum else q)
-        XU_batch, _ = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+        XU_batch = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch).xu
         XU_best = XU_batch[0, :]
         
         print(f"\nRunning MPC: N={self.N}, batch={self.batch_size}, {len(goals)} goals")
@@ -578,7 +579,8 @@ class MPC_GATO:
             self.solver.reset_rho()
             
             start = time.time()
-            XU_batch_new, gpu_solve_time = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+            _res = self.solver.solve(x_curr_batch, ee_g_batch, XU_batch)
+            XU_batch_new, gpu_solve_time = _res.xu, _res.solve_time_us
             solve_time = time.time() - start
             
             # Select best trajectory
@@ -596,7 +598,7 @@ class MPC_GATO:
             stats['best_trajectory_id'].append(best_id)
             
             if self.track_full_stats:
-                solver_stats = self.solver.get_stats()
+                solver_stats = {'sqp_iters': _res.stats.sqp_iters, 'pcg_iters': _res.stats.pcg_iters}
                 # Get first element from batch for sqp_iters and pcg_iters
                 sqp_iters = solver_stats['sqp_iters']
                 if isinstance(sqp_iters, np.ndarray):

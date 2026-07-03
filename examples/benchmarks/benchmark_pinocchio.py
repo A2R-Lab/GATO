@@ -231,7 +231,8 @@ class PinocchioBenchmark:
             
             # Solve
             solve_start = time.monotonic()
-            XU_batch_new, gpu_solve_time = self.solver.solve(xs_batch, goal_trace_batch, XU_batch)
+            _res = self.solver.solve(xs_batch, goal_trace_batch, XU_batch)
+            XU_batch_new, gpu_solve_time = _res.xu, _res.solve_time_us
             solve_time = time.monotonic() - solve_start
             
             # Check for NaN or Inf

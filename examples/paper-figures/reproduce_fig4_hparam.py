@@ -69,10 +69,9 @@ def sample_goal():
 
 
 def _best_curve_from_stats(stats):
-    best = stats.get("best_merit_per_iter", None)
-    if best is None:
-        ls = np.asarray(stats.get("min_merit", None))
-        best = np.min(ls, axis=1) if ls.ndim == 2 else ls
+    # stats is a gato.SolverStats: min_merit is (ls_iters, B) — best across the batch
+    ls = np.asarray(stats.min_merit, dtype=np.float32)
+    best = np.min(ls, axis=1) if (ls.ndim == 2 and ls.size) else ls.reshape(-1)
     return np.asarray(best, dtype=np.float32).reshape(-1)
 
 
@@ -87,9 +86,9 @@ def _curve_for_B(urdf, B, costs, goal, max_iters):
     ref_B = np.tile(np.tile(goal, N).astype(np.float32), (B, 1))
     XU_B = np.zeros((B, solver.N * (nx + nu) - nu), dtype=np.float32)
     XU_B[:, :nx] = x0_B
-    solver.solve(x0_B, ref_B, XU_B)
-    stats = solver.get_stats()
-    denom = float(stats.get("best_initial_merit", np.nan))
+    res = solver.solve(x0_B, ref_B, XU_B)
+    stats = res.stats
+    denom = float(np.min(stats.initial_merit)) if stats.initial_merit.size else np.nan
     curve = _best_curve_from_stats(stats)
     curve = curve / denom if (denom == denom and denom != 0) else curve
     return np.r_[1.0, curve]
@@ -104,9 +103,9 @@ def _curve_adaptive(urdf, costs, goal, rho, max_iters):
     ee1 = np.tile(goal, N).astype(np.float32).reshape(1, -1)
     XU_B = np.zeros((1, solver.N * (nx + nu) - nu), dtype=np.float32)
     XU_B[:, :nx] = x1
-    solver.solve(x1, ee1, XU_B)
-    stats = solver.get_stats()
-    denom = float(stats.get("best_initial_merit", np.nan))
+    res = solver.solve(x1, ee1, XU_B)
+    stats = res.stats
+    denom = float(np.min(stats.initial_merit)) if stats.initial_merit.size else np.nan
     curve = _best_curve_from_stats(stats)
     curve = curve / denom if (denom == denom and denom != 0) else curve
     return np.r_[1.0, curve]

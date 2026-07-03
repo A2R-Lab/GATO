@@ -42,11 +42,10 @@ ref_B = ref.reshape(1, -1)
 XU_B = np.zeros((1, N * (nx + nu) - nu), dtype=np.float32)
 XU_B[:, :nx] = x0_B
 
-XU_B, solve_us = solver.solve(x0_B, ref_B, XU_B)
-stats = solver.get_stats()
+res = solver.solve(x0_B, ref_B, XU_B)
 
 print(f"GATO single solve (Indy7, N={N}):")
-print(f"  GPU solve time : {solve_us / 1000.0:.3f} ms")
-print(f"  SQP iters      : {stats.get('sqp_iters')}")
-print(f"  final merit    : {stats.get('final_merit')}")
-print(f"  first control u0: {XU_B[0, nx:nx + nu]}")
+print(f"  GPU solve time : {res.solve_time_us / 1000.0:.3f} ms")
+print(f"  SQP iters      : {res.stats.sqp_iters}")
+print(f"  final merit    : {res.stats.final_merit}")
+print(f"  first control u0: {res.u0()}")
