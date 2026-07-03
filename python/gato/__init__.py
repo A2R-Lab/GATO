@@ -20,6 +20,10 @@ _LAZY = {
     "StepResult": ".controller",
     "HypothesisBatch": ".hypotheses",
     "ForceHypothesisBatch": ".hypotheses",
+    "MPCPolicy": ".policy",
+    "TrajectoryReference": ".policy",
+    "GoalReference": ".policy",
+    "ArmTrackEnv": ".envs",
     "ForceEstimator": ".estimators",
     "CEMForceEstimator": ".estimators",
 }
