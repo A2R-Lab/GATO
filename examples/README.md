@@ -11,11 +11,13 @@ after building the `bsqpN64_indy7` module (see the root README's build instructi
 | [`01_single_solve.py`](01_single_solve.py) | Construct a `BSQP` solver and run one trajectory-optimization solve; print the stats. |
 | [`02_batched_solve.py`](02_batched_solve.py) | Solve M=8 problems in **one** GPU launch, each with a different damping `rho`; report which batch member converged best. GATO's headline feature. |
 | [`03_mpc_loop.py`](03_mpc_loop.py) | A closed-loop `MPC_GATO` figure-8 tracking loop; print average tracking error + per-step solve time. |
+| [`04_gym_mpc.py`](04_gym_mpc.py) | MPC as a **gymnasium policy** (`MPCPolicy` + `ArmTrackEnv`), tracking under an unmodeled EE force with a B=16 force-hypothesis batch vs plain B=1. Needs the `[examples]` extra (gymnasium). |
 
 ```bash
 python examples/01_single_solve.py
 python examples/02_batched_solve.py
 python examples/03_mpc_loop.py
+python examples/04_gym_mpc.py
 ```
 
 For a live, interactive tour of the same APIs (plus a no-GPU Fig-4 re-plot), open

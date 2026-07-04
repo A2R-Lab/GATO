@@ -18,10 +18,10 @@ add it upstream rather than locally — that is how `glass::invertMatrix` fused 
 ## The mental model
 
 **One CUDA block per problem instance in the batch.** A batched solve launches a grid of
-`(work_dim, BatchSize)` blocks; each block runs the single-block algorithm over data already in
-shared/global memory. `BatchSize` is a **compile-time template parameter** (`<T, BatchSize>`) on
-every kernel — that is why modules are built per `(plant, knot_points)` and instantiate a fixed
-set of batch sizes. Block-scoped kernels must be **thread-count invariant** (strided
+`(work_dim, batch_size)` blocks; each block runs the single-block algorithm over data already in
+shared/global memory. The batch size is **runtime** (a `BSQP` constructor argument — buffers are
+sized to it, kernels read it from `gridDim.y`); modules are compiled per `(plant, knot_points)`
+only, and any batch size works. Block-scoped kernels must be **thread-count invariant** (strided
 `for (i = rank; i < n; i += blockDim)` loops, barriers between a write phase and a dependent read).
 
 ## The BSQP solve pipeline (one SQP iteration)
@@ -48,17 +48,29 @@ migrated to `glass::`.
 ## Source layout
 
 - `gato/bsqp/` — the BSQP solver: `bsqp.cuh` (host orchestration) + `kernels/*.cuh`.
-- `gato/dynamics/{indy7,iiwa14}/` — per-robot `grid.cuh` (generated, vendored) + `*_plant.cuh`
-  (thin adapters: dimension aliases, EE-cost/dynamics wrappers calling grid's `_inner` fns).
+- `gato/dynamics/` — `plant.cuh` (ONE shared robot-agnostic adapter: dimension aliases from
+  `grid::` constants, dynamics + tracking-cost wrappers over `grid_plant::`) + per-robot
+  `<name>/{grid.cuh, limits.cuh}` (both generated; limits from the URDF `<limit>` tags). CMake
+  injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"` and puts the robot dir on the include path.
 - `gato/utils/` — `linalg.cuh` (GATO helpers), `cuda.cuh` (error macros).
 - `gato/{constants.h, settings.h, types.cuh}` — dims, build flags, KKT/Schur structs.
-- `python/gato/` — the Python package (`import gato`): `mpc_controller.py` (`MPC_GATO`: `run_mpc_fig8`, `run_mpc_goals`,
-  `setup_external_forces`), `config.py` (robot/experiment configs), `experiment_runner.py`.
-- `examples/` — user-facing demos (`01/02/03`, `explore.ipynb`) + robot URDFs + `force_estimator*.py`.
-  `examples/paper-figures/` — `reproduce_fig*.py` + `visualizations.ipynb`. `examples/benchmarks/` —
-  `benchmark_fig8.py`/`benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/`.
+- `python/gato/` — the Python package (`import gato`):
+  - `interface.py` — `BSQP` (solve → `SolveResult`/`SolverStats`), `available()`, `robot_info()`.
+  - `controller.py` — task-agnostic `MPCController` (warm-start shift/hold, hypothesis hooks).
+  - `hypotheses.py` / `estimators.py` — `HypothesisBatch` ABC, `ForceHypothesisBatch`,
+    `ForceEstimator`/`CEMForceEstimator` (batch-as-identity API).
+  - `policy.py` / `envs.py` — `MPCPolicy` + reference providers (numpy-only) / gymnasium
+    `ArmTrackEnv` (lazy import).
+  - `mpc_gato.py` — `MPC_GATO`, the thin legacy sim driver (`run_mpc_fig8`, `run_mpc_goals`).
+  - `builder.py` — `gato.build(urdf)` codegen+compile; writes `_registry.json` (robot metadata).
+  - `config.py` / `common.py` — robot/solver configs, figure8/rk4 helpers.
+- `examples/` — intro demos `01/02/03/04` + `explore.ipynb` + robot URDFs.
+  `examples/paper-figures/` — `reproduce_fig*.py` + `_common.py` (paper constants) +
+  `_pickplace_runner.py` + `visualizations.ipynb`. `examples/benchmarks/` — `benchmark_fig8.py`/
+  `benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/`.
+- `test/` — pytest suite (`gpu`/`slow` markers; see Validation) + `test/cuda/` standalone harness.
 - `external/GRiD` (pinned to `modernizing-tests`), `external/GLASS` (pinned to `main`).
-- `tools/regen_grid.py` — regenerate the vendored `grid.cuh` from `external/GRiD`.
+- `tools/regen_grid.py` — thin CLI over `gato.builder.codegen` for the vendored robots.
 
 ## Build & run
 
@@ -75,6 +87,11 @@ cmake --build build --parallel 4      # cap jobs: each TU pulls the large grid.c
 `tools/install.sh` sets up a project-local `.venv` + submodules + regen. `KNOTS`/`PLANT` accept
 semicolon lists. Use the GRiD venv (`../GRiD/.venv`) for anything needing pinocchio (the GATO venv
 is the lean codegen/build set).
+
+New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE")` runs codegen (grid.cuh +
+limits.cuh + registry) and compiles the modules in one call (fixed-base serial chains with bounded
+`<limit>` tags only; `ee_frame` must be a URDF fixed joint). NOTE: it reconfigures the `build/`
+tree for its own (plant, N) request — re-run your usual cmake configure afterwards.
 
 ## Conventions & gotchas (learned the hard way)
 
@@ -95,14 +112,32 @@ is the lean codegen/build set).
 - **The real-time MPC loop is wall-clock paced** — `run_mpc_fig8`/`run_mpc_goals` do a
   *timing-dependent* number of solves, so step counts vary run-to-run while the per-solve result is
   deterministic. Do not mistake step-count variation for non-determinism; under GPU contention the
-  loop does fewer solves (can look like an "early stop").
+  loop does fewer solves (can look like an "early stop"). Regression-gate with **fixed pacing**
+  (`pace_by_solve_time=False`) — those runs are bit-deterministic.
+- **pybind classes must be `py::module_local()`** — every `bsqpN*_*` module defines the same C++
+  `PyBSQP<T>` type; a global registration makes the SECOND module imported in a process fail with
+  "type already registered".
+- **`gato.build` is a lazy FUNCTION export from `gato/builder.py`** — the module is deliberately
+  not named `build.py`: `from gato.build import ...` would import the submodule and permanently
+  shadow the `gato.build()` callable on the package (PEP 562).
+- **`final_merit` has ±1 ulp run-to-run jitter** (atomicAdd order in the merit kernel) — compare
+  merits with rtol ~1e-5; trajectories (`xu`), iteration counts, and PCG counts are bit-exact.
 
 ## Validation
 
-There is no C++ test dir; validate with (a) a minimal standalone `.cu` that includes a kernel
-header and launches one block (compile `-DNDEBUG`, no fast-math for tight tolerances), and (b)
-end-to-end via the Python API on `examples/` (fig8 tracking error, goal success rate). Prefer
-device-parity diffs (old vs new kernel on random inputs) for migration changes.
+`test/` is the pytest suite — markers select the tier (CI wiring is intentionally absent; a GPU
+proof-of-work CI integration is planned):
+
+```bash
+pytest -m "not gpu"           # host-only: packaging, math, codegen-vs-vendored determinism
+pytest -m "gpu and not slow"  # smoke solves, bit-determinism, shape validation, controller math
+pytest                        # + slow: codegen diff both robots, gato.build dogfood
+```
+
+`test/cuda/pcg_vs_cpu.cu` is a standalone single-block `glass::pcg`-vs-CPU harness (build command
+in its header; `-DNDEBUG` required, no fast-math). For kernel changes, prefer bit-parity gates:
+a saved `solve()` npz on fixed inputs + the fixed-pacing fig8 runs (see the gotchas above for the
+merit-jitter caveat), plus `compute-sanitizer --tool memcheck` on `examples/01_single_solve.py`.
 
 ## Commit style
 

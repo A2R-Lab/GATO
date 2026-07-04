@@ -70,8 +70,61 @@ Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
 
 ## Usage
 
-See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve, and the intro Python demos in
-[examples/](examples/) (`01_single_solve.py`, `02_batched_solve.py`, `03_mpc_loop.py`).
+```python
+import numpy as np
+import gato
+
+# one batched solve: B trajectories in a single GPU launch
+solver = gato.BSQP(model_path="examples/indy7_description/indy7.urdf",
+                   batch_size=8, N=32, dt=0.01, plant_type="indy7")
+x0 = np.zeros((8, solver.nx), dtype=np.float32)          # [q, dq] per batch entry
+goals = np.zeros((8, 32 * 6), dtype=np.float32)          # (x,y,z,0,0,0) per knot
+goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
+res = solver.solve(x0, goals)                            # -> SolveResult
+print(res.u0(0), res.stats.sqp_iters, res.solve_time_us)
+```
+
+For closed-loop control, wrap the solver in the task-agnostic `MPCController`
+(warm-start shifting, best-of-batch hypothesis selection) or go straight to a
+gymnasium policy:
+
+```python
+from gato import MPCController, MPCPolicy, TrajectoryReference
+from gato.envs import ArmTrackEnv   # needs the [examples] extra (gymnasium)
+```
+
+The intro demos in [examples/](examples/) walk the whole surface:
+`01_single_solve.py`, `02_batched_solve.py` (per-batch hyperparameters),
+`03_mpc_loop.py`, `04_gym_mpc.py` (MPC-as-policy + force-hypothesis batch).
+See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve.
+
+### Adding a robot
+
+One call generates the dynamics code (via GRiD), the limit tables, and compiles
+the solver modules from a fixed-base URDF:
+
+```python
+import gato
+gato.build("path/to/robot.urdf", name="myrobot", N=[32, 64], ee_frame="EE")
+# then: gato.BSQP(model_path="path/to/robot.urdf", N=32, plant_type="myrobot", ...)
+```
+
+`ee_frame` must be a **fixed joint** in the URDF (the EE target frame the cost
+tracks); every actuated joint needs bounded `<limit>` tags (the barrier cost
+uses them). Current scope: fixed-base serial chains. The same path is exposed as
+a CLI for the vendored robots: `python tools/regen_grid.py`. Built modules and
+robot metadata are discoverable via `gato.available()` / `gato.robot_info(name)`.
+
+## Tests
+
+```sh
+pytest -m "not gpu"           # host-only: packaging, math, codegen determinism
+pytest -m "gpu and not slow"  # GPU: smoke solves, determinism, shapes, controller
+pytest                        # everything (slow adds codegen diff + a build dogfood)
+```
+
+There is also a standalone single-block PCG-vs-CPU harness in
+[test/cuda/](test/cuda/) (build command in the file header).
 
 ## Reproducing the paper
 
