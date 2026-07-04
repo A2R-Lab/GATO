@@ -123,18 +123,20 @@ def _write_limits(robot, out_path, name, urdf_name):
     Path(out_path).write_text("\n".join(out))
 
 
-def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None):
+def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
+            register=True):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
     gato.build() and tools/regen_grid.py go through it. algorithm_list=None uses
     GRiD's profile="all" (recommended; also emits the grid_plant cost surface).
+    out_dir/register let tests generate elsewhere without touching the repo.
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
         raise FileNotFoundError(f"URDF not found: {urdf_path}")
     root = repo_root()
-    out_dir = root / "gato" / "dynamics" / name
+    out_dir = Path(out_dir) if out_dir else root / "gato" / "dynamics" / name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     robot = _parse_urdf(urdf_path, ee_frame)
@@ -162,7 +164,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None):
         urdf_rel = str(urdf_path)
     meta = {"nq": robot.get_num_pos(), "nv": robot.get_num_vel(),
             "ee_frame": ee_frame, "urdf": urdf_rel}
-    _update_registry(name, meta)
+    if register:
+        _update_registry(name, meta)
     return meta
 
 

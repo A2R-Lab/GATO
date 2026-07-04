@@ -24,7 +24,7 @@ def robot_info(plant_type):
     """Registry metadata for a plant ({nq, nv, ee_frame, urdf}), or {} if unregistered.
 
     The registry (_registry.json) is written by gato.build / tools/regen_grid.py."""
-    from .build import load_registry
+    from .builder import load_registry
     return load_registry().get(plant_type, {})
 
 
@@ -117,7 +117,7 @@ class BSQP:
         # Unknown robots are a hard error (a wrong plant silently runs the wrong
         # dynamics with mismatched state size).
         if plant_type is None:
-            from .build import load_registry
+            from .builder import load_registry
             plants = sorted({p for p, _ in available()} | set(load_registry()))
             low = model_path.lower()
             # match the plant name or its alpha prefix (iiwa14 -> "iiwa") in the path

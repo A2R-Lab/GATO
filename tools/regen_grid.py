@@ -21,7 +21,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "python"))
 
-from gato.build import codegen  # noqa: E402
+from gato.builder import codegen  # noqa: E402
 
 # robot id -> (URDF path, EE target fixed-joint name)
 ROBOTS = {

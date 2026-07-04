@@ -60,3 +60,10 @@ include = ["gato*"]
 # into python/gato/).
 [tool.setuptools.package-data]
 gato = ["*.so", "_registry.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+markers = [
+    "gpu: needs a CUDA GPU with built solver modules (deselect with -m 'not gpu')",
+    "slow: long-running codegen/build tests (deselect with -m 'not slow')",
+]

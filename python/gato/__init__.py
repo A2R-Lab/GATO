@@ -13,11 +13,12 @@ except Exception:  # not installed (e.g. sys.path use from a checkout)
 from .interface import BSQP, SolveResult, SolverStats, available, robot_info
 
 # Heavy-dependency exports resolved lazily (PEP 562) so `import gato` works in a
-# numpy-only environment. NOTE: "build" resolves to the build() FUNCTION in the
-# gato.build module (call it as gato.build(urdf, ...)).
+# numpy-only environment. NOTE: "build"/"codegen" resolve to the FUNCTIONS in
+# gato.builder (call gato.build(urdf, ...)); the module is named builder.py so
+# `from gato.builder import ...` can never shadow the gato.build callable.
 _LAZY = {
-    "build": ".build",
-    "codegen": ".build",
+    "build": ".builder",
+    "codegen": ".builder",
     "MPC_GATO": ".mpc_gato",
     "MPCController": ".controller",
     "StepResult": ".controller",

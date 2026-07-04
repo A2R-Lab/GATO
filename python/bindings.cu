@@ -249,7 +249,7 @@ class PyBSQP {
 
 // Register the runtime-batch-size PyBSQP class for the given precision type
 #define REGISTER_BSQP_CLASS(Type)                                                                                                                                                                  \
-        py::class_<PyBSQP<Type>>(m, "BSQP_" #Type)                                                                                                                                                 \
+        py::class_<PyBSQP<Type>>(m, "BSQP_" #Type, py::module_local()) /* every module defines the same C++ type; a global registration collides when two solver modules load in one process */                                                                                                                                                 \
             .def(py::init<const uint32_t, const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, \
                           const Type, const Type, const Type>())                                                                                                                                    \
             .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
