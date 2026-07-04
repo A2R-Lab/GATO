@@ -129,7 +129,8 @@ class MPC_GATO:
                 alpha=0.6,
                 beta=0.5,
             )
-            hypotheses = ForceHypothesisBatch(estimator, self.solver_model, ee_frame="EE")
+            hypotheses = ForceHypothesisBatch(estimator, self.solver_model,
+                                              ee_frame=self.solver.ee_frame)
 
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
                                         warm_start="shift", reset_rho_each_step=True)

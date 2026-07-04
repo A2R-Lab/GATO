@@ -8,32 +8,32 @@ namespace plant {
 
         template<class T>
         __device__ constexpr T JOINT_LIMITS_DATA[6][2] = {
-            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-3.0543 - JOINT_LIMIT_MARGIN<T>(), 3.0543 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-3.7520 - JOINT_LIMIT_MARGIN<T>(), 3.7520 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
+            {-3.0543261909900767 - JOINT_LIMIT_MARGIN<T>(), 3.0543261909900767 + JOINT_LIMIT_MARGIN<T>()},  // joint0
+            {-3.0543261909900767 - JOINT_LIMIT_MARGIN<T>(), 3.0543261909900767 + JOINT_LIMIT_MARGIN<T>()},  // joint1
+            {-3.0543261909900767 - JOINT_LIMIT_MARGIN<T>(), 3.0543261909900767 + JOINT_LIMIT_MARGIN<T>()},  // joint2
+            {-3.0543261909900767 - JOINT_LIMIT_MARGIN<T>(), 3.0543261909900767 + JOINT_LIMIT_MARGIN<T>()},  // joint3
+            {-3.0543261909900767 - JOINT_LIMIT_MARGIN<T>(), 3.0543261909900767 + JOINT_LIMIT_MARGIN<T>()},  // joint4
+            {-3.7524578917878086 - JOINT_LIMIT_MARGIN<T>(), 3.7524578917878086 + JOINT_LIMIT_MARGIN<T>()}  // joint5
         };
 
         template<class T>
         __device__ constexpr T VEL_LIMITS_DATA[6][2] = {
-            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-2.61 - JOINT_LIMIT_MARGIN<T>(), 2.61 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-3.14 - JOINT_LIMIT_MARGIN<T>(), 3.14 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
+            {-2.6179938779914944 - JOINT_LIMIT_MARGIN<T>(), 2.6179938779914944 + JOINT_LIMIT_MARGIN<T>()},  // joint0
+            {-2.6179938779914944 - JOINT_LIMIT_MARGIN<T>(), 2.6179938779914944 + JOINT_LIMIT_MARGIN<T>()},  // joint1
+            {-2.6179938779914944 - JOINT_LIMIT_MARGIN<T>(), 2.6179938779914944 + JOINT_LIMIT_MARGIN<T>()},  // joint2
+            {-3.141592653589793 - JOINT_LIMIT_MARGIN<T>(), 3.141592653589793 + JOINT_LIMIT_MARGIN<T>()},  // joint3
+            {-3.141592653589793 - JOINT_LIMIT_MARGIN<T>(), 3.141592653589793 + JOINT_LIMIT_MARGIN<T>()},  // joint4
+            {-3.141592653589793 - JOINT_LIMIT_MARGIN<T>(), 3.141592653589793 + JOINT_LIMIT_MARGIN<T>()}  // joint5
         };
 
         template<class T>
         __device__ constexpr T CTRL_LIMITS_DATA[6][2] = {
-            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint 0
-            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint 1
-            {-197.23 - JOINT_LIMIT_MARGIN<T>(), 197.23 + JOINT_LIMIT_MARGIN<T>()},  // joint 2
-            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint 3
-            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint 4
-            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()}   // joint 5
+            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint0
+            {-431.97 - JOINT_LIMIT_MARGIN<T>(), 431.97 + JOINT_LIMIT_MARGIN<T>()},  // joint1
+            {-197.23 - JOINT_LIMIT_MARGIN<T>(), 197.23 + JOINT_LIMIT_MARGIN<T>()},  // joint2
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint3
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()},  // joint4
+            {-79.79 - JOINT_LIMIT_MARGIN<T>(), 79.79 + JOINT_LIMIT_MARGIN<T>()}  // joint5
         };
 
 }  // namespace plant

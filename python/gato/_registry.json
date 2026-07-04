@@ -1,0 +1,14 @@
+{
+  "iiwa14": {
+    "ee_frame": "EE",
+    "nq": 7,
+    "nv": 7,
+    "urdf": "examples/iiwa_description/iiwa14.urdf"
+  },
+  "indy7": {
+    "ee_frame": "EE",
+    "nq": 6,
+    "nv": 6,
+    "urdf": "examples/indy7_description/indy7.urdf"
+  }
+}

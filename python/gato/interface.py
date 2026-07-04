@@ -20,6 +20,14 @@ def available():
     return found
 
 
+def robot_info(plant_type):
+    """Registry metadata for a plant ({nq, nv, ee_frame, urdf}), or {} if unregistered.
+
+    The registry (_registry.json) is written by gato.build / tools/regen_grid.py."""
+    from .build import load_registry
+    return load_registry().get(plant_type, {})
+
+
 @dataclass(frozen=True)
 class SolverStats:
     """Per-solve solver statistics (batch-shaped numpy arrays)."""
@@ -109,7 +117,8 @@ class BSQP:
         # Unknown robots are a hard error (a wrong plant silently runs the wrong
         # dynamics with mismatched state size).
         if plant_type is None:
-            plants = sorted({p for p, _ in available()})
+            from .build import load_registry
+            plants = sorted({p for p, _ in available()} | set(load_registry()))
             low = model_path.lower()
             # match the plant name or its alpha prefix (iiwa14 -> "iiwa") in the path
             matches = [p for p in plants
@@ -174,13 +183,15 @@ class BSQP:
         pin = _require_pin()
         self.model = pin.buildModelFromUrdf(model_path)
         self.data = self.model.createData()
-        # The solver/grid.cuh optimizes the EE-position cost in the URDF "EE" frame
-        # (grid.cuh is codegen'd with fixed_target_name="EE"). The last JOINT origin
-        # (oMi[njoints-1]) sits ~0.04 m short of it, so the success metric MUST use
-        # the "EE" frame or it reports a spurious 4 cm of tracking error. Resolve the
-        # frame id once; fall back to the last joint only if the URDF has no "EE".
-        if self.model.existFrame("EE"):
-            self.ee_frame_id = self.model.getFrameId("EE")
+        # The solver/grid.cuh optimizes the EE-position cost in the frame the module
+        # was codegen'd with (fixed_target_name; recorded in the registry, "EE" for
+        # the vendored robots). The last JOINT origin (oMi[njoints-1]) can sit several
+        # cm short of it, so the success metric MUST use the same frame or it reports
+        # spurious tracking error. Resolve the frame id once; fall back to the last
+        # joint only if the URDF lacks the frame.
+        self.ee_frame = robot_info(plant_type).get("ee_frame", "EE")
+        if self.model.existFrame(self.ee_frame):
+            self.ee_frame_id = self.model.getFrameId(self.ee_frame)
         else:
             self.ee_frame_id = None
         self.batch_size = batch_size
