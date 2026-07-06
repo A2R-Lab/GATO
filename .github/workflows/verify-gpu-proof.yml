@@ -1,0 +1,78 @@
+# CPU-only CI. Two jobs, no GPU, no secrets:
+#
+#   1. verify-receipt — validates the committed gpu-proof.json (signature via
+#      github.com/{signer}.keys, source fingerprint, commit SHA, freshness,
+#      allow_dirty policy). The GPU suite itself runs on the lab box via
+#      test/run_gpu_proof.sh — this job is what lets GPU correctness gate
+#      pushes without cloud GPUs. If no receipt is committed yet, the job
+#      SKIPS gracefully (push-before-receipt is allowed; the receipt lands in
+#      a follow-up commit and activates enforcement).
+#
+#   2. cpu-lane — the host-only test tier (packaging, math, reference
+#      providers), so structural regressions are caught in ordinary CI.
+#
+# Trust model: the receipt is a signed attestation by a keyholder, not
+# cryptographic proof of GPU execution — see pytest-gpu-proof's security docs.
+name: verify-gpu-proof
+
+on:
+  push:
+    branches: [main, cleanup-modernization]
+  pull_request:
+
+jobs:
+  verify-receipt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # commit-SHA ancestry check needs history
+          # NOT submodules: true — external/GRiD + external/GLASS use SSH URLs;
+          # the verifier only needs the (https) pytest-gpu-proof submodule.
+
+      - name: Check for a receipt
+        id: receipt
+        run: |
+          if [ -f gpu-proof.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no gpu-proof.json yet — run test/run_gpu_proof.sh on the GPU box and commit the receipt"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.receipt.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest-gpu-proof (pinned submodule)
+        if: steps.receipt.outputs.present == 'true'
+        run: |
+          git submodule update --init test/pytest-gpu-proof
+          pip install ./test/pytest-gpu-proof
+
+      - name: Verify receipt
+        if: steps.receipt.outputs.present == 'true'
+        run: |
+          gpu-proof verify \
+            --receipt gpu-proof.json \
+            --repo . \
+            --policy test/gpu-proof-policy.yaml \
+            --require-gpu
+
+  cpu-lane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GATO (python package only, no CUDA build)
+        run: |
+          pip install -e .
+          pip install pytest
+
+      - name: Host-only test tier
+        run: python -m pytest -m "not gpu and not slow" -q

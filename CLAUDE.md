@@ -125,14 +125,23 @@ tree for its own (plant, N) request — re-run your usual cmake configure afterw
 
 ## Validation
 
-`test/` is the pytest suite — markers select the tier (CI wiring is intentionally absent; a GPU
-proof-of-work CI integration is planned):
+`test/` is the pytest suite — markers select the tier:
 
 ```bash
 pytest -m "not gpu"           # host-only: packaging, math, codegen-vs-vendored determinism
 pytest -m "gpu and not slow"  # smoke solves, bit-determinism, shape validation, controller math
 pytest                        # + slow: codegen diff both robots, gato.build dogfood
 ```
+
+**GPU CI = pytest-gpu-proof** (submodule at `test/pytest-gpu-proof`): run
+`./test/run_gpu_proof.sh` on the GPU box (clean tree, a python WITH pinocchio so
+nothing skips) → signed `gpu-proof.json` at the repo root → commit it; the
+`verify-gpu-proof` workflow checks it CPU-only (and skips gracefully when no
+receipt is committed yet, so code can push before a receipt lands). Config in
+`pyproject [tool.gpu_proof]` + `test/gpu-proof-policy.yaml`. Any change to
+`gato/`, `python/gato`, `test/`, or `CMakeLists.txt` changes the fingerprint —
+regenerate the receipt with (or right after) such a push. The workflow's
+`cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
 `test/cuda/pcg_vs_cpu.cu` is a standalone single-block `glass::pcg`-vs-CPU harness (build command
 in its header; `-DNDEBUG` required, no fast-math). For kernel changes, prefer bit-parity gates:

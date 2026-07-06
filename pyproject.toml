@@ -67,3 +67,21 @@ markers = [
     "gpu: needs a CUDA GPU with built solver modules (deselect with -m 'not gpu')",
     "slow: long-running codegen/build tests (deselect with -m 'not slow')",
 ]
+
+[tool.gpu_proof]
+# The GPU suite runs locally on the lab box (test/run_gpu_proof.sh); the signed
+# receipt (gpu-proof.json, repo root) is verified in CPU-only CI against
+# github.com/plancherb1.keys. The receipt attests the FULL suite (host + gpu +
+# slow tiers) — GATO's whole run is ~minutes warm, so no marker scoping is
+# needed (unlike GRiD's hours-long equivalence receipt).
+mode = "local"
+output = "gpu-proof.json"
+github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys — sign as the keyholder
+# Fingerprint the code-under-test + harness. Unlike GRiD, GATO's attested code
+# (bsqp kernels, plant adapter, generated grid.cuh, python package) lives in
+# the PARENT repo, so it is fingerprinted directly; only GRiD/GLASS remain as
+# submodule gitlinks, pinned by the receipt's commit SHA (the fingerprinter
+# hashes tracked files only, so built .so files never leak in).
+fingerprint_paths = ["gato", "python/gato", "test", "CMakeLists.txt"]
+max_age_days = 30
+require_gpu = true

@@ -1,0 +1,11 @@
+# pytest-gpu-proof verification policy for GATO.
+#
+# allow_dirty:false is load-bearing, not cosmetic. The fingerprint hashes the
+# tracked sources (gato/, python/gato, test/, CMakeLists.txt) but cannot descend
+# into the external/GRiD and external/GLASS submodule gitlinks — those are
+# pinned by the parent tree, and a clean tree is what guarantees the receipt's
+# commit SHA faithfully describes the dynamics/linalg code that was exercised.
+# (Untracked content INSIDE a submodule — e.g. the sqpcpu baseline's build
+# deps — does not count as dirty: the gitlink pin is unchanged.)
+allow_dirty: false
+max_age_days: 30

@@ -126,6 +126,13 @@ pytest                        # everything (slow adds codegen diff + a build dog
 There is also a standalone single-block PCG-vs-CPU harness in
 [test/cuda/](test/cuda/) (build command in the file header).
 
+**GPU CI** uses [pytest-gpu-proof](https://github.com/A2R-Lab/pytest-gpu-proof):
+the full suite runs on a real GPU via `./test/run_gpu_proof.sh`, which emits a
+**signed receipt** (`gpu-proof.json`) binding the git SHA, a source fingerprint,
+and per-test outcomes; a CPU-only GitHub Action verifies the signature against
+the signer's public GitHub keys on every push (no cloud GPUs). The same workflow
+also runs the host-only test tier directly in CI.
+
 ## Reproducing the paper
 
 Committed scripts that regenerate the data and figures from
