@@ -122,6 +122,12 @@ tree for its own (plant, N) request — re-run your usual cmake configure afterw
   shadow the `gato.build()` callable on the package (PEP 562).
 - **`final_merit` has ±1 ulp run-to-run jitter** (atomicAdd order in the merit kernel) — compare
   merits with rtol ~1e-5; trajectories (`xu`), iteration counts, and PCG counts are bit-exact.
+- **GATO is the unique dual-namespace GLASS consumer** — the same TU holds the vendored
+  `grid::glass` (inside grid.cuh) AND external `glass::`. Any *preprocessor guard* in a GLASS
+  base header breaks this (namespace-blind: whichever copy is included first claims the macro
+  and the other namespace loses the block — the 2026-07-05 tile4-helpers parse error). Fixed
+  upstream: GCG namespaces vendored `GLASS_*` guards as `GRID_VENDORED_GLASS_*`. If a future
+  GLASS bump reintroduces a bare guard, the demo `examples/bsqp.cu` TU is the canary.
 
 ## Validation
 
