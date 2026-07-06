@@ -64,9 +64,9 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_k, s_Q_k);
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_kp1, s_Q_kp1);
                 glass::copy<T, CONTROL_SIZE_SQ>(d_R_k, s_R_k);
-                glass::loadIdentity<T, STATE_SIZE>(s_Q_k_inv);    // augmented [A|I] right-half for glass::invertMatrix
-                glass::loadIdentity<T, STATE_SIZE>(s_Q_kp1_inv);
-                glass::loadIdentity<T, CONTROL_SIZE>(s_R_k_inv);
+                glass::set_identity<T, STATE_SIZE>(s_Q_k_inv);    // augmented [A|I] right-half for glass::inv
+                glass::set_identity<T, STATE_SIZE>(s_Q_kp1_inv);
+                glass::set_identity<T, CONTROL_SIZE>(s_R_k_inv);
 
 
                 const T* d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
@@ -92,11 +92,11 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 // // Q_k_inv and R_k_inv
                 // // add scaled identity with rho to penalize constraint violations
                 T rho_penalty = d_rho_penalty_batch[solve_idx];
-                glass::addI_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_k, rho_penalty);
-                glass::addI_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_kp1, rho_penalty);
+                glass::add_identity_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_k, rho_penalty);
+                glass::add_identity_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_kp1, rho_penalty);
                 __syncthreads();
 
-                glass::invertMatrix<T>(STATE_SIZE, STATE_SIZE, CONTROL_SIZE, STATE_SIZE, s_Q_k, s_Q_kp1, s_R_k, s_scratch);  // fused 3-matrix invert (glass::, P4.3)
+                glass::inv<T>(STATE_SIZE, STATE_SIZE, CONTROL_SIZE, STATE_SIZE, s_Q_k, s_Q_kp1, s_R_k, s_scratch);  // fused 3-matrix invert (glass::, P4.3)
                 __syncthreads();
 
                 // save Q_k_inv and R_k_inv into d_Q_batch and d_R_batch for computing dz
@@ -152,10 +152,10 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 __syncthreads();
 
                 // ----- Compute theta_k_inv and save in P_inv -----
-                glass::loadIdentity<T, STATE_SIZE>(s_theta_k_inv);  // augmented [A|I] right-half for glass::invertMatrix
-                glass::addI_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_theta_k, rho_penalty);
+                glass::set_identity<T, STATE_SIZE>(s_theta_k_inv);  // augmented [A|I] right-half for glass::inv
+                glass::add_identity_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_theta_k, rho_penalty);
                 __syncthreads();
-                glass::invertMatrix<T>(STATE_SIZE, s_theta_k, s_scratch);  // single augmented invert (glass::)
+                glass::inv<T>(STATE_SIZE, s_theta_k, s_scratch);  // single augmented invert (glass::)
                 __syncthreads();
 
                 // main diag: theta_k_inv (offset by STATE_SIZE)
@@ -175,11 +175,11 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 glass::copy<T, STATE_SIZE_SQ>(d_Q_0, s_Q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_0), s_q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_c_0), s_gamma_k);
-                glass::loadIdentity<T, STATE_SIZE>(s_Q_k_inv);  // augmented [A|I] right-half for glass::invertMatrix
+                glass::set_identity<T, STATE_SIZE>(s_Q_k_inv);  // augmented [A|I] right-half for glass::inv
                 __syncthreads();
 
                 T rho_penalty = d_rho_penalty_batch[solve_idx];
-                glass::addI_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_k, rho_penalty);
+                glass::add_identity_partial<T, STATE_SIZE, STATE_SIZE / 2>(s_Q_k, rho_penalty);
                 __syncthreads();
 
                 // store -Q_0 in P_inv
@@ -192,7 +192,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
                 }
                 __syncthreads();
 
-                glass::invertMatrix<T>(STATE_SIZE, s_Q_k, s_scratch);  // single augmented invert (glass::)
+                glass::inv<T>(STATE_SIZE, s_Q_k, s_scratch);  // single augmented invert (glass::)
                 __syncthreads();
 
                 // save Q_0_inv to S (S is row-major)
@@ -284,7 +284,7 @@ __host__ size_t getFormSchurSystemBatched1SMemSize()
                          STATE_SIZE_SQ +                                      // theta_k
                          STATE_SIZE_SQ +                                      // theta_k_inv
                          STATE_SIZE +                                         // gamma_k
-                         (2 * (2 * STATE_SIZE + 1)) + (2 * CONTROL_SIZE + 1)  // max scratch needed for invertMatrix
+                         (2 * (2 * STATE_SIZE + 1)) + (2 * CONTROL_SIZE + 1)  // max scratch needed for inv
                       );                                                      // total = 8*STATE_SIZE_SQ + 2*CONTROL_SIZE_SQ + 2*STATE_P_CONTROL + 7*STATE_SIZE + 3*CONTROL_SIZE + 3
 
         return size;
