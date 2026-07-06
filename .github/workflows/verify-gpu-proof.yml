@@ -49,7 +49,7 @@ jobs:
         if: steps.receipt.outputs.present == 'true'
         run: |
           git submodule update --init test/pytest-gpu-proof
-          pip install ./test/pytest-gpu-proof
+          pip install ./test/pytest-gpu-proof pyyaml  # pyyaml: the .yaml policy file needs it
 
       - name: Verify receipt
         if: steps.receipt.outputs.present == 'true'
