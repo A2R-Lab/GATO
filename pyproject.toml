@@ -66,6 +66,7 @@ testpaths = ["test"]
 markers = [
     "gpu: needs a CUDA GPU with built solver modules (deselect with -m 'not gpu')",
     "slow: long-running codegen/build tests (deselect with -m 'not slow')",
+    "gpu_proof: outcome recorded in the signed pytest-gpu-proof receipt (auto-applied to ALL tests by test/conftest.py)",
 ]
 
 [tool.gpu_proof]

@@ -31,11 +31,14 @@ URDFS = {"indy7": INDY7_URDF, "iiwa14": IIWA14_URDF}
 
 
 def pytest_collection_modifyitems(config, items):
-    if not HAVE_MODULES:
-        skip = pytest.mark.skip(reason="no built solver modules (cmake or gato.build first)")
-        for item in items:
-            if "gpu" in item.keywords:
-                item.add_marker(skip)
+    skip = pytest.mark.skip(reason="no built solver modules (cmake or gato.build first)")
+    for item in items:
+        # The signed pytest-gpu-proof receipt attests the FULL suite (GATO's
+        # whole run is ~30s warm — no need for GRiD-style marker scoping), so
+        # every item gets the plugin's gpu_proof marker.
+        item.add_marker(pytest.mark.gpu_proof)
+        if not HAVE_MODULES and "gpu" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
