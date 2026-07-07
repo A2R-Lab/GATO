@@ -7,6 +7,10 @@ data on the GPU **by default** and re-renders from saved/recovered data with
 from the **repo root**.
 
 ```bash
+# EVERYTHING, overnight, on a quiet box (fig3 fair sweeps -> gate runners -> fig5/fig4
+# regen -> full 100-scenario fig7; ~9-10 h; logs+SUMMARY in overnight_logs/<stamp>/)
+examples/paper-figures/run_all_overnight.sh
+
 # one figure
 python examples/paper-figures/reproduce_fig4_hparam.py            # GPU re-run
 python examples/paper-figures/reproduce_fig4_hparam.py --replot   # no GPU, bundled data
