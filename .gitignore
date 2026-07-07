@@ -70,3 +70,4 @@ docs/open-tasks/
 
 # python bytecode caches
 __pycache__/
+examples/paper-figures/overnight_logs/
