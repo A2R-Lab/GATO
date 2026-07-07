@@ -79,9 +79,14 @@ is **iiwa14** (all indy7 N-modules are still built if a faithful indy7 rerun is 
   with fair-path numbers. The fair path times MPCGPU via `tools/time_persolve.sh`.
 - **OSQP CPU bar (old June path):** superseded — the fair path uses the paper's real
   threaded C++ `BatchThneed` (`baselines/build_cpu_baseline.sh`).
-- **Fig-7 / Table-I (iiwa14 pick-place):** a known closed-loop instability is parked
-  solver-robustness R&D. The harness, Table, and CDF are correct in structure but the
-  success numbers may not match the paper until that fix lands.
+- **Fig-7 / Table-I (iiwa14 pick-place):** UNBLOCKED 2026-07-07 — the failures were an
+  f_ext frame-convention bug (hypothesis wrenches uploaded with swapped [angular;linear]
+  halves and a wrong frame chain; fixed in gato.common.world_wrench_to_joint_local et
+  al.). Post-fix quick probe: batch=8 reaches 10/10 goals vs 0/10 at batch=1 — the
+  paper's Table-I shape. The full 100-scenario × batch sweep still needs a long quiet-GPU
+  window (~hours) to produce citable numbers. NOTE the same bug invalidates any Fig-5
+  disturbance data generated before 2026-07-07 (the sim applied the world force wrong)
+  — Fig-5 must be regenerated.
 - **Fig-4 grid:** our bundled/recovered figure used 50 random targets × a 24-combo Q/R
   grid; the paper text states 100 runs × 81 Q/R values. Defaults reproduce *our* bundled
   data; `--num-targets` overrides. The exact paper Q/R grid is pending confirmation.
