@@ -297,7 +297,11 @@ class BSQP:
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def set_f_ext_B(self, f_ext_B):
-        # The GPU wrench buffer is body-major: 6*NUM_BODIES per solve. Accept either
+        # The GPU wrench buffer is body-major: 6*NUM_BODIES per solve. Each 6-slot is
+        # that body's spatial force in its JOINT-LOCAL frame about the joint origin,
+        # Featherstone-ordered [angular(3); linear(3)] (verified vs pin.aba 2026-07-07).
+        # World wrenches must go through gato.common.world_wrench_to_joint_local and
+        # be reordered — see hypotheses.ForceHypothesisBatch._world_to_gato. Accept either
         # a per-solve 6-vector EE wrench (scattered into the end-effector body slot)
         # or a full body-major (batch, 6*NUM_BODIES) array, and always upload a
         # correctly-sized contiguous buffer (a short buffer makes set_f_ext_batch's

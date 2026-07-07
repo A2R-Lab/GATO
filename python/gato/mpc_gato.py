@@ -16,7 +16,7 @@ from .controller import MPCController
 from .estimators import ForceEstimator
 from .hypotheses import ForceHypothesisBatch
 from .interface import BSQP
-from .common import rk4
+from .common import rk4, world_wrench_to_joint_local
 from .config import DEFAULT_SOLVER_PARAMS
 
 
@@ -142,15 +142,31 @@ class MPC_GATO:
         return h.estimator if h is not None else None
 
     def setup_external_forces(self, constant_f_ext):
-        """Setup ground-truth external forces for the simulation."""
+        """Setup ground-truth external forces for the simulation.
+
+        `constant_f_ext` = [force(3), torque(3)] in WORLD axes acting at the solver's EE
+        frame origin. It is re-expressed into the EE parent joint's local frame at every
+        sim substep (pin.aba's fext[j] is joint-local, so a world-constant force must
+        rotate with the configuration — the old code set it once, which silently turned
+        it into a wrist-local force)."""
         self.constant_f_ext_world = constant_f_ext if constant_f_ext is not None else np.zeros(6)
 
         self.actual_f_ext = pin.StdVec_Force()
         for _ in range(self.model.njoints):
             self.actual_f_ext.append(pin.Force.Zero())
 
-        if constant_f_ext is not None:
-            self.actual_f_ext[-1] = pin.Force(constant_f_ext[:3], constant_f_ext[3:])
+        # resolve on the SIM model (may be pendulum-augmented; robot frames are preserved,
+        # so this targets the ROBOT's EE parent joint, never the appended pendulum body)
+        self._f_ext_frame_id = self.model.getFrameId(self.solver.ee_frame)
+
+    def _update_sim_f_ext(self, q):
+        """Re-express the constant WORLD wrench into the EE parent joint frame at q."""
+        if not np.any(self.constant_f_ext_world):
+            return
+        jid, Fj = world_wrench_to_joint_local(self.model, self.data, q,
+                                              self.constant_f_ext_world,
+                                              self._f_ext_frame_id)
+        self.actual_f_ext[jid] = Fj
 
     def _play_control(self, xu_best, q, dq, timestep, sim_dt, total_sim_time,
                       accumulated_time):
@@ -166,6 +182,7 @@ class MPC_GATO:
             u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
             u = xu_best[u_idx:u_idx + self.nu]
             u_aug = self._augment_control(u, dq)
+            self._update_sim_f_ext(q)
             q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
             total_sim_time += sim_dt
 
@@ -178,6 +195,7 @@ class MPC_GATO:
                 u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
                 u = xu_best[u_idx:u_idx + self.nu]
                 u_aug = self._augment_control(u, dq)
+                self._update_sim_f_ext(q)
                 q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
                 total_sim_time += sim_dt
 

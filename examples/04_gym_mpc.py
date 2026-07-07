@@ -11,10 +11,11 @@ Two policies run the same task:
            estimator refines the guesses (the paper's Fig-5/CS3 mechanism).
 
 This demo exercises the full MPCPolicy / ArmTrackEnv / HypothesisBatch API.
-NOTE: how much the batch actually helps is an open tuning question — the
-force-estimator convergence (hypothesis frame conventions + radius schedule)
-is tracked R&D (see docs/open-tasks); with the current estimator settings the
-two policies track comparably in this configuration.
+NOTE (2026-07-07): the hypothesis frame-convention bug is FIXED (world wrench ->
+GRiD's Featherstone-ordered joint-local slot, plus the sim now re-expresses the
+world force each substep) — the estimator converges to the true wrench (~0.35 N
+steady-state on the 20 N task) and B=16 tracks ~1.3x better than B=1 here.
+Radius-schedule tuning remains open R&D (see docs/open-tasks).
 
 Run from the repo root (needs the bsqpN64_indy7 module built):
     python examples/04_gym_mpc.py

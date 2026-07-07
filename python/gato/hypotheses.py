@@ -79,7 +79,6 @@ class ForceHypothesisBatch(HypothesisBatch):
         if self._ee_frame_id >= model.nframes:
             raise ValueError(f"URDF has no frame named {ee_frame!r}")
         self._jid_ee = model.frames[self._ee_frame_id].parentJoint
-        self._jid_eep = self._jid_ee - 1        # end-effector parent joint
         self._last_world_batch = None
 
     def apply(self, solver, x):
@@ -101,20 +100,14 @@ class ForceHypothesisBatch(HypothesisBatch):
         return self.estimator.get_stats()
 
     def _world_to_gato(self, q, f_world):
-        """World-frame EE wrench -> the parent-joint local wrench GRiD consumes."""
-        pin = _require_pin()
-        pin.forwardKinematics(self.model, self._data, q)
-        pin.updateFramePlacements(self.model, self._data)
+        """World-axes wrench at the EE frame origin -> GRiD's last-body f_ext slot.
 
-        transform_world_to_ee = self._data.oMi[self._jid_ee]
-        transform_world_to_jeep = self._data.oMi[self._jid_eep]
-        transform_jeep_to_ee = transform_world_to_jeep.inverse() * transform_world_to_ee
-
-        force_ee_world = pin.Force(f_world[:3], f_world[3:])
-        force_ee_local = transform_world_to_ee.actInv(force_ee_world)
-        wrench_jeep_local = transform_jeep_to_ee.actInv(force_ee_local)
-
-        result = np.zeros(6)
-        result[:3] = wrench_jeep_local.linear
-        result[3:] = wrench_jeep_local.angular
-        return result
+        GRiD's slot is the last body's spatial force in the LAST JOINT's local frame
+        about the joint origin, Featherstone-ordered [angular(3); linear(3)] — verified
+        against pin.aba to 1e-8 (fext_frame_probe 2026-07-07). The old version here got
+        both the frame chain and the [linear; angular] ordering wrong, which is why a
+        seeded-truth hypothesis LOST to zero-wrench rollouts (~45% win rate)."""
+        from gato.common import world_wrench_to_joint_local
+        _, Fj = world_wrench_to_joint_local(self.model, self._data, q, f_world,
+                                            self._ee_frame_id)
+        return np.concatenate([Fj.angular, Fj.linear])

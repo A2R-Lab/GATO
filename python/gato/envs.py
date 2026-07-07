@@ -15,7 +15,7 @@ except ImportError as e:  # pragma: no cover
         "gymnasium is required for gato.envs; install it with: pip install -e '.[examples]'"
     ) from e
 
-from .common import _require_pin, rk4
+from .common import _require_pin, rk4, world_wrench_to_joint_local
 
 
 class ArmTrackEnv(gym.Env):
@@ -48,17 +48,20 @@ class ArmTrackEnv(gym.Env):
         self.render_mode = render_mode
 
         # ground-truth disturbance: constant world-frame EE wrench, unmodeled by
-        # the policy unless it hypothesizes it (the fig-5 mechanism)
+        # the policy unless it hypothesizes it (the fig-5 mechanism). Re-expressed
+        # into the EE parent joint's LOCAL frame every step (pin.aba fext is joint-
+        # local; applying world coords directly makes the force rotate with the wrist).
         self._f_ext = pin.StdVec_Force()
         for _ in range(self.model.njoints):
             self._f_ext.append(pin.Force.Zero())
-        if f_ext_world is not None:
-            w = np.asarray(f_ext_world, dtype=float).reshape(6)
-            self._f_ext[-1] = pin.Force(w[:3], w[3:])
+        self._f_ext_world = (np.asarray(f_ext_world, dtype=float).reshape(6)
+                             if f_ext_world is not None else None)
 
         # EE metric frame (the same frame the solver optimizes)
         self._ee_frame_id = (self.model.getFrameId(ee_frame)
                              if self.model.existFrame(ee_frame) else None)
+        if self._f_ext_world is not None and self._ee_frame_id is None:
+            raise ValueError(f"f_ext_world needs EE frame {ee_frame!r} in the URDF")
 
         self._x0 = (np.asarray(x0, dtype=np.float64).reshape(self.nq + self.nv)
                     if x0 is not None else np.zeros(self.nq + self.nv))
@@ -102,6 +105,10 @@ class ArmTrackEnv(gym.Env):
         u = np.clip(np.asarray(action, dtype=np.float64).reshape(self.nv),
                     self.action_space.low, self.action_space.high)
         for _ in range(self.substeps):
+            if self._f_ext_world is not None:
+                jid, Fj = world_wrench_to_joint_local(
+                    self.model, self.data, self.q, self._f_ext_world, self._ee_frame_id)
+                self._f_ext[jid] = Fj
             self.q, self.dq = rk4(self.model, self.data, self.q, self.dq, u,
                                   self.sim_dt, self._f_ext)
         self.t += self.substeps * self.sim_dt

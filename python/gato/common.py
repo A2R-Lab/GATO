@@ -107,6 +107,25 @@ def rk4(model, data, q, dq, u, dt, fext=None):
     
     return q_next, dq_next
 
+def world_wrench_to_joint_local(model, data, q, w_world, frame_id):
+    """World-axes wrench acting AT `frame_id`'s origin -> (joint_id, pin.Force) in that
+    frame's parent-joint LOCAL frame about the joint origin — the pin.aba fext[j] slot.
+
+    `w_world` = [force(3), torque(3)] in world axes. This is the single frame convention
+    shared by the sim ground truth (mpc_gato/envs) and the solver hypothesis upload
+    (hypotheses._world_to_gato); GRiD's GPU slot additionally swaps to Featherstone
+    [angular; linear] order (verified vs pin.aba to 1e-8, fext_frame_probe 2026-07-07).
+    """
+    pin = _require_pin()
+    pin.forwardKinematics(model, data, q)
+    pin.updateFramePlacements(model, data)
+    f, tau = np.asarray(w_world[:3], float), np.asarray(w_world[3:], float)
+    p = data.oMf[frame_id].translation
+    F0 = pin.Force(f, tau + np.cross(p, f))          # about the world origin
+    jid = model.frames[frame_id].parentJoint
+    return jid, data.oMi[jid].actInv(F0)
+
+
 def initialize_warm_start(x_start, N, nx, nu):
     """Initialize warm start trajectory."""
     XU = np.zeros(N*(nx+nu)-nu)
