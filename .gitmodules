@@ -9,6 +9,3 @@
 [submodule "baselines/sqpcpu"]
 	path = examples/benchmarks/baselines/sqpcpu
 	url = https://github.com/EmreAdabag/sqpcpu
-[submodule "test/pytest-gpu-proof"]
-	path = test/pytest-gpu-proof
-	url = https://github.com/A2R-Lab/pytest-gpu-proof.git

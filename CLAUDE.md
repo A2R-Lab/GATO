@@ -139,7 +139,7 @@ pytest -m "gpu and not slow"  # smoke solves, bit-determinism, shape validation,
 pytest                        # + slow: codegen diff both robots, gato.build dogfood
 ```
 
-**GPU CI = pytest-gpu-proof** (submodule at `test/pytest-gpu-proof`): run
+**GPU CI = pytest-gpu-proof** (PyPI package, in the `[dev]` extra): run
 `./test/run_gpu_proof.sh` on the GPU box (clean tree, a python WITH pinocchio so
 nothing skips) → signed `gpu-proof.json` at the repo root → commit it; the
 `verify-gpu-proof` workflow checks it CPU-only (and skips gracefully when no

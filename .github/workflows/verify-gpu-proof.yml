@@ -28,7 +28,7 @@ jobs:
         with:
           fetch-depth: 0        # commit-SHA ancestry check needs history
           # NOT submodules: true — external/GRiD + external/GLASS use SSH URLs;
-          # the verifier only needs the (https) pytest-gpu-proof submodule.
+          # the verifier installs pytest-gpu-proof from PyPI, no submodules needed.
 
       - name: Check for a receipt
         id: receipt
@@ -45,11 +45,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pytest-gpu-proof (pinned submodule)
+      - name: Install pytest-gpu-proof (PyPI)
         if: steps.receipt.outputs.present == 'true'
-        run: |
-          git submodule update --init test/pytest-gpu-proof
-          pip install ./test/pytest-gpu-proof pyyaml  # pyyaml: the .yaml policy file needs it
+        run: pip install "pytest-gpu-proof>=0.1" pyyaml  # pyyaml: the .yaml policy file needs it
 
       - name: Verify receipt
         if: steps.receipt.outputs.present == 'true'

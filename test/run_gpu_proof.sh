@@ -13,8 +13,8 @@
 #   - a python WITH pinocchio (the [examples] extra, or GRiD's .venv) — without
 #     it the solver-construction tests SKIP, and a receipt with unexpected
 #     skips fails CI verification (skips prove nothing).
-#   - the pytest-gpu-proof submodule (git submodule update --init) and an SSH
-#     signing key (~/.ssh/id_*) whose public half is on the keyholder's GitHub.
+#   - the pytest-gpu-proof plugin (PyPI; installed below) and an SSH signing
+#     key (~/.ssh/id_*) whose public half is on the keyholder's GitHub.
 #
 # Usage:
 #   ./test/run_gpu_proof.sh                      # full receipt -> gpu-proof.json
@@ -34,7 +34,7 @@ fi
 
 PYTHON="${PYTHON:-.venv/bin/python}"
 
-"$PYTHON" -m pip install -q -e test/pytest-gpu-proof
+"$PYTHON" -m pip install -q "pytest-gpu-proof>=0.1" pyyaml
 
 # --gpu-proof-github-user: the signer must be the human KEYHOLDER — the
 # plugin's remote-derived default would guess the org (A2R-Lab), and orgs have

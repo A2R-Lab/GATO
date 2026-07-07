@@ -47,6 +47,8 @@ examples = [
 dev = [
     "pytest",
     "pytest-xdist",
+    "pytest-gpu-proof>=0.1",   # signed GPU-CI receipts (was a test/ submodule pre-2026-07-07)
+    "pyyaml",                  # test/gpu-proof-policy.yaml
 ]
 
 [tool.setuptools]

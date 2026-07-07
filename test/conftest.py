@@ -11,11 +11,6 @@ from pathlib import Path
 
 import pytest
 
-# The vendored test/pytest-gpu-proof submodule ships its OWN test suite (the
-# plugin's internals) — never collect it as part of GATO's suite (its conftest
-# would also shadow this one).
-collect_ignore = ["pytest-gpu-proof"]
-
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "python"))
