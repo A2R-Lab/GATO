@@ -1,5 +1,9 @@
 """Regenerate Fig-3 (left): Indy7 figure-8 batch-size scalability.
 
+SUPERSEDED (2026-07) by reproduce_fig3_fair.py — the iiwa14 parity harness where all three
+solvers solve the IDENTICAL problem under a matched config. Kept for indy7 provenance; the
+mpcgpu CSV it reads predates the MPCGPU terminal-cost fix. Do not mix the two datasets.
+
 Paper IV-B: at each control step solve a batch of M trajectory-optimization
 problems (N=64, h=0.01, warm-started from the previous step) and compare GATO's
 per-step solve time against the BatchThneed CPU baseline and the MPCGPU GPU

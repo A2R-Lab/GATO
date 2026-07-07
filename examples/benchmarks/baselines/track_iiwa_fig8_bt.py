@@ -6,7 +6,8 @@ Tracking measured at L7 from the logged joint configs (same metric as GATO/MPCGP
   baselines/build_cpu_baseline.sh /home/plancher/Desktop/GRiD/.venv   # once
   source baselines/sqpcpu_env.sh                                       # LD_LIBRARY_PATH + PYTHONPATH
   PYTHONPATH=$PYTHONPATH:/home/plancher/Desktop/GATO/python \
-    /home/plancher/Desktop/GRiD/.venv/bin/python baselines/track_iiwa_fig8_bt.py [sim_time]
+    /home/plancher/Desktop/GRiD/.venv/bin/python baselines/track_iiwa_fig8_bt.py \
+        [sim_time] [batch] [N] [out_csv]
 """
 import sys, os, time
 import numpy as np
@@ -22,8 +23,9 @@ from gato.config import DEFAULT_SOLVER_PARAMS as SP
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
 BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1   # B identical replicas (num_threads=B)
+N = int(sys.argv[3]) if len(sys.argv) > 3 else 64      # BatchThneed takes N at construction
+OUT_CSV = sys.argv[4] if len(sys.argv) > 4 else ""     # optional: append an (N,B,median) row
 DT = fig8mod.DT
-N = 64
 
 
 def _import_pysqpcpu():
@@ -85,6 +87,15 @@ def main():
         print(f"RESULT_BT steps={len(errs)} L7_mean={errs.mean():.6f} L7_max={errs.max():.6f} "
               f"L7_final={errs[-1]:.6f}  median_solve_ms={np.median(st):.4f}")
         print("trace:", " ".join(f"{errs[i]:.4f}" for i in range(0, len(errs), max(1, len(errs)//20))))
+        if OUT_CSV:
+            fresh = not os.path.exists(OUT_CSV)
+            os.makedirs(os.path.dirname(os.path.abspath(OUT_CSV)), exist_ok=True)
+            with open(OUT_CSV, "a") as f:
+                if fresh:
+                    f.write("N,B,median_ms,p90_ms,per_traj_us,n_solves,L7_mean\n")
+                med, p90 = np.median(st), np.percentile(st, 90)
+                f.write(f"{N},{BATCH},{med:.4f},{p90:.4f},{med*1000/BATCH:.1f},{len(st)},{errs.mean():.6f}\n")
+            print(f"[bt] appended row -> {OUT_CSV}")
     else:
         print("no tracking samples")
 

@@ -23,8 +23,9 @@ Use the GRiD venv for the Python deps (pinocchio etc.): `../GRiD/.venv/bin/pytho
 
 | Script | Paper | What it does | Status |
 |---|---|---|---|
-| `reproduce_fig3_scalability.py` | Fig-3 left | Indy7 fig-8 solve time vs batch M: GATO vs OSQP-CPU vs MPCGPU-GPU | GATO + OSQP ✅; MPCGPU line optional (see below) |
-| `reproduce_fig3_heatmap.py` | Fig-3 right | GATO solve-time heat map over (N, M) | ✅ (needs indy7 N∈{8..128}) |
+| **`reproduce_fig3_fair.py`** | **Fig-3 (both)** | **FAIR iiwa14 fig8 parity harness (2026-07): identical problem for GATO / BatchThneed-CPU / MPCGPU-GPU; left = B∈[1..128] total-time table + GATO speedups at every B; right = GATO N×B heat map (B to 512). THE current data path.** | ✅ (see below) |
+| `reproduce_fig3_scalability.py` | Fig-3 left | Indy7 fig-8 solve time vs batch M (June pipeline) | superseded by `reproduce_fig3_fair.py` — kept for indy7 provenance |
+| `reproduce_fig3_heatmap.py` | Fig-3 right | GATO solve-time heat map over (N, M) (June pipeline) | superseded by `reproduce_fig3_fair.py` |
 | `reproduce_fig4_hparam.py` | Fig-4 (CS1) | iiwa14 online ρ sweep; normalized merit vs SQP iter per batch. **Regenerates by default**; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` | ✅ |
 | `reproduce_fig5_disturbance.py` | Fig-5 (CS2) | Indy7 fig-8 + EE disturbance; tracking err + joint vel vs force, and EE trajectories at 50 N | ✅ |
 | `reproduce_fig7_pickplace.py` | Fig-7 + Table-I (CS3) | iiwa14 pick-place + 15 kg pendulum; success rate + completion-time CDF | ⚠️ **gated** (see below) |
@@ -57,14 +58,27 @@ cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;16;32;64;128" \
 
 Scripts emit a clear "module not built" error naming the cmake line if a module is missing.
 
+## The FAIR Fig-3 path (2026-07, current)
+`reproduce_fig3_fair.py` replaces the June indy7 data path with the parity harness: all
+three solvers solve the IDENTICAL iiwa14 fig8 problem (`examples/benchmarks/
+iiwa_fig8_shared.py` — same goal file, same L7 metric frame, same costs/warm-start) under
+the matched config (SQP=1, PCG≤200 rel 1e-4, ρ=0.01; MPCGPU = `GATO_REG_PATTERN` + native
+exit). Provenance + measured tables: `MPCGPU docs/benchmark_3way_2026-07-06.md`. Data
+generators (each stage is a TIMING run — quiet box, one at a time):
+- GATO: `examples/benchmarks/sweep_batch_iiwa_fig8.py --N {8..128} --batches 1..512`
+- BatchThneed: `examples/benchmarks/baselines/track_iiwa_fig8_bt.py <sim> <B> <N> <csv>`
+- MPCGPU: `MPCGPU tools/time_persolve.sh <N> pcg 3 <csv>` (per-solve; no batch axis → ×B)
+CSVs land in `examples/benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`; the assembler
+(default, no GPU) writes `fig3_fair_scalability.{txt,png}` + `fig3_fair_heatmap.{txt,png}`.
+NOTE the robot delta vs the published figure: the paper used **Indy7**; the fair harness
+is **iiwa14** (all indy7 N-modules are still built if a faithful indy7 rerun is wanted).
+
 ## Known caveats (honest reproduction status)
-- **MPCGPU line (Fig-3):** the GPU baseline is built separately from frozen pins (see
-  `docs/baselines.md`); its indy7 tracking fix + PR are deferred until Fig-3 is otherwise
-  complete. `reproduce_fig3_scalability.py` plots it only if
-  `benchmarks/baselines/mpcgpu_indy7_fig8_N64.csv` is present, and degrades gracefully otherwise.
-- **OSQP CPU bar:** the committed baseline is the single-solve Python `Thneed`
-  (interpreter-bound; conservative). The paper's CPU bar is a multi-threaded C++
-  `BatchThneed` (needs osqp/OsqpEigen/pinocchio-C++ — a backlog item).
+- **MPCGPU line (old June Fig-3 path):** the stale `mpcgpu_indy7_fig8_N64.csv` predates the
+  2026-07-06 terminal-cost fix (MPCGPU kkt.cuh 88c3853) and the fair config — do NOT mix it
+  with fair-path numbers. The fair path times MPCGPU via `tools/time_persolve.sh`.
+- **OSQP CPU bar (old June path):** superseded — the fair path uses the paper's real
+  threaded C++ `BatchThneed` (`baselines/build_cpu_baseline.sh`).
 - **Fig-7 / Table-I (iiwa14 pick-place):** a known closed-loop instability is parked
   solver-robustness R&D. The harness, Table, and CDF are correct in structure but the
   success numbers may not match the paper until that fix lands.

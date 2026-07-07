@@ -1,5 +1,8 @@
 """Regenerate Fig-3 (right): GATO solve-time heat map over batch M x horizon N.
 
+SUPERSEDED (2026-07) by reproduce_fig3_fair.py (iiwa14 parity harness, matched config,
+B extended to 512). Kept for indy7 provenance.
+
 Paper IV-B: the same Indy7 figure-8 task as Fig-3 left, sweeping both batch size
 M in [1,2,...,512] and trajectory length N in {8,16,32,64,128}, showing GATO can
 hit kHz control rates across a flexible (M, N) envelope (scalability tracks the
