@@ -21,6 +21,7 @@ from gato.common import rk4
 from gato.config import DEFAULT_SOLVER_PARAMS as SP
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
+BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1   # B identical replicas (num_threads=B)
 DT = fig8mod.DT
 N = 64
 
@@ -48,7 +49,7 @@ def main():
 
     bt = pysqpcpu.BatchThneed(
         urdf_filename=fig8mod.IIWA14_URDF, eepos_frame_name=fig8mod.EE_FRAME,   # "L7" = grid-EE
-        batch_size=1, N=N, dt=DT, max_qp_iters=SP['max_sqp_iters'], num_threads=1,
+        batch_size=BATCH, N=N, dt=DT, max_qp_iters=SP['max_sqp_iters'], num_threads=BATCH,
         Q_cost=SP['q_cost'], dQ_cost=SP['qd_cost'], R_cost=SP['u_cost'], QN_cost=SP['N_cost'])
     nq, nv, nx, nu = bt.nq, bt.nv, bt.nx, bt.nu
     print(f"iiwa14 BatchThneed fig8: center(L7)={center.round(4)} frame={fig8mod.EE_FRAME} "
