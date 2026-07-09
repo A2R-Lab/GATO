@@ -20,6 +20,11 @@ high-variance and doesn't fully converge to a large *swinging* payload, so the s
 *magnitudes* may not match the paper exactly. The curve SHAPE (success rising with batch)
 and the CDF are correct; ship with this caveat. The script runs and produces the figure
 regardless (NaN scenarios are caught per-batch and counted as failures, not crashes).
+>>> METRICS (2026-07-08): PICKPLACE_MPC_DEFAULTS now uses the paper-comparable
+success gate + clock — Euclidean velocity norm (the old L1-sum gate was stricter and
+capped success) and fixed dt pacing (completion time = physical task time; the old
+wall-clock pacing reported cumulative wall time and was non-reproducible). Table-I
+data generated before this change is on the old metrics — do not mix pools.
 
 Examples::
     python examples/paper-figures/reproduce_fig7_pickplace.py            # 100 scenarios (slow)

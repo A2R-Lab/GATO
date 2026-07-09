@@ -178,7 +178,14 @@ PICKPLACE_SOLVER_PARAMS = {
 PICKPLACE_MPC_DEFAULTS = {
     'goal_timeout': 5.0,
     'goal_threshold': 0.05,
-    'velocity_threshold': 1.0
+    'velocity_threshold': 1.0,
+    # Paper-comparable metrics (2026-07-08 gap investigation): the paper's
+    # "total joint velocity < 1.0 rad/s" is read as the Euclidean norm (the L1
+    # sum over 7 joints is materially stricter and capped success), and fixed
+    # pacing makes the completion clock physical task time instead of
+    # cumulative wall time (also makes runs deterministic).
+    'velocity_norm': 2,
+    'pace_by_solve_time': False,
 }
 
 # Pendulum parameter defaults

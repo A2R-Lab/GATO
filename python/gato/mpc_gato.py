@@ -336,7 +336,9 @@ class MPC_GATO:
         sim_dt=0.001,
         goal_timeout=5.0,
         goal_threshold=0.05,
-        velocity_threshold=1.0
+        velocity_threshold=1.0,
+        velocity_norm=1,
+        pace_by_solve_time=True
     ):
         """
         Run MPC tracking discrete goal positions (pick-place style).
@@ -347,7 +349,16 @@ class MPC_GATO:
             sim_dt: Simulation timestep
             goal_timeout: Max time per goal before timeout
             goal_threshold: Distance threshold for goal reached (m)
-            velocity_threshold: Velocity threshold for goal reached (rad/s L1 norm)
+            velocity_threshold: Velocity threshold for goal reached (rad/s)
+            velocity_norm: norm order for the settling gate on dq (np.linalg.norm
+                ``ord``): 1 = L1 sum over joints (historic default, strictest),
+                2 = Euclidean, np.inf = worst joint.
+            pace_by_solve_time: if True (default, real-time MPC), advance the sim
+                by the measured wall-clock solve time each control step — so the
+                sim clock (timeouts, ``goal_reached_times``, ``time_to_all_reached``)
+                is really cumulative WALL time and runs are not reproducible. If
+                False, advance a fixed ``dt`` per solve: the clock becomes physical
+                task time (paper-comparable completion times, deterministic runs).
 
         Returns (None, stats) with per-goal outcomes/reach times + tracking stats.
         """
@@ -404,8 +415,8 @@ class MPC_GATO:
 
         while total_sim_time < goal_timeout * len(goals):
 
-            # Simulate forward (wall-clock paced)
-            timestep = solve_time
+            # Simulate forward (wall-clock paced unless fixed pacing requested)
+            timestep = solve_time if pace_by_solve_time else self.dt
             q, dq, total_sim_time, accumulated_time = self._play_control(
                 xu_best, q, dq, timestep, sim_dt, total_sim_time, accumulated_time)
 
@@ -417,7 +428,7 @@ class MPC_GATO:
             # Check goal reached or timeout
             ee_pos = self.solver.ee_pos(q_robot)
             current_dist = np.linalg.norm(ee_pos - current_goal)
-            current_vel = np.linalg.norm(dq_robot, ord=1)
+            current_vel = np.linalg.norm(dq_robot, ord=velocity_norm)
             reached = (current_dist < goal_threshold) and (current_vel < velocity_threshold)
             timeout = (total_sim_time - goal_start_time) >= goal_timeout
 

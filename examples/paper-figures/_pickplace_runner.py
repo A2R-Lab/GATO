@@ -57,8 +57,10 @@ class ExperimentRunner:
         For each batch size, runs the goal-reaching MPC (with an end-effector
         pendulum/payload) over one or more goal sequences and records the success
         rate. A goal counts as 'reached' iff the modern `run_mpc_goals` returns
-        'reached' for it (``||ee - goal|| < goal_threshold`` AND ``L1(dq) <
-        velocity_threshold`` before the per-goal timeout). The paper's finding is
+        'reached' for it (``||ee - goal|| < goal_threshold`` AND
+        ``norm(dq, ord=velocity_norm) < velocity_threshold`` before the per-goal
+        timeout; PICKPLACE_MPC_DEFAULTS uses the Euclidean norm + fixed pacing —
+        paper-comparable physical completion clock). The paper's finding is
         that this success rate climbs with batch size.
 
         Args:
@@ -70,8 +72,8 @@ class ExperimentRunner:
                 sequences) to get a true multi-trial success *rate* per batch.
             pendulum_config: EE payload (default PENDULUM_DEFAULT_PARAMS).
             solver_params: BSQP params (default PICKPLACE_SOLVER_PARAMS).
-            mpc_defaults: goal_timeout / goal_threshold / velocity_threshold
-                (default PICKPLACE_MPC_DEFAULTS).
+            mpc_defaults: goal_timeout / goal_threshold / velocity_threshold /
+                velocity_norm / pace_by_solve_time (default PICKPLACE_MPC_DEFAULTS).
             start_config: IIWA14_START_CONFIGS key for the initial robot state.
 
         Returns:
@@ -121,6 +123,8 @@ class ExperimentRunner:
                         goal_timeout=mpc_defaults['goal_timeout'],
                         goal_threshold=mpc_defaults['goal_threshold'],
                         velocity_threshold=mpc_defaults['velocity_threshold'],
+                        velocity_norm=mpc_defaults.get('velocity_norm', 1),
+                        pace_by_solve_time=mpc_defaults.get('pace_by_solve_time', True),
                     )
                     outcomes = stats['goal_outcomes']
                     reached = sum(1 for o in outcomes if o == 'reached')
