@@ -71,3 +71,6 @@ docs/open-tasks/
 # python bytecode caches
 __pycache__/
 examples/paper-figures/overnight_logs/
+
+# bdsv timing session module stashes (rebuilt artifacts)
+examples/benchmarks/data/bdsv_timing/so_*/

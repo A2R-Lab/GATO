@@ -149,11 +149,13 @@ class BSQP {
                         // path byte-identical; mode 2 (BDSV_FIRST) takes the exact solve on the
                         // first linearization only — its λ then warm-starts PCG.
                         const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0);
+                        if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
                         if (use_bdsv) {
                                 solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
                         } else {
                                 solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
                         }
+                        if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
 
                         computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
 
@@ -167,8 +169,14 @@ class BSQP {
                         gpuErrchk(cudaEventSynchronize(sync_event_));
 
                         for (uint32_t b = 0; b < batch_size_; ++b) { pcg_stats.num_iterations[b] = static_cast<int>(h_pcg_iters_[b]); }
-                        pcg_stats.solve_time_us = 0;
-                        if (collect_stats_) { sqp_stats.pcg_stats.push_back(pcg_stats); }
+                        if (collect_stats_) {
+                                // sync_event_ was recorded after pcg_stop_event_ on the same
+                                // stream, so both timing events have completed by here.
+                                float linsys_ms = 0.0f;
+                                gpuErrchk(cudaEventElapsedTime(&linsys_ms, pcg_start_event_, pcg_stop_event_));
+                                pcg_stats.solve_time_us = 1000.0 * linsys_ms;
+                                sqp_stats.pcg_stats.push_back(pcg_stats);
+                        }
 
                         uint32_t num_solved = 0;
                         for (uint32_t b = 0; b < batch_size_; ++b) {
