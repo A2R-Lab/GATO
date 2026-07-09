@@ -28,6 +28,13 @@ def robot_info(plant_type):
     return load_registry().get(plant_type, {})
 
 
+# S·λ = γ linear-system paths (see gato/bsqp/kernels/{pcg,bdsv}.cuh):
+# pcg = iterative (warm-start friendly), bdsv = direct block-Cholesky (exact,
+# iteration-count free), bdsv_first = direct on SQP iteration 0 then pcg.
+LINSYS_MODES = {"pcg": 0, "bdsv": 1, "bdsv_first": 2}
+_LINSYS_NAMES = {v: k for k, v in LINSYS_MODES.items()}
+
+
 @dataclass(frozen=True)
 class SolverStats:
     """Per-solve solver statistics (batch-shaped numpy arrays)."""
@@ -41,6 +48,12 @@ class SolverStats:
     pcg_times_us: np.ndarray    # (sqp_iters_run,) float32
     min_merit: np.ndarray       # (ls_num_iters, B) float32 — accepted merit per iter
     step_size: np.ndarray       # (ls_num_iters, B) float32 — -1 marks a line-search failure
+    # linear-system path used for this solve. NOTE pcg_iters semantics on the
+    # bdsv path: 0 still means "converged at start" (same guard as pcg), a
+    # direct solve reports 1, and 2 marks a SKIPPED update (f32 Cholesky hit a
+    # non-PD pivot — barely-regularized costs; λ kept its warm start and rho
+    # adaptation retries). Only == 0 carries meaning downstream.
+    linsys: str = "pcg"         # "pcg" | "bdsv" | "bdsv_first"
 
 
 @dataclass(frozen=True)
@@ -108,6 +121,7 @@ class BSQP:
         mu_batch=None,
         pcg_tol_batch=None,
         adapt_rho=True,
+        linsys="pcg",  # "pcg" | "bdsv" | "bdsv_first" (see LINSYS_MODES)
         plant_type='indy7',  # 'indy7' or 'iiwa14'
     ):
         # Dynamically import the correct bsqp_N* module and get the solver class
@@ -222,6 +236,20 @@ class BSQP:
         if pcg_tol_batch is not None:
             pcg_tol_batch = np.asarray(pcg_tol_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_pcg_tol_batch(pcg_tol_batch)
+        self.max_pcg_iters = int(max_pcg_iters)
+        self.linsys = "pcg"  # the C++ default; set_linsys only calls into the module on change
+        self.set_linsys(linsys)
+
+    def set_linsys(self, mode):
+        """Pick the S·λ = γ path for subsequent solves: "pcg" | "bdsv" | "bdsv_first".
+
+        Host-side and zero-cost — an MPC loop can switch it per step.
+        """
+        if mode not in LINSYS_MODES:
+            raise ValueError(f"linsys must be one of {sorted(LINSYS_MODES)}, got {mode!r}")
+        if mode != self.linsys:
+            self.solver.set_linsys_mode(LINSYS_MODES[mode])
+            self.linsys = mode
 
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
         """Solve the batch; returns a SolveResult (also stores xu as the next warm start)."""
@@ -248,6 +276,7 @@ class BSQP:
             pcg_times_us=np.asarray(raw["pcg_times_us"], dtype=np.float32).reshape(-1),
             min_merit=np.asarray(raw["ls_min_merit"], dtype=np.float32).reshape(-1, B),
             step_size=np.asarray(raw["ls_step_size"], dtype=np.float32).reshape(-1, B),
+            linsys=_LINSYS_NAMES[int(raw.get("linsys_mode", 0))],
         )
         return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N)

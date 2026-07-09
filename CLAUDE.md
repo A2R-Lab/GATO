@@ -36,6 +36,12 @@ kernels (all in `gato/bsqp/kernels/`):
    invert Q_k/Q_kp1/R_k (`glass::invertMatrix` fused), build S (block-tridiagonal) + Pinv + gamma.
 3. **`pcg.cuh`** — solve `S·λ = γ` with `glass::pcg<T, STATE_SIZE, KNOT_POINTS>` (block-tridiagonal
    preconditioned conjugate gradient; row-major `[L|D|R]` strips + padded `(KP+2)·STATE_SIZE` vecs).
+   Alternative: **`bdsv.cuh`** — direct block-Cholesky (`glass::bdsv`) on the same buffers; GATO
+   stores the NEGATED Schur complement, so the bdsv kernel solves `(−S)λ = (−γ)` (negates in place —
+   safe, formSchur rewrites every slot next iteration). Host-side `set_linsys_mode` picks per solve
+   (0 = pcg default/bit-identical, 1 = bdsv, 2 = bdsv on SQP iter 0 then pcg); python
+   `BSQP(linsys=...)`, controller `linsys="auto"` switches on `‖x_meas − x_pred‖`. Plan + gates:
+   `docs/open-tasks/hybrid_pcg_bdsv_plan_2026-07-07.md`.
 4. **`schur_linsys.cuh::computeDzBatchedKernel`** — recover the primal step `dz` from λ.
 5. **`merit.cuh` / `line_search.cuh`** — evaluate the merit (`grid_plant::trackingCostValue` +
    `compute_integrator_error`), pick a step.

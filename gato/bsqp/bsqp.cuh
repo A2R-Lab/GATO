@@ -6,12 +6,14 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
+#include <stdexcept>
 #include "settings.h"
 #include "constants.h"
 #include "types.cuh"
 #include "kernels/setup_kkt.cuh"
 #include "kernels/schur_linsys.cuh"
 #include "kernels/pcg.cuh"
+#include "kernels/bdsv.cuh"
 #include "kernels/merit.cuh"
 #include "kernels/line_search.cuh"
 #include "kernels/sim.cuh"
@@ -74,6 +76,17 @@ class BSQP {
         void set_rho_adaptation(bool enabled) { adapt_rho_ = enabled; }
         void set_collect_stats(bool enabled) { collect_stats_ = enabled; }
 
+        // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
+        // pre-hybrid tree), 1 = BDSV (direct block-Cholesky every SQP iteration),
+        // 2 = BDSV_FIRST (direct on iteration 0, PCG after — exact-λ warm-start synergy).
+        // Host-side only; safe to change between solves (the whole point: pick per MPC step).
+        void set_linsys_mode(int mode)
+        {
+                if (mode < 0 || mode > 2) { throw std::invalid_argument("linsys_mode must be 0 (pcg), 1 (bdsv), or 2 (bdsv_first)"); }
+                linsys_mode_ = mode;
+        }
+        int linsys_mode() const { return linsys_mode_; }
+
         // runtime scalar cost weights (plain members threaded into every launch)
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
         {
@@ -132,7 +145,15 @@ class BSQP {
                         setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
-                        solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                        // linsys dispatch is host-side and whole-launch: mode 0 leaves the PCG
+                        // path byte-identical; mode 2 (BDSV_FIRST) takes the exact solve on the
+                        // first linearization only — its λ then warm-starts PCG.
+                        const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0);
+                        if (use_bdsv) {
+                                solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
+                        } else {
+                                solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                        }
 
                         computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
 
@@ -391,4 +412,5 @@ class BSQP {
         T           ctrl_lim_cost_;
         T           rho_;
         bool        adapt_rho_;
+        int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first
 };

@@ -23,6 +23,12 @@ constexpr float RHO_MAX = 10;
 constexpr uint32_t KKT_THREADS = 128;
 constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
+// direct-solve kernel thread count (serial knot chain over 14x14 blocks; untuned —
+// A/B {128,256,512}). -D override kept for the thread-invariance gate + tuning.
+#ifndef GATO_BDSV_THREADS
+    #define GATO_BDSV_THREADS 256
+#endif
+constexpr uint32_t BDSV_THREADS = GATO_BDSV_THREADS;
 constexpr uint32_t DZ_THREADS = 128;
 constexpr uint32_t LINE_SEARCH_THREADS = 512;
 constexpr uint32_t SIM_FORWARD_THREADS = 128;

@@ -111,6 +111,7 @@ class PyBSQP {
                 result["kkt_converged"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.kkt_converged.data());
                 result["final_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_final_merit.data());
                 result["initial_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_initial_merit.data());
+                result["linsys_mode"] = solver_.linsys_mode();
 
                 // Per-iteration stats: shape them as (iters, batch_size)
                 const size_t num_iters = stats.line_search_stats.size();
@@ -209,6 +210,7 @@ class PyBSQP {
         void reset_rho() { solver_.reset_rho(); }
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
         void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
+        void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
 
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
         {
@@ -263,6 +265,7 @@ class PyBSQP {
             .def("reset_rho", &PyBSQP<Type>::reset_rho)                                                                                                                                            \
             .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
             .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
+            .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)
