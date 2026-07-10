@@ -152,6 +152,19 @@ class PyBSQP {
                         }
                         result["row_max_violation"] = vmax;
                         result["row_sum_violation"] = vsum;
+                        if (solver_.admm_active()) {
+                                std::vector<T> h_res(2 * batch_size_);
+                                solver_.copy_admm_residuals_to_host(h_res.data());
+                                py::array_t<T> rp({B}), rd({B});
+                                T* prp = static_cast<T*>(rp.request().ptr);
+                                T* prd = static_cast<T*>(rd.request().ptr);
+                                for (size_t b = 0; b < batch_size_; ++b) {
+                                        prp[b] = h_res[2 * b + 0];
+                                        prd[b] = h_res[2 * b + 1];
+                                }
+                                result["admm_r_prim"] = rp;
+                                result["admm_r_dual"] = rd;
+                        }
                 }
 
                 std::vector<float> ls_min_merit;
@@ -228,6 +241,7 @@ class PyBSQP {
 
         void enable_limit_telemetry() { solver_.enable_limit_telemetry(); }
         void enable_limit_barrier(T mu, T delta) { solver_.enable_limit_barrier(mu, delta); }
+        void enable_limit_admm(T rho, uint32_t iters) { solver_.enable_limit_admm(rho, iters); }
         void disable_row_groups() { solver_.disable_row_groups(); }
 
         // descriptor introspection (oracle tests): list of per-group dicts
@@ -320,6 +334,7 @@ class PyBSQP {
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \
             .def("enable_limit_telemetry", &PyBSQP<Type>::enable_limit_telemetry)                                                                                                                      \
             .def("enable_limit_barrier", &PyBSQP<Type>::enable_limit_barrier, py::arg("mu"), py::arg("delta"))                                                                                         \
+            .def("enable_limit_admm", &PyBSQP<Type>::enable_limit_admm, py::arg("rho"), py::arg("iters"))                                                                                              \
             .def("disable_row_groups", &PyBSQP<Type>::disable_row_groups)                                                                                                                              \
             .def("get_row_groups", &PyBSQP<Type>::get_row_groups)
 

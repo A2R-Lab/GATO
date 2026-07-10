@@ -42,8 +42,18 @@ enum Block : int32_t { BLOCK_X = 0, BLOCK_U = 1 };
 enum Mechanism : int32_t {
         MECH_TELEMETRY = 0,
         MECH_BARRIER_RELAXED = 1,
-        // MECH_ADMM / MECH_AL: CL-1
+        MECH_ADMM = 2,  // OSQP-style interval projection (kernels/admm.cuh); mu = the ADMM rho
+        // MECH_AL: CL-1 (next)
 };
+
+// per-solve ADMM dual/slack state extent: one (z, y) pair per potential row
+// slot, dense [group][knot][row] — indexable without per-group prefix sums
+constexpr uint32_t ROW_STATE_SIZE = MAX_ROW_GROUPS * KNOT_POINTS * MAX_ROWS_PER_GROUP;
+
+__device__ __forceinline__ uint32_t row_state_index(uint32_t grp_idx, uint32_t knot, uint32_t i)
+{
+        return (grp_idx * KNOT_POINTS + knot) * MAX_ROWS_PER_GROUP + i;
+}
 
 template<typename T>
 struct RowGroupDesc {
@@ -171,13 +181,21 @@ __device__ void apply_rb_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
         const uint32_t size = blockDim.x;
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
-                if (grp.mech != MECH_BARRIER_RELAXED) continue;
+                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
-                        const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                        const T gr = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
-                        const T h = rb_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        T gr, h;
+                        if (grp.mech == MECH_ADMM) {
+                                // constant rho*G^T G diagonal fold — the gradient half is
+                                // per-ADMM-iteration (kernels/admm.cuh), NOT here
+                                gr = static_cast<T>(0);
+                                h = grp.mu;  // mu = ADMM rho
+                        } else {
+                                const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
+                                gr = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                h = rb_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        }
                         if (grp.block == BLOCK_X) {
                                 const int32_t xi = x_index_of_row<T>(grp, i);
                                 s_q[xi] += gr;

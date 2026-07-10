@@ -194,6 +194,48 @@ def test_certificate_matches_telemetry(make_solver, smallest_module):
     assert isinstance(ok, (bool, np.bool_)) and "primal" in r
 
 
+def test_admm_enforces_boxes(make_solver, smallest_module):
+    """MECH_ADMM (fixed-budget interval projection on the reused bdsv factor)
+    drives limit violations to ~0 on a problem whose unconstrained solution
+    violates them badly; residuals are reported; solver stays finite."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B)
+    base.enable_limit_telemetry()
+    rb = base.solve(X, goals)
+
+    s = make_solver(plant, N, batch_size=B)
+    s.enable_limit_admm(rho=10.0, iters=10)
+    r = s.solve(X, goals)
+
+    assert np.isfinite(r.xu).all()
+    assert r.stats.admm_r_prim is not None and r.stats.admm_r_dual is not None
+    if rb.stats.row_max_violation.max() > 1.0:  # the problem actually stresses the boxes
+        assert r.stats.row_max_violation.max() < 1e-3 * rb.stats.row_max_violation.max()
+    assert r.stats.row_max_violation.max() < 1e-4  # approximately-hard claim, measured
+
+
+def test_admm_deterministic_and_warmstart_stable(make_solver, smallest_module):
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    def run():
+        s = make_solver(plant, N, batch_size=B)
+        s.enable_limit_admm(rho=10.0, iters=10)
+        first = s.solve(X, goals)
+        for _ in range(3):  # dual warm start across solves
+            last = s.solve(X, goals)
+        return first, last
+
+    (a1, a2), (b1, b2) = run(), run()
+    np.testing.assert_array_equal(a1.xu, b1.xu)  # bit-deterministic
+    np.testing.assert_array_equal(a2.xu, b2.xu)
+    assert a2.stats.row_max_violation.max() < 1e-4  # feasibility persists warm-started
+
+
 def test_telemetry_deterministic(make_solver, smallest_module):
     plant, N = smallest_module
     B = 4

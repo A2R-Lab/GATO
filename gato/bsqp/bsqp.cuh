@@ -18,6 +18,7 @@
 #include "kernels/line_search.cuh"
 #include "kernels/sim.cuh"
 #include "rowgroups.cuh"
+#include "kernels/admm.cuh"
 
 using namespace sqp;
 
@@ -66,7 +67,11 @@ class BSQP {
         void set_mu_batch(const T* h_mu_batch) { gpuErrchk(cudaMemcpy(d_mu_batch_, h_mu_batch, batch_size_ * sizeof(T), cudaMemcpyHostToDevice)); }
         void set_pcg_tol_batch(const T* h_pcg_tol_batch) { gpuErrchk(cudaMemcpy(d_pcg_tol_batch_, h_pcg_tol_batch, batch_size_ * sizeof(T), cudaMemcpyHostToDevice)); }
 
-        void reset_dual() { gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * batch_size_ * sizeof(T))); }
+        void reset_dual()
+        {
+                gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * batch_size_ * sizeof(T)));
+                admm_needs_init_ = true;  // ADMM (z, y) reinitialize from the next warm start
+        }
 
         void reset_rho()
         {
@@ -103,8 +108,36 @@ class BSQP {
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
         }
-        void    disable_row_groups() { n_row_groups_ = 0; }
+        // Same limit groups bound to MECH_ADMM: OSQP-style interval projection
+        // run as a fixed-budget inner loop per SQP iteration on the REUSED bdsv
+        // factor (see kernels/admm.cuh). rho = the ADMM penalty (grp.mu),
+        // iters = the fixed budget ("approximately hard" — final violation is
+        // telemetry-reported). (z, y) warm-start across solves; reset_dual()
+        // or re-enabling reinitializes them from the next warm start.
+        void enable_limit_admm(T rho, uint32_t iters)
+        {
+                if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
+                if (iters < 1) { throw std::invalid_argument("enable_limit_admm: iters must be >= 1"); }
+                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
+                gpuErrchk(cudaDeviceSynchronize());
+                n_row_groups_ = 3;
+                admm_active_ = true;
+                admm_iters_ = iters;
+                admm_needs_init_ = true;
+        }
+        // per-solve (r_prim, r_dual) of the LAST ADMM iteration, [solve*2 + {0,1}]
+        void copy_admm_residuals_to_host(T* h_out)
+        {
+                gpuErrchk(cudaMemcpy(h_out, d_admm_resid_, 2 * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
+
+        void disable_row_groups()
+        {
+                n_row_groups_ = 0;
+                admm_active_ = false;
+        }
         int32_t num_row_groups() const { return n_row_groups_; }
+        bool    admm_active() const { return admm_active_; }
 
         // telemetry layout: [solve][2 * MAX_ROW_GROUPS] = {max, sum} per group
         void copy_row_telemetry_to_host(T* h_out)
@@ -180,24 +213,54 @@ class BSQP {
                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
+                // ADMM (z, y) (re)initialize from THIS solve's warm start when required
+                if (admm_active_ && admm_needs_init_) {
+                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_);
+                        admm_needs_init_ = false;
+                }
+
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
                         setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
-                        // linsys dispatch is host-side and whole-launch: mode 0 leaves the PCG
-                        // path byte-identical; mode 2 (BDSV_FIRST) takes the exact solve on the
-                        // first linearization only — its λ then warm-starts PCG.
-                        const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0);
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
-                        if (use_bdsv) {
-                                solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
+                        if (admm_active_) {
+                                // MECH_ADMM inner loop (kernels/admm.cuh): the rho*G^T*G fold is
+                                // already in Q/R (setup_kkt), so the Schur matrix is CONSTANT
+                                // across the loop -> factor once, re-solve per iteration with a
+                                // rebuilt gamma. computeDz destroys q/r each iteration; the
+                                // gradient kernel rebuilds them from the preserved base copies.
+                                gpuErrchk(cudaMemcpyAsync(d_q_base_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                                gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                                factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_);
+                                for (uint32_t k = 0; k < admm_iters_; k++) {
+                                        rows::admmGradientBatched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_);
+                                        computeGammaBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                        solveBDSVFactoredBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
+                                        computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                        rows::admmProjectDualBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_);
+                                }
+                                // NOTE: the factored solve reports iterations 1 (solved) / 2
+                                // (non-PD skip) — never 0, so the pcg_iters==0 SQP early-exit
+                                // does not fire in ADMM mode (fixed-budget semantics; the
+                                // solve_ratio break below is inert and the loop runs
+                                // max_sqp_iters, matching the approximately-hard design).
+                                // ADMM mode: pcg_times_us covers the WHOLE inner loop
+                                if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
                         } else {
-                                solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                // linsys dispatch is host-side and whole-launch: mode 0 leaves the
+                                // PCG path byte-identical; mode 2 (BDSV_FIRST) takes the exact
+                                // solve on the first linearization only — its λ warm-starts PCG.
+                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0);
+                                if (use_bdsv) {
+                                        solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                } else {
+                                        solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                }
+                                if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
+                                computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                         }
-                        if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
-
-                        computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
 
                         // convergence signal: PCG iteration counts (pinned staging + event —
                         // a pageable-destination copy here would silently serialize the host).
@@ -356,6 +419,17 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_row_telemetry_, 2 * rows::MAX_ROW_GROUPS * BT));
                 gpuErrchk(cudaMemset(d_row_telemetry_, 0, 2 * rows::MAX_ROW_GROUPS * BT));
 
+                // ADMM inner-loop state (z/y duals, base gradients, factor status, residuals)
+                gpuErrchk(cudaMalloc(&d_z_admm_, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMalloc(&d_y_admm_, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMemset(d_z_admm_, 0, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMemset(d_y_admm_, 0, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMalloc(&d_q_base_, STATE_P_KNOTS * BT));
+                gpuErrchk(cudaMalloc(&d_r_base_, CONTROL_P_KNOTS * BT));
+                gpuErrchk(cudaMalloc(&d_admm_resid_, 2 * BT));
+                gpuErrchk(cudaMemset(d_admm_resid_, 0, 2 * BT));
+                gpuErrchk(cudaMalloc(&d_factor_status_, batch_size_ * sizeof(int32_t)));
+
                 gpuErrchk(cudaMallocHost(&h_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMallocHost(&h_sqp_iters_B_, BI));
                 gpuErrchk(cudaMallocHost(&h_pcg_iters_, BI));
@@ -404,6 +478,12 @@ class BSQP {
                 gpuErrchk(cudaFree(d_knot_cost_weights_));
                 gpuErrchk(cudaFree(d_row_groups_));
                 gpuErrchk(cudaFree(d_row_telemetry_));
+                gpuErrchk(cudaFree(d_z_admm_));
+                gpuErrchk(cudaFree(d_y_admm_));
+                gpuErrchk(cudaFree(d_q_base_));
+                gpuErrchk(cudaFree(d_r_base_));
+                gpuErrchk(cudaFree(d_admm_resid_));
+                gpuErrchk(cudaFree(d_factor_status_));
 
                 gpuErrchk(cudaFreeHost(h_kkt_converged_batch_));
                 gpuErrchk(cudaFreeHost(h_sqp_iters_B_));
@@ -453,6 +533,17 @@ class BSQP {
         rows::RowGroupDesc<T>* d_row_groups_;
         T*                     d_row_telemetry_;
         int32_t                n_row_groups_ = 0;
+
+        // ADMM inner loop (kernels/admm.cuh; admm_active_ == false -> inert)
+        T*       d_z_admm_;
+        T*       d_y_admm_;
+        T*       d_q_base_;
+        T*       d_r_base_;
+        T*       d_admm_resid_;
+        int32_t* d_factor_status_;
+        bool     admm_active_ = false;
+        bool     admm_needs_init_ = false;
+        uint32_t admm_iters_ = 10;
 
         // Host-side pinned staging (convergence + stats)
         int32_t*    h_kkt_converged_batch_;

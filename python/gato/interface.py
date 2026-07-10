@@ -59,6 +59,9 @@ class SolverStats:
     # (group order: BOX_Q, BOX_QD, BOX_U)
     row_max_violation: np.ndarray = None
     row_sum_violation: np.ndarray = None
+    # (B,) last-iteration ADMM residuals (None unless enable_limit_admm())
+    admm_r_prim: np.ndarray = None
+    admm_r_dual: np.ndarray = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +289,10 @@ class BSQP:
                                if "row_max_violation" in raw else None),
             row_sum_violation=(np.asarray(raw["row_sum_violation"], dtype=np.float32)
                                if "row_sum_violation" in raw else None),
+            admm_r_prim=(np.asarray(raw["admm_r_prim"], dtype=np.float32)
+                         if "admm_r_prim" in raw else None),
+            admm_r_dual=(np.asarray(raw["admm_r_dual"], dtype=np.float32)
+                         if "admm_r_dual" in raw else None),
         )
         return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N)
@@ -307,6 +314,16 @@ class BSQP:
         clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
         comparison. Telemetry (stats.row_*_violation) stays on."""
         self.solver.enable_limit_barrier(float(mu), float(delta))
+
+    def enable_limit_admm(self, rho=1.0, iters=10):
+        """Bind the limit row-groups to the ADMM-projection mechanism: an
+        OSQP-style fixed-budget inner loop per SQP iteration on a REUSED
+        direct (bdsv) factorization — the constraint layer's
+        "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
+        a solve; adapt it between solves), ``iters`` the fixed budget.
+        Duals warm-start across solves (reset_dual() reinitializes).
+        stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
+        self.solver.enable_limit_admm(float(rho), int(iters))
 
     def disable_row_groups(self):
         """Remove all constraint row-groups (stats lose the row_* fields)."""
