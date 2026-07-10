@@ -17,6 +17,7 @@
 #include "kernels/merit.cuh"
 #include "kernels/line_search.cuh"
 #include "kernels/sim.cuh"
+#include "rowgroups.cuh"
 
 using namespace sqp;
 
@@ -75,6 +76,45 @@ class BSQP {
 
         void set_rho_adaptation(bool enabled) { adapt_rho_ = enabled; }
         void set_collect_stats(bool enabled) { collect_stats_ = enabled; }
+
+        // Constraint row-groups (constraint-layer arc; gato/bsqp/rowgroups.cuh).
+        // CL-0: telemetry-only mode — installs the canonical limit box groups
+        // (BOX_Q, BOX_QD, BOX_U from the vendored URDF limit tables) and reports
+        // per-group true violation of the RETURNED trajectory after each solve.
+        // Never touches the solver path: with groups disabled (default) solve()
+        // is byte-identical to the pre-row-group tree.
+        void enable_limit_telemetry()
+        {
+                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
+                gpuErrchk(cudaDeviceSynchronize());
+                n_row_groups_ = 3;
+        }
+
+        // Same limit groups bound to MECH_BARRIER_RELAXED: a relaxed log-barrier
+        // (bounded Hessian, C² quadratic extension below `delta`, infeasible-start
+        // safe) folded into the KKT cost blocks AND the merit — the soft prior mode
+        // of the constraint layer. Additive to grid_plant's own clamped log
+        // barriers: for a clean comparison zero q_lim/vel_lim/ctrl_lim_cost.
+        // Telemetry still reports each group's true violation per solve.
+        void enable_limit_barrier(T mu, T delta)
+        {
+                if (!(delta > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_barrier: delta must be > 0"); }
+                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
+                gpuErrchk(cudaDeviceSynchronize());
+                n_row_groups_ = 3;
+        }
+        void    disable_row_groups() { n_row_groups_ = 0; }
+        int32_t num_row_groups() const { return n_row_groups_; }
+
+        // telemetry layout: [solve][2 * MAX_ROW_GROUPS] = {max, sum} per group
+        void copy_row_telemetry_to_host(T* h_out)
+        {
+                gpuErrchk(cudaMemcpy(h_out, d_row_telemetry_, 2 * rows::MAX_ROW_GROUPS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
+        void copy_row_groups_to_host(rows::RowGroupDesc<T>* h_out)
+        {
+                gpuErrchk(cudaMemcpy(h_out, d_row_groups_, rows::MAX_ROW_GROUPS * sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+        }
 
         // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
         // pre-hybrid tree), 1 = BDSV (direct block-Cholesky every SQP iteration),
@@ -137,12 +177,12 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 computeMeritBatched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w);
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         // linsys dispatch is host-side and whole-launch: mode 0 leaves the PCG
@@ -194,7 +234,7 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyHostToDevice));
 
                         computeMeritBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_);
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_);
                         lineSearchAndUpdateBatched<T, NUM_ALPHAS>(
                             batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt_rho_ ? 1 : 0, d_kkt_converged_batch_);
 
@@ -212,6 +252,13 @@ class BSQP {
                 // success and leaves both trajectory and merit untouched on failure).
 
                 gpuErrchk(cudaDeviceSynchronize());
+
+                // row-group telemetry on the RETURNED trajectory (off the solver path;
+                // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
+                if (n_row_groups_ > 0) {
+                        rows::rowGroupTelemetryBatched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch);
+                        gpuErrchk(cudaDeviceSynchronize());
+                }
 
                 if (collect_stats_) {
                         for (uint32_t it = 0; it < ls_iters_run; ++it) {
@@ -304,6 +351,11 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_mu_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_pcg_tol_batch_, BT));
 
+                // Constraint row-groups (descriptors + per-solve telemetry)
+                gpuErrchk(cudaMalloc(&d_row_groups_, rows::MAX_ROW_GROUPS * sizeof(rows::RowGroupDesc<T>)));
+                gpuErrchk(cudaMalloc(&d_row_telemetry_, 2 * rows::MAX_ROW_GROUPS * BT));
+                gpuErrchk(cudaMemset(d_row_telemetry_, 0, 2 * rows::MAX_ROW_GROUPS * BT));
+
                 gpuErrchk(cudaMallocHost(&h_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMallocHost(&h_sqp_iters_B_, BI));
                 gpuErrchk(cudaMallocHost(&h_pcg_iters_, BI));
@@ -350,6 +402,8 @@ class BSQP {
                 gpuErrchk(cudaFree(d_mu_batch_));
                 gpuErrchk(cudaFree(d_pcg_tol_batch_));
                 gpuErrchk(cudaFree(d_knot_cost_weights_));
+                gpuErrchk(cudaFree(d_row_groups_));
+                gpuErrchk(cudaFree(d_row_telemetry_));
 
                 gpuErrchk(cudaFreeHost(h_kkt_converged_batch_));
                 gpuErrchk(cudaFreeHost(h_sqp_iters_B_));
@@ -394,6 +448,11 @@ class BSQP {
         T*   d_knot_cost_weights_;
         bool use_knot_cost_weights_ = false;
         bool collect_stats_ = true;
+
+        // constraint row-groups (rowgroups.cuh; n == 0 -> layer fully inert)
+        rows::RowGroupDesc<T>* d_row_groups_;
+        T*                     d_row_telemetry_;
+        int32_t                n_row_groups_ = 0;
 
         // Host-side pinned staging (convergence + stats)
         int32_t*    h_kkt_converged_batch_;

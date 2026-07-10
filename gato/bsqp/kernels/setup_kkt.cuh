@@ -6,6 +6,7 @@
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
+#include "bsqp/rowgroups.cuh"
 
 using namespace sqp;
 using namespace gato;
@@ -36,7 +37,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             T     vel_lim_cost,
                                             T     ctrl_lim_cost,
                                             const int32_t* __restrict__ d_kkt_converged_batch,
-                                            const T* __restrict__       d_knot_cost_weights)  // optional (nullable) per-knot [ee,qd,u] triples
+                                            const T* __restrict__       d_knot_cost_weights,  // optional (nullable) per-knot [ee,qd,u] triples
+                                            const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // constraint row-groups (MECH_BARRIER_RELAXED
+                                            int32_t                     n_row_groups)                      // folds into the cost blocks; 0 -> untouched path)
 {
         // kernel launched with 2D grid: (knot_idx, solve_idx)
         const uint32_t solve_idx = blockIdx.y;
@@ -121,6 +124,12 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1);
 
+                        // relaxed-barrier row-groups on the TERMINAL knot's state block
+                        // (no control there; the c_0 __syncthreads below covers the writes)
+                        if (n_row_groups > 0) {
+                                gato::rows::apply_rb_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, /*has_control=*/false);
+                        }
+
                         // c_0 = x_0 - x_s
                         T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
                         T* d_xu_0 = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
@@ -129,6 +138,14 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
                         glass::copy<T, STATE_SIZE_SQ>(s_Q_last, d_Q_k + STATE_SIZE_SQ);
                         glass::copy<T, STATE_SIZE>(s_q_last, d_q_k + STATE_SIZE);
+                }
+
+                // relaxed-barrier row-groups fold into this knot's cost blocks
+                // (both branches: trackingCostGradHess ended on a barrier, and the
+                // copies below need one after our strided diagonal writes)
+                if (n_row_groups > 0) {
+                        gato::rows::apply_rb_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, s_Q_k, s_q_k, s_R_k, s_r_k, /*has_control=*/true);
+                        __syncthreads();
                 }
 
                 glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
@@ -161,7 +178,7 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize()
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0)
 {
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
@@ -188,5 +205,7 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                vel_lim_cost,
                                                                                ctrl_lim_cost,
                                                                                d_kkt_converged_batch,
-                                                                               d_knot_cost_weights);
+                                                                               d_knot_cost_weights,
+                                                                               d_row_groups,
+                                                                               n_row_groups);
 }

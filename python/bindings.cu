@@ -134,6 +134,26 @@ class PyBSQP {
                         result["pcg_iters"] = py::array_t<int>(sh_iters, pcg_iters.data());
                 }
 
+                // row-group telemetry: (n_groups, batch) {max, sum} true violation of
+                // the returned trajectory (present only when row groups are enabled)
+                const int32_t n_grp = solver_.num_row_groups();
+                if (n_grp > 0) {
+                        std::vector<T> h_telem(2 * gato::rows::MAX_ROW_GROUPS * batch_size_);
+                        solver_.copy_row_telemetry_to_host(h_telem.data());
+                        py::array_t<T> vmax({(py::ssize_t)n_grp, B});
+                        py::array_t<T> vsum({(py::ssize_t)n_grp, B});
+                        T* pmax = static_cast<T*>(vmax.request().ptr);
+                        T* psum = static_cast<T*>(vsum.request().ptr);
+                        for (int32_t g = 0; g < n_grp; ++g) {
+                                for (size_t b = 0; b < batch_size_; ++b) {
+                                        pmax[g * batch_size_ + b] = h_telem[b * 2 * gato::rows::MAX_ROW_GROUPS + 2 * g + 0];
+                                        psum[g * batch_size_ + b] = h_telem[b * 2 * gato::rows::MAX_ROW_GROUPS + 2 * g + 1];
+                                }
+                        }
+                        result["row_max_violation"] = vmax;
+                        result["row_sum_violation"] = vsum;
+                }
+
                 std::vector<float> ls_min_merit;
                 std::vector<float> ls_step_size;
                 ls_min_merit.reserve(num_iters * batch_size_);
@@ -206,6 +226,35 @@ class PyBSQP {
                 return py::array_t<T>({static_cast<py::ssize_t>(batch_size_), (py::ssize_t)STATE_SIZE}, h_xkp1_batch_.data());
         }
 
+        void enable_limit_telemetry() { solver_.enable_limit_telemetry(); }
+        void enable_limit_barrier(T mu, T delta) { solver_.enable_limit_barrier(mu, delta); }
+        void disable_row_groups() { solver_.disable_row_groups(); }
+
+        // descriptor introspection (oracle tests): list of per-group dicts
+        py::list get_row_groups()
+        {
+                std::vector<gato::rows::RowGroupDesc<T>> h_groups(gato::rows::MAX_ROW_GROUPS);
+                solver_.copy_row_groups_to_host(h_groups.data());
+                py::list out;
+                for (int32_t g = 0; g < solver_.num_row_groups(); ++g) {
+                        const auto&    grp = h_groups[g];
+                        py::dict       d;
+                        py::array_t<T> lo({(py::ssize_t)grp.n_rows}), hi({(py::ssize_t)grp.n_rows});
+                        memcpy(lo.request().ptr, grp.lo, grp.n_rows * sizeof(T));
+                        memcpy(hi.request().ptr, grp.hi, grp.n_rows * sizeof(T));
+                        d["kind"] = grp.kind;
+                        d["block"] = grp.block;
+                        d["mech"] = grp.mech;
+                        d["n_rows"] = grp.n_rows;
+                        d["knot_lo"] = grp.knot_lo;
+                        d["knot_hi"] = grp.knot_hi;
+                        d["lo"] = lo;
+                        d["hi"] = hi;
+                        out.append(d);
+                }
+                return out;
+        }
+
         void reset_dual() { solver_.reset_dual(); }
         void reset_rho() { solver_.reset_rho(); }
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
@@ -268,7 +317,11 @@ class PyBSQP {
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
-            .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)
+            .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \
+            .def("enable_limit_telemetry", &PyBSQP<Type>::enable_limit_telemetry)                                                                                                                      \
+            .def("enable_limit_barrier", &PyBSQP<Type>::enable_limit_barrier, py::arg("mu"), py::arg("delta"))                                                                                         \
+            .def("disable_row_groups", &PyBSQP<Type>::disable_row_groups)                                                                                                                              \
+            .def("get_row_groups", &PyBSQP<Type>::get_row_groups)
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {

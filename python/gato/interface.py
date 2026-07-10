@@ -54,6 +54,11 @@ class SolverStats:
     # non-PD pivot — barely-regularized costs; λ kept its warm start and rho
     # adaptation retries). Only == 0 carries meaning downstream.
     linsys: str = "pcg"         # "pcg" | "bdsv" | "bdsv_first"
+    # constraint row-group telemetry (None unless enable_limit_telemetry()):
+    # (n_groups, B) true violation of the RETURNED trajectory per row-group
+    # (group order: BOX_Q, BOX_QD, BOX_U)
+    row_max_violation: np.ndarray = None
+    row_sum_violation: np.ndarray = None
 
 
 @dataclass(frozen=True)
@@ -277,9 +282,40 @@ class BSQP:
             min_merit=np.asarray(raw["ls_min_merit"], dtype=np.float32).reshape(-1, B),
             step_size=np.asarray(raw["ls_step_size"], dtype=np.float32).reshape(-1, B),
             linsys=_LINSYS_NAMES[int(raw.get("linsys_mode", 0))],
+            row_max_violation=(np.asarray(raw["row_max_violation"], dtype=np.float32)
+                               if "row_max_violation" in raw else None),
+            row_sum_violation=(np.asarray(raw["row_sum_violation"], dtype=np.float32)
+                               if "row_sum_violation" in raw else None),
         )
         return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N)
+
+    def enable_limit_telemetry(self):
+        """Install the canonical limit row-groups (position/velocity/torque boxes
+        from the URDF limit tables) in TELEMETRY mode: every solve() reports each
+        group's true violation of the returned trajectory in
+        ``stats.row_{max,sum}_violation`` (group order BOX_Q, BOX_QD, BOX_U).
+        Telemetry never touches the solver path — trajectories are bit-identical
+        with it on or off. Part of the constraint row-group layer (CL-0)."""
+        self.solver.enable_limit_telemetry()
+
+    def enable_limit_barrier(self, mu=1e-2, delta=0.1):
+        """Bind the limit row-groups to the RELAXED log-barrier mechanism: a
+        C² barrier with bounded Hessian (quadratic extension within ``delta``
+        of a bound) folded into the KKT cost and merit — infeasible-start safe,
+        the constraint layer's soft prior mode. Additive to grid_plant's own
+        clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
+        comparison. Telemetry (stats.row_*_violation) stays on."""
+        self.solver.enable_limit_barrier(float(mu), float(delta))
+
+    def disable_row_groups(self):
+        """Remove all constraint row-groups (stats lose the row_* fields)."""
+        self.solver.disable_row_groups()
+
+    def get_row_groups(self):
+        """List of installed row-group descriptors (dicts with kind/block/mech,
+        knot mask, and per-row lo/hi bounds)."""
+        return self.solver.get_row_groups()
 
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):

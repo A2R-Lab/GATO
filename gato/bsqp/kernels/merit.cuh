@@ -8,6 +8,7 @@
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
+#include "bsqp/rowgroups.cuh"
 
 using namespace sqp;
 using namespace gato;
@@ -32,7 +33,9 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           T                     vel_lim_cost,
                                           T                     ctrl_lim_cost,
                                           const int32_t* __restrict__ d_kkt_converged_batch,
-                                          const T* __restrict__       d_knot_cost_weights)  // optional (nullable) per-knot [ee,qd,u] triples
+                                          const T* __restrict__       d_knot_cost_weights,  // optional (nullable) per-knot [ee,qd,u] triples
+                                          const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // MECH_BARRIER_RELAXED value terms
+                                          int32_t                     n_row_groups)                      // (must match setup_kkt's fold; 0 -> untouched)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
@@ -81,6 +84,12 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         cost_k =
             plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1));
         __syncthreads();
+
+        // relaxed-barrier row-group value terms (must mirror setup_kkt's grad/hess
+        // fold or the line search accepts against a different objective)
+        if (n_row_groups > 0) {
+                cost_k += gato::rows::rb_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, /*has_control=*/(knot_idx < KNOT_POINTS - 1));
+        }
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
@@ -134,7 +143,9 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   T                           N_cost,
                                   T                           q_lim_cost,
                                   T                           vel_lim_cost,
-                                  T                           ctrl_lim_cost)
+                                  T                           ctrl_lim_cost,
+                                  const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr,
+                                  int32_t                     n_row_groups = 0)
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
@@ -162,5 +173,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     vel_lim_cost,
                                                                                     ctrl_lim_cost,
                                                                                     d_kkt_converged_batch,
-                                                                                    d_knot_cost_weights);
+                                                                                    d_knot_cost_weights,
+                                                                                    d_row_groups,
+                                                                                    n_row_groups);
 }
