@@ -98,9 +98,11 @@ def phase_build():
         print(f"  stashed pre-session modules -> {orig}")
     for t in THREADS:
         bdir = ROOT / f"build_bdsv_t{t}"
+        import pybind11
         sh(["cmake", "-S", ROOT, "-B", bdir, f"-DKNOTS={';'.join(map(str, KNOTS))}",
             f"-DPLANT={PLANT}", "-DCMAKE_BUILD_TYPE=Release",
             f"-DPython3_EXECUTABLE={sys.executable}",
+            f"-Dpybind11_DIR={pybind11.get_cmake_dir()}",
             "-DCMAKE_CUDA_ARCHITECTURES=120",
             f"-DCMAKE_CUDA_FLAGS=-DGATO_BDSV_THREADS={t}"],
            stdout=subprocess.DEVNULL)
