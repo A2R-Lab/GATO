@@ -13,10 +13,14 @@
 //
 // Build-on-demand (not part of pytest):
 //
-//   nvcc -std=c++17 -O2 -DNDEBUG -I external/GLASS test/cuda/bdsv_vs_pcg.cu \
+//   nvcc -std=c++17 -O2 -DNDEBUG -arch=native -I external/GLASS test/cuda/bdsv_vs_pcg.cu \
 //        -o build/bdsv_vs_pcg && ./build/bdsv_vs_pcg
 //
 // -DNDEBUG is required (see CLAUDE.md: gpuAssert ODR gotcha); no fast-math.
+// Prefer -arch=native: a default-arch (PTX JIT) build of the REAL gato bdsv
+// kernels produced deterministic wrong solves on CUDA 13.2/RTX 5090 (see
+// bdsv_factor_solve.cu header); this mirror harness happened to be immune,
+// but don't rely on that.
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include "settings.h"
 #include "constants.h"
+#include "types.cuh"
 #include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
@@ -145,4 +146,147 @@ __host__ void solveBDSVBatched(uint32_t batch_size, T* d_lambda_batch, SchurSyst
 
         solveBDSVBatchedKernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_kkt_converged_batch, d_use_bdsv_mask);
+}
+
+// --------------------------------------------------
+// Factor/solve SPLIT — the constraint-layer (ADMM inner loop) path: within one
+// SQP iteration at fixed rho the Schur matrix is constant across ADMM
+// iterations, so factor ONCE and re-solve per right-hand side
+// (glass::bdsv_solve is documented factor-once/solve-many). Same negated-store
+// convention as the monolithic kernel: the factor kernel negates the strips in
+// place and factors (−S); the solve kernel then solves S_stored·x = rhs_stored
+// for any rhs in the stored-γ sign convention (it seeds x ← −rhs and runs the
+// in-place bdsv_solve, exactly the monolithic tail). Factor-then-solve on γ is
+// BITWISE identical to the monolithic kernel's solve (same ops, same order —
+// gated by test/cuda/bdsv_factor_solve.cu).
+//
+// There is deliberately NO converged-start guard here: the guard needs the
+// UN-negated, UN-factored S with a warm λ — a per-SQP-iteration concept that
+// stays in the monolithic kernel (its iterations==0 signal feeds SQP exit).
+// The split path's consumer owns its own convergence test (ADMM residuals).
+//
+// Non-PD skip semantics carry over through a per-solve status buffer:
+// the factor kernel ALWAYS runs the checked Cholesky and scrubs its NaN
+// staging on failure (same vendored-glass smem-persistence hazard as the
+// monolithic kernel); the solve kernel refuses to touch x for any solve whose
+// factor failed or was skipped, and reports iterations = 2 / 0 respectively.
+
+namespace bdsv_status {
+constexpr int32_t OK = 0;       // strips hold a valid factor of (−S)
+constexpr int32_t NON_PD = 1;   // Cholesky hit a non-PD pivot: factor invalid, x must stay untouched
+constexpr int32_t SKIPPED = 2;  // solve was converged/masked: strips still hold UN-factored S
+}  // namespace bdsv_status
+
+template<typename T>
+__global__ __launch_bounds__(BDSV_THREADS) void factorBDSVBatchedKernel(int32_t* __restrict__       d_factor_status,
+                                                                        T* __restrict__             d_A_batch,
+                                                                        const int32_t* __restrict__ d_kkt_converged_batch,
+                                                                        const int32_t* __restrict__ d_use_bdsv_mask)
+{
+        const uint32_t solve_idx = blockIdx.x;
+        const uint32_t rank = threadIdx.x;
+        const uint32_t size = blockDim.x;
+
+        if (d_use_bdsv_mask && !d_use_bdsv_mask[solve_idx]) { return; }  // not ours: no writes at all
+
+        if (d_kkt_converged_batch && d_kkt_converged_batch[solve_idx]) {
+                if (rank == 0) { d_factor_status[solve_idx] = bdsv_status::SKIPPED; }
+                return;
+        }
+
+        extern __shared__ T s_mem[];
+
+        T* d_S_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
+
+        // negate the strips in place: (−S) is SPD (stored S is the negated Schur)
+        for (uint32_t i = rank; i < BLOCK_ROW_SIZE * KNOT_POINTS; i += size) { d_S_matrix[i] = -d_S_matrix[i]; }
+        __syncthreads();
+
+        __shared__ int s_fail;
+        if (rank == 0) { s_fail = 0; }
+        __syncthreads();
+        glass::bdsv_factor<T, KNOT_POINTS, STATE_SIZE, /*CHECK=*/true>(d_S_matrix, s_mem, &s_fail);
+        __syncthreads();
+        if (s_fail) {  // scrub the factor's NaN smem staging (persists on the SM — see monolithic kernel header)
+                glass::set_const<T>(2 * STATE_SIZE * STATE_SIZE, static_cast<T>(0), s_mem);
+                __syncthreads();
+                if (rank == 0) { d_factor_status[solve_idx] = bdsv_status::NON_PD; }
+                return;
+        }
+
+        if (rank == 0) { d_factor_status[solve_idx] = bdsv_status::OK; }
+}
+
+template<typename T>
+__global__ __launch_bounds__(BDSV_THREADS) void solveBDSVFactoredBatchedKernel(uint32_t* __restrict__      d_iterations,
+                                                                               T* __restrict__             d_x_batch,
+                                                                               const T* __restrict__       d_A_batch,  // factored strips (read-only)
+                                                                               const T* __restrict__       d_rhs_batch,
+                                                                               const int32_t* __restrict__ d_factor_status,
+                                                                               const int32_t* __restrict__ d_use_bdsv_mask)
+{
+        const uint32_t solve_idx = blockIdx.x;
+        const uint32_t rank = threadIdx.x;
+        const uint32_t size = blockDim.x;
+        constexpr uint32_t VEC = VEC_SIZE_PADDED;
+
+        if (d_use_bdsv_mask && !d_use_bdsv_mask[solve_idx]) { return; }  // not ours: no writes at all
+
+        const int32_t status = d_factor_status[solve_idx];
+        if (status == bdsv_status::SKIPPED) {
+                if (rank == 0) { d_iterations[solve_idx] = 0; }
+                return;
+        }
+        if (status != bdsv_status::OK) {  // non-PD factor: x untouched, skip visible in stats
+                if (rank == 0) { d_iterations[solve_idx] = 2; }
+                return;
+        }
+
+        extern __shared__ T s_mem[];
+
+        const T* d_S_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
+        const T* d_rhs_vector = getOffsetStatePadded<T>(d_rhs_batch, solve_idx, 0) - STATE_SIZE;
+        T*       d_x_vector = getOffsetStatePadded<T>(d_x_batch, solve_idx, 0) - STATE_SIZE;
+
+        for (uint32_t i = rank; i < VEC; i += size) { d_x_vector[i] = -d_rhs_vector[i]; }  // x ← −rhs (pads stay 0)
+        __syncthreads();
+        glass::bdsv_solve<T, KNOT_POINTS, STATE_SIZE>(d_S_matrix, d_x_vector, s_mem);
+        __syncthreads();
+
+        if (rank == 0) { d_iterations[solve_idx] = 1; }
+}
+
+template<typename T>
+__host__ size_t getFactorBDSVBatchedSMemSize()
+{
+        return glass::bdsv_scratch_bytes<T, STATE_SIZE>();
+}
+
+template<typename T>
+__host__ size_t getSolveBDSVFactoredBatchedSMemSize()
+{
+        return glass::bdsv_scratch_bytes<T, STATE_SIZE>();
+}
+
+template<typename T>
+__host__ void factorBDSVBatched(uint32_t batch_size, SchurSystem<T> schur, int32_t* d_factor_status, const int32_t* d_kkt_converged_batch, const int32_t* d_use_bdsv_mask = nullptr)
+{
+        dim3           grid(batch_size);
+        dim3           thread_block(BDSV_THREADS);
+        const uint32_t s_mem_size = getFactorBDSVBatchedSMemSize<T>();
+
+        factorBDSVBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch, d_use_bdsv_mask);
+}
+
+// d_rhs_batch uses gamma's padded layout + stored-γ sign convention; pass
+// schur.d_gamma_batch for the plain Schur solve, or the ADMM iteration's own
+// RHS buffer for factor-reuse solves.
+template<typename T>
+__host__ void solveBDSVFactoredBatched(uint32_t batch_size, T* d_x_batch, SchurSystem<T> schur, const T* d_rhs_batch, const int32_t* d_factor_status, uint32_t* d_iterations, const int32_t* d_use_bdsv_mask = nullptr)
+{
+        dim3           grid(batch_size);
+        dim3           thread_block(BDSV_THREADS);
+        const uint32_t s_mem_size = getSolveBDSVFactoredBatchedSMemSize<T>();
+
+        solveBDSVFactoredBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status, d_use_bdsv_mask);
 }
