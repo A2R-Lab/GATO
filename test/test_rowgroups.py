@@ -165,6 +165,35 @@ def test_relaxed_barrier_infeasible_start_no_nan(make_solver, smallest_module):
     assert np.isfinite(res.stats.final_merit).all()
 
 
+def test_certificate_matches_telemetry(make_solver, smallest_module):
+    """python/gato/certificate.py (the kkt_certificate port) must agree with
+    the on-device telemetry on primal violation, per group and per batch."""
+    from gato.certificate import kkt_residuals, certify
+
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+    s = make_solver(plant, N, batch_size=B)
+    s.enable_limit_telemetry()
+    res = s.solve(X, goals)
+    groups = s.get_row_groups()
+
+    for b in range(B):
+        r = kkt_residuals(groups, res.xu[b].astype(np.float64), res.nx, res.nu)
+        assert r["dual"] is None  # no row duals until CL-1
+        np.testing.assert_allclose(r["primal"], res.stats.row_max_violation[:, b].max(),
+                                   rtol=1e-6, atol=1e-7)
+        for g in range(len(groups)):
+            np.testing.assert_allclose(r["per_group"][g]["primal"],
+                                       res.stats.row_max_violation[g, b],
+                                       rtol=1e-6, atol=1e-7)
+
+    # gate wrapper runs end-to-end (pass/fail depends on the problem; just
+    # exercise it and check the tuple shape)
+    r, ok = certify(res, groups, b=0)
+    assert isinstance(ok, (bool, np.bool_)) and "primal" in r
+
+
 def test_telemetry_deterministic(make_solver, smallest_module):
     plant, N = smallest_module
     B = 4
