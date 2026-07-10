@@ -74,3 +74,4 @@ examples/paper-figures/overnight_logs/
 
 # bdsv timing session module stashes (rebuilt artifacts)
 examples/benchmarks/data/bdsv_timing/so_*/
+examples/benchmarks/data/constraint_eval/
