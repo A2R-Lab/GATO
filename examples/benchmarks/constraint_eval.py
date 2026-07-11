@@ -59,13 +59,13 @@ PLANTS = {
 # entirely inside the over-damped regime.
 MECHANISMS = {
     "baseline": {},
-    "rb": dict(mu=1e-2, delta=0.1),
+    "rb": dict(mu=3e-3, delta=0.05),
     "admm": dict(rho=0.01, iters=10),
     "admm_m": dict(rho=0.01, iters=10, merit=True),     # + set_admm_merit (R1 ablation)
-    "al": dict(rho=100.0),
+    "al": dict(rho=1.0),
     "admm_ee": dict(rho=0.01, iters=10, ee_rho=10.0),   # reach only
     "admm_m_ee": dict(rho=0.01, iters=10, ee_rho=10.0, merit=True),  # reach only
-    "al_ee": dict(rho=100.0, ee_rho=100.0),             # reach only
+    "al_ee": dict(rho=1.0, ee_rho=1.0),                 # reach only
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"]}

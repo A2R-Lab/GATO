@@ -306,7 +306,7 @@ class BSQP:
         with it on or off. Part of the constraint row-group layer (CL-0)."""
         self.solver.enable_limit_telemetry()
 
-    def enable_limit_barrier(self, mu=1e-2, delta=0.1):
+    def enable_limit_barrier(self, mu=3e-3, delta=0.05):
         """Bind the limit row-groups to the RELAXED log-barrier mechanism: a
         C² barrier with bounded Hessian (quadratic extension within ``delta``
         of a bound) folded into the KKT cost and merit — infeasible-start safe,
@@ -332,7 +332,7 @@ class BSQP:
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
         self.solver.enable_limit_admm(float(rho), int(iters))
 
-    def enable_limit_al(self, rho=100.0):
+    def enable_limit_al(self, rho=1.0):
         """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
         hinge-activated grad/GN-Hessian and C¹ AL value folded into the KKT
         cost and merit, with the outer dual update
@@ -348,7 +348,13 @@ class BSQP:
         adaptation — both required for outer convergence (measured; see
         bsqp.cuh dispatch comments). REQUIRES the trust-region floor
         (constructor rho > 0, the default): f32 bdsv on an unregularized
-        Schur system returns garbage steps (R1)."""
+        Schur system returns garbage steps (R1). R1 default rho=1.0 — the
+        fold lands rho on ACTIVE rows whose natural Hessian scale is tiny
+        (qd rows ~1e-4): rho >= 10 makes the f32 factor error large enough
+        that closed-loop MPC destabilizes on tight-limit plants (measured:
+        iiwa14 pickplace spins at 100 rad/s at rho=100, final 5mm at
+        rho=1). Higher rho = tighter transients — raise it only within the
+        f32 ceiling (rho ~ 1e4 x the block's natural Hessian scale)."""
         self.solver.enable_limit_al(float(rho))
 
     def enable_ee_terminal_equality(self, target, rho=10.0):
@@ -363,9 +369,10 @@ class BSQP:
         (linearized inner-loop projection: z pins to target, y accumulates
         the equality multiplier), telemetry-only reporting otherwise. Call
         AFTER enable_limit_* — mechanism enables reinstall the canonical
-        groups and drop appended ones. R1 binding ruling: use ADMM for
-        closed-loop MPC (2mm finals measured); AL-EE equality diverges in
-        closed loop (R2 diagnosis pending)."""
+        groups and drop appended ones. R1 binding ruling: ADMM binding measured
+        best for closed-loop MPC (2mm finals at rho=10); AL binding works at
+        SOFT rho (al rho=1, ee rho=1: ~5mm finals) — at rho=100 the equality
+        multiplier winds up through the f32 factor error and diverges."""
         self.solver.enable_ee_terminal_equality(
             np.asarray(target, dtype=np.float32).reshape(3), float(rho))
 
