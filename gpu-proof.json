@@ -12,7 +12,7 @@
   },
   "fingerprint": {
     "algorithm": "sha256",
-    "digest": "df62bc89b4d944e9c96c16501b8d2a875e02455598bf8575e3d9de3e5ea4fa51",
+    "digest": "b24d5e37a4df55b6f2d937f90cc82dc25d680d723c18fad3ae227d2966128a10",
     "file_count": 57,
     "included_paths": [
       "CMakeLists.txt",
@@ -24,14 +24,14 @@
   "mode": "local",
   "repo": {
     "branch": "cleanup-modernization",
-    "commit_sha": "4acaed3c8373c3d98d3bd0bc26a1c5e5366e1662",
+    "commit_sha": "eefba97464928ac599a2f79400d08c0e05ff492a",
     "dirty": false,
     "github_username": "plancherb1",
     "remote_url": "git@github.com:A2R-Lab/GATO.git"
   },
   "schema_version": "1",
   "session": {
-    "ended_at": "2026-07-11T01:29:25Z",
+    "ended_at": "2026-07-11T03:12:53Z",
     "node_ids": [
       "test/test_bindings_shapes.py::test_wrong_state_width_raises",
       "test/test_bindings_shapes.py::test_wrong_traj_width_raises",
@@ -95,7 +95,8 @@
       "test/test_rowgroups.py::test_set_row_group_bounds_roundtrip",
       "test/test_rowgroups.py::test_ee_telemetry_matches_pinocchio",
       "test/test_rowgroups.py::test_ee_equality_al_converges_when_reachable",
-      "test/test_rowgroups.py::test_ee_equality_admm_mode_raises",
+      "test/test_rowgroups.py::test_ee_equality_admm_converges_when_reachable",
+      "test/test_rowgroups.py::test_ee_admm_certificate_and_determinism",
       "test/test_rowgroups.py::test_ee_certificate_and_determinism",
       "test/test_rowgroups.py::test_telemetry_deterministic",
       "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-8]",
@@ -123,14 +124,14 @@
       "test/test_smoke_solve.py::test_per_knot_weights_match_scalar_path",
       "test/test_smoke_solve.py::test_arbitrary_batch_size"
     ],
-    "started_at": "2026-07-11T01:28:55Z"
+    "started_at": "2026-07-11T03:12:21Z"
   },
   "signature": {
     "algorithm": "ed25519",
     "backend": "ssh-local",
     "key_fingerprint": "SHA256:hfyUcDJTDLry3j7nJ9V2X8iEIgNFmFJQKGQirOdyWtY",
     "signer": "plancherb1",
-    "value": "/UXseGgoW0HOl13lOYrYN1mxuyNsxZSYuu4UID1oQBVJ0W5LH0bH5QHAUjTkRTDDE8AtFw5mF1KzznPosJNpCw=="
+    "value": "MjGuQWadfvcU+/qIFW/jmB0zVrsR2MI96aj2A8jCCrHKxGeR/7YDzhe69XY1n5YHcnWM3w3SX5yqyDHl9ZsmAQ=="
   },
   "tests": [
     {
@@ -165,37 +166,37 @@
     },
     {
       "checks": [],
-      "duration_s": 21.9905,
+      "duration_s": 23.4361,
       "node_id": "test/test_build.py::test_build_end_to_end",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 2.9501,
+      "duration_s": 3.1159,
       "node_id": "test/test_codegen.py::test_regen_matches_vendored[indy7]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 3.5444,
+      "duration_s": 3.8686,
       "node_id": "test/test_codegen.py::test_regen_matches_vendored[iiwa14]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0179,
+      "duration_s": 0.0187,
       "node_id": "test/test_codegen.py::test_unbounded_joint_rejected",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0042,
+      "duration_s": 0.0044,
       "node_id": "test/test_common.py::test_figure8_shape_and_tiling",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0057,
+      "duration_s": 0.0059,
       "node_id": "test/test_common.py::test_figure8_rotation_is_pure_z",
       "outcome": "passed"
     },
@@ -225,7 +226,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0044,
+      "duration_s": 0.0047,
       "node_id": "test/test_controller.py::test_step_result_wiring",
       "outcome": "passed"
     },
@@ -237,19 +238,19 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0031,
+      "duration_s": 0.0034,
       "node_id": "test/test_controller.py::test_hold_warm_start",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0012,
+      "duration_s": 0.0015,
       "node_id": "test/test_controller.py::test_warm_start_mode_validated",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0489,
+      "duration_s": 0.0891,
       "node_id": "test/test_mechanism_oracles.py::test_admm_interval_kkt[0]",
       "outcome": "passed"
     },
@@ -285,25 +286,25 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0011,
+      "duration_s": 0.001,
       "node_id": "test/test_mechanism_oracles.py::test_al_phr_matches_admm[2]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0013,
+      "duration_s": 0.0012,
       "node_id": "test/test_mechanism_oracles.py::test_al_phr_matches_admm[3]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.1116,
+      "duration_s": 0.0786,
       "node_id": "test/test_mechanism_oracles.py::test_admm_scipy_crosscheck",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0007,
+      "duration_s": 0.0008,
       "node_id": "test/test_mechanism_oracles.py::test_admm_dual_warm_start",
       "outcome": "passed"
     },
@@ -315,7 +316,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0007,
+      "duration_s": 0.0008,
       "node_id": "test/test_mechanism_oracles.py::test_certificate_dual_axes_with_real_multipliers",
       "outcome": "passed"
     },
@@ -381,7 +382,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0777,
+      "duration_s": 0.0812,
       "node_id": "test/test_packaging.py::test_import_without_heavy_deps",
       "outcome": "passed"
     },
@@ -411,259 +412,265 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0091,
+      "duration_s": 0.0093,
       "node_id": "test/test_rowgroups.py::test_telemetry_off_the_solver_path",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0015,
+      "duration_s": 0.0017,
       "node_id": "test/test_rowgroups.py::test_limit_bounds_match_urdf",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0045,
+      "duration_s": 0.0048,
       "node_id": "test/test_rowgroups.py::test_telemetry_matches_numpy_oracle",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0055,
+      "duration_s": 0.0059,
       "node_id": "test/test_rowgroups.py::test_relaxed_barrier_changes_solution_and_stays_finite",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0028,
+      "duration_s": 0.003,
       "node_id": "test/test_rowgroups.py::test_relaxed_barrier_infeasible_start_no_nan",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0036,
+      "duration_s": 0.0039,
       "node_id": "test/test_rowgroups.py::test_certificate_matches_telemetry",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0101,
+      "duration_s": 0.0105,
       "node_id": "test/test_rowgroups.py::test_admm_enforces_boxes",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0544,
+      "duration_s": 0.0555,
       "node_id": "test/test_rowgroups.py::test_admm_deterministic_and_warmstart_stable",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0263,
+      "duration_s": 0.0269,
       "node_id": "test/test_rowgroups.py::test_al_enforces_boxes",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.124,
+      "duration_s": 0.125,
       "node_id": "test/test_rowgroups.py::test_al_holds_binding_optimum",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0161,
+      "duration_s": 0.0168,
       "node_id": "test/test_rowgroups.py::test_al_deterministic_and_duals",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0375,
+      "duration_s": 0.0378,
       "node_id": "test/test_rowgroups.py::test_al_no_drift_at_insufficient_rho",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0115,
+      "duration_s": 0.0119,
       "node_id": "test/test_rowgroups.py::test_certificate_dual_axes_with_al",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0015,
+      "duration_s": 0.0018,
       "node_id": "test/test_rowgroups.py::test_set_row_group_bounds_roundtrip",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0034,
+      "duration_s": 0.0038,
       "node_id": "test/test_rowgroups.py::test_ee_telemetry_matches_pinocchio",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0091,
+      "duration_s": 0.0094,
       "node_id": "test/test_rowgroups.py::test_ee_equality_al_converges_when_reachable",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0013,
-      "node_id": "test/test_rowgroups.py::test_ee_equality_admm_mode_raises",
+      "duration_s": 0.0414,
+      "node_id": "test/test_rowgroups.py::test_ee_equality_admm_converges_when_reachable",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0097,
+      "duration_s": 0.0192,
+      "node_id": "test/test_rowgroups.py::test_ee_admm_certificate_and_determinism",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0104,
       "node_id": "test/test_rowgroups.py::test_ee_certificate_and_determinism",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0061,
+      "duration_s": 0.0068,
       "node_id": "test/test_rowgroups.py::test_telemetry_deterministic",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0058,
+      "duration_s": 0.0065,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-8]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0099,
+      "duration_s": 0.0111,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-16]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0147,
+      "duration_s": 0.0157,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-32]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0187,
+      "duration_s": 0.0202,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-46]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0321,
+      "duration_s": 0.0338,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-64]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0857,
+      "duration_s": 0.087,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-iiwa14-128]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0076,
+      "duration_s": 0.0085,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-indy7-8]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0093,
+      "duration_s": 0.0104,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-indy7-16]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.013,
+      "duration_s": 0.0143,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-indy7-32]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0277,
+      "duration_s": 0.0291,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-indy7-64]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0533,
+      "duration_s": 0.0547,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-indy7-128]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0066,
+      "duration_s": 0.0071,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-8]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.009,
+      "duration_s": 0.01,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-16]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0155,
+      "duration_s": 0.0165,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-32]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0213,
+      "duration_s": 0.0224,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-46]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0439,
+      "duration_s": 0.045,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-64]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.1236,
+      "duration_s": 0.1243,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-iiwa14-128]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0067,
+      "duration_s": 0.0074,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-8]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0083,
+      "duration_s": 0.0091,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-16]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0128,
+      "duration_s": 0.0135,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-32]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0312,
+      "duration_s": 0.032,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-64]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0738,
+      "duration_s": 0.0742,
       "node_id": "test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-128]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0087,
+      "duration_s": 0.009,
       "node_id": "test/test_smoke_solve.py::test_per_knot_weights_match_scalar_path",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0033,
+      "duration_s": 0.0037,
       "node_id": "test/test_smoke_solve.py::test_arbitrary_batch_size",
       "outcome": "passed"
     }
