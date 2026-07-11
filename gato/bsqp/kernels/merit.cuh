@@ -93,6 +93,14 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                 const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
                 const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
                 cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1));
+                // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
+                // value — the fold linearizes, the merit must not). s_temp is free
+                // between trackingCostValue and the constraint-error section, and
+                // trackingCostValue_TempMemCt >= the EE value carve.
+                if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                        __syncthreads();
+                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model);
+                }
         }
 
         // constraint error

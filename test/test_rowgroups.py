@@ -389,6 +389,103 @@ def test_set_row_group_bounds_roundtrip(make_solver, smallest_module):
         s.set_row_group_bounds(7, lo, hi)  # out of range
 
 
+def _solver_frame_target(s, plant, delta=(0.02, -0.02, -0.03)):
+    """A nearby EE target in the SOLVER's frame (see BSQP.ee_pos)."""
+    q0 = np.asarray(START[plant], dtype=np.float64)
+    return (s.ee_pos(q0, frame="solver") + np.asarray(delta)).astype(np.float32)
+
+
+def test_ee_telemetry_matches_pinocchio(make_solver, smallest_module):
+    """EE_POS rows (the first non-selection kind, cooperative on-device FK):
+    reported violation == |pin_ee(q_N) - target| in the SOLVER frame (the
+    last-moving-joint origin — the frame the device FK evaluates; the
+    URDF ee_frame fixed-joint offset is dropped by the generated grid.cuh,
+    measured 4-6 cm z on the vendored robots)."""
+    pytest.importorskip("pinocchio")
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+    s = make_solver(plant, N, batch_size=B)
+    target = _solver_frame_target(s, plant)
+    s.enable_limit_telemetry()
+    s.enable_ee_terminal_equality(target, rho=100.0)
+    res = s.solve(X, goals)
+    assert len(s.get_row_groups()) == 4 and s.get_row_groups()[3]["kind"] == 3
+
+    step = res.nx + res.nu
+    for b in range(B):
+        qN = res.xu[b, (N - 1) * step:(N - 1) * step + res.nx // 2].astype(np.float64)
+        oracle = np.abs(s.ee_pos(qN, frame="solver") - target.astype(np.float64)).max()
+        np.testing.assert_allclose(res.stats.row_max_violation[3, b], oracle,
+                                   rtol=1e-5, atol=1e-6)
+
+
+def test_ee_equality_al_converges_when_reachable(make_solver, smallest_module):
+    """AL-bound EE terminal equality: with the tracking goal AT the target
+    (reachable), warm-started solves drive the EE violation from decimeters
+    to centimeters (measured 0.186 -> 0.017 on indy7). Conflict-regime
+    convergence (goal far from target) is an R1 outer-loop question — the
+    acceptance gate freezes duals there rather than risk runaway."""
+    pytest.importorskip("pinocchio")
+    plant, N = smallest_module
+    B = 4
+    X, _ = _inputs(plant, N, B)
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    target = _solver_frame_target(s, plant)
+    goals = np.zeros((B, N * 6), dtype=np.float32)
+    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = target[0], target[1], target[2]
+
+    s.enable_limit_al(rho=1.0)
+    s.enable_ee_terminal_equality(target, rho=1.0)
+    first = s.solve(X, goals)
+    for _ in range(10):
+        r = s.solve(X, goals)
+
+    assert np.isfinite(r.xu).all()
+    assert r.stats.row_max_violation[3].max() < 0.05
+    # warm solves never worsen it; when solve 1 lands far (indy7: 0.186) they
+    # must improve it substantially (measured -> 0.017)
+    v1, vk = first.stats.row_max_violation[3].max(), r.stats.row_max_violation[3].max()
+    assert vk <= 1.05 * v1
+    if v1 > 0.06:
+        assert vk < 0.5 * v1
+
+
+def test_ee_equality_admm_mode_raises(make_solver, smallest_module):
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    s.enable_limit_admm(rho=10.0, iters=5)
+    with pytest.raises(Exception):
+        s.enable_ee_terminal_equality(np.zeros(3, np.float32), rho=10.0)
+
+
+def test_ee_certificate_and_determinism(make_solver, smallest_module):
+    from gato.certificate import kkt_residuals
+
+    pytest.importorskip("pinocchio")
+    plant, N = smallest_module
+    B = 2
+    X, goals = _inputs(plant, N, B)
+
+    def run():
+        s = make_solver(plant, N, batch_size=B, max_sqp_iters=6)
+        target = _solver_frame_target(s, plant)
+        s.enable_limit_al(rho=1.0)
+        s.enable_ee_terminal_equality(target, rho=1.0)
+        for _ in range(3):
+            r = s.solve(X, goals)
+        return s, r
+
+    (sa, ra), (sb, rb) = run(), run()
+    np.testing.assert_array_equal(ra.xu, rb.xu)  # bit-deterministic with EE rows
+
+    groups = sa.get_row_groups()
+    fk = lambda q: sa.ee_pos(q, frame="solver")
+    r = kkt_residuals(groups, ra.xu[0].astype(np.float64), ra.nx, ra.nu, ee_fk=fk)
+    np.testing.assert_allclose(r["per_group"][3]["primal"],
+                               ra.stats.row_max_violation[3, 0], rtol=1e-5, atol=1e-6)
+
+
 def test_telemetry_deterministic(make_solver, smallest_module):
     plant, N = smallest_module
     B = 4

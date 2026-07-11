@@ -342,6 +342,20 @@ class BSQP:
         bsqp.cuh dispatch comments)."""
         self.solver.enable_limit_al(float(rho))
 
+    def enable_ee_terminal_equality(self, target, rho=100.0):
+        """Append an EE terminal-position equality row-group: the returned
+        trajectory's final-knot EE position is constrained to ``target`` (xyz,
+        ``lo == hi``). The first non-selection row kind — evaluated by
+        on-device FK, in the SOLVER's EE frame (``ee_pos(q, frame="solver")``
+        — the same frame the tracking cost optimizes; see ee_pos for the
+        frame-offset caveat). Mechanism follows the current mode: AL when
+        enable_limit_al() is active (always-active equality, signed
+        multiplier in lam_hi), telemetry-only reporting otherwise. ADMM-EE
+        is not yet supported (raises). Call AFTER enable_limit_* — mechanism
+        enables reinstall the canonical groups and drop appended ones."""
+        self.solver.enable_ee_terminal_equality(
+            np.asarray(target, dtype=np.float32).reshape(3), float(rho))
+
     def disable_row_groups(self):
         """Remove all constraint row-groups (stats lose the row_* fields)."""
         self.solver.disable_row_groups()
@@ -393,16 +407,24 @@ class BSQP:
     def clear_cost_weights_per_knot(self):
         self.solver.clear_cost_weights_per_knot()
 
-    def ee_pos(self, q):
-        # Measure the SAME frame the solver optimizes (URDF "EE"), not the last
-        # joint origin, so the success/tracking metric matches the cost the solver
-        # actually minimizes (see ee_frame_id resolution in __init__).
+    def ee_pos(self, q, frame="ee"):
+        """EE position via pinocchio FK.
+
+        frame="ee": the URDF ee_frame (fixed-joint child, e.g. tcp).
+        frame="solver": the LAST MOVING JOINT origin — the frame the device
+        FK (tracking cost AND EE row-groups) actually evaluates. MEASURED:
+        the generated grid.cuh end_effector_pose drops the terminal
+        fixed-joint origin (indy7: 6 cm z, iiwa14: 4 cm z), so these frames
+        differ by that constant transform; device == "solver" to f32
+        precision (~1e-7). Upstream fix (GCG named-target alias) pending —
+        until then EE equality targets must be given in the solver frame.
+        """
         pin = _require_pin()
         pin.forwardKinematics(self.model, self.data, q)
-        if self.ee_frame_id is not None:
-            pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)
-            return self.data.oMf[self.ee_frame_id].translation
-        return self.data.oMi[self.model.njoints - 1].translation
+        if frame == "solver" or self.ee_frame_id is None:
+            return np.array(self.data.oMi[self.model.njoints - 1].translation)
+        pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)
+        return np.array(self.data.oMf[self.ee_frame_id].translation)
 
     def reset(self):
         self.reset_dual()

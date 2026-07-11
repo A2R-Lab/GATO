@@ -291,5 +291,75 @@ namespace plant {
                 __syncthreads();
         }
 
+        // ===================================================================
+        // RAW EE-pose evaluators (constraint row-group layer)
+        //
+        // Caller-scratch mirrors of grid_plant::ee_pos_cost[_gradient] minus the
+        // cost math: carve the GRiD EE arena from s_scratch and call the
+        // composable _inner entry points (NOT the auto-allocating _device
+        // variants, which claim the kernel's dynamic-smem arena at offset 0).
+        // s_scratch must be 16B-aligned and hold >= eePos[Grad]_TempMemCt()
+        // elements. Outputs: s_pose = 6*NEE (position = rows 0..2 per EE);
+        // s_grad = 6*NQ*NEE, layout [6*NQ*ee + 6*vi + row] (J_p = rows 0..2).
+        // Upstream ask logged: first-class raw evaluators in grid_plant.
+        // ===================================================================
+
+        template<typename T>
+        __host__ __device__ constexpr unsigned eePos_TempMemCt()
+        {
+                return grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT;
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned eePosGrad_TempMemCt()
+        {
+                return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
+        }
+
+        template<typename T>
+        __device__ void eePos(T* s_pose, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        {
+                using namespace grid;
+                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
+                size_t         off = grid_align_up(0, alignof(T));
+                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(128);
+                off = grid_align_up(off, alignof(T));
+                T* s_temp = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(32);
+                int*           s_topology_helpers = nullptr;
+                unsigned char* s_linalg_smem = nullptr;
+                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                        off = grid_align_up(off, static_cast<size_t>(16));
+                        s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
+                }
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                end_effector_pose_inner<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                __syncthreads();
+        }
+
+        template<typename T>
+        __device__ void eePosGrad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        {
+                using namespace grid;
+                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
+                size_t         off = grid_align_up(0, alignof(T));
+                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(128);
+                off = grid_align_up(off, alignof(T));
+                T* s_temp = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(168);
+                int*           s_topology_helpers = nullptr;
+                unsigned char* s_linalg_smem = nullptr;
+                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                        off = grid_align_up(off, static_cast<size_t>(16));
+                        s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
+                }
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                end_effector_pose_inner<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                __syncthreads();
+                end_effector_pose_gradient_inner<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                __syncthreads();
+        }
+
 }  // namespace plant
 }  // namespace gato

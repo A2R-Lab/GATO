@@ -198,6 +198,34 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(h_out, d_row_groups_, rows::MAX_ROW_GROUPS * sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
         }
 
+        // Append an EE terminal-position equality group (kind EE_POS, lo == hi
+        // = target, knot K-1 only): the first non-selection row kind, evaluated
+        // by cooperative FK (rowgroups.cuh EE sites). Mechanism follows the
+        // current mode: MECH_AL when AL is active (always-active equality,
+        // signed multiplier), MECH_TELEMETRY otherwise (honest reporting).
+        // ADMM-EE is a CL-1 follow-up — enabling it here throws. Call AFTER
+        // enable_limit_* (mechanism enables reinstall the canonical 3 groups,
+        // dropping appended ones).
+        void enable_ee_terminal_equality(const T* h_target /* xyz */, T rho)
+        {
+                if (admm_active_) { throw std::invalid_argument("enable_ee_terminal_equality: EE rows via ADMM are not yet supported; use enable_limit_al or telemetry"); }
+                if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_ee_terminal_equality: rho must be > 0"); }
+                if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("enable_ee_terminal_equality: row-group table full"); }
+                rows::RowGroupDesc<T> h_grp;
+                memset(&h_grp, 0, sizeof(h_grp));
+                h_grp.kind = rows::EE_POS;
+                h_grp.block = rows::BLOCK_X;
+                h_grp.mech = al_active_ ? rows::MECH_AL : rows::MECH_TELEMETRY;
+                h_grp.n_rows = 3;
+                h_grp.knot_lo = KNOT_POINTS - 1;
+                h_grp.knot_hi = KNOT_POINTS;
+                h_grp.mu = rho;
+                h_grp.delta = static_cast<T>(0);
+                for (int i = 0; i < 3; i++) { h_grp.lo[i] = h_target[i]; h_grp.hi[i] = h_target[i]; }
+                gpuErrchk(cudaMemcpy(d_row_groups_ + n_row_groups_, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
+                n_row_groups_ += 1;
+        }
+
         // Override one group's interval bounds in place (n_rows each; lo == hi
         // rows become always-active equalities under MECH_AL). ADMM z must
         // re-clip to the new interval, so its state reinitializes next solve.
@@ -393,7 +421,7 @@ class BSQP {
                 // row-group telemetry on the RETURNED trajectory (off the solver path;
                 // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
                 if (n_row_groups_ > 0) {
-                        rows::rowGroupTelemetryBatched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch);
+                        rows::rowGroupTelemetryBatched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch, d_GRiD_mem_);
                         // AL outer dual update ONCE per solve, on the FINAL trajectory
                         // (rowgroups.cuh). The whole solve is the inner minimization —
                         // per-SQP-iteration updates diverge (a damped/rejected step is
@@ -405,7 +433,7 @@ class BSQP {
                         // telemetry kernel (same stream) — it reads the fresh per-group
                         // violations for the true-violation acceptance gate.
                         if (al_active_) {
-                                rows::alDualUpdateBatched<T>(batch_size_, d_lam_hi_, d_lam_lo_, d_al_prev_viol_, d_row_telemetry_, d_xu_traj_batch, d_row_groups_, n_row_groups_);
+                                rows::alDualUpdateBatched<T>(batch_size_, d_lam_hi_, d_lam_lo_, d_al_prev_viol_, d_row_telemetry_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_);
                         }
                         gpuErrchk(cudaDeviceSynchronize());
                 }

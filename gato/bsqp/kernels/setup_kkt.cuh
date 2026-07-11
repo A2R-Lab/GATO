@@ -133,6 +133,14 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         // (no control there; the c_0 __syncthreads below covers the writes)
                         if (n_row_groups > 0) {
                                 gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, /*has_control=*/false);
+                                // EE_POS rows (cooperative FK; dense J^T J fold — v1 installs
+                                // them terminal-only, so this is their single fold site).
+                                // s_temp is free here (trackingCostGradHess above is done) and
+                                // trackingCostGradHess_TempMemCt >= the EE grad carve.
+                                if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                        __syncthreads();  // s_Q_last/s_q_last selection writes above
+                                        gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel);
+                                }
                         }
 
                         // c_0 = x_0 - x_s

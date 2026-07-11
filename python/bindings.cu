@@ -243,6 +243,12 @@ class PyBSQP {
         void enable_limit_barrier(T mu, T delta) { solver_.enable_limit_barrier(mu, delta); }
         void enable_limit_admm(T rho, uint32_t iters) { solver_.enable_limit_admm(rho, iters); }
         void enable_limit_al(T rho) { solver_.enable_limit_al(rho); }
+        void enable_ee_terminal_equality(py::array_t<T> target, T rho)
+        {
+                py::buffer_info buf = target.request();
+                if (buf.size != 3) { throw py::value_error("enable_ee_terminal_equality: target must be xyz (3 elements)"); }
+                solver_.enable_ee_terminal_equality(static_cast<T*>(buf.ptr), rho);
+        }
         void disable_row_groups() { solver_.disable_row_groups(); }
 
         // per-solve row-state pair, dense row_state_index layout
@@ -383,6 +389,7 @@ class PyBSQP {
             .def("enable_limit_barrier", &PyBSQP<Type>::enable_limit_barrier, py::arg("mu"), py::arg("delta"))                                                                                         \
             .def("enable_limit_admm", &PyBSQP<Type>::enable_limit_admm, py::arg("rho"), py::arg("iters"))                                                                                              \
             .def("enable_limit_al", &PyBSQP<Type>::enable_limit_al, py::arg("rho"))                                                                                                                    \
+            .def("enable_ee_terminal_equality", &PyBSQP<Type>::enable_ee_terminal_equality, py::arg("target"), py::arg("rho"))                                                                         \
             .def("disable_row_groups", &PyBSQP<Type>::disable_row_groups)                                                                                                                              \
             .def("get_row_groups", &PyBSQP<Type>::get_row_groups)                                                                                                                                      \
             .def("get_row_duals", &PyBSQP<Type>::get_row_duals)                                                                                                                                        \

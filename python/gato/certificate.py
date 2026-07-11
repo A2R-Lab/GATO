@@ -17,11 +17,14 @@ Numpy-only — usable as a pytest gate and from notebooks.
 """
 import numpy as np
 
-KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U = 0, 1, 2
+KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U, KIND_EE_POS = 0, 1, 2, 3
 
 
-def row_values(group, xu, nx, nu):
-    """(n_knots, n_rows) g values of one row-group over a flat trajectory row."""
+def row_values(group, xu, nx, nu, ee_fk=None):
+    """(n_knots, n_rows) g values of one row-group over a flat trajectory row.
+
+    ee_fk: callable q -> xyz for KIND_EE_POS rows (e.g. ``BSQP.ee_pos``);
+    required when the group is an EE group."""
     nq = nx // 2
     step = nx + nu
     ks = range(group["knot_lo"], group["knot_hi"])
@@ -35,17 +38,22 @@ def row_values(group, xu, nx, nu):
             out[j] = xu[base + nq:base + nx]
         elif kind == KIND_BOX_U:
             out[j] = xu[base + nx:base + nx + nu]
+        elif kind == KIND_EE_POS:
+            if ee_fk is None:
+                raise ValueError("KIND_EE_POS rows need ee_fk (q -> xyz), e.g. BSQP.ee_pos")
+            out[j] = np.asarray(ee_fk(xu[base:base + nq]), dtype=np.float64)[:group["n_rows"]]
         else:
             raise ValueError(f"unknown row-group kind {kind}")
     return out
 
 
-def kkt_residuals(groups, xu, nx, nu, duals=None, active_tol=1e-4):
+def kkt_residuals(groups, xu, nx, nu, duals=None, active_tol=1e-4, ee_fk=None):
     """Certificate for one trajectory row against the installed row-groups.
 
     duals: optional list (one per group) of (n_knots, n_rows) multipliers
-    (CL-1 ADMM/AL state). Returns dict(primal, dual, complementarity,
-    n_active, per_group) — dual axes are None without duals.
+    (CL-1 ADMM/AL state). ee_fk: q -> xyz for EE row-groups. Returns
+    dict(primal, dual, complementarity, n_active, per_group) — dual axes are
+    None without duals.
     """
     primal = 0.0
     dual = None if duals is None else 0.0
@@ -53,7 +61,7 @@ def kkt_residuals(groups, xu, nx, nu, duals=None, active_tol=1e-4):
     n_active = 0
     per_group = []
     for gi, grp in enumerate(groups):
-        g = row_values(grp, xu, nx, nu)
+        g = row_values(grp, xu, nx, nu, ee_fk=ee_fk)
         lo = np.asarray(grp["lo"], dtype=np.float64)
         hi = np.asarray(grp["hi"], dtype=np.float64)
         viol = np.maximum(0.0, g - hi) + np.maximum(0.0, lo - g)
@@ -74,14 +82,14 @@ def kkt_residuals(groups, xu, nx, nu, duals=None, active_tol=1e-4):
                 n_active=n_active, per_group=per_group)
 
 
-def certify(result, groups, b=0, duals=None, primal_tol=1e-5, tol=1e-3):
+def certify(result, groups, b=0, duals=None, primal_tol=1e-5, tol=1e-3, ee_fk=None):
     """Gate wrapper: residuals for batch entry ``b`` of a SolveResult + pass/fail.
 
     Passes when primal <= primal_tol and (if duals given) dual/complementarity
     <= tol — the arc's "approximately hard" claim, honestly measured.
     """
     r = kkt_residuals(groups, np.asarray(result.xu[b], dtype=np.float64),
-                      result.nx, result.nu, duals=duals)
+                      result.nx, result.nu, duals=duals, ee_fk=ee_fk)
     ok = r["primal"] <= primal_tol
     if r["dual"] is not None:
         ok = ok and r["dual"] <= tol and r["complementarity"] <= tol
