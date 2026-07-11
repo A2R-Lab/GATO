@@ -350,6 +350,81 @@ def test_al_no_drift_at_insufficient_rho(make_solver, smallest_module):
     assert worst <= max(1.05 * plateau, 1e-4)
 
 
+def test_soft_toggle_elastic_and_hard_parity(make_solver, smallest_module):
+    """set_row_group_soft (TurboMPC delta_xi). ADMM (cold path rides the
+    tight velocity box): smoothed projection admits violation monotonically
+    in 1/sigma (measured hard 1e-5 / sigma=1 0.016 / sigma=0.1 0.122) with
+    the quadratic-slack dual fixed point y = sigma*violation. AL (seeded at
+    the bound-riding optimum, true multiplier lam* ~ 0.03): sigma < lam*
+    caps the multiplier at EXACTLY sigma and lets the bound ride out,
+    trading violation for merit (measured viol 3e-4 -> 1.25, merit
+    24.45 -> 24.35 at sigma = 0.01). sigma = 0 is the exact hard path
+    (bit-identical trajectories)."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    # --- ADMM: smoothed projection on the cold bound-riding path ---
+    def run_admm(sigma):
+        s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+        s.enable_limit_admm(rho=10.0, iters=10)
+        _tighten_qd(s)
+        if sigma is not None:
+            s.set_row_group_soft(1, sigma)
+        for _ in range(8):
+            r = s.solve(X, goals)
+        return s, r
+
+    _, a_hard = run_admm(None)
+    _, a_zero = run_admm(0.0)
+    s_soft, a_soft = run_admm(0.1)
+    _, a_mid = run_admm(1.0)
+    np.testing.assert_array_equal(a_hard.xu, a_zero.xu)  # sigma=0 == hard, bitwise
+
+    av_hard = a_hard.stats.row_max_violation[1].max()
+    av_mid = a_mid.stats.row_max_violation[1].max()
+    av_soft = a_soft.stats.row_max_violation[1].max()
+    assert np.isfinite(a_soft.xu).all()
+    assert av_soft > av_mid > av_hard + 1e-4   # monotone in 1/sigma
+    y_max = np.abs(s_soft.get_admm_state()["y"][:, 1]).max()
+    assert y_max <= 0.1 * av_soft * 2.0        # quadratic slack: y = sigma*viol
+
+    # --- AL: L1 elastic at the seeded binding optimum ---
+    s0 = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    s0.enable_limit_admm(rho=10.0, iters=10)
+    _tighten_qd(s0)
+    for _ in range(20):
+        rad = s0.solve(X, goals)
+
+    def run_al(sigma):
+        s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+        s.enable_limit_al(rho=100.0)
+        _tighten_qd(s)
+        if sigma is not None:
+            s.set_row_group_soft(1, sigma)
+        r = s.solve(X, goals, XU_B=rad.xu.copy())
+        for _ in range(10):
+            r = s.solve(X, goals)
+        return s, r
+
+    _, r_hard = run_al(None)
+    _, r_zero = run_al(0.0)
+    s_al, r_soft = run_al(0.01)  # below the measured multiplier lam* ~ 0.03
+    np.testing.assert_array_equal(r_hard.xu, r_zero.xu)
+
+    v_hard = r_hard.stats.row_max_violation[1].max()
+    v_soft = r_soft.stats.row_max_violation[1].max()
+    assert np.isfinite(r_soft.xu).all()
+    assert v_soft > v_hard + 0.01              # elastic lets the bound ride out
+    duals = s_al.get_row_duals()
+    lam_max = max(duals["lam_hi"][:, 1].max(), duals["lam_lo"][:, 1].max())
+    assert lam_max <= 0.01 + 1e-6              # multiplier caps at EXACTLY sigma
+    # the trade buys merit: elastic must not be worse than hard
+    m_hard = np.mean(np.asarray(r_hard.stats.final_merit, dtype=np.float64))
+    m_soft = np.mean(np.asarray(r_soft.stats.final_merit, dtype=np.float64))
+    assert m_soft <= m_hard + 1e-3
+
+
 def test_certificate_dual_axes_with_al(make_solver, smallest_module):
     """certificate.py's dual/complementarity axes activate with real AL
     multipliers (per-group (n_knots, n_rows) slices of the dense state)."""

@@ -255,6 +255,22 @@ class BSQP {
                 }
         }
 
+        // Soft/slack toggle (TurboMPC delta_xi) for one group: sigma > 0 makes
+        // its rows ELASTIC — AL: L1 slack == effective multiplier saturates at
+        // sigma (outer update caps |lam| <= sigma); ADMM: quadratic slack ==
+        // smoothed z-projection (slope rho/(rho+sigma) past a bound). sigma = 0
+        // restores the exact hard path. Telemetry always reports TRUE violation.
+        void set_row_group_soft(int32_t g, T sigma)
+        {
+                if (g < 0 || g >= n_row_groups_) { throw std::invalid_argument("set_row_group_soft: group index out of range"); }
+                if (!(sigma >= static_cast<T>(0))) { throw std::invalid_argument("set_row_group_soft: sigma must be >= 0"); }
+                rows::RowGroupDesc<T> h_grp;
+                gpuErrchk(cudaMemcpy(&h_grp, d_row_groups_ + g, sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+                h_grp.sigma = sigma;
+                gpuErrchk(cudaMemcpy(d_row_groups_ + g, &h_grp, sizeof(rows::RowGroupDesc<T>), cudaMemcpyHostToDevice));
+                if (admm_active_) { admm_needs_init_ = true; }  // projection semantics changed
+        }
+
         // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
         // pre-hybrid tree), 1 = BDSV (direct block-Cholesky every SQP iteration),
         // 2 = BDSV_FIRST (direct on iteration 0, PCG after — exact-λ warm-start synergy).

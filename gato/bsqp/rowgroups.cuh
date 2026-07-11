@@ -84,6 +84,11 @@ struct RowGroupDesc {
         T       hi[MAX_ROWS_PER_GROUP];
         T       mu;     // MECH_BARRIER_RELAXED weight
         T       delta;  // relaxed-barrier switch distance (> 0)
+        T       sigma;  // soft/slack toggle (TurboMPC delta_xi pattern):
+                        // <= 0 = HARD (exact legacy path); > 0 = elastic
+                        // weight — AL: L1 elastic slack == effective
+                        // multiplier saturates at sigma; ADMM: quadratic
+                        // slack == smoothed z-projection.
 };
 
 // ---- evaluators --------------------------------------------------------
@@ -189,6 +194,16 @@ __device__ __forceinline__ T rb_interval_hess(T g, T lo, T hi, T mu, T delta)
 // (dropping it puts a jump under the line search). The outer update is
 // lam <- max(0, lam + rho c) (equalities unclamped) on the ACCEPTED
 // trajectory. Numpy twin: test/oracles/mechanisms.py::al_phr.
+//
+// SOFT rows (sigma > 0, L1 elastic slack xi >= 0 with weight sigma*xi,
+// minimized analytically): the activation a = lam + rho c SATURATES at
+// sigma. a > sigma =>
+//   phi = sigma c - (sigma - lam)^2 / (2 rho),  dphi/dc = sigma,  hess = 0
+// (equalities symmetric: a < -sigma => phi = -sigma c - (sigma + lam)^2 /
+// (2 rho)). C^1 at |a| == sigma against the quadratic region (checked
+// analytically at both seams). The outer update caps the multiplier at
+// sigma (|lam| <= sigma for equalities) — the elastic problem's multiplier
+// bound. sigma <= 0 keeps the exact hard code path.
 
 template<typename T>
 __device__ __forceinline__ bool is_eq_row(T lo, T hi)
@@ -196,44 +211,68 @@ __device__ __forceinline__ bool is_eq_row(T lo, T hi)
         return isfinite(lo) && lo == hi;
 }
 
+// one hinge side's value with optional elastic saturation (c signed, a = lam + rho c)
 template<typename T>
-__device__ __forceinline__ T al_interval_value(T g, T lo, T hi, T lam_hi, T lam_lo, T rho)
+__device__ __forceinline__ T al_hinge_value(T c, T lam, T rho, T sigma)
+{
+        T a = lam + rho * c;
+        if (a < static_cast<T>(0)) a = static_cast<T>(0);
+        if (sigma > static_cast<T>(0) && a > sigma) {
+                const T d = sigma - lam;
+                return sigma * c - d * d / (static_cast<T>(2) * rho);
+        }
+        return (a * a - lam * lam) / (static_cast<T>(2) * rho);
+}
+
+template<typename T>
+__device__ __forceinline__ T al_interval_value(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T sigma)
 {
         if (is_eq_row<T>(lo, hi)) {
                 const T c = g - hi;
+                const T a = lam_hi + rho * c;
+                if (sigma > static_cast<T>(0) && a > sigma) {
+                        const T d = sigma - lam_hi;
+                        return sigma * c - d * d / (static_cast<T>(2) * rho);
+                }
+                if (sigma > static_cast<T>(0) && a < -sigma) {
+                        const T d = sigma + lam_hi;
+                        return -sigma * c - d * d / (static_cast<T>(2) * rho);
+                }
                 return lam_hi * c + static_cast<T>(0.5) * rho * c * c;
         }
         T v = static_cast<T>(0);
-        if (isfinite(hi)) {
-                T a = lam_hi + rho * (g - hi);
-                if (a < static_cast<T>(0)) a = static_cast<T>(0);
-                v += (a * a - lam_hi * lam_hi) / (static_cast<T>(2) * rho);
-        }
-        if (isfinite(lo)) {
-                T a = lam_lo + rho * (lo - g);
-                if (a < static_cast<T>(0)) a = static_cast<T>(0);
-                v += (a * a - lam_lo * lam_lo) / (static_cast<T>(2) * rho);
-        }
+        if (isfinite(hi)) v += al_hinge_value<T>(g - hi, lam_hi, rho, sigma);
+        if (isfinite(lo)) v += al_hinge_value<T>(lo - g, lam_lo, rho, sigma);
         return v;
 }
 
 template<typename T>
-__device__ __forceinline__ void al_interval_grad_hess(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T& gr, T& h)
+__device__ __forceinline__ void al_interval_grad_hess(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T sigma, T& gr, T& h)
 {
         gr = static_cast<T>(0);
         h = static_cast<T>(0);
+        const bool soft = sigma > static_cast<T>(0);
         if (is_eq_row<T>(lo, hi)) {
-                gr = lam_hi + rho * (g - hi);
+                const T a = lam_hi + rho * (g - hi);
+                if (soft && a > sigma) { gr = sigma; return; }
+                if (soft && a < -sigma) { gr = -sigma; return; }
+                gr = a;
                 h = rho;
                 return;
         }
         if (isfinite(hi)) {
                 const T a = lam_hi + rho * (g - hi);
-                if (a > static_cast<T>(0)) { gr += a; h += rho; }
+                if (a > static_cast<T>(0)) {
+                        if (soft && a > sigma) { gr += sigma; }
+                        else { gr += a; h += rho; }
+                }
         }
         if (isfinite(lo)) {
                 const T a = lam_lo + rho * (lo - g);
-                if (a > static_cast<T>(0)) { gr -= a; h += rho; }
+                if (a > static_cast<T>(0)) {
+                        if (soft && a > sigma) { gr -= sigma; }
+                        else { gr -= a; h += rho; }
+                }
         }
 }
 
@@ -324,7 +363,7 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
                                 s_h[i] = grp.mu;  // mu = ADMM rho
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, s_gr[i], s_h[i]);
+                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
                         } else {
                                 s_gr[i] = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                                 s_h[i] = rb_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
@@ -366,7 +405,7 @@ __device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32
                 for (int32_t i = 0; i < grp.n_rows; i++) {
                         if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                total += al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu);
+                                total += al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
                                 total += rb_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
@@ -415,7 +454,7 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                         } else if (grp.mech == MECH_AL) {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, gr, h);
+                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, gr, h);
                         } else {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 gr = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
@@ -455,7 +494,7 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                         if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                total += al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu);
+                                total += al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
                                 total += rb_interval_value<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
@@ -615,19 +654,29 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                         if (grp.kind == EE_POS) {
                                 s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);  // all threads
                         }
+                        const bool soft = grp.sigma > static_cast<T>(0);
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
                                 const T g = (grp.kind == EE_POS) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 if (is_eq_row<T>(grp.lo[i], grp.hi[i])) {
-                                        d_lam_hi[idx] += grp.mu * (g - grp.hi[i]);
+                                        T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
+                                        if (soft) {  // elastic multiplier bound |lam| <= sigma
+                                                if (a > grp.sigma) a = grp.sigma;
+                                                if (a < -grp.sigma) a = -grp.sigma;
+                                        }
+                                        d_lam_hi[idx] = a;
                                 } else {
                                         if (isfinite(grp.hi[i])) {
                                                 T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
-                                                d_lam_hi[idx] = (a > static_cast<T>(0)) ? a : static_cast<T>(0);
+                                                if (a < static_cast<T>(0)) a = static_cast<T>(0);
+                                                if (soft && a > grp.sigma) a = grp.sigma;
+                                                d_lam_hi[idx] = a;
                                         }
                                         if (isfinite(grp.lo[i])) {
                                                 T a = d_lam_lo[idx] + grp.mu * (grp.lo[i] - g);
-                                                d_lam_lo[idx] = (a > static_cast<T>(0)) ? a : static_cast<T>(0);
+                                                if (a < static_cast<T>(0)) a = static_cast<T>(0);
+                                                if (soft && a > grp.sigma) a = grp.sigma;
+                                                d_lam_lo[idx] = a;
                                         }
                                 }
                         }
@@ -682,6 +731,7 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
                         d_groups[g].mech = mech;
                         d_groups[g].mu = mu;
                         d_groups[g].delta = delta;
+                        d_groups[g].sigma = static_cast<T>(0);  // hard by default
                 }
         }
         for (int32_t i = rank; i < NQ; i += size) {

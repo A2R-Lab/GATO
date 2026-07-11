@@ -62,6 +62,23 @@ namespace rows {
 
 constexpr uint32_t ADMM_THREADS = 128;
 
+// z-update of one row: hard clamp to [lo, hi], or (sigma > 0) the SOFT
+// smoothed projection — argmin_z (rho/2)(z - v)^2 + (sigma/2) dist(z,[lo,hi])^2
+// = a rho/(rho+sigma)-slope pull past the bound instead of a clamp
+// (sigma -> inf recovers the clamp; the fixed-point y is bounded by sigma).
+template<typename T>
+__device__ __forceinline__ T admm_z_update(T v, T lo, T hi, T rho, T sigma)
+{
+        if (sigma > static_cast<T>(0)) {
+                if (v > hi) return hi + rho * (v - hi) / (rho + sigma);
+                if (v < lo) return lo + rho * (v - lo) / (rho + sigma);
+                return v;
+        }
+        if (v > hi) return hi;
+        if (v < lo) return lo;
+        return v;
+}
+
 // value of one row at (xu + dz) — selection rows are linear, so eval on each
 // and add
 template<typename T>
@@ -280,9 +297,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         T w = s_pose[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_grad[6 * qi + i] * dz_k[qi]; }
                                         const T z_prev = d_z[idx];
-                                        T z = w + d_y[idx] / grp.mu;
-                                        if (z > grp.hi[i]) z = grp.hi[i];
-                                        if (z < grp.lo[i]) z = grp.lo[i];
+                                        const T z = admm_z_update<T>(w + d_y[idx] / grp.mu, grp.lo[i], grp.hi[i], grp.mu, grp.sigma);
                                         d_y[idx] += grp.mu * (w - z);
                                         d_z[idx] = z;
                                         T dp = w - z;
@@ -304,9 +319,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
 
                                 const T w = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
                                 const T z_prev = d_z[idx];
-                                T z = w + d_y[idx] / grp.mu;
-                                if (z > grp.hi[i]) z = grp.hi[i];
-                                if (z < grp.lo[i]) z = grp.lo[i];
+                                const T z = admm_z_update<T>(w + d_y[idx] / grp.mu, grp.lo[i], grp.hi[i], grp.mu, grp.sigma);
                                 d_y[idx] += grp.mu * (w - z);
                                 d_z[idx] = z;
                                 T dp = w - z;

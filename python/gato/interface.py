@@ -390,6 +390,18 @@ class BSQP:
                                          np.asarray(lo, dtype=np.float32),
                                          np.asarray(hi, dtype=np.float32))
 
+    def set_row_group_soft(self, g, sigma):
+        """Soft/slack toggle (TurboMPC delta_xi) for group ``g``: sigma > 0
+        makes its rows ELASTIC — transient violation is traded against the
+        elastic weight instead of forced to zero. AL: L1 slack — the
+        effective multiplier saturates at sigma (the outer update caps
+        |lam| <= sigma; the principled lambda-cap for conflict regimes).
+        ADMM: quadratic slack — smoothed z-projection (slope
+        rho/(rho+sigma) past a bound; sigma -> inf recovers the hard clamp).
+        sigma = 0 restores the exact hard path. Telemetry always reports
+        the TRUE violation, slack notwithstanding."""
+        self.solver.set_row_group_soft(int(g), float(sigma))
+
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):
         """Update scalar cost weights at runtime (None keeps the current value)."""
