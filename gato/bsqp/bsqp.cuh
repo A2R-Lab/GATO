@@ -7,6 +7,7 @@
 #include <cstring>
 #include <algorithm>
 #include <stdexcept>
+#include <limits>
 #include "settings.h"
 #include "constants.h"
 #include "types.cuh"
@@ -71,6 +72,9 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * batch_size_ * sizeof(T)));
                 admm_needs_init_ = true;  // ADMM (z, y) reinitialize from the next warm start
+                gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMemset(d_lam_lo_, 0, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T)));
+                reset_al_prev_viol();
         }
 
         void reset_rho()
@@ -93,6 +97,8 @@ class BSQP {
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
+                admm_active_ = false;
+                al_active_ = false;
         }
 
         // Same limit groups bound to MECH_BARRIER_RELAXED: a relaxed log-barrier
@@ -107,6 +113,8 @@ class BSQP {
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
+                admm_active_ = false;
+                al_active_ = false;
         }
         // Same limit groups bound to MECH_ADMM: OSQP-style interval projection
         // run as a fixed-budget inner loop per SQP iteration on the REUSED bdsv
@@ -122,8 +130,33 @@ class BSQP {
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
                 admm_active_ = true;
+                al_active_ = false;
                 admm_iters_ = iters;
                 admm_needs_init_ = true;
+        }
+
+        // Same limit groups bound to MECH_AL: PHR augmented Lagrangian
+        // (rowgroups.cuh). setup_kkt folds the AL grad/GN-Hessian, the merit
+        // carries the C^1 PHR value (lambda constant within a solve), and the
+        // outer update lam <- max(0, lam + rho*c) runs ONCE per solve on the
+        // final trajectory (equality rows lo == hi always active, unclamped)
+        // — warm-started solves are the outer loop. rho is FIXED per enable
+        // (grp.mu); duals persist across solves and reset via reset_dual()
+        // or re-enabling. Violation is telemetry-reported. AL mode forces
+        // the direct (bdsv) linear solve and freezes trust-region rho
+        // adaptation — both measured-required for outer convergence (see
+        // the solve() dispatch comments).
+        void enable_limit_al(T rho)
+        {
+                if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_al: rho must be > 0"); }
+                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
+                gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMemset(d_lam_lo_, 0, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T)));
+                reset_al_prev_viol();
+                gpuErrchk(cudaDeviceSynchronize());
+                n_row_groups_ = 3;
+                al_active_ = true;
+                admm_active_ = false;
         }
         // per-solve (r_prim, r_dual) of the LAST ADMM iteration, [solve*2 + {0,1}]
         void copy_admm_residuals_to_host(T* h_out)
@@ -135,9 +168,25 @@ class BSQP {
         {
                 n_row_groups_ = 0;
                 admm_active_ = false;
+                al_active_ = false;
         }
         int32_t num_row_groups() const { return n_row_groups_; }
         bool    admm_active() const { return admm_active_; }
+        bool    al_active() const { return al_active_; }
+
+        // per-solve AL duals / ADMM (z, y), row_state_index layout
+        // [solve][group][knot][row] (dense MAX_ROW_GROUPS x KNOT_POINTS x
+        // MAX_ROWS_PER_GROUP slots per solve)
+        void copy_row_duals_to_host(T* h_lam_hi, T* h_lam_lo)
+        {
+                gpuErrchk(cudaMemcpy(h_lam_hi, d_lam_hi_, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_lam_lo, d_lam_lo_, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
+        void copy_admm_state_to_host(T* h_z, T* h_y)
+        {
+                gpuErrchk(cudaMemcpy(h_z, d_z_admm_, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_y, d_y_admm_, rows::ROW_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
 
         // telemetry layout: [solve][2 * MAX_ROW_GROUPS] = {max, sum} per group
         void copy_row_telemetry_to_host(T* h_out)
@@ -147,6 +196,20 @@ class BSQP {
         void copy_row_groups_to_host(rows::RowGroupDesc<T>* h_out)
         {
                 gpuErrchk(cudaMemcpy(h_out, d_row_groups_, rows::MAX_ROW_GROUPS * sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+        }
+
+        // Override one group's interval bounds in place (n_rows each; lo == hi
+        // rows become always-active equalities under MECH_AL). ADMM z must
+        // re-clip to the new interval, so its state reinitializes next solve.
+        void set_row_group_bounds(int32_t g, const T* h_lo, const T* h_hi)
+        {
+                if (g < 0 || g >= n_row_groups_) { throw std::invalid_argument("set_row_group_bounds: group index out of range"); }
+                rows::RowGroupDesc<T> h_grp;
+                gpuErrchk(cudaMemcpy(&h_grp, d_row_groups_ + g, sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+                memcpy(h_grp.lo, h_lo, h_grp.n_rows * sizeof(T));
+                memcpy(h_grp.hi, h_hi, h_grp.n_rows * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_row_groups_ + g, &h_grp, sizeof(rows::RowGroupDesc<T>), cudaMemcpyHostToDevice));
+                if (admm_active_) { admm_needs_init_ = true; }
         }
 
         // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
@@ -210,7 +273,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 computeMeritBatched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_);
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required
@@ -221,7 +284,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_);
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -252,7 +315,11 @@ class BSQP {
                                 // linsys dispatch is host-side and whole-launch: mode 0 leaves the
                                 // PCG path byte-identical; mode 2 (BDSV_FIRST) takes the exact
                                 // solve on the first linearization only — its λ warm-starts PCG.
-                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0);
+                                // AL mode FORCES the direct solve: f32 PCG leaves a residual
+                                // plateau on the AL-modified system that stalls the line search
+                                // (dz not the model minimizer -> non-descent; measured: pcg
+                                // sticks at viol ~0.09 at any tol, bdsv drives it to 0.0).
+                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_;
                                 if (use_bdsv) {
                                         solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
                                 } else {
@@ -297,9 +364,16 @@ class BSQP {
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyHostToDevice));
 
                         computeMeritBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_);
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
+                        // AL mode freezes the trust-region adaptation: at the AL outer
+                        // fixed point every iteration "fails" the strict-decrease test
+                        // (nothing left to improve), so adaptation saturates rho, hits
+                        // the RHO_MAX escape-reset, and the barely-damped step kicks the
+                        // converged solution off feasibility (measured: viol 0 -> ~1.0
+                        // wandering over 30 warm solves; frozen: exactly 0 throughout).
+                        const int adapt = (adapt_rho_ && !al_active_) ? 1 : 0;
                         lineSearchAndUpdateBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt_rho_ ? 1 : 0, d_kkt_converged_batch_);
+                            batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_);
 
                         // stage line-search stats into per-iteration pinned slots; read once
                         // after the final device sync (no per-iteration host stall)
@@ -320,6 +394,19 @@ class BSQP {
                 // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
                 if (n_row_groups_ > 0) {
                         rows::rowGroupTelemetryBatched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch);
+                        // AL outer dual update ONCE per solve, on the FINAL trajectory
+                        // (rowgroups.cuh). The whole solve is the inner minimization —
+                        // per-SQP-iteration updates diverge (a damped/rejected step is
+                        // not a converged inner solve; duals escalate against a stalled
+                        // primal — measured runaway). lambda is therefore CONSTANT
+                        // within a solve (coherent merit for every line search) and
+                        // warm-started solves are the outer loop, matching
+                        // test/oracles/mechanisms.py::al_phr semantics. Runs AFTER the
+                        // telemetry kernel (same stream) — it reads the fresh per-group
+                        // violations for the true-violation acceptance gate.
+                        if (al_active_) {
+                                rows::alDualUpdateBatched<T>(batch_size_, d_lam_hi_, d_lam_lo_, d_al_prev_viol_, d_row_telemetry_, d_xu_traj_batch, d_row_groups_, n_row_groups_);
+                        }
                         gpuErrchk(cudaDeviceSynchronize());
                 }
 
@@ -346,6 +433,13 @@ class BSQP {
         }
 
       private:
+        // acceptance gate starts wide open (+inf best-accepted violation)
+        void reset_al_prev_viol()
+        {
+                std::vector<T> h_inf(batch_size_, std::numeric_limits<T>::infinity());
+                gpuErrchk(cudaMemcpy(d_al_prev_viol_, h_inf.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+        }
+
         void initBatchedHyperparams()
         {
                 h_rho_penalty_batch_init_.assign(batch_size_, static_cast<T>(rho_));
@@ -424,6 +518,12 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_y_admm_, rows::ROW_STATE_SIZE * BT));
                 gpuErrchk(cudaMemset(d_z_admm_, 0, rows::ROW_STATE_SIZE * BT));
                 gpuErrchk(cudaMemset(d_y_admm_, 0, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMalloc(&d_lam_hi_, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMalloc(&d_lam_lo_, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMemset(d_lam_lo_, 0, rows::ROW_STATE_SIZE * BT));
+                gpuErrchk(cudaMalloc(&d_al_prev_viol_, BT));
+                reset_al_prev_viol();
                 gpuErrchk(cudaMalloc(&d_q_base_, STATE_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&d_r_base_, CONTROL_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&d_admm_resid_, 2 * BT));
@@ -480,6 +580,9 @@ class BSQP {
                 gpuErrchk(cudaFree(d_row_telemetry_));
                 gpuErrchk(cudaFree(d_z_admm_));
                 gpuErrchk(cudaFree(d_y_admm_));
+                gpuErrchk(cudaFree(d_lam_hi_));
+                gpuErrchk(cudaFree(d_lam_lo_));
+                gpuErrchk(cudaFree(d_al_prev_viol_));
                 gpuErrchk(cudaFree(d_q_base_));
                 gpuErrchk(cudaFree(d_r_base_));
                 gpuErrchk(cudaFree(d_admm_resid_));
@@ -544,6 +647,12 @@ class BSQP {
         bool     admm_active_ = false;
         bool     admm_needs_init_ = false;
         uint32_t admm_iters_ = 10;
+
+        // AL/PHR duals (rowgroups.cuh MECH_AL; al_active_ == false -> inert)
+        T*   d_lam_hi_;
+        T*   d_lam_lo_;
+        T*   d_al_prev_viol_;  // best accepted true violation per solve (acceptance gate)
+        bool al_active_ = false;
 
         // Host-side pinned staging (convergence + stats)
         int32_t*    h_kkt_converged_batch_;

@@ -325,6 +325,23 @@ class BSQP:
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
         self.solver.enable_limit_admm(float(rho), int(iters))
 
+    def enable_limit_al(self, rho=10.0):
+        """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
+        hinge-activated grad/GN-Hessian and C¹ AL value folded into the KKT
+        cost and merit, with the outer dual update
+        ``lam <- max(0, lam + rho*violation)`` run ONCE per solve on the final
+        trajectory (equality rows ``lo == hi`` always active) — warm-started
+        repeat solves are the outer loop, so feasibility converges across MPC
+        steps. The update is gated on TRUE-violation acceptance (feasible or
+        strictly improved), so a stalled primal freezes the duals instead of
+        drifting. ``rho`` is fixed per enable; duals persist across solves
+        (reset_dual() zeroes them). Violation is honestly telemetry-reported;
+        ``get_row_duals()`` exposes the multipliers. While active, solves use
+        the direct (bdsv) linear solver and freeze trust-region rho
+        adaptation — both required for outer convergence (measured; see
+        bsqp.cuh dispatch comments)."""
+        self.solver.enable_limit_al(float(rho))
+
     def disable_row_groups(self):
         """Remove all constraint row-groups (stats lose the row_* fields)."""
         self.solver.disable_row_groups()
@@ -333,6 +350,26 @@ class BSQP:
         """List of installed row-group descriptors (dicts with kind/block/mech,
         knot mask, and per-row lo/hi bounds)."""
         return self.solver.get_row_groups()
+
+    def get_row_duals(self):
+        """AL multipliers dict {lam_hi, lam_lo}, each shaped
+        (B, MAX_ROW_GROUPS, N, MAX_ROWS_PER_GROUP) in the dense row-state
+        layout (group gi's active slots are [:, gi, knot_lo:knot_hi, :n_rows]).
+        Equality rows carry their signed multiplier in the lam_hi slot."""
+        return self.solver.get_row_duals()
+
+    def get_admm_state(self):
+        """ADMM state dict {z, y} (auxiliary/dual), same dense layout as
+        get_row_duals(). y is the interval-constraint multiplier estimate."""
+        return self.solver.get_admm_state()
+
+    def set_row_group_bounds(self, g, lo, hi):
+        """Override group ``g``'s interval bounds (arrays of n_rows each).
+        ``lo == hi`` rows become always-active equalities under AL. ADMM's
+        auxiliary state reinitializes on the next solve (re-clip)."""
+        self.solver.set_row_group_bounds(int(g),
+                                         np.asarray(lo, dtype=np.float32),
+                                         np.asarray(hi, dtype=np.float32))
 
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):

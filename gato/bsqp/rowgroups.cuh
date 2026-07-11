@@ -15,13 +15,19 @@
 // and formSchur's block-diagonal Hessian assumption depends on it. A row that
 // couples (x_k, u_k) is a design error this layer rejects by construction.
 //
-// CL-0 ships the descriptor/evaluator seam plus TWO bindings:
+// Mechanism bindings on the shared descriptors:
 //   MECH_TELEMETRY       — rows evaluated + true-violation reported, never enforced
 //                          (zero solver-path impact; validates evaluators).
 //   MECH_BARRIER_RELAXED — relaxed log-barrier folded into the KKT cost blocks
 //                          (bounded Hessian, C² quadratic extension below `delta`;
 //                          infeasible-start safe — the soft prior mode).
-// ADMM-projection and AL/PHR bindings land in CL-1 on the same descriptors.
+//   MECH_ADMM            — OSQP-style interval projection as a fixed-budget inner
+//                          loop on the reused bdsv factor (kernels/admm.cuh).
+//   MECH_AL              — PHR augmented Lagrangian: grad/GN-Hessian + merit value
+//                          folds here, outer dual update once per SOLVE
+//                          (alDualUpdateBatchedKernel; the solve is the inner
+//                          minimization); equality rows (lo == hi) always
+//                          active. Default bindings decided by round R1.
 
 using namespace sqp;
 
@@ -43,7 +49,8 @@ enum Mechanism : int32_t {
         MECH_TELEMETRY = 0,
         MECH_BARRIER_RELAXED = 1,
         MECH_ADMM = 2,  // OSQP-style interval projection (kernels/admm.cuh); mu = the ADMM rho
-        // MECH_AL: CL-1 (next)
+        MECH_AL = 3,    // PHR augmented Lagrangian; mu = the AL penalty rho, duals in the
+                        // per-solve (lam_hi, lam_lo) buffers, outer update once per solve
 };
 
 // per-solve ADMM dual/slack state extent: one (z, y) pair per potential row
@@ -158,7 +165,69 @@ __device__ __forceinline__ T rb_interval_hess(T g, T lo, T hi, T mu, T delta)
         return v;
 }
 
-// ---- MECH_BARRIER_RELAXED cost contributions (the setup_kkt/merit seam) --
+// ---- PHR augmented-Lagrangian scalars (MECH_AL) -------------------------
+//
+// Interval rows split into hinge sides with INDEPENDENT multipliers
+// (lam_hi for g <= hi, lam_lo for g >= lo, both >= 0); lo == hi rows are
+// ALWAYS-ACTIVE equalities whose signed multiplier lives in the lam_hi slot
+// (lam_lo unused). With c the signed constraint value (c = g - hi resp.
+// lo - g; equality c = g - hi):
+//   inequality side: phi = (max(0, lam + rho c)^2 - lam^2) / (2 rho)
+//   equality:        phi = lam c + rho c^2 / 2
+// so dphi/dc = max(0, lam + rho c) (resp. lam + rho c) and the GN Hessian is
+// rho on the active set — C^1 across activation INCLUDING the -lam^2 offset
+// (dropping it puts a jump under the line search). The outer update is
+// lam <- max(0, lam + rho c) (equalities unclamped) on the ACCEPTED
+// trajectory. Numpy twin: test/oracles/mechanisms.py::al_phr.
+
+template<typename T>
+__device__ __forceinline__ bool is_eq_row(T lo, T hi)
+{
+        return isfinite(lo) && lo == hi;
+}
+
+template<typename T>
+__device__ __forceinline__ T al_interval_value(T g, T lo, T hi, T lam_hi, T lam_lo, T rho)
+{
+        if (is_eq_row<T>(lo, hi)) {
+                const T c = g - hi;
+                return lam_hi * c + static_cast<T>(0.5) * rho * c * c;
+        }
+        T v = static_cast<T>(0);
+        if (isfinite(hi)) {
+                T a = lam_hi + rho * (g - hi);
+                if (a < static_cast<T>(0)) a = static_cast<T>(0);
+                v += (a * a - lam_hi * lam_hi) / (static_cast<T>(2) * rho);
+        }
+        if (isfinite(lo)) {
+                T a = lam_lo + rho * (lo - g);
+                if (a < static_cast<T>(0)) a = static_cast<T>(0);
+                v += (a * a - lam_lo * lam_lo) / (static_cast<T>(2) * rho);
+        }
+        return v;
+}
+
+template<typename T>
+__device__ __forceinline__ void al_interval_grad_hess(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T& gr, T& h)
+{
+        gr = static_cast<T>(0);
+        h = static_cast<T>(0);
+        if (is_eq_row<T>(lo, hi)) {
+                gr = lam_hi + rho * (g - hi);
+                h = rho;
+                return;
+        }
+        if (isfinite(hi)) {
+                const T a = lam_hi + rho * (g - hi);
+                if (a > static_cast<T>(0)) { gr += a; h += rho; }
+        }
+        if (isfinite(lo)) {
+                const T a = lam_lo + rho * (lo - g);
+                if (a > static_cast<T>(0)) { gr -= a; h += rho; }
+        }
+}
+
+// ---- mechanism cost contributions (the setup_kkt/merit seam) -------------
 //
 // Box rows have selection Jacobians, so the GN contribution is DIAGONAL on the
 // target block: grad_i -> s_q/s_r[idx], hess_i -> s_Q/s_R[idx,idx] (the audit
@@ -172,16 +241,19 @@ __device__ __forceinline__ int32_t x_index_of_row(const RowGroupDesc<T>& grp, in
         return (grp.kind == BOX_QD) ? constants::STATE_SIZE / 2 + i : i;
 }
 
+// d_lam_hi/d_lam_lo: this SOLVE's AL dual base pointers (row_state_index
+// layout; only dereferenced for MECH_AL groups — nullptr is fine without them)
 template<typename T>
-__device__ void apply_rb_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
-                                   int32_t n_groups, int32_t knot, const T* xu_k,
-                                   T* s_Q, T* s_q, T* s_R, T* s_r, bool has_control)
+__device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
+                                    int32_t n_groups, int32_t knot, const T* xu_k,
+                                    const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
+                                    T* s_Q, T* s_q, T* s_R, T* s_r, bool has_control)
 {
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
-                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM) continue;
+                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM && grp.mech != MECH_AL) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
@@ -191,6 +263,10 @@ __device__ void apply_rb_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                                 // per-ADMM-iteration (kernels/admm.cuh), NOT here
                                 gr = static_cast<T>(0);
                                 h = grp.mu;  // mu = ADMM rho
+                        } else if (grp.mech == MECH_AL) {
+                                const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
+                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, gr, h);
                         } else {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 gr = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
@@ -208,21 +284,31 @@ __device__ void apply_rb_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
         }
 }
 
-// scalar RB cost of one knot (merit seam). Every thread computes the same
-// serial sum (a few dozen evals) — uniform, deterministic, thread-invariant.
+// scalar mechanism cost of one knot (merit seam): RB barrier value or AL
+// value (must mirror apply_row_grad_hess or the line search accepts against a
+// different objective; MECH_ADMM adds nothing here — v1 leaves the merit
+// unchanged). Every thread computes the same serial sum (a few dozen evals)
+// — uniform, deterministic, thread-invariant.
 template<typename T>
-__device__ T rb_cost_value(const RowGroupDesc<T>* __restrict__ groups,
-                           int32_t n_groups, int32_t knot, const T* xu_k, bool has_control)
+__device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
+                            int32_t n_groups, int32_t knot, const T* xu_k,
+                            const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
+                            bool has_control)
 {
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
-                if (grp.mech != MECH_BARRIER_RELAXED) continue;
+                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_AL) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 for (int32_t i = 0; i < grp.n_rows; i++) {
                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                        total += rb_interval_value<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        if (grp.mech == MECH_AL) {
+                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                total += al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu);
+                        } else {
+                                total += rb_interval_value<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        }
                 }
         }
         return total;
@@ -294,6 +380,92 @@ __host__ void rowGroupTelemetryBatched(uint32_t batch_size, T* d_telemetry, cons
 {
         if (n_groups <= 0) return;
         rowGroupTelemetryBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, getRowGroupTelemetrySMemSize<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch);
+}
+
+// ---- AL outer dual update (MECH_AL) --------------------------------------
+//
+// One block per solve, launched ONCE PER SOLVE on the final trajectory (the
+// solve is the inner minimization; per-SQP-iteration updates diverge — a
+// damped or rejected step is not a converged inner solve): per active row,
+//   lam_hi <- max(0, lam_hi + rho*(g - hi)),  lam_lo <- max(0, lam_lo + rho*(lo - g))
+// (equality rows: lam_hi += rho*(g - hi), unclamped). Each (group, knot, row)
+// slot is owned by exactly one thread — no barriers between row updates,
+// deterministic.
+//
+// TRUE-VIOLATION ACCEPTANCE (the PDDP-settled PHR safeguard): duals update
+// only when this solve's max true violation over the AL groups (read from
+// the telemetry buffer — launch AFTER the telemetry kernel) is feasible or
+// STRICTLY improved on the best accepted so far. A stalled primal (line
+// search rejecting every step at this rho) therefore freezes lambda at its
+// last accepted value instead of accumulating rho*viol every solve until an
+// overshooting step lands (measured drift: viol 0.069 plateau -> 0.57).
+
+constexpr float AL_ACCEPT_FACTOR = 0.99f;  // required relative improvement
+constexpr float AL_FEAS_TOL = 1e-5f;       // feasible -> always accept
+
+template<typename T>
+__global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T* __restrict__ d_lam_hi_batch,
+                                                                              T* __restrict__ d_lam_lo_batch,
+                                                                              T* __restrict__ d_prev_viol_batch,
+                                                                              const T* __restrict__ d_telemetry,
+                                                                              const T* __restrict__ d_xu_traj_batch,
+                                                                              const RowGroupDesc<T>* __restrict__ d_groups,
+                                                                              int32_t n_groups)
+{
+        const uint32_t solve_idx = blockIdx.x;
+        const uint32_t rank = threadIdx.x;
+        const uint32_t size = blockDim.x;
+
+        __shared__ int32_t s_accept;
+        if (rank == 0) {
+                T viol = static_cast<T>(0);
+                for (int32_t gi = 0; gi < n_groups; gi++) {
+                        if (d_groups[gi].mech != MECH_AL) continue;
+                        const T v = d_telemetry[(size_t)solve_idx * 2 * MAX_ROW_GROUPS + 2 * gi];
+                        if (v > viol) viol = v;
+                }
+                const T prev = d_prev_viol_batch[solve_idx];
+                s_accept = (viol < static_cast<T>(AL_FEAS_TOL) || viol < static_cast<T>(AL_ACCEPT_FACTOR) * prev) ? 1 : 0;
+                if (s_accept) d_prev_viol_batch[solve_idx] = viol;
+        }
+        __syncthreads();
+        if (!s_accept) return;
+
+        T*       d_lam_hi = d_lam_hi_batch + (size_t)solve_idx * ROW_STATE_SIZE;
+        T*       d_lam_lo = d_lam_lo_batch + (size_t)solve_idx * ROW_STATE_SIZE;
+        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
+
+        for (int32_t gi = 0; gi < n_groups; gi++) {
+                const RowGroupDesc<T>& grp = d_groups[gi];
+                if (grp.mech != MECH_AL) continue;
+                const int32_t n_elems = (grp.knot_hi - grp.knot_lo) * grp.n_rows;
+                for (int32_t e = rank; e < n_elems; e += size) {
+                        const int32_t knot = grp.knot_lo + e / grp.n_rows;
+                        const int32_t i = e % grp.n_rows;
+                        const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                        const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
+                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                        if (is_eq_row<T>(grp.lo[i], grp.hi[i])) {
+                                d_lam_hi[idx] += grp.mu * (g - grp.hi[i]);
+                        } else {
+                                if (isfinite(grp.hi[i])) {
+                                        T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
+                                        d_lam_hi[idx] = (a > static_cast<T>(0)) ? a : static_cast<T>(0);
+                                }
+                                if (isfinite(grp.lo[i])) {
+                                        T a = d_lam_lo[idx] + grp.mu * (grp.lo[i] - g);
+                                        d_lam_lo[idx] = (a > static_cast<T>(0)) ? a : static_cast<T>(0);
+                                }
+                        }
+                }
+        }
+}
+
+template<typename T>
+__host__ void alDualUpdateBatched(uint32_t batch_size, T* d_lam_hi_batch, T* d_lam_lo_batch, T* d_prev_viol_batch, const T* d_telemetry, const T* d_xu_traj_batch,
+                                  const RowGroupDesc<T>* d_groups, int32_t n_groups)
+{
+        alDualUpdateBatchedKernel<T><<<batch_size, ROWGROUP_THREADS>>>(d_lam_hi_batch, d_lam_lo_batch, d_prev_viol_batch, d_telemetry, d_xu_traj_batch, d_groups, n_groups);
 }
 
 // ---- limit row-group initialization ------------------------------------

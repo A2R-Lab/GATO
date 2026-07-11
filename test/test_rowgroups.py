@@ -1,4 +1,4 @@
-"""Constraint row-group layer (CL-0): telemetry-only mode gates.
+"""Constraint row-group layer (CL-0/CL-1): telemetry, RB, ADMM, and AL gates.
 
 - default OFF and telemetry ON produce bit-identical trajectories (the layer
   is off the solver path);
@@ -234,6 +234,159 @@ def test_admm_deterministic_and_warmstart_stable(make_solver, smallest_module):
     np.testing.assert_array_equal(a1.xu, b1.xu)  # bit-deterministic
     np.testing.assert_array_equal(a2.xu, b2.xu)
     assert a2.stats.row_max_violation.max() < 1e-4  # feasibility persists warm-started
+
+
+VCAP = 0.30  # tight velocity box (rad/s) that binds hard on the reach problem
+
+
+def _tighten_qd(s):
+    n = s.get_row_groups()[1]["n_rows"]  # BOX_QD
+    s.set_row_group_bounds(1, -VCAP * np.ones(n), VCAP * np.ones(n))
+
+
+def _qd_max(res, N):
+    step = res.nx + res.nu
+    return max(np.abs(res.xu[:, k * step + res.nx // 2:k * step + res.nx]).max()
+               for k in range(N))
+
+
+def test_al_enforces_boxes(make_solver, smallest_module):
+    """MECH_AL (PHR augmented Lagrangian, dual update per solve) drives a
+    hard-binding velocity box to feasibility across warm-started solves; the
+    unconstrained solution violates it by orders of magnitude."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    base.enable_limit_telemetry()
+    _tighten_qd(base)
+    for _ in range(5):
+        rb = base.solve(X, goals)
+
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    s.enable_limit_al(rho=100.0)
+    _tighten_qd(s)
+    for _ in range(10):
+        r = s.solve(X, goals)
+
+    assert np.isfinite(r.xu).all()
+    assert rb.stats.row_max_violation.max() > 10 * VCAP  # the box really binds
+    assert r.stats.row_max_violation.max() < 1e-4
+    assert _qd_max(r, N) <= VCAP + 1e-4
+
+
+def test_al_holds_binding_optimum(make_solver, smallest_module):
+    """Seeded at ADMM's bound-riding solution, AL holds it: feasibility and
+    merit are preserved (the mechanisms agree on the constrained optimum when
+    started in the same basin — cross-mechanism consistency, GPU end-to-end;
+    exact QP-level dual agreement is gated by test/oracles/mechanisms.py)."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    sad = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    sad.enable_limit_admm(rho=10.0, iters=10)
+    _tighten_qd(sad)
+    for _ in range(20):
+        rad = sad.solve(X, goals)
+    assert rad.stats.row_max_violation.max() < 1e-3  # fixed-budget residual
+
+    sal = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    sal.enable_limit_al(rho=100.0)
+    _tighten_qd(sal)
+    ral = sal.solve(X, goals, XU_B=rad.xu.copy())
+    for _ in range(10):
+        ral = sal.solve(X, goals)
+
+    assert ral.stats.row_max_violation.max() < 1e-3
+    m_ad = np.asarray(rad.stats.final_merit, dtype=np.float64)
+    m_al = np.asarray(ral.stats.final_merit, dtype=np.float64)
+    np.testing.assert_allclose(m_al, m_ad, rtol=0.02)  # holds the optimum
+
+
+def test_al_deterministic_and_duals(make_solver, smallest_module):
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    def run():
+        s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+        s.enable_limit_al(rho=100.0)
+        _tighten_qd(s)
+        for _ in range(4):
+            r = s.solve(X, goals)
+        return r, s.get_row_duals()
+
+    (a, da), (b, db) = run(), run()
+    np.testing.assert_array_equal(a.xu, b.xu)  # bit-deterministic
+    np.testing.assert_array_equal(da["lam_hi"], db["lam_hi"])
+    # hinge multipliers are nonnegative by construction; state shape is the
+    # dense row-state layout
+    assert da["lam_hi"].min() >= 0 and da["lam_lo"].min() >= 0
+    assert da["lam_hi"].shape[0] == B and da["lam_hi"].shape[2] == N
+    assert np.isfinite(da["lam_hi"]).all() and np.isfinite(da["lam_lo"]).all()
+
+
+def test_al_no_drift_at_insufficient_rho(make_solver, smallest_module):
+    """True-violation acceptance gate: when a modest rho stalls the primal
+    (plateau), lambda freezes instead of accumulating rho*viol every solve —
+    the plateau must not drift upward over many warm solves (pre-gate this
+    drifted 0.069 -> 0.57 on iiwa14)."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    s.enable_limit_al(rho=10.0)  # deliberately modest: may plateau
+    _tighten_qd(s)
+    for _ in range(2):
+        r = s.solve(X, goals)
+    plateau = r.stats.row_max_violation.max()
+    worst = 0.0
+    for _ in range(20):
+        r = s.solve(X, goals)
+        worst = max(worst, float(r.stats.row_max_violation.max()))
+    assert worst <= max(1.05 * plateau, 1e-4)
+
+
+def test_certificate_dual_axes_with_al(make_solver, smallest_module):
+    """certificate.py's dual/complementarity axes activate with real AL
+    multipliers (per-group (n_knots, n_rows) slices of the dense state)."""
+    from gato.certificate import kkt_residuals
+
+    plant, N = smallest_module
+    B = 2
+    X, goals = _inputs(plant, N, B)
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    s.enable_limit_al(rho=100.0)
+    _tighten_qd(s)
+    for _ in range(6):
+        res = s.solve(X, goals)
+    groups = s.get_row_groups()
+    d = s.get_row_duals()
+
+    b = 0
+    duals = [(d["lam_hi"] + d["lam_lo"])[b, g, grp["knot_lo"]:grp["knot_hi"], :grp["n_rows"]]
+             for g, grp in enumerate(groups)]
+    r = kkt_residuals(groups, res.xu[b].astype(np.float64), res.nx, res.nu, duals=duals)
+    assert r["dual"] is not None and r["complementarity"] is not None
+    assert r["dual"] <= 1e-6  # hinge duals can't be negative
+    assert r["complementarity"] < 1e-2  # lam*viol small at the converged point
+
+
+def test_set_row_group_bounds_roundtrip(make_solver, smallest_module):
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    s.enable_limit_telemetry()
+    n = s.get_row_groups()[1]["n_rows"]
+    lo, hi = -0.25 * np.ones(n, np.float32), 0.25 * np.ones(n, np.float32)
+    s.set_row_group_bounds(1, lo, hi)
+    g = s.get_row_groups()[1]
+    np.testing.assert_array_equal(g["lo"], lo)
+    np.testing.assert_array_equal(g["hi"], hi)
+    with pytest.raises(Exception):
+        s.set_row_group_bounds(7, lo, hi)  # out of range
 
 
 def test_telemetry_deterministic(make_solver, smallest_module):

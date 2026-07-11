@@ -242,7 +242,39 @@ class PyBSQP {
         void enable_limit_telemetry() { solver_.enable_limit_telemetry(); }
         void enable_limit_barrier(T mu, T delta) { solver_.enable_limit_barrier(mu, delta); }
         void enable_limit_admm(T rho, uint32_t iters) { solver_.enable_limit_admm(rho, iters); }
+        void enable_limit_al(T rho) { solver_.enable_limit_al(rho); }
         void disable_row_groups() { solver_.disable_row_groups(); }
+
+        // per-solve row-state pair, dense row_state_index layout
+        // (B, MAX_ROW_GROUPS, KNOT_POINTS, MAX_ROWS_PER_GROUP) per array:
+        // AL duals {lam_hi, lam_lo} / ADMM state {z, y}
+        py::dict get_row_duals()
+        {
+                auto p = row_state_pair(/*admm=*/false);
+                py::dict d;
+                d["lam_hi"] = p.first;
+                d["lam_lo"] = p.second;
+                return d;
+        }
+        py::dict get_admm_state()
+        {
+                auto p = row_state_pair(/*admm=*/true);
+                py::dict d;
+                d["z"] = p.first;
+                d["y"] = p.second;
+                return d;
+        }
+
+        void set_row_group_bounds(int32_t g, py::array_t<T> lo, py::array_t<T> hi)
+        {
+                py::buffer_info blo = lo.request(), bhi = hi.request();
+                std::vector<gato::rows::RowGroupDesc<T>> h_groups(gato::rows::MAX_ROW_GROUPS);
+                solver_.copy_row_groups_to_host(h_groups.data());
+                if (g < 0 || g >= solver_.num_row_groups()) { throw py::value_error("set_row_group_bounds: group index out of range"); }
+                const py::ssize_t n = h_groups[g].n_rows;
+                if (blo.size != n || bhi.size != n) { throw py::value_error("set_row_group_bounds: expected " + std::to_string(n) + " bounds per side"); }
+                solver_.set_row_group_bounds(g, static_cast<T*>(blo.ptr), static_cast<T*>(bhi.ptr));
+        }
 
         // descriptor introspection (oracle tests): list of per-group dicts
         py::list get_row_groups()
@@ -291,6 +323,21 @@ class PyBSQP {
         void clear_cost_weights_per_knot() { solver_.clear_cost_weights_per_knot(); }
 
       private:
+        std::pair<py::array_t<T>, py::array_t<T>> row_state_pair(bool admm)
+        {
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
+                const py::ssize_t G = (py::ssize_t)gato::rows::MAX_ROW_GROUPS;
+                const py::ssize_t K = (py::ssize_t)KNOT_POINTS;
+                const py::ssize_t R = (py::ssize_t)gato::rows::MAX_ROWS_PER_GROUP;
+                py::array_t<T>    a({B, G, K, R}), b({B, G, K, R});
+                if (admm) {
+                        solver_.copy_admm_state_to_host(static_cast<T*>(a.request().ptr), static_cast<T*>(b.request().ptr));
+                } else {
+                        solver_.copy_row_duals_to_host(static_cast<T*>(a.request().ptr), static_cast<T*>(b.request().ptr));
+                }
+                return {a, b};
+        }
+
         uint32_t       batch_size_;
         BSQP<T>        solver_;
         T*             h_xu_staging_;
@@ -335,8 +382,12 @@ class PyBSQP {
             .def("enable_limit_telemetry", &PyBSQP<Type>::enable_limit_telemetry)                                                                                                                      \
             .def("enable_limit_barrier", &PyBSQP<Type>::enable_limit_barrier, py::arg("mu"), py::arg("delta"))                                                                                         \
             .def("enable_limit_admm", &PyBSQP<Type>::enable_limit_admm, py::arg("rho"), py::arg("iters"))                                                                                              \
+            .def("enable_limit_al", &PyBSQP<Type>::enable_limit_al, py::arg("rho"))                                                                                                                    \
             .def("disable_row_groups", &PyBSQP<Type>::disable_row_groups)                                                                                                                              \
-            .def("get_row_groups", &PyBSQP<Type>::get_row_groups)
+            .def("get_row_groups", &PyBSQP<Type>::get_row_groups)                                                                                                                                      \
+            .def("get_row_duals", &PyBSQP<Type>::get_row_duals)                                                                                                                                        \
+            .def("get_admm_state", &PyBSQP<Type>::get_admm_state)                                                                                                                                      \
+            .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
