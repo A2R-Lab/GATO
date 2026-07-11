@@ -393,17 +393,26 @@ template<typename T>
 __device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
                                int32_t knot, const T* xu_k,
                                const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
-                               T* s_scratch, const grid::robotModel<T>* d_robot_model)
+                               T* s_scratch, const grid::robotModel<T>* d_robot_model,
+                               const T* __restrict__ d_z_admm = nullptr,
+                               const T* __restrict__ d_y_admm = nullptr)
 {
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
                 if (grp.kind != EE_POS) continue;
-                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED) continue;
+                const bool admm_term = grp.mech == MECH_ADMM && d_z_admm != nullptr;
+                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && !admm_term) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 const T* s_pose = ee_eval_pose<T>(xu_k, s_scratch, d_robot_model);
                 for (int32_t i = 0; i < grp.n_rows; i++) {
-                        if (grp.mech == MECH_AL) {
+                        if (admm_term) {
+                                // true-nonlinear pose against the CURRENT (z, y) row
+                                // state (set_admm_merit; see row_cost_value)
+                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                const T r = s_pose[i] - d_z_admm[idx];
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
+                        } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 total += al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
@@ -442,7 +451,15 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                 const RowGroupDesc<T>& grp = groups[gi];
                 if (!is_selection_kind(grp.kind)) continue;  // EE rows: apply_ee_row_grad_hess
                 if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM && grp.mech != MECH_AL) continue;
-                if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+                // MECH_ADMM's fold is gradient-free (gr = 0, h = rho), so extending
+                // it BELOW knot_lo is a pure proximal term (rho/2)|dz_rows|^2 on the
+                // dz-QP — unbiased, no z/y row state. Required for the f32 factor:
+                // without it the Schur strip is rho-heterogeneous at the excluded
+                // knots and the bdsv factor error feeds the y-integrator (measured:
+                // exponential y windup, x2.2/inner-iter, once the fold at knot 0
+                // was correctly dropped from the ROW semantics).
+                const bool admm_prox = grp.mech == MECH_ADMM && knot < grp.knot_lo;
+                if ((knot < grp.knot_lo && !admm_prox) || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                         T gr, h;
@@ -481,18 +498,28 @@ template<typename T>
 __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                             int32_t n_groups, int32_t knot, const T* xu_k,
                             const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
-                            bool has_control)
+                            bool has_control,
+                            const T* __restrict__ d_z_admm = nullptr,
+                            const T* __restrict__ d_y_admm = nullptr)
 {
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
                 if (!is_selection_kind(grp.kind)) continue;  // EE rows: ee_row_cost_value
-                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_AL) continue;
+                const bool admm_term = grp.mech == MECH_ADMM && d_z_admm != nullptr;
+                if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_AL && !admm_term) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 for (int32_t i = 0; i < grp.n_rows; i++) {
                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                        if (grp.mech == MECH_AL) {
+                        if (admm_term) {
+                                // AL-form value on the CURRENT (z, y) row state — the
+                                // set_admm_merit ablation (R1): lets the line search see
+                                // the feasibility progress the ADMM-modified QP encodes
+                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                const T r = g - d_z_admm[idx];
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
+                        } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 total += al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
@@ -709,16 +736,23 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
         constexpr int32_t NU = constants::CONTROL_SIZE;
 
         if (rank == 0) {
+                // State boxes start at knot 1: x_0 is DATA (pinned to the
+                // measurement by the initial-state constraint), so knot-0
+                // state rows are unsatisfiable whenever the measured state
+                // violates a limit — AL multipliers wind up (or the
+                // acceptance gate freezes them) on rows no step can fix and
+                // closed-loop MPC destabilizes (R1 measured: indy7 reach
+                // cascade). Same class as the ADMM equality-row reinit.
                 d_groups[0].kind = BOX_Q;
                 d_groups[0].block = BLOCK_X;
                 d_groups[0].n_rows = NQ;
-                d_groups[0].knot_lo = 0;
+                d_groups[0].knot_lo = 1;
                 d_groups[0].knot_hi = KNOT_POINTS;
 
                 d_groups[1].kind = BOX_QD;
                 d_groups[1].block = BLOCK_X;
                 d_groups[1].n_rows = NQ;
-                d_groups[1].knot_lo = 0;
+                d_groups[1].knot_lo = 1;
                 d_groups[1].knot_hi = KNOT_POINTS;
 
                 d_groups[2].kind = BOX_U;

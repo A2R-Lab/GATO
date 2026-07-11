@@ -106,9 +106,13 @@ def test_limit_bounds_match_urdf(make_solver, smallest_module):
     np.testing.assert_allclose(groups[2]["lo"], -model.effortLimit - m, rtol=1e-6)
     np.testing.assert_allclose(groups[2]["hi"], model.effortLimit + m, rtol=1e-6)
 
-    # knot masks: state boxes span all knots; the terminal knot has no control
-    assert groups[0]["knot_lo"] == 0 and groups[0]["knot_hi"] == N
-    assert groups[2]["knot_hi"] == N - 1
+    # knot masks: state boxes start at knot 1 — x_0 is DATA (pinned to the
+    # measurement), so knot-0 state rows are unsatisfiable whenever the
+    # measured state violates a limit (R1: AL winds up / freezes on them and
+    # closed-loop MPC destabilizes). The terminal knot has no control.
+    assert groups[0]["knot_lo"] == 1 and groups[0]["knot_hi"] == N
+    assert groups[1]["knot_lo"] == 1
+    assert groups[2]["knot_lo"] == 0 and groups[2]["knot_hi"] == N - 1
 
 
 def test_telemetry_matches_numpy_oracle(make_solver, smallest_module):

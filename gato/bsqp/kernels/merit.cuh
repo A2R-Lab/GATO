@@ -37,7 +37,9 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // MECH_BARRIER_RELAXED / MECH_AL value terms
                                           int32_t                     n_row_groups,                      // (must match setup_kkt's fold; 0 -> untouched)
                                           const T* __restrict__       d_lam_hi_batch,                    // per-solve AL duals (nullable; MECH_AL only)
-                                          const T* __restrict__       d_lam_lo_batch)
+                                          const T* __restrict__       d_lam_lo_batch,
+                                          const T* __restrict__       d_z_admm_batch,                    // per-solve ADMM row state (nullable; only with
+                                          const T* __restrict__       d_y_admm_batch)                    // set_admm_merit — adds the AL-form ADMM value term)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
@@ -92,14 +94,16 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         if (n_row_groups > 0) {
                 const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
                 const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
-                cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1));
+                const T* d_z_admm = d_z_admm_batch ? d_z_admm_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
+                const T* d_y_admm = d_y_admm_batch ? d_y_admm_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
+                cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1), d_z_admm, d_y_admm);
                 // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
                 // value — the fold linearizes, the merit must not). s_temp is free
                 // between trackingCostValue and the constraint-error section, and
                 // trackingCostValue_TempMemCt >= the EE value carve.
                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
-                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model);
+                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm);
                 }
         }
 
@@ -159,7 +163,9 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr,
                                   int32_t                     n_row_groups = 0,
                                   const T*                    d_lam_hi_batch = nullptr,
-                                  const T*                    d_lam_lo_batch = nullptr)
+                                  const T*                    d_lam_lo_batch = nullptr,
+                                  const T*                    d_z_admm_batch = nullptr,
+                                  const T*                    d_y_admm_batch = nullptr)
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
@@ -191,5 +197,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_row_groups,
                                                                                     n_row_groups,
                                                                                     d_lam_hi_batch,
-                                                                                    d_lam_lo_batch);
+                                                                                    d_lam_lo_batch,
+                                                                                    d_z_admm_batch,
+                                                                                    d_y_admm_batch);
 }

@@ -271,6 +271,14 @@ class BSQP {
                 if (admm_active_) { admm_needs_init_ = true; }  // projection semantics changed
         }
 
+        // R1 ablation toggle: include the AL-form ADMM value term
+        // y^T (g - z) + (mu/2)|g - z|^2 (current row state) in the line-search
+        // merit. v1 ADMM's merit is tracking-only, so the line search REJECTS
+        // steps that trade tracking for feasibility (measured: closed-loop MPC
+        // parks in conservative basins on every task). Off by default (exact v1
+        // semantics); only read in ADMM mode.
+        void set_admm_merit(bool on) { admm_merit_term_ = on; }
+
         // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
         // pre-hybrid tree), 1 = BDSV (direct block-Cholesky every SQP iteration),
         // 2 = BDSV_FIRST (direct on iteration 0, PCG after — exact-λ warm-start synergy).
@@ -427,8 +435,18 @@ class BSQP {
 
                         gpuErrchk(cudaMemcpyAsync(d_kkt_converged_batch_, h_kkt_converged_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyHostToDevice));
 
+                        // set_admm_merit: (z, y) moved during the inner ADMM loop, so the
+                        // stored current-trajectory merit is stale under the ADMM value
+                        // term — refresh it (zero step) so the line search compares
+                        // candidates against the SAME row state. AL needs no refresh:
+                        // its duals update once per solve, after the SQP loop.
+                        const bool admm_merit = admm_active_ && admm_merit_term_;
+                        if (admm_merit) {
+                                computeMeritBatched<T, 1>(
+                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_zero_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_);
+                        }
                         computeMeritBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr);
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -536,6 +554,10 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_B_batch, STATE_P_CONTROL_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&d_dz_batch_, TRAJ_SIZE * BT));
+                // permanently-zero step for current-trajectory merit refreshes
+                // (set_admm_merit); never written after this memset
+                gpuErrchk(cudaMalloc(&d_dz_zero_, TRAJ_SIZE * BT));
+                gpuErrchk(cudaMemset(d_dz_zero_, 0, TRAJ_SIZE * BT));
                 gpuErrchk(cudaMalloc(&d_lambda_batch_, VEC_SIZE_PADDED * BT));
                 gpuErrchk(cudaMemset(d_lambda_batch_, 0, VEC_SIZE_PADDED * BT));
 
@@ -626,6 +648,7 @@ class BSQP {
 
                 gpuErrchk(cudaFree(d_lambda_batch_));
                 gpuErrchk(cudaFree(d_dz_batch_));
+		gpuErrchk(cudaFree(d_dz_zero_));
                 gpuErrchk(cudaFree(d_kkt_converged_batch_));
                 gpuErrchk(cudaFree(d_merit_initial_batch_));
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
@@ -667,6 +690,7 @@ class BSQP {
         SchurSystem<T>      schur_system_batch_;
         T*                  d_lambda_batch_;
         T*                  d_dz_batch_;
+	T*       d_dz_zero_;
         // PCG
         uint32_t* d_pcg_iterations_;
         // Merit
@@ -712,6 +736,7 @@ class BSQP {
         bool     admm_needs_init_ = false;
         bool     admm_has_eq_rows_ = false;
         uint32_t admm_iters_ = 10;
+	bool     admm_merit_term_ = false;  // set_admm_merit (R1 ablation)
 
         // AL/PHR duals (rowgroups.cuh MECH_AL; al_active_ == false -> inert)
         T*   d_lam_hi_;

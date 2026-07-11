@@ -402,6 +402,15 @@ class BSQP:
         the TRUE violation, slack notwithstanding."""
         self.solver.set_row_group_soft(int(g), float(sigma))
 
+    def set_admm_merit(self, on=True):
+        """R1 ablation toggle: include the AL-form ADMM constraint value
+        y'(g - z) + (rho/2)|g - z|^2 (current row state) in the line-search
+        merit. v1 ADMM's merit is tracking-only, so the line search rejects
+        steps that trade tracking for feasibility (measured: closed-loop MPC
+        parks in conservative basins). Off by default — the exact v1
+        semantics; only read while ADMM mode is active."""
+        self.solver.set_admm_merit(bool(on))
+
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):
         """Update scalar cost weights at runtime (None keeps the current value)."""

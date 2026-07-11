@@ -272,6 +272,7 @@ class PyBSQP {
         }
 
         void set_row_group_soft(int32_t g, T sigma) { solver_.set_row_group_soft(g, sigma); }
+        void set_admm_merit(bool on) { solver_.set_admm_merit(on); }
 
         void set_row_group_bounds(int32_t g, py::array_t<T> lo, py::array_t<T> hi)
         {
@@ -398,7 +399,8 @@ class PyBSQP {
             .def("get_row_duals", &PyBSQP<Type>::get_row_duals)                                                                                                                                        \
             .def("get_admm_state", &PyBSQP<Type>::get_admm_state)                                                                                                                                      \
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
-            .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))
+            .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
+            .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
