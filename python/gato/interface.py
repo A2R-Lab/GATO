@@ -124,7 +124,7 @@ class BSQP:
         q_lim_cost=1e-3,
         vel_lim_cost=0.0,
         ctrl_lim_cost=0.0,
-        rho=0.0,
+        rho=1e-3,  # trust-region floor: f32 bdsv paths return garbage steps at rho=0 (R1)
         rho_batch=None,
         mu_batch=None,
         pcg_tol_batch=None,
@@ -315,12 +315,16 @@ class BSQP:
         comparison. Telemetry (stats.row_*_violation) stays on."""
         self.solver.enable_limit_barrier(float(mu), float(delta))
 
-    def enable_limit_admm(self, rho=1.0, iters=10):
+    def enable_limit_admm(self, rho=0.01, iters=10):
         """Bind the limit row-groups to the ADMM-projection mechanism: an
         OSQP-style fixed-budget inner loop per SQP iteration on a REUSED
         direct (bdsv) factorization — the constraint layer's
         "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
         a solve; adapt it between solves), ``iters`` the fixed budget.
+        R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
+        rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
+        controls at the warm start (closed-loop MPC parks); the measured
+        pocket is ~0.005-0.02 (r1_report_2026-07-11.md).
         Duals warm-start across solves (reset_dual() reinitializes) —
         EXCEPT equality rows (lo == hi, e.g. enable_ee_terminal_equality),
         whose (z, y) reinit every solve: a warm-started dual on a row the
@@ -328,7 +332,7 @@ class BSQP:
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
         self.solver.enable_limit_admm(float(rho), int(iters))
 
-    def enable_limit_al(self, rho=10.0):
+    def enable_limit_al(self, rho=100.0):
         """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
         hinge-activated grad/GN-Hessian and C¹ AL value folded into the KKT
         cost and merit, with the outer dual update
@@ -342,10 +346,12 @@ class BSQP:
         ``get_row_duals()`` exposes the multipliers. While active, solves use
         the direct (bdsv) linear solver and freeze trust-region rho
         adaptation — both required for outer convergence (measured; see
-        bsqp.cuh dispatch comments)."""
+        bsqp.cuh dispatch comments). REQUIRES the trust-region floor
+        (constructor rho > 0, the default): f32 bdsv on an unregularized
+        Schur system returns garbage steps (R1)."""
         self.solver.enable_limit_al(float(rho))
 
-    def enable_ee_terminal_equality(self, target, rho=100.0):
+    def enable_ee_terminal_equality(self, target, rho=10.0):
         """Append an EE terminal-position equality row-group: the returned
         trajectory's final-knot EE position is constrained to ``target`` (xyz,
         ``lo == hi``). The first non-selection row kind — evaluated by
@@ -357,7 +363,9 @@ class BSQP:
         (linearized inner-loop projection: z pins to target, y accumulates
         the equality multiplier), telemetry-only reporting otherwise. Call
         AFTER enable_limit_* — mechanism enables reinstall the canonical
-        groups and drop appended ones."""
+        groups and drop appended ones. R1 binding ruling: use ADMM for
+        closed-loop MPC (2mm finals measured); AL-EE equality diverges in
+        closed loop (R2 diagnosis pending)."""
         self.solver.enable_ee_terminal_equality(
             np.asarray(target, dtype=np.float32).reshape(3), float(rho))
 
