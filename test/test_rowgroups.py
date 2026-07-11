@@ -451,12 +451,71 @@ def test_ee_equality_al_converges_when_reachable(make_solver, smallest_module):
         assert vk < 0.5 * v1
 
 
-def test_ee_equality_admm_mode_raises(make_solver, smallest_module):
+def test_ee_equality_admm_converges_when_reachable(make_solver, smallest_module):
+    """ADMM-bound EE terminal equality (linearized inner-loop projection):
+    with the tracking goal AT the target (reachable), warm-started solves
+    keep the EE violation at centimeters (measured indy7: 0.028 vs 0.065
+    pure-tracking, stable over 30 solves); z pins to the target exactly
+    (degenerate-interval clip — an indexing sanity gate); and y stays at
+    WITHIN-SOLVE scale — equality rows reinit (z, y) per solve, or a parked
+    primal turns the warm-started dual into an unbounded violation
+    integrator (measured: |y| grew ~11/solve without the reinit)."""
+    pytest.importorskip("pinocchio")
     plant, N = smallest_module
-    s = make_solver(plant, N, batch_size=1)
-    s.enable_limit_admm(rho=10.0, iters=5)
-    with pytest.raises(Exception):
-        s.enable_ee_terminal_equality(np.zeros(3, np.float32), rho=10.0)
+    B = 4
+    X, _ = _inputs(plant, N, B)
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    target = _solver_frame_target(s, plant)
+    goals = np.zeros((B, N * 6), dtype=np.float32)
+    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = target[0], target[1], target[2]
+
+    rho, iters = 10.0, 5
+    s.enable_limit_admm(rho=rho, iters=iters)
+    s.enable_ee_terminal_equality(target, rho=rho)
+    assert s.get_row_groups()[3]["mech"] == 2  # MECH_ADMM
+    first = s.solve(X, goals)
+    for _ in range(10):
+        r = s.solve(X, goals)
+
+    assert np.isfinite(r.xu).all()
+    assert r.stats.row_max_violation[3].max() < 0.05
+    v1, vk = first.stats.row_max_violation[3].max(), r.stats.row_max_violation[3].max()
+    assert vk <= 1.05 * v1
+    if v1 > 0.06:
+        assert vk < 0.5 * v1
+    st = s.get_admm_state()
+    z3 = st["z"][:, 3, N - 1, :3]
+    np.testing.assert_array_equal(z3, np.broadcast_to(target, z3.shape))
+    # one solve's worth of accumulation, not 11 solves' worth (windup guard)
+    y_cap = rho * max(vk, 0.05) * iters * 8 * 1.5
+    assert np.abs(st["y"][:, 3, N - 1, :3]).max() < y_cap
+
+
+def test_ee_admm_certificate_and_determinism(make_solver, smallest_module):
+    from gato.certificate import kkt_residuals
+
+    pytest.importorskip("pinocchio")
+    plant, N = smallest_module
+    B = 2
+    X, goals = _inputs(plant, N, B)
+
+    def run():
+        s = make_solver(plant, N, batch_size=B, max_sqp_iters=6)
+        target = _solver_frame_target(s, plant)
+        s.enable_limit_admm(rho=10.0, iters=5)
+        s.enable_ee_terminal_equality(target, rho=10.0)
+        for _ in range(3):
+            r = s.solve(X, goals)
+        return s, r
+
+    (sa, ra), (sb, rb) = run(), run()
+    np.testing.assert_array_equal(ra.xu, rb.xu)  # bit-deterministic ADMM-EE
+
+    groups = sa.get_row_groups()
+    fk = lambda q: sa.ee_pos(q, frame="solver")
+    r = kkt_residuals(groups, ra.xu[0].astype(np.float64), ra.nx, ra.nu, ee_fk=fk)
+    np.testing.assert_allclose(r["per_group"][3]["primal"],
+                               ra.stats.row_max_violation[3, 0], rtol=1e-5, atol=1e-6)
 
 
 def test_ee_certificate_and_determinism(make_solver, smallest_module):

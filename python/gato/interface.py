@@ -321,7 +321,10 @@ class BSQP:
         direct (bdsv) factorization — the constraint layer's
         "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
         a solve; adapt it between solves), ``iters`` the fixed budget.
-        Duals warm-start across solves (reset_dual() reinitializes).
+        Duals warm-start across solves (reset_dual() reinitializes) —
+        EXCEPT equality rows (lo == hi, e.g. enable_ee_terminal_equality),
+        whose (z, y) reinit every solve: a warm-started dual on a row the
+        primal may not reach is an unbounded violation integrator (measured).
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
         self.solver.enable_limit_admm(float(rho), int(iters))
 
@@ -350,9 +353,11 @@ class BSQP:
         — the same frame the tracking cost optimizes; see ee_pos for the
         frame-offset caveat). Mechanism follows the current mode: AL when
         enable_limit_al() is active (always-active equality, signed
-        multiplier in lam_hi), telemetry-only reporting otherwise. ADMM-EE
-        is not yet supported (raises). Call AFTER enable_limit_* — mechanism
-        enables reinstall the canonical groups and drop appended ones."""
+        multiplier in lam_hi), ADMM when enable_limit_admm() is active
+        (linearized inner-loop projection: z pins to target, y accumulates
+        the equality multiplier), telemetry-only reporting otherwise. Call
+        AFTER enable_limit_* — mechanism enables reinstall the canonical
+        groups and drop appended ones."""
         self.solver.enable_ee_terminal_equality(
             np.asarray(target, dtype=np.float32).reshape(3), float(rho))
 

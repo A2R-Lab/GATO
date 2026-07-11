@@ -99,6 +99,7 @@ class BSQP {
                 n_row_groups_ = 3;
                 admm_active_ = false;
                 al_active_ = false;
+                admm_has_eq_rows_ = false;
         }
 
         // Same limit groups bound to MECH_BARRIER_RELAXED: a relaxed log-barrier
@@ -115,6 +116,7 @@ class BSQP {
                 n_row_groups_ = 3;
                 admm_active_ = false;
                 al_active_ = false;
+                admm_has_eq_rows_ = false;
         }
         // Same limit groups bound to MECH_ADMM: OSQP-style interval projection
         // run as a fixed-budget inner loop per SQP iteration on the REUSED bdsv
@@ -122,6 +124,8 @@ class BSQP {
         // iters = the fixed budget ("approximately hard" — final violation is
         // telemetry-reported). (z, y) warm-start across solves; reset_dual()
         // or re-enabling reinitializes them from the next warm start.
+        // EXCEPTION: equality rows (lo == hi) reinit every solve — persistent
+        // y there is an unbounded violation integrator (kernels/admm.cuh).
         void enable_limit_admm(T rho, uint32_t iters)
         {
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
@@ -133,6 +137,7 @@ class BSQP {
                 al_active_ = false;
                 admm_iters_ = iters;
                 admm_needs_init_ = true;
+                admm_has_eq_rows_ = false;  // canonical limit boxes are strict intervals
         }
 
         // Same limit groups bound to MECH_AL: PHR augmented Lagrangian
@@ -157,6 +162,7 @@ class BSQP {
                 n_row_groups_ = 3;
                 al_active_ = true;
                 admm_active_ = false;
+                admm_has_eq_rows_ = false;
         }
         // per-solve (r_prim, r_dual) of the LAST ADMM iteration, [solve*2 + {0,1}]
         void copy_admm_residuals_to_host(T* h_out)
@@ -169,6 +175,7 @@ class BSQP {
                 n_row_groups_ = 0;
                 admm_active_ = false;
                 al_active_ = false;
+                admm_has_eq_rows_ = false;
         }
         int32_t num_row_groups() const { return n_row_groups_; }
         bool    admm_active() const { return admm_active_; }
@@ -202,20 +209,19 @@ class BSQP {
         // = target, knot K-1 only): the first non-selection row kind, evaluated
         // by cooperative FK (rowgroups.cuh EE sites). Mechanism follows the
         // current mode: MECH_AL when AL is active (always-active equality,
-        // signed multiplier), MECH_TELEMETRY otherwise (honest reporting).
-        // ADMM-EE is a CL-1 follow-up — enabling it here throws. Call AFTER
-        // enable_limit_* (mechanism enables reinstall the canonical 3 groups,
-        // dropping appended ones).
+        // signed multiplier), MECH_ADMM when ADMM is active (linearized
+        // projection in the inner loop, kernels/admm.cuh), MECH_TELEMETRY
+        // otherwise (honest reporting). Call AFTER enable_limit_* (mechanism
+        // enables reinstall the canonical 3 groups, dropping appended ones).
         void enable_ee_terminal_equality(const T* h_target /* xyz */, T rho)
         {
-                if (admm_active_) { throw std::invalid_argument("enable_ee_terminal_equality: EE rows via ADMM are not yet supported; use enable_limit_al or telemetry"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_ee_terminal_equality: rho must be > 0"); }
                 if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("enable_ee_terminal_equality: row-group table full"); }
                 rows::RowGroupDesc<T> h_grp;
                 memset(&h_grp, 0, sizeof(h_grp));
                 h_grp.kind = rows::EE_POS;
                 h_grp.block = rows::BLOCK_X;
-                h_grp.mech = al_active_ ? rows::MECH_AL : rows::MECH_TELEMETRY;
+                h_grp.mech = al_active_ ? rows::MECH_AL : (admm_active_ ? rows::MECH_ADMM : rows::MECH_TELEMETRY);
                 h_grp.n_rows = 3;
                 h_grp.knot_lo = KNOT_POINTS - 1;
                 h_grp.knot_hi = KNOT_POINTS;
@@ -224,6 +230,10 @@ class BSQP {
                 for (int i = 0; i < 3; i++) { h_grp.lo[i] = h_target[i]; h_grp.hi[i] = h_target[i]; }
                 gpuErrchk(cudaMemcpy(d_row_groups_ + n_row_groups_, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
                 n_row_groups_ += 1;
+                if (admm_active_) {
+                        admm_needs_init_ = true;   // the new group's z needs init
+                        admm_has_eq_rows_ = true;  // -> per-solve eq reinit (see solve())
+                }
         }
 
         // Override one group's interval bounds in place (n_rows each; lo == hi
@@ -237,7 +247,12 @@ class BSQP {
                 memcpy(h_grp.lo, h_lo, h_grp.n_rows * sizeof(T));
                 memcpy(h_grp.hi, h_hi, h_grp.n_rows * sizeof(T));
                 gpuErrchk(cudaMemcpy(d_row_groups_ + g, &h_grp, sizeof(rows::RowGroupDesc<T>), cudaMemcpyHostToDevice));
-                if (admm_active_) { admm_needs_init_ = true; }
+                if (admm_active_) {
+                        admm_needs_init_ = true;
+                        for (int32_t i = 0; i < h_grp.n_rows; i++) {
+                                if (h_grp.lo[i] == h_grp.hi[i]) { admm_has_eq_rows_ = true; }
+                        }
+                }
         }
 
         // Linear-system solver for S·λ = γ: 0 = PCG (default; bit-identical to the
@@ -304,10 +319,15 @@ class BSQP {
                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
-                // ADMM (z, y) (re)initialize from THIS solve's warm start when required
+                // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
+                // equality rows (lo == hi) reinit EVERY solve regardless — persistent y
+                // on a row the primal may not satisfy is an unbounded violation
+                // integrator (measured; kernels/admm.cuh header)
                 if (admm_active_ && admm_needs_init_) {
-                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_);
+                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_);
                         admm_needs_init_ = false;
+                } else if (admm_active_ && admm_has_eq_rows_) {
+                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/true);
                 }
 
                 // SQP Loop
@@ -326,11 +346,11 @@ class BSQP {
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_);
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
-                                        rows::admmGradientBatched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_);
+                                        rows::admmGradientBatched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_);
                                         computeGammaBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                                         solveBDSVFactoredBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
                                         computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
-                                        rows::admmProjectDualBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_);
+                                        rows::admmProjectDualBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_);
                                 }
                                 // NOTE: the factored solve reports iterations 1 (solved) / 2
                                 // (non-PD skip) — never 0, so the pcg_iters==0 SQP early-exit
@@ -674,6 +694,7 @@ class BSQP {
         int32_t* d_factor_status_;
         bool     admm_active_ = false;
         bool     admm_needs_init_ = false;
+        bool     admm_has_eq_rows_ = false;
         uint32_t admm_iters_ = 10;
 
         // AL/PHR duals (rowgroups.cuh MECH_AL; al_active_ == false -> inert)

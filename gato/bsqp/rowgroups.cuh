@@ -290,8 +290,10 @@ __device__ __forceinline__ const T* ee_eval_pose(const T* xu_k, T* s_scratch, co
 
 // GN fold of EE_POS rows at one knot into the state cost blocks (dense:
 // q += sum_i gr_i * J_i, Q += sum_i h_i * J_i^T J_i over the q half). Scalars
-// per mechanism (AL / RB); MECH_TELEMETRY / MECH_ADMM groups contribute
-// nothing here. ALL threads call; ends on a barrier per group.
+// per mechanism (AL / RB / ADMM — ADMM folds the constant rho*J^T*J Hessian
+// only; its gradient half is per-ADMM-iteration, kernels/admm.cuh);
+// MECH_TELEMETRY groups contribute nothing here. ALL threads call; ends on a
+// barrier per group.
 template<typename T>
 __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
                                        int32_t knot, const T* xu_k,
@@ -304,7 +306,7 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
                 if (grp.kind != EE_POS) continue;
-                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED) continue;
+                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
 
                 T* s_pose = s_scratch;
@@ -316,7 +318,11 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
 
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                         const T g = s_pose[i];
-                        if (grp.mech == MECH_AL) {
+                        if (grp.mech == MECH_ADMM) {
+                                // constant rho*J^T*J fold; gradient half per-ADMM-iteration
+                                s_gr[i] = static_cast<T>(0);
+                                s_h[i] = grp.mu;  // mu = ADMM rho
+                        } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, s_gr[i], s_h[i]);
                         } else {
