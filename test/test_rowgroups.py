@@ -637,3 +637,189 @@ def test_telemetry_deterministic(make_solver, smallest_module):
     a, b = run(), run()
     np.testing.assert_array_equal(a.stats.row_max_violation, b.stats.row_max_violation)
     np.testing.assert_array_equal(a.stats.row_sum_violation, b.stats.row_sum_violation)
+
+
+# ---- CL-2: LIN_U rows + cone semantics -------------------------------------
+
+def _u_at(xu, k, nx, nu):
+    step = nx + nu
+    return xu[k * step + nx:k * step + nx + nu].astype(np.float32)
+
+
+def _lin_u_oracle(xu, grp, nx, nu):
+    """numpy {max, sum} violation of one LIN_U group from the returned
+    trajectory: cone margin (one scalar per knot) or interval violation."""
+    C = np.asarray(grp["C"], dtype=np.float32)
+    d = np.asarray(grp["d"], dtype=np.float32)
+    viols = []
+    for k in range(grp["knot_lo"], grp["knot_hi"]):
+        g = C @ _u_at(xu, k, nx, nu) + d
+        if grp["cone"]:
+            viols.append(max(0.0, np.linalg.norm(g[1:].astype(np.float64)) - g[0]))
+        else:
+            lo = np.asarray(grp["lo"], dtype=np.float32)
+            hi = np.asarray(grp["hi"], dtype=np.float32)
+            viols.extend(np.maximum(0, g - hi) + np.maximum(0, lo - g))
+    v = np.asarray(viols)
+    return v.max(), v.sum(dtype=np.float64)
+
+
+def _norm_cap_cone(nu, cap):
+    """(C, d) for the torque-norm cone ||u|| <= cap (row 0 = constant axis)."""
+    C = np.zeros((nu + 1, nu), dtype=np.float32)
+    C[1:, :] = np.eye(nu, dtype=np.float32)
+    d = np.zeros(nu + 1, dtype=np.float32)
+    d[0] = cap
+    return C, d
+
+
+def _baseline_u_norm_max(res):
+    return max(np.linalg.norm(_u_at(res.xu[b], k, res.nx, res.nu))
+               for b in range(res.batch_size) for k in range(res.N - 1))
+
+
+def test_lin_u_descriptor_roundtrip_and_telemetry(make_solver, smallest_module):
+    """C/d round-trip through get_row_groups; cone + interval LIN_U telemetry
+    match the numpy oracle on the returned trajectory."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    s = make_solver(plant, N, batch_size=B)
+    s.enable_limit_telemetry()
+    rng = np.random.default_rng(7)
+    C4 = rng.normal(size=(4, s.nu)).astype(np.float32)
+    d4 = rng.normal(size=4).astype(np.float32)
+    s.add_lin_u_rows(C4, d4, cone=True, mech="telemetry")
+    C3 = rng.normal(size=(3, s.nu)).astype(np.float32)
+    s.add_lin_u_rows(C3, lo=np.full(3, -np.inf), hi=np.zeros(3), mech="telemetry")
+    groups = s.get_row_groups()
+    assert len(groups) == 5
+    np.testing.assert_allclose(groups[3]["C"], C4, rtol=1e-6)
+    np.testing.assert_allclose(groups[3]["d"], d4, rtol=1e-6)
+    assert groups[3]["cone"] == 1 and groups[4]["cone"] == 0
+    assert not np.isfinite(groups[3]["lo"]).any()
+
+    r = s.solve(X, goals)
+    np.testing.assert_array_equal(r.xu, make_solver(plant, N, batch_size=B).solve(X, goals).xu)  # telemetry off-path
+    for gi in (3, 4):
+        for b in range(B):
+            vmax, vsum = _lin_u_oracle(r.xu[b], groups[gi], r.nx, r.nu)
+            np.testing.assert_allclose(r.stats.row_max_violation[gi, b], vmax, rtol=1e-4, atol=1e-5)
+            np.testing.assert_allclose(r.stats.row_sum_violation[gi, b], vsum, rtol=1e-4, atol=1e-5)
+
+
+def test_u_cone_soc_admm_enforced(make_solver, smallest_module):
+    """admm_soc: a binding torque-norm cone (cap = 50% of the unconstrained
+    max) is driven to ~0 margin violation; deterministic run-to-run."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B)
+    base.enable_limit_telemetry()
+    rb = base.solve(X, goals)
+    cap = 0.5 * _baseline_u_norm_max(rb)
+
+    def run():
+        s = make_solver(plant, N, batch_size=B)
+        s.enable_limit_telemetry()
+        C, d = _norm_cap_cone(s.nu, cap)
+        gi = s.enable_u_cone(C, d, mech="admm", rho=0.01, admm_iters=10)
+        r = s.solve(X, goals)
+        return gi, r
+
+    (gi, r1), (_, r2) = run(), run()
+    np.testing.assert_array_equal(r1.xu, r2.xu)  # bit-deterministic
+    assert np.isfinite(r1.xu).all()
+    assert r1.stats.row_max_violation[gi].max() < 0.02 * cap  # margin ~0
+
+
+def test_u_cone_soc_al_enforced(make_solver, smallest_module):
+    """conic-AL: same binding cone, dual vector projected onto K per solve;
+    warm-started solves converge the margin; duals live in lam_hi and are
+    cone-feasible."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B)
+    base.enable_limit_telemetry()
+    rb = base.solve(X, goals)
+    cap = 0.5 * _baseline_u_norm_max(rb)
+
+    s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
+    s.enable_limit_telemetry()
+    C, d = _norm_cap_cone(s.nu, cap)
+    gi = s.enable_u_cone(C, d, mech="al", rho=1.0)
+    for _ in range(8):
+        r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    assert r.stats.row_max_violation[gi].max() < 0.05 * cap
+
+    lam = s.get_row_duals()["lam_hi"][:, gi, :N - 1, :s.nu + 1]
+    m = s.nu + 1
+    for b in range(B):
+        for k in range(N - 1):
+            v = lam[b, k, :m].astype(np.float64)
+            assert np.linalg.norm(v[1:]) <= v[0] + 1e-4  # lam in K (self-dual)
+
+
+def test_u_cone_pyramid_enforced(make_solver, smallest_module):
+    """Pyramid facets (inscribed) ride the interval machinery: facet violation
+    -> ~0 under ADMM, and inscribed feasibility implies a small SOC margin."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B)
+    base.enable_limit_telemetry()
+    rb = base.solve(X, goals)
+    cap = 0.5 * _baseline_u_norm_max(rb)
+
+    # 3-row cone on the first two controls: ||(u0, u1)|| <= cap
+    s = make_solver(plant, N, batch_size=B)
+    s.enable_limit_telemetry()
+    C = np.zeros((3, s.nu), dtype=np.float32)
+    C[1, 0] = 1.0
+    C[2, 1] = 1.0
+    d = np.array([cap, 0.0, 0.0], dtype=np.float32)
+    gi = s.enable_u_cone(C, d, mech="admm", rho=0.01, form="pyramid", facets=8,
+                         admm_iters=10)
+    r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    assert r.stats.row_max_violation[gi].max() < 0.02 * cap  # facet rows ~feasible
+
+    # facet-feasible (inscribed) => SOC margin feasible up to the facet slack
+    worst = 0.0
+    for b in range(B):
+        for k in range(N - 1):
+            u = _u_at(r.xu[b], k, r.nx, r.nu)
+            worst = max(worst, float(np.linalg.norm(C[1:] @ u) - cap))
+    assert worst < 0.03 * cap
+
+
+def test_u_cone_barrier_reduces_margin(make_solver, smallest_module):
+    """Relaxed-barrier-cone (margin barrier): infeasible-start safe, margin
+    violation reduced vs the unconstrained baseline."""
+    plant, N = smallest_module
+    B = 4
+    X, goals = _inputs(plant, N, B)
+
+    base = make_solver(plant, N, batch_size=B)
+    base.enable_limit_telemetry()
+    rb = base.solve(X, goals)
+    cap = 0.5 * _baseline_u_norm_max(rb)
+    C, d = _norm_cap_cone(rb.nu, cap)
+
+    def cone_viol(res):
+        return max(_lin_u_oracle(res.xu[b],
+                                 dict(C=C, d=d, cone=1, knot_lo=0, knot_hi=N - 1),
+                                 res.nx, res.nu)[0] for b in range(B))
+
+    s = make_solver(plant, N, batch_size=B)
+    s.enable_limit_telemetry()
+    gi = s.enable_u_cone(C, d, mech="barrier", rho=3e-3, delta=0.05)
+    r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    assert cone_viol(r) < 0.5 * cone_viol(rb)  # soft mode: reduced, not exact

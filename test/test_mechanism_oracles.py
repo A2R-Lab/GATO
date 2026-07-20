@@ -337,3 +337,184 @@ def test_elastic_l1_vs_quadratic_distinction():
     assert v_al[j] > 1e-4
     if v_ad[j] < 1.0:                    # proportional dual < cap here
         assert v_ad[j] > v_al[j] - 1e-9  # quadratic slack gives in at least as much
+
+
+# ---- CL-2 cone twins: SOC projection, conic AL, admm_soc, pyramid ----------
+
+from oracles.mechanisms import (soc_project, soc_project_jac, soc_violation,  # noqa: E402
+                                al_soc_value, al_soc_grad_hess, al_soc_phr,
+                                admm_soc, pyramid_facets)
+
+
+def _random_socp(seed, n=6, m=4):
+    """Seeded SPD QP with a SOC constraint C x + d in K whose unconstrained
+    optimum VIOLATES the cone (active at the solution)."""
+    rng = np.random.default_rng(seed)
+    A = rng.normal(size=(n, n))
+    H = A @ A.T + n * np.eye(n)
+    g = 5.0 * rng.normal(size=n)
+    C = rng.normal(size=(m, n))
+    xs = np.linalg.solve(H, -g)
+    gs = C @ xs
+    # place the axis offset so the margin is violated at xs
+    d = np.zeros(m)
+    d[0] = -gs[0] + 0.5 * np.linalg.norm(gs[1:])  # axis value = half the tail norm
+    assert soc_violation(C @ xs + d) > 0.1
+    return H, g, C, d
+
+
+def _conic_kkt_check(H, g, C, d, x, lam, tol=1e-6):
+    """Conic KKT: stationarity Hx + g - C'lam = 0; primal Cx + d in K;
+    dual lam in K (self-dual); complementarity lam'(Cx + d) = 0."""
+    v = C @ x + d
+    assert np.abs(H @ x + g - C.T @ lam).max() < tol, "stationarity"
+    assert soc_violation(v) < tol, "primal cone feasibility"
+    assert soc_violation(lam) < tol, "dual cone feasibility"
+    assert abs(lam @ v) < tol * (1.0 + np.abs(lam).max()), "complementarity"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_soc_project_properties(seed):
+    """Idempotency, the three exact cases, and the Moreau decomposition
+    w = Pi_K(w) - Pi_K(-w) with orthogonal parts."""
+    rng = np.random.default_rng(seed)
+    for m in (2, 3, 5):
+        w = 3.0 * rng.normal(size=m)
+        p = soc_project(w)
+        assert soc_violation(p) < 1e-12
+        np.testing.assert_allclose(soc_project(p), p, atol=1e-12)
+        q = soc_project(-w)  # Pi_{-K*}(w) = -Pi_K(-w), K self-dual
+        np.testing.assert_allclose(w, p - q, atol=1e-12)
+        assert abs(p @ q) < 1e-10
+    inside = np.array([2.0, 1.0, 0.5])
+    np.testing.assert_array_equal(soc_project(inside), inside)
+    polar = np.array([-2.0, 1.0, 0.5])
+    np.testing.assert_array_equal(soc_project(polar), np.zeros(3))
+
+
+@pytest.mark.parametrize("case", ["inside", "polar", "outside"])
+def test_soc_project_jac_fd(case):
+    """Closed-form projection Jacobian == FD in each region."""
+    w = {"inside": np.array([3.0, 1.0, -0.5, 0.2]),
+         "polar": np.array([-3.0, 1.0, -0.5, 0.2]),
+         "outside": np.array([0.3, 1.5, -1.0, 0.7])}[case]
+    J = soc_project_jac(w)
+    eps = 1e-7
+    for j in range(w.size):
+        e = np.zeros(w.size)
+        e[j] = eps
+        fd = (soc_project(w + e) - soc_project(w - e)) / (2 * eps)
+        np.testing.assert_allclose(J[:, j], fd, atol=1e-6)
+    np.testing.assert_allclose(J, J.T, atol=1e-12)  # symmetric PSD
+    assert np.linalg.eigvalsh(J).min() > -1e-12
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_al_soc_value_grad_hess_fd(seed):
+    """grad = FD(value); GN hess = FD(grad) away from the projection seams;
+    the value is C^1 (grad continuous across a seam crossing)."""
+    rng = np.random.default_rng(seed)
+    m = 4
+    g0 = rng.normal(size=m)
+    lam = soc_project(rng.normal(size=m))  # dual feasible
+    rho = 2.0
+    gr, hs = al_soc_grad_hess(g0, lam, rho)
+    eps = 1e-6
+    for j in range(m):
+        e = np.zeros(m)
+        e[j] = eps
+        fd_g = (al_soc_value(g0 + e, lam, rho) - al_soc_value(g0 - e, lam, rho)) / (2 * eps)
+        assert abs(gr[j] - fd_g) < 1e-5
+        fd_h = (al_soc_grad_hess(g0 + e, lam, rho)[0] - al_soc_grad_hess(g0 - e, lam, rho)[0]) / (2 * eps)
+        np.testing.assert_allclose(hs[:, j], fd_h, atol=1e-4)
+
+
+def test_al_soc_scalar_reduces_to_hinge():
+    """m = 1 cone == the g >= 0 lower-bound hinge (K = R+): value matches
+    al_hinge_value(c = -g) exactly."""
+    for g0 in (-0.7, -0.01, 0.0, 0.4):
+        for lam in (0.0, 0.3, 2.0):
+            v_cone = al_soc_value(np.array([g0]), np.array([lam]), rho=3.0)
+            v_hinge = al_hinge_value(-g0, lam, rho=3.0)
+            assert abs(v_cone - v_hinge) < 1e-12
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_al_soc_phr_kkt(seed):
+    H, g, C, d = _random_socp(seed)
+    r = al_soc_phr(H, g, C, d)
+    _conic_kkt_check(H, g, C, d, r["x"], r["lam"], tol=1e-5)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_admm_soc_matches_al_soc(seed):
+    """Both cone mechanisms find the same primal point and multiplier
+    (ADMM's y == -lam in the OSQP sign convention)."""
+    H, g, C, d = _random_socp(seed)
+    ra = admm_soc(H, g, C, d, rho=10.0, iters=20000, eps_abs=1e-11)
+    rl = al_soc_phr(H, g, C, d)
+    assert ra["r_prim"] < 1e-9
+    np.testing.assert_allclose(ra["x"], rl["x"], atol=1e-6)
+    np.testing.assert_allclose(-ra["y"], rl["lam"], atol=1e-5)
+    _conic_kkt_check(H, g, C, d, ra["x"], -ra["y"], tol=1e-5)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_al_soc_phr_matches_scipy(seed):
+    """External reference: scipy SLSQP on the smooth margin constraint."""
+    from scipy.optimize import minimize
+    H, g, C, d = _random_socp(seed)
+    r = al_soc_phr(H, g, C, d)
+
+    def f(x):
+        return 0.5 * x @ H @ x + g @ x
+
+    def margin(x):
+        v = C @ x + d
+        return v[0] - np.linalg.norm(v[1:])
+
+    s = minimize(f, np.zeros(H.shape[0]), jac=lambda x: H @ x + g,
+                 constraints=[{"type": "ineq", "fun": margin}], method="SLSQP",
+                 options={"maxiter": 500, "ftol": 1e-14})
+    assert s.success
+    np.testing.assert_allclose(r["x"], s.x, atol=1e-4)
+
+
+def test_admm_soc_soft_is_quadratic_penalty():
+    """sigma_slack > 0 converges to the quadratic-penalty problem
+    min f + (sigma/2) dist^2(Cx + d, K) — verified against scipy on the
+    smooth (C^1) penalty objective."""
+    from scipy.optimize import minimize
+    H, g, C, d = _random_socp(5)
+    sig = 2.0
+    r = admm_soc(H, g, C, d, rho=10.0, iters=40000, eps_abs=1e-12,
+                 sigma_slack=sig)
+
+    def pen(x):
+        v = C @ x + d
+        dist = v - soc_project(v)
+        return 0.5 * x @ H @ x + g @ x + 0.5 * sig * (dist @ dist)
+
+    s = minimize(pen, np.zeros(H.shape[0]), method="BFGS",
+                 options={"maxiter": 2000, "gtol": 1e-12})
+    np.testing.assert_allclose(r["x"], s.x, atol=1e-5)
+    # the soft fixed point trades a POSITIVE violation against the slack
+    assert soc_violation(C @ r["x"] + d) > 1e-4
+
+
+def test_pyramid_facet_geometry():
+    """Inscribed: facet-feasible => cone-feasible (conservative). Circumscribed:
+    cone-feasible => facet-feasible (outer). Checked on the g-space sampler."""
+    rng = np.random.default_rng(11)
+    n, facets = 5, 8
+    C = rng.normal(size=(3, n))
+    d = rng.normal(size=3)
+    P_in, pd_in = pyramid_facets(C, d, facets, "inscribed")
+    P_out, pd_out = pyramid_facets(C, d, facets, "circumscribed")
+    for _ in range(500):
+        u = 2.0 * rng.normal(size=n)
+        gvec = C @ u + d
+        if (P_in @ u + pd_in <= 1e-12).all():
+            assert soc_violation(gvec) < 1e-9, "inscribed leaked outside the cone"
+        if soc_violation(gvec) < 1e-12:
+            assert (P_out @ u + pd_out <= 1e-9).all(), "circumscribed cut the cone"

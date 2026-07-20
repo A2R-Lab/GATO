@@ -266,6 +266,163 @@ def al_phr(H, g, G, lo, hi, rho0=1.0, rho_factor=10.0, outer=20,
                 outer_iters=it, true_violation=float(true_viol))
 
 
+# ---- second-order-cone twins (CL-2, rowgroups.cuh cone helpers) ------------
+# K = {g in R^m : ||g[1:]|| <= g[0]} (row 0 = axis). Exact control-flow
+# mirrors of the shipped CUDA serial helpers.
+
+def soc_project(w):
+    """Twin of rowgroups.cuh::soc_project (three cases)."""
+    w = np.asarray(w, dtype=np.float64)
+    r = np.linalg.norm(w[1:])
+    if r <= w[0]:
+        return w.copy()
+    if r <= -w[0]:
+        return np.zeros_like(w)
+    p = np.empty_like(w)
+    p[0] = 0.5 * (w[0] + r)
+    p[1:] = (0.5 * (w[0] + r) / r) * w[1:]
+    return p
+
+
+def soc_violation(g):
+    """Cone margin violation max(0, ||g[1:]|| - g[0]) — the telemetry metric."""
+    g = np.asarray(g, dtype=np.float64)
+    return max(0.0, np.linalg.norm(g[1:]) - g[0])
+
+
+def soc_project_jac(w):
+    """Jacobian of soc_project (a.e.): I inside K, 0 inside -K, else
+    0.5*[[1, xh^T], [xh, ((w0+r)/r) I - (w0/r) xh xh^T]] with xh = w_bar/r."""
+    w = np.asarray(w, dtype=np.float64)
+    m = w.size
+    r = np.linalg.norm(w[1:])
+    if r <= w[0]:
+        return np.eye(m)
+    if r <= -w[0]:
+        return np.zeros((m, m))
+    xh = w[1:] / r
+    J = np.empty((m, m))
+    J[0, 0] = 0.5
+    J[0, 1:] = 0.5 * xh
+    J[1:, 0] = 0.5 * xh
+    J[1:, 1:] = 0.5 * ((w[0] + r) / r * np.eye(m - 1) - (w[0] / r) * np.outer(xh, xh))
+    return J
+
+
+def al_soc_value(g, lam, rho):
+    """Conic PHR value (||Pi_K(lam - rho g)||^2 - ||lam||^2) / (2 rho) —
+    twin of rowgroups.cuh::al_soc_value. m = 1 reduces to the g >= 0 hinge.
+    grad_g = -Pi_K(lam - rho g); GN/a.e. hess_g = rho * soc_project_jac."""
+    g = np.asarray(g, dtype=np.float64)
+    lam = np.asarray(lam, dtype=np.float64)
+    p = soc_project(lam - rho * g)
+    return (p @ p - lam @ lam) / (2.0 * rho)
+
+
+def al_soc_grad_hess(g, lam, rho):
+    """(grad, hess) of al_soc_value wrt g (GN/a.e. exact)."""
+    g = np.asarray(g, dtype=np.float64)
+    lam = np.asarray(lam, dtype=np.float64)
+    w = lam - rho * g
+    return -soc_project(w), rho * soc_project_jac(w)
+
+
+def al_soc_phr(H, g, C, d, rho0=1.0, rho_factor=10.0, outer=30,
+               inner_tol=1e-11, viol_tol=1e-9, lam0=None):
+    """Conic PHR augmented Lagrangian on
+        min_x 0.5 x'Hx + g'x  s.t.  C x + d in K  (SOC, row 0 = axis).
+    Inner minimization = damped Newton through al_soc_grad_hess (the shipped
+    fold math); outer dual update lam <- Pi_K(lam - rho*(Cx + d)) — twin of
+    alDualUpdateBatchedKernel's cone branch. Hard-only (matches the CUDA
+    layer). Returns dict(x, lam, outer_iters, true_violation)."""
+    H = np.asarray(H, dtype=np.float64)
+    g = np.asarray(g, dtype=np.float64)
+    C = np.asarray(C, dtype=np.float64)
+    d = np.asarray(d, dtype=np.float64)
+    n = H.shape[0]
+    lam = np.zeros(C.shape[0]) if lam0 is None else np.asarray(lam0, dtype=np.float64).copy()
+    rho = rho0
+    x = np.zeros(n)
+    viol = np.inf
+    it = 0
+    for it in range(1, outer + 1):
+        def al_value(xv):
+            return 0.5 * xv @ H @ xv + g @ xv + al_soc_value(C @ xv + d, lam, rho)
+
+        f = al_value(x)
+        for _ in range(200):
+            gr_g, hs_g = al_soc_grad_hess(C @ x + d, lam, rho)
+            grad = H @ x + g + C.T @ gr_g
+            Hess = H + C.T @ hs_g @ C
+            step = np.linalg.solve(Hess, -grad)
+            alpha, f_try = 1.0, f
+            for _ls in range(60):
+                f_try = al_value(x + alpha * step)
+                if f_try < f or alpha * np.abs(step).max() < inner_tol:
+                    break
+                alpha *= 0.5
+            x = x + alpha * step
+            f = min(f, f_try)
+            if alpha * np.abs(step).max() < inner_tol:
+                break
+        lam = soc_project(lam - rho * (C @ x + d))
+        viol = soc_violation(C @ x + d)
+        if viol < viol_tol:
+            break
+        rho = min(rho * rho_factor, 1e8)
+    return dict(x=x, lam=lam, outer_iters=it, true_violation=float(viol))
+
+
+def admm_soc(H, g, C, d, rho=1.0, sigma=1e-6, iters=300, eps_abs=1e-9,
+             x0=None, y0=None, sigma_slack=0.0):
+    """OSQP-style ADMM with the SOC projection z-update — twin of the CUDA
+    admm_soc path on min_x 0.5 x'Hx + g'x s.t. Cx + d in K. Same factor-once
+    structure as admm_interval; z-update = Pi_K(v) (soft sigma_slack > 0:
+    segment blend z = (rho v + sigma Pi(v))/(rho + sigma))."""
+    H = np.asarray(H, dtype=np.float64)
+    g = np.asarray(g, dtype=np.float64)
+    C = np.asarray(C, dtype=np.float64)
+    d = np.asarray(d, dtype=np.float64)
+    n = H.shape[0]
+    m = C.shape[0]
+    x = np.zeros(n) if x0 is None else np.asarray(x0, dtype=np.float64).copy()
+    y = np.zeros(m) if y0 is None else np.asarray(y0, dtype=np.float64).copy()
+    z = soc_project(C @ x + d)
+    M = H + sigma * np.eye(n) + rho * (C.T @ C)
+    from scipy.linalg import cho_factor, cho_solve
+    F = cho_factor(M)
+    r_prim = r_dual = np.inf
+    k = 0
+    for k in range(1, iters + 1):
+        z_prev = z.copy()
+        # x-update: grad mod C^T(y - rho(z - (Cx+d))) with the rho C^T C fold
+        # in M — matches the CUDA gradient-rebuild form
+        rhs = sigma * x - g + C.T @ (rho * (z - d) - y)
+        x = cho_solve(F, rhs)
+        w = C @ x + d
+        v = w + y / rho
+        p = soc_project(v)
+        z = (rho * v + sigma_slack * p) / (rho + sigma_slack) if sigma_slack > 0.0 else p
+        y = y + rho * (w - z)
+        r_prim = np.abs(w - z).max()
+        r_dual = rho * np.abs(C.T @ (z - z_prev)).max()
+        if r_prim < eps_abs and r_dual < eps_abs:
+            break
+    return dict(x=x, z=z, y=y, iters=k, r_prim=r_prim, r_dual=r_dual)
+
+
+def pyramid_facets(C, d=None, facets=8, facet_scale="inscribed"):
+    """Facet rows replacing the 3-row cone (t, x, y): h_j = cos(th_j) g1 +
+    sin(th_j) g2 - s g0 <= 0. Twin of interface.enable_u_cone(form="pyramid").
+    Returns (P, pd) with P (facets, nu), pd (facets,)."""
+    C = np.asarray(C, dtype=np.float64)
+    d = np.zeros(3) if d is None else np.asarray(d, dtype=np.float64)
+    s = np.cos(np.pi / facets) if facet_scale == "inscribed" else 1.0
+    th = 2.0 * np.pi * np.arange(facets) / facets
+    F = np.stack([np.cos(th), np.sin(th), -s * np.ones(facets)], axis=1)
+    return F @ C[[1, 2, 0], :], F @ d[[1, 2, 0]]
+
+
 # ---- relaxed-barrier scalars: numpy twin of gato/bsqp/rowgroups.cuh --------
 # (same formulas; the pytest FD/continuity checks gate the shipped math)
 
