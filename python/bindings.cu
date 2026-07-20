@@ -251,6 +251,21 @@ class PyBSQP {
         }
         void disable_row_groups() { solver_.disable_row_groups(); }
 
+        // LIN_U row-group append (CL-2): C is (m, NU); d/lo/hi length m (d may be
+        // empty -> zero offset; lo/hi ignored for cone rows). mech is the
+        // rows::Mechanism enum value (0 telemetry, 1 barrier, 2 admm, 3 al).
+        void add_lin_u_group(int32_t mech, py::array_t<T> C, py::array_t<T> d, py::array_t<T> lo, py::array_t<T> hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters)
+        {
+                py::buffer_info bC = C.request();
+                if (bC.ndim != 2 || bC.shape[1] != (py::ssize_t)CONTROL_SIZE) { throw py::value_error("add_lin_u_group: C must be (m, " + std::to_string(CONTROL_SIZE) + ")"); }
+                const int32_t   m = (int32_t)bC.shape[0];
+                py::buffer_info bd = d.request(), blo = lo.request(), bhi = hi.request();
+                if (bd.size != 0 && bd.size != m) { throw py::value_error("add_lin_u_group: d must be empty or length m"); }
+                if (!cone && (blo.size != m || bhi.size != m)) { throw py::value_error("add_lin_u_group: interval rows need lo/hi of length m"); }
+                solver_.add_lin_u_group(mech, m, static_cast<T*>(bC.ptr), bd.size ? static_cast<T*>(bd.ptr) : nullptr, blo.size ? static_cast<T*>(blo.ptr) : nullptr,
+                                        bhi.size ? static_cast<T*>(bhi.ptr) : nullptr, cone, rho, delta, sigma, knot_lo, knot_hi, admm_iters);
+        }
+
         // per-solve row-state pair, dense row_state_index layout
         // (B, MAX_ROW_GROUPS, KNOT_POINTS, MAX_ROWS_PER_GROUP) per array:
         // AL duals {lam_hi, lam_lo} / ADMM state {z, y}
@@ -304,8 +319,17 @@ class PyBSQP {
                         d["knot_lo"] = grp.knot_lo;
                         d["knot_hi"] = grp.knot_hi;
                         d["sigma"] = grp.sigma;
+                        d["cone"] = grp.cone;
                         d["lo"] = lo;
                         d["hi"] = hi;
+                        if (grp.kind == gato::rows::LIN_U) {
+                                py::array_t<T> Cm({(py::ssize_t)grp.n_rows, (py::ssize_t)CONTROL_SIZE});
+                                py::array_t<T> dv({(py::ssize_t)grp.n_rows});
+                                memcpy(Cm.request().ptr, grp.Cmat, (size_t)grp.n_rows * CONTROL_SIZE * sizeof(T));
+                                memcpy(dv.request().ptr, grp.dvec, (size_t)grp.n_rows * sizeof(T));
+                                d["C"] = Cm;
+                                d["d"] = dv;
+                        }
                         out.append(d);
                 }
                 return out;
@@ -400,7 +424,9 @@ class PyBSQP {
             .def("get_admm_state", &PyBSQP<Type>::get_admm_state)                                                                                                                                      \
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
-            .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))
+            .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \
+            .def("add_lin_u_group", &PyBSQP<Type>::add_lin_u_group, py::arg("mech"), py::arg("C"), py::arg("d"), py::arg("lo"), py::arg("hi"), py::arg("cone"),               \
+                 py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters"))
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {

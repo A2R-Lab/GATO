@@ -247,6 +247,7 @@ class BSQP:
         self.max_pcg_iters = int(max_pcg_iters)
         self.linsys = "pcg"  # the C++ default; set_linsys only calls into the module on change
         self.set_linsys(linsys)
+        self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
 
     def set_linsys(self, mode):
         """Pick the S·λ = γ path for subsequent solves: "pcg" | "bdsv" | "bdsv_first".
@@ -297,6 +298,9 @@ class BSQP:
         return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N)
 
+    # rows::Mechanism enum values (rowgroups.cuh)
+    _MECHS = {"telemetry": 0, "barrier": 1, "admm": 2, "al": 3}
+
     def enable_limit_telemetry(self):
         """Install the canonical limit row-groups (position/velocity/torque boxes
         from the URDF limit tables) in TELEMETRY mode: every solve() reports each
@@ -305,6 +309,7 @@ class BSQP:
         Telemetry never touches the solver path — trajectories are bit-identical
         with it on or off. Part of the constraint row-group layer (CL-0)."""
         self.solver.enable_limit_telemetry()
+        self._row_mech = "telemetry"
 
     def enable_limit_barrier(self, mu=3e-3, delta=0.05):
         """Bind the limit row-groups to the RELAXED log-barrier mechanism: a
@@ -314,6 +319,7 @@ class BSQP:
         clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
         comparison. Telemetry (stats.row_*_violation) stays on."""
         self.solver.enable_limit_barrier(float(mu), float(delta))
+        self._row_mech = "barrier"
 
     def enable_limit_admm(self, rho=0.01, iters=10):
         """Bind the limit row-groups to the ADMM-projection mechanism: an
@@ -331,6 +337,7 @@ class BSQP:
         primal may not reach is an unbounded violation integrator (measured).
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
         self.solver.enable_limit_admm(float(rho), int(iters))
+        self._row_mech = "admm"
 
     def enable_limit_al(self, rho=1.0):
         """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
@@ -356,6 +363,7 @@ class BSQP:
         rho=1). Higher rho = tighter transients — raise it only within the
         f32 ceiling (rho ~ 1e4 x the block's natural Hessian scale)."""
         self.solver.enable_limit_al(float(rho))
+        self._row_mech = "al"
 
     def enable_ee_terminal_equality(self, target, rho=10.0):
         """Append an EE terminal-position equality row-group: the returned
@@ -379,6 +387,7 @@ class BSQP:
     def disable_row_groups(self):
         """Remove all constraint row-groups (stats lose the row_* fields)."""
         self.solver.disable_row_groups()
+        self._row_mech = None
 
     def get_row_groups(self):
         """List of installed row-group descriptors (dicts with kind/block/mech,
@@ -425,6 +434,89 @@ class BSQP:
         parks in conservative basins). Off by default — the exact v1
         semantics; only read while ADMM mode is active."""
         self.solver.set_admm_merit(bool(on))
+
+    def add_lin_u_rows(self, C, d=None, lo=None, hi=None, mech=None, rho=None,
+                       delta=0.05, sigma=0.0, cone=False, knot_lo=0,
+                       knot_hi=None, admm_iters=0):
+        """Append a LIN_U row-group: m rows ``g = C @ u + d`` on the control
+        block (C shape (m, nu), FROZEN at a host-chosen configuration — the
+        cross-term audit's contact-frame rule for config-dependent maps).
+
+        ``cone=True`` binds SECOND-ORDER-CONE semantics to the row vector
+        (row 0 = axis t, rows 1.. = x-bar; feasible iff ||x-bar|| <= t;
+        lo/hi unused): ADMM z-update = SOC projection (``admm_soc``), AL =
+        conic PHR (dual vector projected onto K each outer update; hard-only),
+        barrier = relaxed barrier on the margin t - ||x-bar||. ``cone=False``
+        keeps interval semantics on the mapped rows (lo/hi required) — the
+        pyramid-facet path.
+
+        ``mech`` is "telemetry" | "barrier" | "admm" | "al" (None = follow the
+        active enable_limit_* mode). Mixing mechanisms across groups composes
+        (e.g. AL boxes + ADMM cone). Call AFTER enable_limit_* — mechanism
+        enables reinstall the canonical groups and drop appended ones.
+        ``rho`` defaults per mechanism (provisional until the R2 round binds
+        them: admm 0.01, al 1.0, barrier 3e-3) — the rho-scale law applies:
+        the fold lands rho * C^T C on the R block, so scale rho DOWN by
+        ||C||^2 when the map is large. Telemetry reports the cone margin
+        violation max(0, ||x-bar|| - t) (interval rows: interval violation)."""
+        C = np.ascontiguousarray(np.asarray(C, dtype=np.float32))
+        if C.ndim != 2 or C.shape[1] != self.nu:
+            raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")
+        m = C.shape[0]
+        if mech is None:
+            mech = self._row_mech or "telemetry"
+        if mech not in self._MECHS:
+            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
+        if rho is None:
+            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 0.01, "al": 1.0}[mech]
+        d = np.asarray([] if d is None else d, dtype=np.float32).reshape(-1)
+        if cone:
+            lo_a = np.asarray([], dtype=np.float32)
+            hi_a = np.asarray([], dtype=np.float32)
+        else:
+            if lo is None or hi is None:
+                raise ValueError("interval LIN_U rows need lo and hi (length m)")
+            lo_a = np.asarray(lo, dtype=np.float32).reshape(m)
+            hi_a = np.asarray(hi, dtype=np.float32).reshape(m)
+        if knot_hi is None:
+            knot_hi = self.N - 1  # no terminal control
+        self.solver.add_lin_u_group(self._MECHS[mech], C, d, lo_a, hi_a,
+                                    bool(cone), float(rho), float(delta),
+                                    float(sigma), int(knot_lo), int(knot_hi),
+                                    int(admm_iters))
+
+    def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
+                      facets=8, facet_scale="inscribed", **kw):
+        """Cone constraint on a mapped control quantity g = C @ u + d
+        (CL-2 demo surface: e.g. an EE contact-force friction cone with
+        C = S @ pinv(J(q).T), rows [mu*f_n; f_t1; f_t2], frozen at q).
+
+        form="soc": exact second-order cone via add_lin_u_rows(cone=True).
+        form="pyramid": m must be 3; the cone is replaced by ``facets``
+        one-sided linear rows h_j = cos(th_j) g1 + sin(th_j) g2 - s*g0 <= 0
+        riding the ordinary interval machinery (any mechanism, slack toggle
+        included). facet_scale="inscribed" (s = cos(pi/facets), conservative:
+        facet-feasible => cone-feasible) or "circumscribed" (s = 1, outer
+        approximation). Returns the appended group index."""
+        C = np.asarray(C, dtype=np.float64)
+        m = C.shape[0]
+        d = np.zeros(m) if d is None else np.asarray(d, dtype=np.float64).reshape(m)
+        gi = len(self.get_row_groups())
+        if form == "soc":
+            self.add_lin_u_rows(C, d, mech=mech, rho=rho, cone=True, **kw)
+        elif form == "pyramid":
+            if m != 3:
+                raise ValueError("pyramid form supports 3-row cones (t, x, y)")
+            s = np.cos(np.pi / facets) if facet_scale == "inscribed" else 1.0
+            th = 2.0 * np.pi * np.arange(facets) / facets
+            F = np.stack([np.cos(th), np.sin(th), -s * np.ones(facets)], axis=1)  # rows: [c, s, -s0] on (g1, g2, g0)
+            P = F @ C[[1, 2, 0], :]           # facet map on u
+            pd = F @ d[[1, 2, 0]]             # facet offsets
+            self.add_lin_u_rows(P, pd, lo=np.full(facets, -np.inf),
+                                hi=np.zeros(facets), mech=mech, rho=rho, **kw)
+        else:
+            raise ValueError(f"form must be 'soc' or 'pyramid', got {form!r}")
+        return gi
 
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):

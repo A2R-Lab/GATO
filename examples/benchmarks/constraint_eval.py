@@ -66,14 +66,32 @@ MECHANISMS = {
     "admm_ee": dict(rho=0.01, iters=10, ee_rho=10.0),   # reach only
     "admm_m_ee": dict(rho=0.01, iters=10, ee_rho=10.0, merit=True),  # reach only
     "al_ee": dict(rho=1.0, ee_rho=1.0),                 # reach only
+    # CL-2 cone cells ("press" problem): EE-force friction cone frozen at the
+    # goal config (simulated grasp/contact), stacked ON the same-mechanism
+    # limit boxes. The cone map is Frobenius-normalized (positively homogeneous
+    # => cone-preserving), so cone_rho rides the SAME rho-scale-law pockets as
+    # the boxes. cone_off = telemetry-only cone (the press baseline).
+    "cone_off": dict(cone="soc", cone_mech="telemetry", cone_rho=0.0),
+    "cone_soc_admm": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm", cone_rho=0.01),
+    "cone_soc_al": dict(rho=1.0, cone="soc", cone_mech="al", cone_rho=1.0),
+    "cone_pyr_admm": dict(rho=0.01, iters=10, cone="pyramid", cone_mech="admm", cone_rho=0.01),
+    "cone_pyr_al": dict(rho=1.0, cone="pyramid", cone_mech="al", cone_rho=1.0),
+    "cone_rb": dict(mu=3e-3, delta=0.05, cone="soc", cone_mech="barrier", cone_rho=3e-3),
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
-EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"]}
+CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
+EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"],
+                    **{m: ["press"] for m in CONE_MECHS}}
+CONE_MU = 0.5        # friction coefficient of the press-surface cone
+CONE_F_BIAS = 5.0    # N of normal-force headroom around the gravity-comp point
+CONE_FACETS = 8
 SWING_TORQUE_SCALE = 0.3     # heavy-payload emulation: torque box fraction
 PICKPLACE_SEG_S = 1.2        # seconds per waypoint
 PICKPLACE_GOALS = [          # _common.PICKPLACE_DEFAULT_GOALS (first 4)
     [0.5, -0.1865, 0.5], [0.5, 0.5, 0.2], [0.3, 0.3, 0.8], [0.6, -0.5, 0.2]]
-SIM_S = {"fig8": 4.0, "reach": 2.0, "pickplace": 4.8, "swing_heavy": 3.0}
+SIM_S = {"fig8": 4.0, "reach": 2.0, "pickplace": 4.8, "swing_heavy": 3.0,
+         "press": 2.0}
+REACH_DQ_GOAL = [1.2, 0.7, -0.7, 0.5, 0.4, 0.3, 0.3]  # reach/press goal offset
 
 
 def cell_name(plant, mech, problem):
@@ -138,9 +156,10 @@ def build_problem(s, plant, problem):
             return traj[off:off + 6 * N_KNOTS]
         return x0, goal, n_steps, None, None
 
-    if problem in ("reach", "swing_heavy"):
+    if problem in ("reach", "swing_heavy", "press"):
         # goal = solver-frame EE at a displaced (guaranteed-reachable) config
-        dq_goal = np.array([1.2, 0.7, -0.7, 0.5, 0.4, 0.3, 0.3])[:s.nq]
+        # (press = reach with the EE-force cone frozen at the goal config)
+        dq_goal = np.array(REACH_DQ_GOAL)[:s.nq]
         q_goal = x0[:s.nq] + dq_goal
         tgt = np.asarray(s.ee_pos(q_goal.astype(np.float32), frame="solver"),
                          dtype=np.float64)[:3]
@@ -172,21 +191,51 @@ def build_problem(s, plant, problem):
     raise ValueError(problem)
 
 
-def enable_mechanism(s, mech, ee_target):
+def _ee_force_cone_map(s, q_ref):
+    """(C, d) for the EE-force friction cone at the frozen config q_ref:
+    implied static EE force f = pinv(J^T)(tau - g(q)) (world-aligned linear
+    part, solver EE joint), cone rows [mu*(f_z + F_BIAS); f_x; f_y] — feasible
+    iff the commanded force stays inside the mu-cone about +z with F_BIAS of
+    normal headroom. Frobenius-normalized (cone-preserving: K is positively
+    homogeneous), so cone_rho lives on the same scale as the box rho."""
+    import pinocchio as pin
+    q = np.asarray(q_ref, dtype=np.float64)
+    jid = s.model.njoints - 1  # solver EE frame = last moving joint
+    pin.computeJointJacobians(s.model, s.data, q)
+    J = pin.getJointJacobian(s.model, s.data, jid,
+                             pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)[:3, :]
+    tau_g = pin.computeGeneralizedGravity(s.model, s.data, q)
+    Cf = np.linalg.solve(J @ J.T, J)              # pinv(J^T): f = Cf @ (tau - g)
+    S = np.array([[0.0, 0.0, CONE_MU], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    C = S @ Cf
+    d = -C @ tau_g + np.array([CONE_MU * CONE_F_BIAS, 0.0, 0.0])
+    scale = np.linalg.norm(C) / np.sqrt(C.shape[0])
+    return C / scale, d / scale
+
+
+def enable_mechanism(s, mech, ee_target, q_goal=None):
     p = MECHANISMS[mech]
-    if mech == "baseline":
+    if mech == "baseline" or mech == "cone_off":
         s.enable_limit_telemetry()
-    elif mech == "rb":
+    elif mech == "rb" or mech == "cone_rb":
         s.enable_limit_barrier(mu=p["mu"], delta=p["delta"])
-    elif mech.startswith("admm"):
+    elif mech.startswith("admm") or mech.endswith("_admm"):
         s.enable_limit_admm(rho=p["rho"], iters=p["iters"])
         if p.get("merit"):
             s.set_admm_merit(True)
-    elif mech in ("al", "al_ee"):
+    elif mech in ("al", "al_ee") or mech.endswith("_al"):
         s.enable_limit_al(rho=p["rho"])
     if mech.endswith("_ee"):
         assert ee_target is not None
         s.enable_ee_terminal_equality(ee_target.astype(np.float32), rho=p["ee_rho"])
+    if "cone" in p:
+        assert q_goal is not None
+        C, d = _ee_force_cone_map(s, q_goal)
+        s.enable_u_cone(C, d, mech=p["cone_mech"],
+                        rho=(p["cone_rho"] or None), form=p["cone"],
+                        facets=CONE_FACETS,
+                        **(dict(admm_iters=p["iters"]) if "iters" in p else {}),
+                        **(dict(delta=p["delta"]) if "delta" in p else {}))
 
 
 # ---- one cell: fixed-pacing closed-loop episode ----------------------------
@@ -205,7 +254,8 @@ def run_cell(name):
                   plant_type=plant, rho=1e-3)
 
     x0, goal_of, n_steps, ee_target, apply_bounds = build_problem(s, plant, problem)
-    enable_mechanism(s, mech, ee_target)
+    q_goal = (x0[:s.nq] + np.array(REACH_DQ_GOAL)[:s.nq]) if problem == "press" else None
+    enable_mechanism(s, mech, ee_target, q_goal)
     if apply_bounds is not None:
         apply_bounds(s)
     groups = s.get_row_groups()
@@ -276,6 +326,12 @@ def run_cell(name):
             [v for v in rec["viol_max"] if v], dtype=np.float64), axis=0).tolist()
             if any(rec["viol_max"]) else None,
     )
+    # cone cells: group 3 = the appended cone group (margin violation for SOC,
+    # facet violation for pyramid)
+    vm_full = np.asarray([v for v in rec["viol_max"] if v], dtype=np.float64)
+    if vm_full.ndim == 2 and vm_full.shape[1] > 3 and mech.startswith("cone"):
+        out["cone_viol_max"] = float(vm_full[:, 3].max())
+        out["cone_viol_mean"] = float(vm_full[:, 3].mean())
     return out
 
 
@@ -291,16 +347,23 @@ def report(rows):
     order = {m: i for i, m in enumerate(MECHANISMS)}
     for (plant, prob), rs in sorted(by_pp.items()):
         rs.sort(key=lambda r: order.get(r["mechanism"], 99))
-        base = next((r for r in rs if r["mechanism"] == "baseline"), None)
+        base = next((r for r in rs if r["mechanism"] in ("baseline", "cone_off")), None)
         print(f"\n### {plant} / {prob}  (steps={rs[0]['n_steps']})")
-        print("| mech | track mean m | final m | soln viol max | u-exceed max (frac) | iters | reg vs base |")
-        print("|---|---|---|---|---|---|---|")
+        has_cone = any(r.get("cone_viol_max") is not None for r in rs)
+        cone_hdr = " cone viol max/mean |" if has_cone else ""
+        print("| mech | track mean m | final m | soln viol max | u-exceed max (frac) | iters | reg vs base |" + cone_hdr)
+        print("|---|---|---|---|---|---|---|" + ("---|" if has_cone else ""))
         for r in rs:
             reg = (f"{r['track_mean'] / base['track_mean'] - 1:+.1%}"
                    if base and base is not r and base["track_mean"] > 0 else "—")
+            cone_col = ""
+            if has_cone:
+                cv = r.get("cone_viol_max")
+                cone_col = (f" {cv:.2e} / {r['cone_viol_mean']:.2e} |"
+                            if cv is not None else " — |")
             print(f"| {r['mechanism']} | {r['track_mean']:.4f} | {r['track_final']:.4f} "
                   f"| {r['viol_soln_max']:.2e} | {r['u_exceed_max']:.2e} ({r['u_exceed_frac']:.0%}) "
-                  f"| {r['iters_mean']:.1f} | {reg} |")
+                  f"| {r['iters_mean']:.1f} | {reg} |" + cone_col)
 
 
 def main():
