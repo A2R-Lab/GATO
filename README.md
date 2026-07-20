@@ -98,6 +98,53 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `03_mpc_loop.py`, `04_gym_mpc.py` (MPC-as-policy + force-hypothesis batch).
 See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve.
 
+### Constraints
+
+Beyond the tracking cost, `BSQP` carries a **constraint row-group layer**:
+joint position/velocity/torque boxes (from the URDF `<limit>` tables), an EE
+terminal-position equality, and linear-map / second-order-cone rows on the
+controls. Groups bind to one of four mechanisms:
+
+| mechanism | call | character |
+|---|---|---|
+| telemetry | `enable_limit_telemetry()` | report-only — violation stats every solve, solver path untouched (bit-identical) |
+| relaxed barrier | `enable_limit_barrier(mu, delta)` | soft interior penalty, infeasible-start safe |
+| ADMM projection | `enable_limit_admm(rho, iters)` | inner splitting loop per SQP step, tight transients |
+| augmented Lagrangian | `enable_limit_al(rho)` | PHR outer duals — exact at convergence, made for warm-started MPC |
+
+```python
+solver.enable_limit_al(rho=1.0)              # boxes from the URDF limit tables
+res = solver.solve(x0, goals)
+res.stats.row_max_violation                  # (group, batch) telemetry, always on
+
+# EE terminal-position equality on top of the boxes (reach-to-point)
+solver.enable_ee_terminal_equality(target_xyz, rho=10.0)
+
+# cone on a mapped control quantity g = C @ u + d — e.g. an EE contact-force
+# friction cone with C = S @ pinv(J(q).T), frozen at the contact config q
+solver.enable_u_cone(C, d, mech="admm", rho=0.01)       # exact second-order cone
+solver.enable_u_cone(C, d, form="pyramid", facets=8)    # linear-facet approximation
+```
+
+`enable_u_cone` enforces `‖g[1:]‖ <= g[0]` (row 0 = the cone axis).
+`form="soc"` is exact: ADMM projects onto the cone each inner iteration, AL
+runs the conic PHR update (dual vector projected onto the cone), and
+`mech="barrier"` penalizes the margin `g[0] - ‖g[1:]‖`. `form="pyramid"`
+replaces the cone with one-sided linear facets riding the ordinary interval
+machinery (`facet_scale="inscribed"` is conservative: facet-feasible implies
+cone-feasible). Arbitrary affine control rows are the same surface one level
+down: `add_lin_u_rows(C, d, lo=..., hi=...)` appends interval rows
+`lo <= C @ u + d <= hi`.
+
+Mechanisms mix across groups (e.g. AL boxes + an ADMM cone). Two rules:
+call `add_lin_u_rows`/`enable_u_cone` **after** `enable_limit_*` (mechanism
+enables reinstall the canonical groups, dropping appended ones), and when the
+map `C` is large, scale `rho` down by `‖C‖²` — the fold lands `rho * CᵀC` on
+the control Hessian block. Per-solve duals and ADMM state are inspectable via
+`get_row_duals()` / `get_admm_state()`; `set_row_group_soft(g, sigma)` turns a
+hard group into a slack-penalized one. The full parameter surface is in the
+`BSQP` docstrings.
+
 ### Adding a robot
 
 One call generates the dynamics code (via GRiD), the limit tables, and compiles
