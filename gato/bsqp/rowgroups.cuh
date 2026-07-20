@@ -46,6 +46,15 @@ enum Kind : int32_t {
                      // (gato::plant::eePos[Grad]) — handled at dedicated sites,
                      // never through the per-thread eval_row switch. v1:
                      // terminal knot, MECH_AL / MECH_TELEMETRY, single EE (ee 0).
+        LIN_U = 4,   // g_i = C[i,:]·u_k + d_i (block U, host-supplied map; CL-2).
+                     // Per-thread evaluable like the boxes, but the Jacobian is
+                     // C (dense fold onto R/r, not diagonal). With grp.cone the
+                     // row VECTOR carries second-order-cone semantics
+                     // (row 0 = axis t, rows 1.. = x̄; g ∈ K ⟺ ‖x̄‖ ≤ t);
+                     // interval bounds are unused (∓inf). The audit rule keeps
+                     // it pure-U: config-dependent maps (EE wrench cones) are
+                     // FROZEN at a host-chosen configuration — contact-frame
+                     // parameterization per the CL-0 cross-term audit.
 };
 
 __device__ __forceinline__ bool is_selection_kind(int32_t kind)
@@ -88,14 +97,19 @@ struct RowGroupDesc {
                         // <= 0 = HARD (exact legacy path); > 0 = elastic
                         // weight — AL: L1 elastic slack == effective
                         // multiplier saturates at sigma; ADMM: quadratic
-                        // slack == smoothed z-projection.
+                        // slack == smoothed z-projection (cone: segment blend
+                        // toward the SOC projection). Cone-AL rows are hard-only.
+        // LIN_U payload (unread for other kinds)
+        int32_t cone;   // 0 = interval rows; 1 = SOC on the row vector
+        T       Cmat[MAX_ROWS_PER_GROUP * constants::CONTROL_SIZE];  // row-major map
+        T       dvec[MAX_ROWS_PER_GROUP];                            // constant offset
 };
 
 // ---- evaluators --------------------------------------------------------
 
 // g for row i of a group at one knot, from that knot's (x, u) slice of the
-// trajectory. Boxes are selection rows; richer evaluators (EE equality, cones,
-// collision) join this switch in CL-1/CL-2.
+// trajectory. Boxes are selection rows; LIN_U is the dense-map row (CL-2);
+// EE/collision kinds stay at their cooperative sites.
 template<typename T>
 __device__ __forceinline__ T eval_row(const RowGroupDesc<T>& grp, const T* xu_k, uint32_t i)
 {
@@ -103,8 +117,89 @@ __device__ __forceinline__ T eval_row(const RowGroupDesc<T>& grp, const T* xu_k,
                 case BOX_Q: return xu_k[i];
                 case BOX_QD: return xu_k[constants::STATE_SIZE / 2 + i];
                 case BOX_U: return xu_k[constants::STATE_SIZE + i];
+                case LIN_U: {
+                        T acc = grp.dvec[i];
+                        for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * xu_k[constants::STATE_SIZE + j]; }
+                        return acc;
+                }
         }
         return static_cast<T>(0);
+}
+
+// DIRECTIONAL row value (no constant offset): g(x + dz) = eval_row(x) +
+// eval_row_dir(dz). Identical to eval_row for selection rows; LIN_U must
+// drop dvec or the offset double-counts on stepped evals.
+template<typename T>
+__device__ __forceinline__ T eval_row_dir(const RowGroupDesc<T>& grp, const T* dz_k, uint32_t i)
+{
+        if (grp.kind == LIN_U) {
+                T acc = static_cast<T>(0);
+                for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * dz_k[constants::STATE_SIZE + j]; }
+                return acc;
+        }
+        return eval_row<T>(grp, dz_k, i);
+}
+
+// ---- second-order-cone scalars (LIN_U with grp.cone; CL-2) ----------------
+//
+// K = {g : ‖g[1:m]‖ <= g[0]} (row 0 = axis). Serial per-vector helpers —
+// callers own the (group, knot) vector in registers/local arrays and each
+// vector is owned by exactly ONE thread (deterministic by construction).
+
+template<typename T>
+__device__ __forceinline__ T soc_tail_norm(const T* g, int32_t m)
+{
+        T s = static_cast<T>(0);
+        for (int32_t i = 1; i < m; i++) { s += g[i] * g[i]; }
+        return sqrt(s);
+}
+
+// true cone violation: max(0, ‖g[1:]‖ - g[0]) — the margin metric telemetry
+// reports (one scalar per knot; NOT the Euclidean dist-to-K, which divides
+// the same quantity by sqrt(2) outside both cones)
+template<typename T>
+__device__ __forceinline__ T soc_violation(const T* g, int32_t m)
+{
+        const T v = soc_tail_norm<T>(g, m) - g[0];
+        return v > static_cast<T>(0) ? v : static_cast<T>(0);
+}
+
+// Euclidean projection onto K (w and p may alias; three cases):
+//   r <= w0  : p = w          (inside)
+//   r <= -w0 : p = 0          (inside the polar -K)
+//   else     : p = ((w0+r)/2) * (1, w̄/r)
+template<typename T>
+__device__ __forceinline__ void soc_project(const T* w, T* p, int32_t m)
+{
+        const T r = soc_tail_norm<T>(w, m);
+        if (r <= w[0]) {
+                for (int32_t i = 0; i < m; i++) { p[i] = w[i]; }
+        } else if (r <= -w[0]) {
+                for (int32_t i = 0; i < m; i++) { p[i] = static_cast<T>(0); }
+        } else {
+                const T alpha = static_cast<T>(0.5) * (w[0] + r) / r;  // r > 0 here
+                p[0] = static_cast<T>(0.5) * (w[0] + r);
+                for (int32_t i = 1; i < m; i++) { p[i] = alpha * w[i]; }
+        }
+}
+
+// conic PHR value: phi = (‖Π_K(lam - rho g)‖² - ‖lam‖²)/(2 rho) — the exact
+// conic generalization of al_hinge_value (m = 1 reduces to the g >= 0 hinge:
+// K = R₊, Π = max(0, ·)). C¹ in g (‖Π‖² of a convex projection is C¹).
+// grad_g = -Π_K(lam - rho g); GN/a.e. Hessian = rho * Jπ (fold site computes
+// the Jπ-apply in closed form). Numpy twin: mechanisms.py::al_soc_value.
+template<typename T>
+__device__ __forceinline__ T al_soc_value(const T* g, const T* lam, T rho, int32_t m)
+{
+        T w[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
+        T lam_sq = static_cast<T>(0), p_sq = static_cast<T>(0);
+        for (int32_t i = 0; i < m; i++) {
+                w[i] = lam[i] - rho * g[i];
+                lam_sq += lam[i] * lam[i];
+        }
+        soc_project<T>(w, p, m);
+        for (int32_t i = 0; i < m; i++) { p_sq += p[i] * p[i]; }
+        return (p_sq - lam_sq) / (static_cast<T>(2) * rho);
 }
 
 // true violation of an interval row: max(0, g - hi) + max(0, lo - g)
@@ -447,10 +542,122 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
 {
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
+        constexpr int32_t NU = constants::CONTROL_SIZE;
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
-                if (!is_selection_kind(grp.kind)) continue;  // EE rows: apply_ee_row_grad_hess
                 if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM && grp.mech != MECH_AL) continue;
+                if (grp.kind == LIN_U) {
+                        // dense fold onto the U block: r += C^T grad_g, R += C^T H_g C.
+                        // Row scalars/vectors are recomputed per thread (uniform, tiny:
+                        // m <= MAX_ROWS_PER_GROUP, NU-dim rows) — no shared scratch, no
+                        // barriers; strided writes own disjoint R/r entries.
+                        // MECH_ADMM's fold is gradient-free, so below knot_lo it extends
+                        // as a pure proximal term — same f32 strip-homogeneity requirement
+                        // as the selection-row admm_prox (R1 y-windup lesson).
+                        const bool lin_admm_prox = grp.mech == MECH_ADMM && (int32_t)knot < grp.knot_lo;
+                        if (((int32_t)knot < grp.knot_lo && !lin_admm_prox) || (int32_t)knot >= grp.knot_hi) continue;
+                        if (!has_control) continue;  // audit rule: LIN_U is pure-U
+                        // BARRIER: the dense e-strided writes below assign s_R entry
+                        // (i,i) to thread (i*NU+i) % size, but a selection U-group's
+                        // diagonal fold assigned it to thread i % size — without a
+                        // barrier between group iterations that is a cross-thread
+                        // write-write race (all guards above are block-uniform, so
+                        // the barrier is uniformly reached).
+                        __syncthreads();
+                        const int32_t m = grp.n_rows;
+                        T g[MAX_ROWS_PER_GROUP];
+                        for (int32_t i = 0; i < m; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
+                        if (grp.cone && grp.mech == MECH_AL) {
+                                // conic PHR: grad_g = -p, H_g = rho*Jπ at w = lam - rho*g
+                                T w[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < m; i++) { w[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] - grp.mu * g[i]; }
+                                soc_project<T>(w, p, m);
+                                for (int32_t a = rank; a < NU; a += size) {
+                                        T acc = static_cast<T>(0);
+                                        for (int32_t i = 0; i < m; i++) { acc -= p[i] * grp.Cmat[i * NU + a]; }
+                                        s_r[a] += acc;
+                                }
+                                const T r = soc_tail_norm<T>(w, m);
+                                if (r <= -w[0]) continue;  // Jπ = 0
+                                const bool inside = (r <= w[0]);
+                                // outside both cones: Jπ = 0.5*[[1, x̂ᵀ],[x̂, ((w0+r)/r)I - (w0/r) x̂x̂ᵀ]]
+                                const T inv_r = inside ? static_cast<T>(0) : static_cast<T>(1) / r;
+                                const T beta = inside ? static_cast<T>(0) : static_cast<T>(0.5) * (w[0] + r) * inv_r;
+                                const T gam = inside ? static_cast<T>(0) : static_cast<T>(0.5) * w[0] * inv_r;
+                                for (int32_t e = rank; e < NU * NU; e += size) {
+                                        const int32_t a = e / NU, b = e % NU;
+                                        T acc = static_cast<T>(0);
+                                        if (inside) {  // Jπ = I -> rho*C^T C
+                                                for (int32_t i = 0; i < m; i++) { acc += grp.Cmat[i * NU + a] * grp.Cmat[i * NU + b]; }
+                                        } else {
+                                                // column cb = C[:, b]; s1 = x̂·c̄b with x̂ = w̄/r
+                                                T s1 = static_cast<T>(0);
+                                                for (int32_t i = 1; i < m; i++) { s1 += w[i] * inv_r * grp.Cmat[i * NU + b]; }
+                                                // (Jπ cb)_0 = 0.5*(cb0 + s1); (Jπ cb)_i = 0.5*x̂_i*cb0 + beta*cb_i - gam*s1*x̂_i
+                                                acc += grp.Cmat[0 * NU + a] * static_cast<T>(0.5) * (grp.Cmat[0 * NU + b] + s1);
+                                                for (int32_t i = 1; i < m; i++) {
+                                                        const T xh = w[i] * inv_r;
+                                                        acc += grp.Cmat[i * NU + a] * (static_cast<T>(0.5) * xh * grp.Cmat[0 * NU + b] + beta * grp.Cmat[i * NU + b] - gam * s1 * xh);
+                                                }
+                                        }
+                                        s_R[a * NU + b] += grp.mu * acc;
+                                }
+                        } else if (grp.cone && grp.mech == MECH_BARRIER_RELAXED) {
+                                // relaxed barrier on the margin s = g0 - ‖ḡ‖ (GN: rank-1
+                                // hessian rb_hess(s) * (C^T n)(C^T n)^T, n = (1, -ḡ/‖ḡ‖))
+                                const T rt = soc_tail_norm<T>(g, m);
+                                const T s = g[0] - rt;
+                                const T gr = rb_grad<T>(s, grp.mu, grp.delta);
+                                const T hh = rb_hess<T>(s, grp.mu, grp.delta);
+                                const T inv_rt = rt > static_cast<T>(1e-9) ? static_cast<T>(1) / rt : static_cast<T>(0);
+                                T u[NU];  // u = C^T n
+                                for (int32_t a = 0; a < NU; a++) {
+                                        T acc = grp.Cmat[0 * NU + a];
+                                        for (int32_t i = 1; i < m; i++) { acc -= g[i] * inv_rt * grp.Cmat[i * NU + a]; }
+                                        u[a] = acc;
+                                }
+                                for (int32_t a = rank; a < NU; a += size) { s_r[a] += gr * u[a]; }
+                                for (int32_t e = rank; e < NU * NU; e += size) { s_R[(e / NU) * NU + (e % NU)] += hh * u[e / NU] * u[e % NU]; }
+                        } else if (grp.cone && grp.mech == MECH_ADMM) {
+                                // constant rho*C^T C fold; gradient half per-ADMM-iteration
+                                for (int32_t e = rank; e < NU * NU; e += size) {
+                                        const int32_t a = e / NU, b = e % NU;
+                                        T acc = static_cast<T>(0);
+                                        for (int32_t i = 0; i < m; i++) { acc += grp.Cmat[i * NU + a] * grp.Cmat[i * NU + b]; }
+                                        s_R[a * NU + b] += grp.mu * acc;
+                                }
+                        } else {
+                                // interval LIN_U rows (pyramid facets): per-row scalars
+                                // through the identical mechanism math, dense fold
+                                T grs[MAX_ROWS_PER_GROUP], hs[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < m; i++) {
+                                        if (grp.mech == MECH_ADMM) {
+                                                grs[i] = static_cast<T>(0);
+                                                hs[i] = grp.mu;
+                                        } else if (grp.mech == MECH_AL) {
+                                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                                al_interval_grad_hess<T>(g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, grs[i], hs[i]);
+                                        } else {
+                                                grs[i] = rb_interval_grad<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                                hs[i] = rb_interval_hess<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                        }
+                                }
+                                for (int32_t a = rank; a < NU; a += size) {
+                                        T acc = static_cast<T>(0);
+                                        for (int32_t i = 0; i < m; i++) { acc += grs[i] * grp.Cmat[i * NU + a]; }
+                                        s_r[a] += acc;
+                                }
+                                for (int32_t e = rank; e < NU * NU; e += size) {
+                                        const int32_t a = e / NU, b = e % NU;
+                                        T acc = static_cast<T>(0);
+                                        for (int32_t i = 0; i < m; i++) { acc += hs[i] * grp.Cmat[i * NU + a] * grp.Cmat[i * NU + b]; }
+                                        s_R[a * NU + b] += acc;
+                                }
+                        }
+                        __syncthreads();  // later groups may re-target these slots (see above)
+                        continue;
+                }
+                if (!is_selection_kind(grp.kind)) continue;  // EE rows: apply_ee_row_grad_hess
                 // MECH_ADMM's fold is gradient-free (gr = 0, h = rho), so extending
                 // it BELOW knot_lo is a pure proximal term (rho/2)|dz_rows|^2 on the
                 // dz-QP — unbiased, no z/y row state. Required for the f32 factor:
@@ -505,11 +712,26 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = groups[gi];
-                if (!is_selection_kind(grp.kind)) continue;  // EE rows: ee_row_cost_value
+                if (!is_selection_kind(grp.kind) && grp.kind != LIN_U) continue;  // EE rows: ee_row_cost_value
                 const bool admm_term = grp.mech == MECH_ADMM && d_z_admm != nullptr;
                 if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_AL && !admm_term) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
+                if (grp.kind == LIN_U && grp.cone && !admm_term) {
+                        // vector value terms (the admm merit term below is per-row
+                        // summable and needs no special case)
+                        const int32_t m = grp.n_rows;
+                        T g[MAX_ROWS_PER_GROUP];
+                        for (int32_t i = 0; i < m; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
+                        if (grp.mech == MECH_AL) {
+                                T lam[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < m; i++) { lam[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)]; }
+                                total += al_soc_value<T>(g, lam, grp.mu, m);
+                        } else {  // MECH_BARRIER_RELAXED: margin barrier
+                                total += rb_value<T>(g[0] - soc_tail_norm<T>(g, m), grp.mu, grp.delta);
+                        }
+                        continue;
+                }
                 for (int32_t i = 0; i < grp.n_rows; i++) {
                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                         if (admm_term) {
@@ -574,6 +796,20 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                                         s_viol[k * grp.n_rows + i] = interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]);
                                 }
                                 __syncthreads();
+                        }
+                } else if (grp.kind == LIN_U && grp.cone) {
+                        // one margin violation per knot (slot i == 0; others 0)
+                        for (int32_t e = rank; e < n_elems; e += size) {
+                                const int32_t knot = grp.knot_lo + e / grp.n_rows;
+                                const int32_t i = e % grp.n_rows;
+                                if (i != 0) {
+                                        s_viol[e] = static_cast<T>(0);
+                                        continue;
+                                }
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                T g[MAX_ROWS_PER_GROUP];
+                                for (int32_t j = 0; j < grp.n_rows; j++) { g[j] = eval_row<T>(grp, xu_k, (uint32_t)j); }
+                                s_viol[e] = soc_violation<T>(g, grp.n_rows);
                         }
                 } else {
                         for (int32_t e = rank; e < n_elems; e += size) {
@@ -674,6 +910,22 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_AL) continue;
                 const int32_t n_knots = grp.knot_hi - grp.knot_lo;
+                if (grp.kind == LIN_U && grp.cone) {
+                        // conic dual update lam <- Π_K(lam - rho*g): the row vector is
+                        // coupled, so each KNOT is owned by one thread (deterministic)
+                        for (int32_t k = rank; k < n_knots; k += size) {
+                                const int32_t knot = grp.knot_lo + k;
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                T w[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < grp.n_rows; i++) {
+                                        const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
+                                        w[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] - grp.mu * g;
+                                }
+                                soc_project<T>(w, w, grp.n_rows);
+                                for (int32_t i = 0; i < grp.n_rows; i++) { d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] = w[i]; }
+                        }
+                        continue;
+                }
                 for (int32_t k = 0; k < n_knots; k++) {
                         const int32_t knot = grp.knot_lo + k;
                         const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
@@ -766,6 +1018,7 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
                         d_groups[g].mu = mu;
                         d_groups[g].delta = delta;
                         d_groups[g].sigma = static_cast<T>(0);  // hard by default
+                        d_groups[g].cone = 0;
                 }
         }
         for (int32_t i = rank; i < NQ; i += size) {

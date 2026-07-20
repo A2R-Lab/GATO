@@ -236,6 +236,80 @@ class BSQP {
                 }
         }
 
+        // Append a LIN_U row-group (CL-2): m rows g = C·u + d on the control
+        // block, C an (m x NU) row-major map FROZEN at a host-chosen
+        // configuration (the cross-term audit's contact-frame rule — config-
+        // dependent maps like EE wrench cones are linearized host-side).
+        // cone = true binds SECOND-ORDER-CONE semantics to the row VECTOR
+        // (row 0 = axis t, rows 1.. = x̄, feasible iff ‖x̄‖ <= t; interval
+        // bounds unused): ADMM z-update = SOC projection, AL = conic PHR
+        // (lam <- Π_K(lam - rho g), duals in the lam_hi slots), RB = margin
+        // barrier on t - ‖x̄‖. cone = false keeps interval semantics on the
+        // mapped rows (h_lo/h_hi required) — the pyramid-facet variant.
+        // mech is EXPLICIT (unlike the EE enable): the demo matrix needs
+        // cone bindings independent of the limit-box mechanism. Mixing (e.g.
+        // AL boxes + ADMM cone) composes by construction: the ADMM inner
+        // loop is bdsv-factored (AL's requirement) and each mechanism only
+        // touches its own groups. Call AFTER enable_limit_* (mechanism
+        // enables reinstall the canonical groups, dropping appended ones).
+        void add_lin_u_group(int32_t mech, int32_t m, const T* h_C, const T* h_d, const T* h_lo, const T* h_hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters)
+        {
+                if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("add_lin_u_group: row-group table full"); }
+                if (m < (cone ? 2 : 1) || m > (int32_t)rows::MAX_ROWS_PER_GROUP) { throw std::invalid_argument("add_lin_u_group: n_rows out of range"); }
+                if (mech != rows::MECH_TELEMETRY && !(rho > static_cast<T>(0))) { throw std::invalid_argument("add_lin_u_group: rho must be > 0"); }
+                if (mech == rows::MECH_BARRIER_RELAXED && !(delta > static_cast<T>(0))) { throw std::invalid_argument("add_lin_u_group: delta must be > 0"); }
+                if (cone && mech == rows::MECH_AL && sigma > static_cast<T>(0)) { throw std::invalid_argument("add_lin_u_group: cone-AL rows are hard-only (no L1 elastic yet)"); }
+                if (knot_hi > (int32_t)KNOT_POINTS - 1) knot_hi = KNOT_POINTS - 1;  // no terminal control
+                if (knot_lo < 0 || knot_lo >= knot_hi) { throw std::invalid_argument("add_lin_u_group: bad knot range"); }
+                if (!cone && (h_lo == nullptr || h_hi == nullptr)) { throw std::invalid_argument("add_lin_u_group: interval rows need lo/hi"); }
+
+                rows::RowGroupDesc<T> h_grp;
+                memset(&h_grp, 0, sizeof(h_grp));
+                h_grp.kind = rows::LIN_U;
+                h_grp.block = rows::BLOCK_U;
+                h_grp.mech = mech;
+                h_grp.n_rows = m;
+                h_grp.knot_lo = knot_lo;
+                h_grp.knot_hi = knot_hi;
+                h_grp.mu = rho;
+                h_grp.delta = delta;
+                h_grp.sigma = sigma;
+                h_grp.cone = cone ? 1 : 0;
+                memcpy(h_grp.Cmat, h_C, (size_t)m * constants::CONTROL_SIZE * sizeof(T));
+                if (h_d != nullptr) { memcpy(h_grp.dvec, h_d, (size_t)m * sizeof(T)); }
+                for (int32_t i = 0; i < m; i++) {
+                        h_grp.lo[i] = cone ? -std::numeric_limits<T>::infinity() : h_lo[i];
+                        h_grp.hi[i] = cone ? std::numeric_limits<T>::infinity() : h_hi[i];
+                }
+                const int32_t gi = n_row_groups_;
+                gpuErrchk(cudaMemcpy(d_row_groups_ + gi, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
+                n_row_groups_ += 1;
+
+                // this slot may hold stale dual state from a prior configuration —
+                // zero the group's strided slice across the batch
+                const size_t grp_off = (size_t)gi * KNOT_POINTS * rows::MAX_ROWS_PER_GROUP;
+                const size_t grp_w = (size_t)KNOT_POINTS * rows::MAX_ROWS_PER_GROUP * sizeof(T);
+                gpuErrchk(cudaMemset2D(d_lam_hi_ + grp_off, rows::ROW_STATE_SIZE * sizeof(T), 0, grp_w, batch_size_));
+                gpuErrchk(cudaMemset2D(d_lam_lo_ + grp_off, rows::ROW_STATE_SIZE * sizeof(T), 0, grp_w, batch_size_));
+
+                if (mech == rows::MECH_ADMM) {
+                        admm_active_ = true;
+                        admm_needs_init_ = true;
+                        if (admm_iters > 0) admm_iters_ = admm_iters;
+                        if (!cone) {
+                                for (int32_t i = 0; i < m; i++) {
+                                        if (h_lo[i] == h_hi[i]) { admm_has_eq_rows_ = true; }
+                                }
+                        }
+                }
+                if (mech == rows::MECH_AL) {
+                        if (!al_active_) {
+                                al_active_ = true;
+                                reset_al_prev_viol();
+                        }
+                }
+        }
+
         // Override one group's interval bounds in place (n_rows each; lo == hi
         // rows become always-active equalities under MECH_AL). ADMM z must
         // re-clip to the new interval, so its state reinitializes next solve.

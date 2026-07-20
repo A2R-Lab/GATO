@@ -39,6 +39,13 @@
 // g and J are evaluated at the SQP linearization point x, which is CONSTANT
 // across the inner loop — consistent with the frozen Schur factor.
 //
+// LIN_U rows (CL-2, g = C·u + d) ride the same loop through a dense C^T
+// scatter in the gradient kernel (the rho*C^T*C Hessian half is folded once
+// by setup_kkt). Interval LIN_U keeps the per-row clip; cone LIN_U
+// (grp.cone) swaps the z-update for the SOC projection z = Π_K(w + y/rho)
+// per knot vector (soft sigma: segment blend toward Π_K, the interval
+// smoothed-projection analogue). Numpy twin: mechanisms.py::admm_soc.
+//
 // EQUALITY rows (lo == hi) reinitialize (z, y) at EVERY solve (the init
 // kernel's eq_rows_only mode): z clips to the degenerate interval (z == lo,
 // no information), so a cross-solve warm-started y is a pure violation
@@ -79,12 +86,13 @@ __device__ __forceinline__ T admm_z_update(T v, T lo, T hi, T rho, T sigma)
         return v;
 }
 
-// value of one row at (xu + dz) — selection rows are linear, so eval on each
-// and add
+// value of one row at (xu + dz) — selection/LIN rows are affine, so eval plus
+// the DIRECTIONAL part (eval_row_dir drops the LIN_U constant offset, which
+// would otherwise double-count)
 template<typename T>
 __device__ __forceinline__ T eval_row_stepped(const RowGroupDesc<T>& grp, const T* xu_k, const T* dz_k, uint32_t i)
 {
-        return eval_row<T>(grp, xu_k, i) + eval_row<T>(grp, dz_k, i);
+        return eval_row<T>(grp, xu_k, i) + eval_row_dir<T>(grp, dz_k, i);
 }
 
 // ---- z/y (re)initialization ---------------------------------------------
@@ -146,6 +154,19 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                                         d_z[row_state_index(gi, knot, i)] = z;
                                 }
                                 __syncthreads();  // s_ee_scratch reused next knot
+                        }
+                        continue;
+                }
+                if (grp.kind == LIN_U && grp.cone) {
+                        // z = Π_K(g(x_warm)) per knot (one owner thread per knot)
+                        const int32_t n_knots = grp.knot_hi - grp.knot_lo;
+                        for (int32_t k = rank; k < n_knots; k += size) {
+                                const int32_t knot = grp.knot_lo + k;
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                T g[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < grp.n_rows; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
+                                soc_project<T>(g, g, grp.n_rows);
+                                for (int32_t i = 0; i < grp.n_rows; i++) { d_z[row_state_index(gi, knot, i)] = g[i]; }
                         }
                         continue;
                 }
@@ -229,6 +250,23 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
                         __syncthreads();
                         continue;
                 }
+                if (grp.kind == LIN_U) {
+                        // dense C^T scatter onto the control gradient:
+                        // r += sum_i C[i,:] * (y_i - rho*(z_i - g_i(x))) — identical
+                        // splitting form for interval and cone rows (only the
+                        // z-projection differs, in the project kernel)
+                        for (int32_t a = rank; a < (int32_t)CONTROL_SIZE; a += size) {
+                                T acc = static_cast<T>(0);
+                                for (int32_t i = 0; i < grp.n_rows; i++) {
+                                        const uint32_t idx = row_state_index(gi, knot_idx, (uint32_t)i);
+                                        const T mod = d_y[idx] - grp.mu * (d_z[idx] - eval_row<T>(grp, d_xu_k, (uint32_t)i));
+                                        acc += grp.Cmat[i * CONTROL_SIZE + a] * mod;
+                                }
+                                d_r_k[a] += acc;
+                        }
+                        __syncthreads();
+                        continue;
+                }
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                         const uint32_t idx = row_state_index(gi, knot_idx, i);
                         const T z_rel = d_z[idx] - eval_row<T>(grp, d_xu_k, (uint32_t)i);
@@ -308,6 +346,37 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         s_dual[e] = dd;
                                 }
                                 __syncthreads();  // scratch reused next knot; writes visible below
+                        }
+                } else if (grp.cone) {  // LIN_U cone: SOC projection per knot vector
+                        const int32_t n_knots = grp.knot_hi - grp.knot_lo;
+                        const int32_t m = grp.n_rows;
+                        for (int32_t k = rank; k < n_knots; k += size) {  // one owner thread per knot
+                                const int32_t knot = grp.knot_lo + k;
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                T w[MAX_ROWS_PER_GROUP], v[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
+                                for (int32_t i = 0; i < m; i++) {
+                                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                        w[i] = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
+                                        v[i] = w[i] + d_y[idx] / grp.mu;
+                                }
+                                soc_project<T>(v, p, m);
+                                for (int32_t i = 0; i < m; i++) {
+                                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                        // soft sigma > 0: quadratic slack == segment blend
+                                        // toward the projection (interval-formula analogue:
+                                        // z = (rho*v + sigma*Pi(v))/(rho+sigma); hard = Pi(v))
+                                        const T z = (grp.sigma > static_cast<T>(0)) ? (grp.mu * v[i] + grp.sigma * p[i]) / (grp.mu + grp.sigma) : p[i];
+                                        const T z_prev = d_z[idx];
+                                        d_y[idx] += grp.mu * (w[i] - z);
+                                        d_z[idx] = z;
+                                        T dp = w[i] - z;
+                                        if (dp < 0) dp = -dp;
+                                        T dd = grp.mu * (z - z_prev);
+                                        if (dd < 0) dd = -dd;
+                                        s_prim[k * m + i] = dp;
+                                        s_dual[k * m + i] = dd;
+                                }
                         }
                 } else {
                         for (int32_t e = rank; e < n_elems; e += size) {
