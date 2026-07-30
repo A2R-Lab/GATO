@@ -1,0 +1,10 @@
+# Tests the default-build receipt is ALLOWED to skip (gpu-proof verify
+# --expected-skips). Keep this list minimal and justified.
+#
+# Exact-Hessian oracle tests: need a module compiled with
+# -DGATO_EXACT_HESSIAN=ON (canary workflow: build_eh/ + .so swap into
+# python/gato). The attested default modules compile the path out, so these
+# skip on the receipt run; they are exercised in the exact-build canary
+# sessions (docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md).
+test/test_exact_hessian.py::test_projection_matches_numpy_lambda_zero
+test/test_exact_hessian.py::test_contraction_matches_pinocchio_fd

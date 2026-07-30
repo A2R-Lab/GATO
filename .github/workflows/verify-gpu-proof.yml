@@ -56,6 +56,7 @@ jobs:
             --receipt gpu-proof.json \
             --repo . \
             --policy test/gpu-proof-policy.yaml \
+            --expected-skips test/expected_skips.txt \
             --require-gpu
 
   cpu-lane:
