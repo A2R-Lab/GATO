@@ -322,7 +322,7 @@ namespace plant {
                 unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
                 size_t         off = grid_align_up(0, alignof(T));
                 T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(128);
+                off += sizeof(T) * static_cast<size_t>(144);   // XmatsHom incl. the fixed EE + world slots
                 off = grid_align_up(off, alignof(T));
                 T* s_temp = grid_arena_ptr<T>(s_arena, off);
                 off += sizeof(T) * static_cast<size_t>(32);
@@ -333,7 +333,7 @@ namespace plant {
                         s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
                 }
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_inner<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_inner_EE<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
         }
 
@@ -344,7 +344,7 @@ namespace plant {
                 unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
                 size_t         off = grid_align_up(0, alignof(T));
                 T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(128);
+                off += sizeof(T) * static_cast<size_t>(144);   // XmatsHom incl. the fixed EE + world slots
                 off = grid_align_up(off, alignof(T));
                 T* s_temp = grid_arena_ptr<T>(s_arena, off);
                 off += sizeof(T) * static_cast<size_t>(168);
@@ -355,9 +355,9 @@ namespace plant {
                         s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
                 }
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_inner<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_inner_EE<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
-                end_effector_pose_gradient_inner<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_EE<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
         }
 

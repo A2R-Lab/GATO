@@ -543,18 +543,16 @@ class BSQP:
     def ee_pos(self, q, frame="ee"):
         """EE position via pinocchio FK.
 
-        frame="ee": the URDF ee_frame (fixed-joint child, e.g. tcp).
-        frame="solver": the LAST MOVING JOINT origin — the frame the device
-        FK (tracking cost AND EE row-groups) actually evaluates. MEASURED:
-        the generated grid.cuh end_effector_pose drops the terminal
-        fixed-joint origin (indy7: 6 cm z, iiwa14: 4 cm z), so these frames
-        differ by that constant transform; device == "solver" to f32
-        precision (~1e-7). Upstream fix (GCG named-target alias) pending —
-        until then EE equality targets must be given in the solver frame.
+        frame="ee": the URDF ee_frame (fixed-joint child, e.g. tcp). Since
+        GRiD e31f7bd the device FK (tracking cost AND EE row-groups) uses the
+        named-target ``*_EE`` codegen, which INCLUDES the terminal fixed-joint
+        origin — device == this frame to f32 precision (~1e-7).
+        frame="solver": historical alias for the device frame; now identical
+        to "ee" (the old dropped-origin convention is gone upstream).
         """
         pin = _require_pin()
         pin.forwardKinematics(self.model, self.data, q)
-        if frame == "solver" or self.ee_frame_id is None:
+        if self.ee_frame_id is None:
             return np.array(self.data.oMi[self.model.njoints - 1].translation)
         pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)
         return np.array(self.data.oMf[self.ee_frame_id].translation)

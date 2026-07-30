@@ -476,10 +476,9 @@ def _solver_frame_target(s, plant, delta=(0.02, -0.02, -0.03)):
 
 def test_ee_telemetry_matches_pinocchio(make_solver, smallest_module):
     """EE_POS rows (the first non-selection kind, cooperative on-device FK):
-    reported violation == |pin_ee(q_N) - target| in the SOLVER frame (the
-    last-moving-joint origin — the frame the device FK evaluates; the
-    URDF ee_frame fixed-joint offset is dropped by the generated grid.cuh,
-    measured 4-6 cm z on the vendored robots)."""
+    reported violation == |pin_ee(q_N) - target| in the SOLVER frame — since
+    GRiD e31f7bd the device FK uses the named-target *_EE codegen (fixed-joint
+    origin INCLUDED), so the solver frame IS the URDF ee_frame."""
     pytest.importorskip("pinocchio")
     plant, N = smallest_module
     B = 4
