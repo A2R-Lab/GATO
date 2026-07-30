@@ -165,7 +165,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                                 const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
                                 T g[MAX_ROWS_PER_GROUP];
                                 for (int32_t i = 0; i < grp.n_rows; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
-                                soc_project<T>(g, g, grp.n_rows);
+                                glass::thread::soc_project<T>(g, g, grp.n_rows);
                                 for (int32_t i = 0; i < grp.n_rows; i++) { d_z[row_state_index(gi, knot, i)] = g[i]; }
                         }
                         continue;
@@ -360,7 +360,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         w[i] = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
                                         v[i] = w[i] + d_y[idx] / grp.mu;
                                 }
-                                soc_project<T>(v, p, m);
+                                glass::thread::soc_project<T>(v, p, m);
                                 for (int32_t i = 0; i < m; i++) {
                                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                         // soft sigma > 0: quadratic slack == segment blend

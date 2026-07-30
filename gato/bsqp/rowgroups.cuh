@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
+#include "glass.cuh"
 
 // Constraint row-group layer (constraint-layer arc CL-0).
 // Architecture: docs/open-tasks/constraint_layer_locomotion_arc_plan_2026-07-10.md.
@@ -140,236 +141,18 @@ __device__ __forceinline__ T eval_row_dir(const RowGroupDesc<T>& grp, const T* d
         return eval_row<T>(grp, dz_k, i);
 }
 
-// ---- second-order-cone scalars (LIN_U with grp.cone; CL-2) ----------------
+// ---- constraint scalars: promoted to GLASS (2026-07-28 robotics ops) -------
 //
-// K = {g : ‖g[1:m]‖ <= g[0]} (row 0 = axis). Serial per-vector helpers —
-// callers own the (group, knot) vector in registers/local arrays and each
-// vector is owned by exactly ONE thread (deterministic by construction).
-
-template<typename T>
-__device__ __forceinline__ T soc_tail_norm(const T* g, int32_t m)
-{
-        T s = static_cast<T>(0);
-        for (int32_t i = 1; i < m; i++) { s += g[i] * g[i]; }
-        return sqrt(s);
-}
-
-// true cone violation: max(0, ‖g[1:]‖ - g[0]) — the margin metric telemetry
-// reports (one scalar per knot; NOT the Euclidean dist-to-K, which divides
-// the same quantity by sqrt(2) outside both cones)
-template<typename T>
-__device__ __forceinline__ T soc_violation(const T* g, int32_t m)
-{
-        const T v = soc_tail_norm<T>(g, m) - g[0];
-        return v > static_cast<T>(0) ? v : static_cast<T>(0);
-}
-
-// Euclidean projection onto K (w and p may alias; three cases):
-//   r <= w0  : p = w          (inside)
-//   r <= -w0 : p = 0          (inside the polar -K)
-//   else     : p = ((w0+r)/2) * (1, w̄/r)
-template<typename T>
-__device__ __forceinline__ void soc_project(const T* w, T* p, int32_t m)
-{
-        const T r = soc_tail_norm<T>(w, m);
-        if (r <= w[0]) {
-                for (int32_t i = 0; i < m; i++) { p[i] = w[i]; }
-        } else if (r <= -w[0]) {
-                for (int32_t i = 0; i < m; i++) { p[i] = static_cast<T>(0); }
-        } else {
-                const T alpha = static_cast<T>(0.5) * (w[0] + r) / r;  // r > 0 here
-                p[0] = static_cast<T>(0.5) * (w[0] + r);
-                for (int32_t i = 1; i < m; i++) { p[i] = alpha * w[i]; }
-        }
-}
-
-// conic PHR value: phi = (‖Π_K(lam - rho g)‖² - ‖lam‖²)/(2 rho) — the exact
-// conic generalization of al_hinge_value (m = 1 reduces to the g >= 0 hinge:
-// K = R₊, Π = max(0, ·)). C¹ in g (‖Π‖² of a convex projection is C¹).
-// grad_g = -Π_K(lam - rho g); GN/a.e. Hessian = rho * Jπ (fold site computes
-// the Jπ-apply in closed form). Numpy twin: mechanisms.py::al_soc_value.
-template<typename T>
-__device__ __forceinline__ T al_soc_value(const T* g, const T* lam, T rho, int32_t m)
-{
-        T w[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
-        T lam_sq = static_cast<T>(0), p_sq = static_cast<T>(0);
-        for (int32_t i = 0; i < m; i++) {
-                w[i] = lam[i] - rho * g[i];
-                lam_sq += lam[i] * lam[i];
-        }
-        soc_project<T>(w, p, m);
-        for (int32_t i = 0; i < m; i++) { p_sq += p[i] * p[i]; }
-        return (p_sq - lam_sq) / (static_cast<T>(2) * rho);
-}
-
-// true violation of an interval row: max(0, g - hi) + max(0, lo - g)
-template<typename T>
-__device__ __forceinline__ T interval_violation(T g, T lo, T hi)
-{
-        T over = g - hi;
-        T under = lo - g;
-        T v = static_cast<T>(0);
-        if (over > static_cast<T>(0)) v += over;
-        if (under > static_cast<T>(0)) v += under;
-        return v;
-}
-
-// ---- relaxed log-barrier scalars (MECH_BARRIER_RELAXED) ----------------
-//
-// One-sided barrier on the distance d to a bound (d = g - lo or hi - g):
-//   d > delta : B(d)  = -mu * log(d)
-//   d <= delta: B(d)  = -mu * (log(delta) - 3/2 + 2 d/delta - d^2/(2 delta^2))
-// C² at d = delta; defined for ALL d (including d <= 0 — infeasible-start
-// safe, unlike grid_plant's clamped log barrier); Hessian bounded by
-// mu/delta^2. dB/dd and d²B/dd² below; the caller chains the sign of dd/dg
-// (+1 for the lower bound, -1 for the upper — the Hessian is sign-free).
-
-template<typename T>
-__device__ __forceinline__ T rb_value(T d, T mu, T delta)
-{
-        if (d > delta) { return -mu * log(d); }
-        T r = d / delta;
-        return -mu * (log(delta) - static_cast<T>(1.5) + static_cast<T>(2) * r - static_cast<T>(0.5) * r * r);
-}
-
-template<typename T>
-__device__ __forceinline__ T rb_grad(T d, T mu, T delta)
-{
-        if (d > delta) { return -mu / d; }
-        return -mu * (static_cast<T>(2) - d / delta) / delta;
-}
-
-template<typename T>
-__device__ __forceinline__ T rb_hess(T d, T mu, T delta)
-{
-        if (d > delta) { return mu / (d * d); }
-        return mu / (delta * delta);
-}
-
-// two-sided interval helpers on g in [lo, hi] (infinite bound contributes 0,
-// matching grid_plant's isfinite convention)
-template<typename T>
-__device__ __forceinline__ T rb_interval_value(T g, T lo, T hi, T mu, T delta)
-{
-        T v = static_cast<T>(0);
-        if (isfinite(lo)) v += rb_value<T>(g - lo, mu, delta);
-        if (isfinite(hi)) v += rb_value<T>(hi - g, mu, delta);
-        return v;
-}
-
-template<typename T>
-__device__ __forceinline__ T rb_interval_grad(T g, T lo, T hi, T mu, T delta)
-{
-        T v = static_cast<T>(0);
-        if (isfinite(lo)) v += rb_grad<T>(g - lo, mu, delta);
-        if (isfinite(hi)) v -= rb_grad<T>(hi - g, mu, delta);
-        return v;
-}
-
-template<typename T>
-__device__ __forceinline__ T rb_interval_hess(T g, T lo, T hi, T mu, T delta)
-{
-        T v = static_cast<T>(0);
-        if (isfinite(lo)) v += rb_hess<T>(g - lo, mu, delta);
-        if (isfinite(hi)) v += rb_hess<T>(hi - g, mu, delta);
-        return v;
-}
-
-// ---- PHR augmented-Lagrangian scalars (MECH_AL) -------------------------
-//
-// Interval rows split into hinge sides with INDEPENDENT multipliers
-// (lam_hi for g <= hi, lam_lo for g >= lo, both >= 0); lo == hi rows are
-// ALWAYS-ACTIVE equalities whose signed multiplier lives in the lam_hi slot
-// (lam_lo unused). With c the signed constraint value (c = g - hi resp.
-// lo - g; equality c = g - hi):
-//   inequality side: phi = (max(0, lam + rho c)^2 - lam^2) / (2 rho)
-//   equality:        phi = lam c + rho c^2 / 2
-// so dphi/dc = max(0, lam + rho c) (resp. lam + rho c) and the GN Hessian is
-// rho on the active set — C^1 across activation INCLUDING the -lam^2 offset
-// (dropping it puts a jump under the line search). The outer update is
-// lam <- max(0, lam + rho c) (equalities unclamped) on the ACCEPTED
-// trajectory. Numpy twin: test/oracles/mechanisms.py::al_phr.
-//
-// SOFT rows (sigma > 0, L1 elastic slack xi >= 0 with weight sigma*xi,
-// minimized analytically): the activation a = lam + rho c SATURATES at
-// sigma. a > sigma =>
-//   phi = sigma c - (sigma - lam)^2 / (2 rho),  dphi/dc = sigma,  hess = 0
-// (equalities symmetric: a < -sigma => phi = -sigma c - (sigma + lam)^2 /
-// (2 rho)). C^1 at |a| == sigma against the quadratic region (checked
-// analytically at both seams). The outer update caps the multiplier at
-// sigma (|lam| <= sigma for equalities) — the elastic problem's multiplier
-// bound. sigma <= 0 keeps the exact hard code path.
-
-template<typename T>
-__device__ __forceinline__ bool is_eq_row(T lo, T hi)
-{
-        return isfinite(lo) && lo == hi;
-}
-
-// one hinge side's value with optional elastic saturation (c signed, a = lam + rho c)
-template<typename T>
-__device__ __forceinline__ T al_hinge_value(T c, T lam, T rho, T sigma)
-{
-        T a = lam + rho * c;
-        if (a < static_cast<T>(0)) a = static_cast<T>(0);
-        if (sigma > static_cast<T>(0) && a > sigma) {
-                const T d = sigma - lam;
-                return sigma * c - d * d / (static_cast<T>(2) * rho);
-        }
-        return (a * a - lam * lam) / (static_cast<T>(2) * rho);
-}
-
-template<typename T>
-__device__ __forceinline__ T al_interval_value(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T sigma)
-{
-        if (is_eq_row<T>(lo, hi)) {
-                const T c = g - hi;
-                const T a = lam_hi + rho * c;
-                if (sigma > static_cast<T>(0) && a > sigma) {
-                        const T d = sigma - lam_hi;
-                        return sigma * c - d * d / (static_cast<T>(2) * rho);
-                }
-                if (sigma > static_cast<T>(0) && a < -sigma) {
-                        const T d = sigma + lam_hi;
-                        return -sigma * c - d * d / (static_cast<T>(2) * rho);
-                }
-                return lam_hi * c + static_cast<T>(0.5) * rho * c * c;
-        }
-        T v = static_cast<T>(0);
-        if (isfinite(hi)) v += al_hinge_value<T>(g - hi, lam_hi, rho, sigma);
-        if (isfinite(lo)) v += al_hinge_value<T>(lo - g, lam_lo, rho, sigma);
-        return v;
-}
-
-template<typename T>
-__device__ __forceinline__ void al_interval_grad_hess(T g, T lo, T hi, T lam_hi, T lam_lo, T rho, T sigma, T& gr, T& h)
-{
-        gr = static_cast<T>(0);
-        h = static_cast<T>(0);
-        const bool soft = sigma > static_cast<T>(0);
-        if (is_eq_row<T>(lo, hi)) {
-                const T a = lam_hi + rho * (g - hi);
-                if (soft && a > sigma) { gr = sigma; return; }
-                if (soft && a < -sigma) { gr = -sigma; return; }
-                gr = a;
-                h = rho;
-                return;
-        }
-        if (isfinite(hi)) {
-                const T a = lam_hi + rho * (g - hi);
-                if (a > static_cast<T>(0)) {
-                        if (soft && a > sigma) { gr += sigma; }
-                        else { gr += a; h += rho; }
-                }
-        }
-        if (isfinite(lo)) {
-                const T a = lam_lo + rho * (lo - g);
-                if (a > static_cast<T>(0)) {
-                        if (soft && a > sigma) { gr -= sigma; }
-                        else { gr -= a; h += rho; }
-                }
-        }
-}
+// The SOC cone kit (soc_tail_norm/soc_violation/soc_project/al_soc_value),
+// interval/PHR AL scalars (interval_violation/al_is_eq_row/al_hinge_value/
+// al_interval_value/al_interval_grad_hess), and the relaxed log-barrier
+// family (relaxed_barrier_[interval_]value/grad/hess) now live in
+// glass proj/{cone,interval}.cuh -- promoted verbatim from this file (numpy
+// twins: test/oracles/mechanisms.py). Call sites here use glass:: directly;
+// soc_project sites use glass::thread:: (each (group,knot) vector is owned
+// by exactly ONE thread and w/p may alias, which the thread tier permits).
+// al_soc_value is the bufferless GLASS form (case-split norm, no
+// MAX_ROWS_PER_GROUP locals) -- same math, summation order differs by ULPs.
 
 // ---- EE_POS rows (cooperative FK evaluator sites) ------------------------
 //
@@ -458,10 +241,10 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
                                 s_h[i] = grp.mu;  // mu = ADMM rho
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
+                                glass::al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
                         } else {
-                                s_gr[i] = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
-                                s_h[i] = rb_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                s_gr[i] = glass::relaxed_barrier_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                s_h[i] = glass::relaxed_barrier_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
                 }
                 __syncthreads();
@@ -509,9 +292,9 @@ __device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32
                                 total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                total += al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
+                                total += glass::al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
-                                total += rb_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                total += glass::relaxed_barrier_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
                 }
         }
@@ -556,13 +339,13 @@ __device__ __noinline__ void fold_lin_u_conic_al(const RowGroupDesc<T>& grp, int
         // conic PHR: grad_g = -p, H_g = rho*Jpi at w = lam - rho*g
         T w[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
         for (int32_t i = 0; i < m; i++) { w[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] - grp.mu * g[i]; }
-        soc_project<T>(w, p, m);
+        glass::thread::soc_project<T>(w, p, m);
         for (int32_t a = rank; a < NU; a += size) {
                 T acc = static_cast<T>(0);
                 for (int32_t i = 0; i < m; i++) { acc -= p[i] * grp.Cmat[i * NU + a]; }
                 s_r[a] += acc;
         }
-        const T r = soc_tail_norm<T>(w, m);
+        const T r = glass::soc_tail_norm<T>(w, m);
         // polar case (w in -K deg): Pi_K(w) = 0, so p = 0 above added nothing to
         // s_r and Jpi = 0 - there is no Hessian contribution; skip the e-loop.
         if (r <= -w[0]) return;  // Jpi = 0
@@ -600,10 +383,10 @@ __device__ __noinline__ void fold_lin_u_rb_cone(const RowGroupDesc<T>& grp, cons
         for (int32_t i = 0; i < m; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
         // relaxed barrier on the margin s = g0 - ||g-bar|| (GN: rank-1
         // hessian rb_hess(s) * (C^T n)(C^T n)^T, n = (1, -g-bar/||g-bar||))
-        const T rt = soc_tail_norm<T>(g, m);
+        const T rt = glass::soc_tail_norm<T>(g, m);
         const T s = g[0] - rt;
-        const T gr = rb_grad<T>(s, grp.mu, grp.delta);
-        const T hh = rb_hess<T>(s, grp.mu, grp.delta);
+        const T gr = glass::relaxed_barrier_grad<T>(s, grp.mu, grp.delta);
+        const T hh = glass::relaxed_barrier_hess<T>(s, grp.mu, grp.delta);
         const T inv_rt = rt > static_cast<T>(1e-9) ? static_cast<T>(1) / rt : static_cast<T>(0);
         T u[NU];  // u = C^T n
         for (int32_t a = 0; a < NU; a++) {
@@ -647,10 +430,10 @@ __device__ __noinline__ void fold_lin_u_interval(const RowGroupDesc<T>& grp, int
                         hs[i] = grp.mu;
                 } else if (grp.mech == MECH_AL) {
                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                        al_interval_grad_hess<T>(g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, grs[i], hs[i]);
+                        glass::al_interval_grad_hess<T>(g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, grs[i], hs[i]);
                 } else {
-                        grs[i] = rb_interval_grad<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
-                        hs[i] = rb_interval_hess<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        grs[i] = glass::relaxed_barrier_interval_grad<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        hs[i] = glass::relaxed_barrier_interval_hess<T>(g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                 }
         }
         for (int32_t a = rank; a < NU; a += size) {
@@ -731,11 +514,11 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                         } else if (grp.mech == MECH_AL) {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, gr, h);
+                                glass::al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, gr, h);
                         } else {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                                gr = rb_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
-                                h = rb_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                gr = glass::relaxed_barrier_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                h = glass::relaxed_barrier_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
                         if (grp.block == BLOCK_X) {
                                 const int32_t xi = x_index_of_row<T>(grp, i);
@@ -779,9 +562,9 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                         if (grp.mech == MECH_AL) {
                                 T lam[MAX_ROWS_PER_GROUP];
                                 for (int32_t i = 0; i < m; i++) { lam[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)]; }
-                                total += al_soc_value<T>(g, lam, grp.mu, m);
+                                total += glass::al_soc_value<T>(g, lam, grp.mu, m);
                         } else {  // MECH_BARRIER_RELAXED: margin barrier
-                                total += rb_value<T>(g[0] - soc_tail_norm<T>(g, m), grp.mu, grp.delta);
+                                total += glass::relaxed_barrier_value<T>(g[0] - glass::soc_tail_norm<T>(g, m), grp.mu, grp.delta);
                         }
                         continue;
                 }
@@ -796,9 +579,9 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                                 total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                total += al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
+                                total += glass::al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
-                                total += rb_interval_value<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                total += glass::relaxed_barrier_interval_value<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
                         }
                 }
         }
@@ -846,7 +629,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                                 const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::STATE_S_CONTROL;
                                 const T* s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        s_viol[k * grp.n_rows + i] = interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]);
+                                        s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]);
                                 }
                                 __syncthreads();
                         }
@@ -862,7 +645,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                                 const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
                                 T g[MAX_ROWS_PER_GROUP];
                                 for (int32_t j = 0; j < grp.n_rows; j++) { g[j] = eval_row<T>(grp, xu_k, (uint32_t)j); }
-                                s_viol[e] = soc_violation<T>(g, grp.n_rows);
+                                s_viol[e] = glass::soc_violation<T>(g, grp.n_rows);
                         }
                 } else {
                         for (int32_t e = rank; e < n_elems; e += size) {
@@ -870,7 +653,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                                 const int32_t i = e % grp.n_rows;
                                 const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                                s_viol[e] = interval_violation<T>(g, grp.lo[i], grp.hi[i]);
+                                s_viol[e] = glass::interval_violation<T>(g, grp.lo[i], grp.hi[i]);
                         }
                 }
                 __syncthreads();
@@ -974,7 +757,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                         w[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] - grp.mu * g;
                                 }
-                                soc_project<T>(w, w, grp.n_rows);
+                                glass::thread::soc_project<T>(w, w, grp.n_rows);
                                 for (int32_t i = 0; i < grp.n_rows; i++) { d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] = w[i]; }
                         }
                         continue;
@@ -990,7 +773,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
                                 const T g = (grp.kind == EE_POS) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                if (is_eq_row<T>(grp.lo[i], grp.hi[i])) {
+                                if (glass::al_is_eq_row<T>(grp.lo[i], grp.hi[i])) {
                                         T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
                                         if (soft) {  // elastic multiplier bound |lam| <= sigma
                                                 if (a > grp.sigma) a = grp.sigma;

@@ -9,14 +9,9 @@ using namespace gato::constants;
 
 namespace gato::plant {
 
-template<typename T>
-__host__ __device__ T angle_wrap(T input)
-{
-        const T pi = static_cast<T>(3.14159);
-        if (input > pi) { input = -(input - pi); }
-        if (input < -pi) { input = -(input + pi); }
-        return input;
-}
+// angle wrap: glass::angle_wrap (true wrap to (-pi, pi]; replaces the old
+// local truncated-pi reflection — only live under ANGLE_WRAP=true, which no
+// vendored plant sets).
 
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __device__ void integrator_inner(T* s_q_next, T* s_qd_next, T* s_q, T* s_qd, T* s_qdd, T dt)
@@ -41,7 +36,7 @@ __device__ void integrator_inner(T* s_q_next, T* s_qd_next, T* s_q, T* s_qd, T* 
                         if (threadIdx.x == 0) { printf("Integrator [%d] not defined. Currently support [0: Euler, 1: Semi-Implicit Euler, 2: Trapezoidal]", INTEGRATOR_TYPE); }
                 }
 
-                if (ANGLE_WRAP) { s_q_next[i] = angle_wrap(s_q_next[i]); }
+                if (ANGLE_WRAP) { s_q_next[i] = glass::angle_wrap(s_q_next[i]); }
         }
 }
 
