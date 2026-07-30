@@ -56,13 +56,16 @@ def _parse_urdf(urdf_path, ee_frame):
     """Parse with GRiD's URDFParser (same parse codegen uses); validate ee_frame."""
     root = repo_root()
     grid_root = root / "external" / "GRiD"
-    if not (grid_root / "URDFParser").exists():
+    # GRiD packaging layout: grid_codegen at the GRiD root, URDFParser under
+    # external/ (both importable from a raw checkout; no pip install needed).
+    if not (grid_root / "external" / "URDFParser").exists():
         raise RuntimeError(
             f"GRiD submodule not found at {grid_root}. Run: "
             f"git submodule update --init --recursive"
         )
-    if str(grid_root) not in sys.path:
-        sys.path.insert(0, str(grid_root))
+    for p in (str(grid_root), str(grid_root / "external")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
     from URDFParser import URDFParser
 
     robot = URDFParser().parse(str(urdf_path), floating_base=False)  # fixed base
@@ -143,7 +146,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     # Limits first: it validates every joint has bounded <limit> tags (cheap),
     # so an unsupported robot fails before the expensive grid.cuh generation.
     _write_limits(robot, out_dir / "limits.cuh", name, urdf_path.name)
-    from GRiDCodeGenerator import GRiDCodeGenerator
+    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
 
     gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True,
                             FILE_NAMESPACE="grid")
