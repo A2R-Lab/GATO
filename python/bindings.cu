@@ -343,6 +343,47 @@ class PyBSQP {
         void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
         bool exact_hessian() const { return solver_.exact_hessian(); }
 
+        // debug/test: KKT setup only (no solve) on the given trajectory + block readback
+        py::dict debug_setup_kkt(py::array_t<T> xu_traj_batch, T timestep, py::array_t<T> x_s_batch, py::array_t<T> reference_traj_batch)
+        {
+                py::buffer_info xu_buf = xu_traj_batch.request();
+                py::buffer_info xs_buf = x_s_batch.request();
+                py::buffer_info ref_buf = reference_traj_batch.request();
+                check_size(xu_buf, (size_t)TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
+                check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
+                memcpy(h_xu_staging_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+
+                ProblemInputs<T> inputs;
+                inputs.timestep = timestep;
+                inputs.d_x_s_batch = d_x_s_batch_;
+                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+                solver_.debug_setup_kkt(d_xu_traj_batch_, inputs);
+
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
+                py::array_t<T>    Q({B, (py::ssize_t)STATE_SQ_P_KNOTS});
+                py::array_t<T>    R({B, (py::ssize_t)CONTROL_SQ_P_KNOTS});
+                py::array_t<T>    q({B, (py::ssize_t)STATE_P_KNOTS});
+                py::array_t<T>    r({B, (py::ssize_t)CONTROL_P_KNOTS});
+                solver_.copy_kkt_blocks_to_host(static_cast<T*>(Q.request().ptr), static_cast<T*>(R.request().ptr), static_cast<T*>(q.request().ptr), static_cast<T*>(r.request().ptr));
+                py::dict out;
+                out["Q"] = Q;
+                out["R"] = R;
+                out["q"] = q;
+                out["r"] = r;
+                return out;
+        }
+        py::array_t<T> get_lambda()
+        {
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
+                py::array_t<T>    lam({B, (py::ssize_t)VEC_SIZE_PADDED});
+                solver_.copy_lambda_to_host(static_cast<T*>(lam.request().ptr));
+                return lam;
+        }
+
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
         {
                 solver_.set_cost_weights(q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
@@ -414,6 +455,8 @@ class PyBSQP {
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
             .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
+            .def("debug_setup_kkt", &PyBSQP<Type>::debug_setup_kkt)                                                                                                                                    \
+            .def("get_lambda", &PyBSQP<Type>::get_lambda)                                                                                                                                              \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \

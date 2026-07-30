@@ -44,28 +44,34 @@ __host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
 #if USE_EXACT_HESSIAN
 // Exact-Hessian (SO-SQP) stage-block PSD projection — PROJECT-only per the
 // numpy prototype verdict (docs/open-tasks/so_sqp_prototype/RESULTS_2026-07-17).
-// eps = 1e-6 * (1 + maxdiag) per block (the f32 clip floor; every thread
+// eps = 1e-5 * (1 + max|diag|) per block (the f32 clip floor; every thread
 // computes it redundantly from shared diagonals — deterministic, no staging).
 // __noinline__: these bodies land in the same TU that hit the cicc inlining
 // cliff in CL-2a — keep them out of the kernel's inline blob.
 
-// element count of the exact-Hessian shared carve: the assembled
-// (nx+nu)^2 stage block + glass::psd_project scratch for that size
+// element count of the exact-Hessian shared carve: the assembled (nx+nu)^2
+// stage block + a union region holding the fdsva_so arena during the
+// contraction and the glass::psd_project scratch during the projection
+// (the SO tensors are dead by projection time, so the regions alias)
 template<typename T>
-__host__ __device__ constexpr uint32_t setupKKTExactHessSMemCt()
+__host__ __device__ inline uint32_t setupKKTExactHessSMemCt()
 {
-        return STATE_S_CONTROL * STATE_S_CONTROL + (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
+        const uint32_t proj_ct = (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
+        const uint32_t so_ct = gato::plant::exactHessianSO_TempMemCt<T>();
+        return STATE_S_CONTROL * STATE_S_CONTROL + (so_ct > proj_ct ? so_ct : proj_ct);
 }
 
-// running knot: assemble P = [[Q, 0], [0, R]] (column-major, nx+nu; 1c adds the
-// lambda^T d2f contraction incl. the cross block), project, scatter back.
-// Entry: s_Q_k/s_R_k writes barrier-visible. Exit: ends on a barrier.
-template<typename T>
-__device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, T* s_eh)
+// running knot: assemble P = [[Q, 0], [0, R]] (column-major, nx+nu), add the
+// lagged-lambda exact-Hessian term lam^T d2F (plant.cuh exactHessianContraction
+// — fills the diagonal blocks AND the qu/qv cross blocks), project, scatter the
+// diagonal blocks back. Entry: s_Q_k/s_R_k writes barrier-visible. Exit: ends
+// on a barrier.
+template<typename T, unsigned INTEGRATOR_TYPE>
+__device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, const T* s_xux_k, const T* d_lambda_kp1, T dt, void* d_GRiD_mem, T* s_eh)
 {
         constexpr uint32_t P_DIM = STATE_S_CONTROL;
         T*                 s_P = s_eh;
-        T*                 s_scratch = s_eh + P_DIM * P_DIM;
+        T*                 s_union = s_eh + P_DIM * P_DIM;  // SO arena, then psd scratch
         for (uint32_t i = threadIdx.x; i < P_DIM * P_DIM; i += blockDim.x) {
                 const uint32_t r = i % P_DIM, c = i / P_DIM;
                 T              v = static_cast<T>(0);
@@ -77,13 +83,24 @@ __device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, T* s_eh)
                 s_P[i] = v;
         }
         __syncthreads();
-        T maxdiag = s_P[0];
-        for (uint32_t j = 1; j < P_DIM; j++) {
+        gato::plant::exactHessianContraction<T, INTEGRATOR_TYPE>(s_P, s_xux_k, d_lambda_kp1, dt, s_union, d_GRiD_mem);  // ends on a barrier
+        // eps = 1e-5 * (1 + max|diag|). ABS per the prototype's _eps_for: a
+        // curvature-dominated negative diagonal must still give a POSITIVE
+        // floor (a raw max went negative here and produced an indefinite
+        // "projection" -> NaN cascade in the first device A/B). 1e-5 (not the
+        // prototype's f64 1e-6): the clip must clear the f32 fixed-sweep Jacobi
+        // reconstruction noise (<= 1.9e-6 relative, jacobi_study p95) or the
+        // output is numerically indefinite at the bottom of the spectrum and
+        // the bdsv factor non-PD-skips every iteration once lambda != 0
+        // (measured 2026-07-30: rho 1e-5 froze, rho >= 1e-4 descended).
+        T maxdiag = static_cast<T>(0);
+        for (uint32_t j = 0; j < P_DIM; j++) {
                 const T d = s_P[j * P_DIM + j];
-                maxdiag = (d > maxdiag) ? d : maxdiag;
+                const T a = (d < static_cast<T>(0)) ? -d : d;
+                maxdiag = (a > maxdiag) ? a : maxdiag;
         }
-        const T eps = static_cast<T>(1e-6) * (static_cast<T>(1) + maxdiag);
-        glass::psd_project<T, P_DIM>(s_P, eps, s_scratch);  // ends on a barrier
+        const T eps = static_cast<T>(1e-5) * (static_cast<T>(1) + maxdiag);
+        glass::psd_project<T, P_DIM>(s_P, eps, s_union);  // ends on a barrier
         for (uint32_t i = threadIdx.x; i < P_DIM * P_DIM; i += blockDim.x) {
                 const uint32_t r = i % P_DIM, c = i / P_DIM;
                 if (r < STATE_SIZE && c < STATE_SIZE) {
@@ -102,12 +119,13 @@ __device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, T* s_eh)
 template<typename T>
 __device__ __noinline__ void projectTerminalBlockExact(T* s_Q_last, T* s_eh)
 {
-        T maxdiag = s_Q_last[0];
-        for (uint32_t j = 1; j < STATE_SIZE; j++) {
+        T maxdiag = static_cast<T>(0);  // eps floor on max|diag| (see the stage helper)
+        for (uint32_t j = 0; j < STATE_SIZE; j++) {
                 const T d = s_Q_last[j * STATE_SIZE + j];
-                maxdiag = (d > maxdiag) ? d : maxdiag;
+                const T a = (d < static_cast<T>(0)) ? -d : d;
+                maxdiag = (a > maxdiag) ? a : maxdiag;
         }
-        const T eps = static_cast<T>(1e-6) * (static_cast<T>(1) + maxdiag);
+        const T eps = static_cast<T>(1e-5) * (static_cast<T>(1) + maxdiag);
         glass::psd_project<T, STATE_SIZE>(s_Q_last, eps, s_eh);  // ends on a barrier
 }
 #endif  // USE_EXACT_HESSIAN
@@ -141,7 +159,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             const T* __restrict__       d_lam_lo_batch
 #if USE_EXACT_HESSIAN
                                             ,
-                                            int32_t exact_hessian  // runtime per-TASK toggle (0 = GN path)
+                                            int32_t                     exact_hessian,   // runtime per-TASK toggle (0 = GN path)
+                                            const T* __restrict__       d_lambda_batch   // lagged Schur multipliers (lam^T d2F term)
 #endif
 )
 {
@@ -271,7 +290,10 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 }
 
 #if USE_EXACT_HESSIAN
-                if (exact_hessian) { projectStageBlockExact<T>(s_Q_k, s_R_k, s_eh); }
+                if (exact_hessian) {
+                        const T* d_lambda_kp1 = getOffsetStatePadded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
+                        projectStageBlockExact<T, INTEGRATOR_TYPE>(s_Q_k, s_R_k, s_xux_k, d_lambda_kp1, timestep, d_GRiD_mem, s_eh);
+                }
 #endif
                 glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
                 glass::copy<T, CONTROL_SIZE_SQ>(s_R_k, d_R_k);
@@ -281,24 +303,40 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 }
 
 template<typename T>
-__host__ size_t getSetupKKTSystemBatchedSMemSize()
+__host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0)
 {
         size_t size = sizeof(T) * setupKKTBaseSMemCt<T>();
 #if USE_EXACT_HESSIAN
-        size += sizeof(T) * setupKKTExactHessSMemCt<T>();  // stage block + psd_project scratch
+        // runtime-sized: the exact carve is only requested when the toggle is on,
+        // so exact builds running the GN path keep the small launch (occupancy)
+        if (exact_hessian) { size += sizeof(T) * setupKKTExactHessSMemCt<T>(); }
+#else
+        (void)exact_hessian;
 #endif
         return size;
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
+        (void)d_lambda_batch;
 #endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
-        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>();  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
+        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian);  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
+#if USE_EXACT_HESSIAN
+        // the exact carve can exceed the 48KB default dynamic-smem ceiling on
+        // bigger robots — opt the kernel in once (harmless when already under)
+        if (exact_hessian && s_mem_size > 48 * 1024) {
+                static bool attr_set = false;
+                if (!attr_set) {
+                        cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size);
+                        attr_set = true;
+                }
+        }
+#endif
 
         setupKKTSystemBatchedKernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
                                                                                kkt.d_R_batch,
@@ -328,7 +366,8 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                d_lam_lo_batch
 #if USE_EXACT_HESSIAN
                                                                                ,
-                                                                               exact_hessian
+                                                                               exact_hessian,
+                                                                               d_lambda_batch
 #endif
         );
 }

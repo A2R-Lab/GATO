@@ -20,7 +20,12 @@ constexpr float RHO_FACTOR = 1.2;
 constexpr float RHO_MIN = 1e-8;
 constexpr float RHO_MAX = 10;
 
-constexpr uint32_t KKT_THREADS = 128;
+// -D override kept for the thread-invariance gate (same convention as
+// GATO_BDSV_THREADS below); production value 128.
+#ifndef GATO_KKT_THREADS
+    #define GATO_KKT_THREADS 128
+#endif
+constexpr uint32_t KKT_THREADS = GATO_KKT_THREADS;
 constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
 // direct-solve kernel thread count (serial knot chain over 14x14 blocks).

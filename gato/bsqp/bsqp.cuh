@@ -411,6 +411,29 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(h_out, d_merit_initial0_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
         }
 
+        // Debug/test surface: run ONLY the KKT setup (linearize + cost blocks +
+        // row-group folds + exact-Hessian projection when enabled) on the given
+        // trajectory with the CURRENT lagged multipliers, then read the blocks
+        // via copy_kkt_blocks_to_host BEFORE formSchur overwrites Q/R with the
+        // rho-damped inverses. Oracle gate for the exact-Hessian path.
+        void debug_setup_kkt(T* d_xu_traj_batch, ProblemInputs<T> inputs)
+        {
+                gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
+                const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
+                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_);
+                gpuErrchk(cudaDeviceSynchronize());
+        }
+        void copy_kkt_blocks_to_host(T* h_Q, T* h_R, T* h_q, T* h_r)
+        {
+                gpuErrchk(cudaMemcpy(h_Q, kkt_system_batch_.d_Q_batch, STATE_SQ_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_R, kkt_system_batch_.d_R_batch, CONTROL_SQ_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_q, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_r, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
+        // padded (KNOT_POINTS + 2) * STATE_SIZE per solve (PCG layout; constraint
+        // row j lives at [(j + 1) * STATE_SIZE, (j + 2) * STATE_SIZE))
+        void copy_lambda_to_host(T* h_out) { gpuErrchk(cudaMemcpy(h_out, d_lambda_batch_, VEC_SIZE_PADDED * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost)); }
+
         SQPStats<T> solve(T* d_xu_traj_batch, ProblemInputs<T> inputs)
         {
                 SQPStats<T> sqp_stats(batch_size_);
@@ -443,7 +466,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0);
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -478,7 +501,11 @@ class BSQP {
                                 // plateau on the AL-modified system that stalls the line search
                                 // (dz not the model minimizer -> non-descent; measured: pcg
                                 // sticks at viol ~0.09 at any tol, bdsv drives it to 0.0).
-                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_;
+                                // Exact-Hessian mode forces it for the same measured reason:
+                                // on the projected system f32 PCG caps out every iteration
+                                // (iiwa14 reach: 200/200 iters, |lambda| 1.3 -> 46, every line
+                                // search fails), bdsv descends normally — 2026-07-30 probe.
+                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_ || exact_hessian_;
                                 if (use_bdsv) {
                                         solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
                                 } else {

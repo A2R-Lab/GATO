@@ -42,6 +42,12 @@ kernels (all in `gato/bsqp/kernels/`):
    (0 = pcg default/bit-identical, 1 = bdsv, 2 = bdsv on SQP iter 0 then pcg); python
    `BSQP(linsys=...)`, controller `linsys="auto"` switches on `‖x_meas − x_pred‖`. Plan + gates:
    `docs/open-tasks/hybrid_pcg_bdsv_plan_2026-07-07.md`.
+   Optional exact-Hessian (SO-SQP) path: built with `-DGATO_EXACT_HESSIAN=ON` and toggled per
+   solver (`BSQP(exact_hessian=True)` / `set_exact_hessian`), setup_kkt assembles the
+   (nx+nu)² stage block, adds the lagged-λ `λᵀ∇²F` contraction (grid `fdsva_so`), and
+   PSD-projects it (`glass::psd_project`, eps = 1e-5·(1+max|diag|)). Default builds are
+   preprocessor-identical (bitwise). Forces bdsv; needs rho ≥ 1e-4 (f32). Verdict + traps:
+   `docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md`.
 4. **`schur_linsys.cuh::computeDzBatchedKernel`** — recover the primal step `dz` from λ.
 5. **`merit.cuh` / `line_search.cuh`** — evaluate the merit (`grid_plant::trackingCostValue` +
    `compute_integrator_error`), pick a step.

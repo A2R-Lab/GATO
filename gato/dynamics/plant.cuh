@@ -171,6 +171,101 @@ namespace plant {
                 return grid::FD_DU_MAX_SHARED_MEM_COUNT;
         }
 
+#if USE_EXACT_HESSIAN
+        // ===================================================================
+        // Exact-Hessian (SO-SQP) lambda^T d2a/dz2 contraction  [USE_EXACT_HESSIAN]
+        // ===================================================================
+
+        // Shared elements for exactHessianContraction: w (NQ) + the all-smem
+        // grid::fdsva_so_device arena (qdd + Minv + df_du + df2 + idsva_so +
+        // XImats + the SO temp pool, whose element count == the per-timestep SO
+        // workspace band the generated TIER_LITE path would use instead).
+        template<typename T>
+        __host__ __device__ inline unsigned exactHessianSO_TempMemCt()
+        {
+                return NQ + NQ + NQ * NQ + 2 * NQ * NQ + 2 * grid::SECOND_ORDER_TENSOR_SIZE + XIMATS_COUNT
+                       + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T));
+        }
+
+        // Adds E = sum_i w_i * d2a_i/dz2 (z = [q; qd; u], column-major (NX+NU)^2)
+        // into the stage block s_P — the lagged-lambda exact-Hessian term.
+        //
+        // lam = GATO's stored Schur multiplier for constraint row k+1. Sign:
+        // computeDz recovers dz_x = -Q^-1(q - lam_k + A^T lam_kp1), so the QP
+        // multiplier is mu = -lam; with c = x_next - F(x, u) the Lagrangian stage
+        // Hessian addition is +mu^T d2c = -mu^T d2F = +lam^T d2F. F's second
+        // derivative flows only through the acceleration, so the per-row-family
+        // integrator weights (trapezoidal: q-rows 0.5*dt^2, v-rows dt; euler:
+        // (0, dt); semi-implicit: (dt^2, dt)) collapse the whole contraction to
+        // ONE accel-index weight vector w_i = c_q*lam_q[i] + c_v*lam_v[i].
+        // lam == 0 (first cold iteration / after reset_dual) reduces exactly to GN.
+        //
+        // d2a block layout (grid fdsva_so, [dqdq | dvdq | dvdv | dtdq] stacked
+        // NQ^3): block[i*NQ^2 + j*NQ + k] = d2(qdd_i)/d(first_j)d(second_k); the
+        // qv/qu twins are the jk-transposed reads of dvdq/dtdq, uu/uv/vu are
+        // identically zero (qdd linear in tau). Symmetric blocks are read at the
+        // canonical (lo, hi) wedge so E is bitwise symmetric even where the
+        // generated tensor is only ULP-symmetric.
+        //
+        // KNOWN CAVEAT: grid's fdsva_so does not thread f_ext, so with a nonzero
+        // wrench the SO term is evaluated at f_ext = 0 while A/B (first-order
+        // path) carry it — the projection still guarantees PSD; the curvature
+        // correction is merely approximate under external wrenches.
+        //
+        // __noinline__: cicc-cliff guard (this lands in the setup_kkt TU).
+        template<typename T, unsigned INTEGRATOR_TYPE = 2>
+        __device__ __noinline__ void exactHessianContraction(T* s_P, const T* s_xux, const T* d_lambda_kp1, T dt, T* s_so, void* d_dynMem_const)
+        {
+                constexpr int PDIM = NX + NU;
+                constexpr int NQ2 = NQ * NQ;
+                constexpr int NQ3 = NQ * NQ * NQ;
+                T*            s_w = s_so;
+                T*            s_qdd = s_w + NQ;
+                T*            s_Minv = s_qdd + NQ;
+                T*            s_df_du = s_Minv + NQ2;
+                T*            s_df2 = s_df_du + 2 * NQ2;
+                T*            s_idsva_so = s_df2 + grid::SECOND_ORDER_TENSOR_SIZE;
+                T*            s_XImats = s_idsva_so + grid::SECOND_ORDER_TENSOR_SIZE;
+                T*            s_sotemp = s_XImats + XIMATS_COUNT;
+
+                for (int i = threadIdx.x; i < NQ; i += blockDim.x) {
+                        const T cq = (INTEGRATOR_TYPE == 0) ? static_cast<T>(0) : (INTEGRATOR_TYPE == 1 ? dt * dt : static_cast<T>(0.5) * dt * dt);
+                        s_w[i] = cq * d_lambda_kp1[i] + dt * d_lambda_kp1[NQ + i];
+                }
+                // no barrier needed: s_w is disjoint from the fdsva arena, and the
+                // contraction reads below are ordered by fdsva's internal barriers
+                grid::fdsva_so_device<T, true, false, true>(s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_xux, s_xux + NQ, s_xux + NX, s_XImats, /*s_topology_helpers*/nullptr, s_sotemp,
+                                                            /*d_workspace*/nullptr, /*d_fd_grad_spill*/nullptr, /*s_fdsva_temp*/nullptr, (const grid::robotModel<T>*)d_dynMem_const, GRAVITY<T>());
+                __syncthreads();  // fdsva tensor writes -> contraction reads
+
+                const T* d2a_dqdq = s_df2;
+                const T* d2a_dvdq = s_df2 + NQ3;
+                const T* d2a_dvdv = s_df2 + 2 * NQ3;
+                const T* d2a_dtdq = s_df2 + 3 * NQ3;
+                for (int idx = threadIdx.x; idx < PDIM * PDIM; idx += blockDim.x) {
+                        const int a = idx % PDIM, b = idx / PDIM;
+                        const int ablk = a / NQ, aj = a % NQ;
+                        const int bblk = b / NQ, bk = b % NQ;
+                        if (ablk >= 1 && bblk >= 1 && ablk + bblk >= 3) continue;  // uu/uv/vu = 0
+                        const int lo = (aj < bk) ? aj : bk;
+                        const int hi = (aj < bk) ? bk : aj;
+                        T         acc = static_cast<T>(0);
+                        for (int i = 0; i < NQ; i++) {
+                                T d2;
+                                if (ablk == 0 && bblk == 0)      d2 = d2a_dqdq[i * NQ2 + lo * NQ + hi];
+                                else if (ablk == 1 && bblk == 1) d2 = d2a_dvdv[i * NQ2 + lo * NQ + hi];
+                                else if (ablk == 1 && bblk == 0) d2 = d2a_dvdq[i * NQ2 + aj * NQ + bk];
+                                else if (ablk == 0 && bblk == 1) d2 = d2a_dvdq[i * NQ2 + bk * NQ + aj];
+                                else if (ablk == 2 && bblk == 0) d2 = d2a_dtdq[i * NQ2 + aj * NQ + bk];
+                                else                             d2 = d2a_dtdq[i * NQ2 + bk * NQ + aj];  // (0,2)
+                                acc += s_w[i] * d2;
+                        }
+                        s_P[idx] += acc;
+                }
+                __syncthreads();
+        }
+#endif  // USE_EXACT_HESSIAN
+
         // ===================================================================
         // grid_plant::tracking_cost ADAPTER
         //
