@@ -691,7 +691,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 5caa6d0dfcf4ec086c0ad7a7e3d77b14aad6705e
+    // Pinned commit: a3fa160a401e104f4b4d843d77c059eb7998815b
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
