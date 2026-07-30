@@ -33,6 +33,16 @@ constexpr uint32_t PCG_THREADS = 1024;
 #endif
 constexpr uint32_t BDSV_THREADS = GATO_BDSV_THREADS;
 constexpr uint32_t DZ_THREADS = 128;
+
+// Exact-Hessian (SO-SQP) build flag: 0 (default) compiles the path OUT, so the
+// device tree is preprocessor-identical to the GN-only solver (bitwise parity
+// gate holds by construction). Build with cmake -DGATO_EXACT_HESSIAN=ON
+// (-DUSE_EXACT_HESSIAN=1) and enable per solver via set_exact_hessian(true):
+// per-TASK toggle — the projection wins on EE-terminal tasks, is neutral-to-
+// worse on full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
+#ifndef USE_EXACT_HESSIAN
+    #define USE_EXACT_HESSIAN 0
+#endif
 constexpr uint32_t LINE_SEARCH_THREADS = 512;
 constexpr uint32_t SIM_FORWARD_THREADS = 128;
 

@@ -364,6 +364,19 @@ class BSQP {
         }
         int linsys_mode() const { return linsys_mode_; }
 
+        // Exact-Hessian (SO-SQP) per-TASK toggle: stage-block PSD projection in
+        // setup_kkt (PROJECT-only; so_sqp_prototype/RESULTS_2026-07-17 — wins on
+        // EE-terminal tasks, neutral-to-worse on joint-terminal ones). Needs the
+        // path compiled in (cmake -DGATO_EXACT_HESSIAN=ON); enabling without it
+        // throws rather than silently running GN.
+        static constexpr bool exact_hessian_available() { return USE_EXACT_HESSIAN != 0; }
+        void                  set_exact_hessian(bool on)
+        {
+                if (on && !exact_hessian_available()) { throw std::invalid_argument("set_exact_hessian: module compiled without USE_EXACT_HESSIAN (rebuild with -DGATO_EXACT_HESSIAN=ON)"); }
+                exact_hessian_ = on;
+        }
+        bool exact_hessian() const { return exact_hessian_; }
+
         // runtime scalar cost weights (plain members threaded into every launch)
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
         {
@@ -430,7 +443,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_);
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -844,4 +857,5 @@ class BSQP {
         T           rho_;
         bool        adapt_rho_;
         int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first
+        bool        exact_hessian_ = false;  // set_exact_hessian (needs USE_EXACT_HESSIAN build)
 };

@@ -131,6 +131,7 @@ class BSQP:
         adapt_rho=True,
         linsys="pcg",  # "pcg" | "bdsv" | "bdsv_first" (see LINSYS_MODES)
         plant_type='indy7',  # 'indy7' or 'iiwa14'
+        exact_hessian=False,  # SO-SQP stage-Hessian PSD projection (needs -DGATO_EXACT_HESSIAN=ON build)
     ):
         # Dynamically import the correct bsqp_N* module and get the solver class
         # The modules should be named like 'bsqpN{N}_{plant_type}', e.g., 'bsqpN32_indy7'
@@ -248,6 +249,9 @@ class BSQP:
         self.linsys = "pcg"  # the C++ default; set_linsys only calls into the module on change
         self.set_linsys(linsys)
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
+        self.exact_hessian = False  # the C++ default
+        if exact_hessian:
+            self.set_exact_hessian(True)
 
     def set_linsys(self, mode):
         """Pick the S·λ = γ path for subsequent solves: "pcg" | "bdsv" | "bdsv_first".
@@ -259,6 +263,27 @@ class BSQP:
         if mode != self.linsys:
             self.solver.set_linsys_mode(LINSYS_MODES[mode])
             self.linsys = mode
+
+    def exact_hessian_available(self):
+        """True if the loaded module was compiled with -DGATO_EXACT_HESSIAN=ON."""
+        return bool(getattr(self.lib, "EXACT_HESSIAN_AVAILABLE", False))
+
+    def set_exact_hessian(self, on):
+        """Toggle the SO-SQP stage-Hessian PSD projection for subsequent solves.
+
+        Per-TASK feature: wins on EE-terminal tasks, neutral-to-worse on
+        full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
+        Raises if the module was built without -DGATO_EXACT_HESSIAN=ON.
+        """
+        on = bool(on)
+        if on and not self.exact_hessian_available():
+            raise RuntimeError(
+                f"module {self.lib.__name__} compiled without USE_EXACT_HESSIAN — "
+                "rebuild with cmake -DGATO_EXACT_HESSIAN=ON"
+            )
+        if on != self.exact_hessian:
+            self.solver.set_exact_hessian(on)
+            self.exact_hessian = on
 
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
         """Solve the batch; returns a SolveResult (also stores xu as the next warm start)."""

@@ -15,6 +15,103 @@ using namespace gato::constants;
 // other kernel header sharing this TU (caused a gato::plant::EE_POS_SIZE vs constants:: clash
 // in merit.cuh). Qualify plant calls explicitly instead.
 
+// shared-memory element count of the flag-independent kernel layout (the
+// terminal-branch chain is the superset of the running-knot one): everything
+// through r_dummy plus the larger of the two s_temp consumers. The exact-
+// Hessian carve (below) starts at exactly this offset.
+template<typename T>
+__host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
+{
+        constexpr uint32_t temp_ct = gato::plant::trackingCostGradHess_TempMemCt<T>() > gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared()
+                                         ? gato::plant::trackingCostGradHess_TempMemCt<T>()
+                                         : gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared();
+        return STATE_S_CONTROL + STATE_SIZE +  // xux_k
+               2 * constants::EE_POS_SIZE +    // reference_traj_k
+               STATE_SIZE_SQ +                 // Q_k
+               CONTROL_SIZE_SQ +               // R_k
+               STATE_SIZE +                    // q_k
+               CONTROL_SIZE +                  // r_k
+               STATE_SIZE_SQ +                 // A_k
+               STATE_P_CONTROL +               // B_k
+               STATE_SIZE +                    // c_k
+               STATE_SIZE_SQ +                 // Q_last
+               STATE_SIZE +                    // q_last
+               CONTROL_SIZE_SQ +               // R_dummy (throwaway terminal R)
+               CONTROL_SIZE +                  // r_dummy
+               temp_ct;
+}
+
+#if USE_EXACT_HESSIAN
+// Exact-Hessian (SO-SQP) stage-block PSD projection — PROJECT-only per the
+// numpy prototype verdict (docs/open-tasks/so_sqp_prototype/RESULTS_2026-07-17).
+// eps = 1e-6 * (1 + maxdiag) per block (the f32 clip floor; every thread
+// computes it redundantly from shared diagonals — deterministic, no staging).
+// __noinline__: these bodies land in the same TU that hit the cicc inlining
+// cliff in CL-2a — keep them out of the kernel's inline blob.
+
+// element count of the exact-Hessian shared carve: the assembled
+// (nx+nu)^2 stage block + glass::psd_project scratch for that size
+template<typename T>
+__host__ __device__ constexpr uint32_t setupKKTExactHessSMemCt()
+{
+        return STATE_S_CONTROL * STATE_S_CONTROL + (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
+}
+
+// running knot: assemble P = [[Q, 0], [0, R]] (column-major, nx+nu; 1c adds the
+// lambda^T d2f contraction incl. the cross block), project, scatter back.
+// Entry: s_Q_k/s_R_k writes barrier-visible. Exit: ends on a barrier.
+template<typename T>
+__device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, T* s_eh)
+{
+        constexpr uint32_t P_DIM = STATE_S_CONTROL;
+        T*                 s_P = s_eh;
+        T*                 s_scratch = s_eh + P_DIM * P_DIM;
+        for (uint32_t i = threadIdx.x; i < P_DIM * P_DIM; i += blockDim.x) {
+                const uint32_t r = i % P_DIM, c = i / P_DIM;
+                T              v = static_cast<T>(0);
+                if (r < STATE_SIZE && c < STATE_SIZE) {
+                        v = s_Q_k[c * STATE_SIZE + r];
+                } else if (r >= STATE_SIZE && c >= STATE_SIZE) {
+                        v = s_R_k[(c - STATE_SIZE) * CONTROL_SIZE + (r - STATE_SIZE)];
+                }
+                s_P[i] = v;
+        }
+        __syncthreads();
+        T maxdiag = s_P[0];
+        for (uint32_t j = 1; j < P_DIM; j++) {
+                const T d = s_P[j * P_DIM + j];
+                maxdiag = (d > maxdiag) ? d : maxdiag;
+        }
+        const T eps = static_cast<T>(1e-6) * (static_cast<T>(1) + maxdiag);
+        glass::psd_project<T, P_DIM>(s_P, eps, s_scratch);  // ends on a barrier
+        for (uint32_t i = threadIdx.x; i < P_DIM * P_DIM; i += blockDim.x) {
+                const uint32_t r = i % P_DIM, c = i / P_DIM;
+                if (r < STATE_SIZE && c < STATE_SIZE) {
+                        s_Q_k[c * STATE_SIZE + r] = s_P[i];
+                } else if (r >= STATE_SIZE && c >= STATE_SIZE) {
+                        s_R_k[(c - STATE_SIZE) * CONTROL_SIZE + (r - STATE_SIZE)] = s_P[i];
+                }
+                // off-diagonal (cross) blocks dropped: formSchur consumes Q/R only
+                // (full-stage-block Schur = deferred step 1d, decide on data)
+        }
+        __syncthreads();
+}
+
+// terminal knot: the stage block IS Q_last (no control) — project in place.
+// Entry: s_Q_last writes barrier-visible. Exit: ends on a barrier.
+template<typename T>
+__device__ __noinline__ void projectTerminalBlockExact(T* s_Q_last, T* s_eh)
+{
+        T maxdiag = s_Q_last[0];
+        for (uint32_t j = 1; j < STATE_SIZE; j++) {
+                const T d = s_Q_last[j * STATE_SIZE + j];
+                maxdiag = (d > maxdiag) ? d : maxdiag;
+        }
+        const T eps = static_cast<T>(1e-6) * (static_cast<T>(1) + maxdiag);
+        glass::psd_project<T, STATE_SIZE>(s_Q_last, eps, s_eh);  // ends on a barrier
+}
+#endif  // USE_EXACT_HESSIAN
+
 template<typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T*    d_R_batch,
@@ -41,7 +138,12 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // constraint row-groups (MECH_BARRIER_RELAXED /
                                             int32_t                     n_row_groups,                      // MECH_AL fold into the cost blocks; 0 -> untouched path)
                                             const T* __restrict__       d_lam_hi_batch,                    // per-solve AL duals (nullable; MECH_AL only)
-                                            const T* __restrict__       d_lam_lo_batch)
+                                            const T* __restrict__       d_lam_lo_batch
+#if USE_EXACT_HESSIAN
+                                            ,
+                                            int32_t exact_hessian  // runtime per-TASK toggle (0 = GN path)
+#endif
+)
 {
         // kernel launched with 2D grid: (knot_idx, solve_idx)
         const uint32_t solve_idx = blockIdx.y;
@@ -61,6 +163,10 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         T*                  s_B_k = s_A_k + STATE_SIZE_SQ;
         T*                  s_c_k = s_B_k + STATE_P_CONTROL;  // integrator error
         T*                  s_temp = s_c_k + STATE_SIZE;
+#if USE_EXACT_HESSIAN
+        // past BOTH branch layouts (running s_temp AND the terminal Q_last..r_dummy+s_temp chain)
+        T* s_eh = s_mem + setupKKTBaseSMemCt<T>();
+#endif
 
 
         for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
@@ -149,6 +255,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * STATE_SIZE, d_c_0);
                         __syncthreads();
 
+#if USE_EXACT_HESSIAN
+                        if (exact_hessian) { projectTerminalBlockExact<T>(s_Q_last, s_eh); }
+#endif
                         glass::copy<T, STATE_SIZE_SQ>(s_Q_last, d_Q_k + STATE_SIZE_SQ);
                         glass::copy<T, STATE_SIZE>(s_q_last, d_q_k + STATE_SIZE);
                 }
@@ -161,6 +270,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         __syncthreads();
                 }
 
+#if USE_EXACT_HESSIAN
+                if (exact_hessian) { projectStageBlockExact<T>(s_Q_k, s_R_k, s_eh); }
+#endif
                 glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
                 glass::copy<T, CONTROL_SIZE_SQ>(s_R_k, d_R_k);
                 glass::copy<T, STATE_SIZE>(s_q_k, d_q_k);
@@ -171,28 +283,19 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 template<typename T>
 __host__ size_t getSetupKKTSystemBatchedSMemSize()
 {
-        size_t size = sizeof(T)
-                      * (STATE_S_CONTROL + STATE_SIZE +  // xux_k
-                         2 * constants::EE_POS_SIZE +         // reference_traj_k
-                         STATE_SIZE_SQ +                 // Q_k
-                         CONTROL_SIZE_SQ +               // R_k
-                         STATE_SIZE +                    // q_k
-                         CONTROL_SIZE +                  // r_k
-                         STATE_SIZE_SQ +                 // A_k
-                         STATE_P_CONTROL +               // B_k
-                         STATE_SIZE +                    // c_k
-                         STATE_SIZE_SQ +                 // Q_last
-                         STATE_SIZE +                    // q_last
-                         CONTROL_SIZE_SQ +               // R_dummy (throwaway terminal R)
-                         CONTROL_SIZE +                  // r_dummy
-                         max(gato::plant::trackingCostGradHess_TempMemCt<T>(),
-                         gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared()));
+        size_t size = sizeof(T) * setupKKTBaseSMemCt<T>();
+#if USE_EXACT_HESSIAN
+        size += sizeof(T) * setupKKTExactHessSMemCt<T>();  // stage block + psd_project scratch
+#endif
         return size;
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0)
 {
+#if !USE_EXACT_HESSIAN
+        (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
+#endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
         size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>();  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
@@ -222,5 +325,10 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                d_row_groups,
                                                                                n_row_groups,
                                                                                d_lam_hi_batch,
-                                                                               d_lam_lo_batch);
+                                                                               d_lam_lo_batch
+#if USE_EXACT_HESSIAN
+                                                                               ,
+                                                                               exact_hessian
+#endif
+        );
 }

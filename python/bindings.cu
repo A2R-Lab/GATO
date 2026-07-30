@@ -340,6 +340,8 @@ class PyBSQP {
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
         void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
         void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
+        void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
+        bool exact_hessian() const { return solver_.exact_hessian(); }
 
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
         {
@@ -410,6 +412,8 @@ class PyBSQP {
             .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
             .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
+            .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
+            .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \
@@ -432,6 +436,7 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve
+        m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
 
 #ifdef USE_DOUBLES
         REGISTER_BSQP_CLASS(double);
