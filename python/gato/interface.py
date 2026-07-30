@@ -356,6 +356,9 @@ class BSQP:
         rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
         controls at the warm start (closed-loop MPC parks); the measured
         pocket is ~0.005-0.02 (r1_report_2026-07-11.md).
+        iters=10 BOUND by R2 (r2_report_2026-07-30.md): 2/5 park the feasible
+        cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
+        inner cost).
         Duals warm-start across solves (reset_dual() reinitializes) —
         EXCEPT equality rows (lo == hi, e.g. enable_ee_terminal_equality),
         whose (z, y) reinit every solve: a warm-started dual on a row the
@@ -457,7 +460,12 @@ class BSQP:
         merit. v1 ADMM's merit is tracking-only, so the line search rejects
         steps that trade tracking for feasibility (measured: closed-loop MPC
         parks in conservative basins). Off by default — the exact v1
-        semantics; only read while ADMM mode is active."""
+        semantics; only read while ADMM mode is active.
+
+        ⚠ R2 measured (2026-07-30): ON + a CONFLICTED cone group DIVERGES
+        (NaN merit, violation blowup to 1e4..1e14 on 3/4 press-family cells);
+        on feasible cells it merely matches OFF. Keep OFF unless the
+        constraint set is known feasible-along-the-path."""
         self.solver.set_admm_merit(bool(on))
 
     def add_lin_u_rows(self, C, d=None, lo=None, hi=None, mech=None, rho=None,
@@ -479,11 +487,15 @@ class BSQP:
         active enable_limit_* mode). Mixing mechanisms across groups composes
         (e.g. AL boxes + ADMM cone). Call AFTER enable_limit_* — mechanism
         enables reinstall the canonical groups and drop appended ones.
-        ``rho`` defaults per mechanism (provisional until the R2 round binds
-        them: admm 0.01, al 1.0, barrier 3e-3) — the rho-scale law applies:
-        the fold lands rho * C^T C on the R block, so scale rho DOWN by
-        ||C||^2 when the map is large. Telemetry reports the cone margin
-        violation max(0, ||x-bar|| - t) (interval rows: interval violation)."""
+        ``rho`` defaults per mechanism, BOUND by the R2 round (2026-07-30,
+        docs/open-tasks/r2_report_2026-07-30.md): admm 0.01 (sharp optimum on
+        the feasible cone cell — 0.002 and 0.05 both park the closed loop),
+        al 1.0 (enforces in the stationary/hard regime; NO al rho tracks AND
+        enforces on transient cells — prefer admm there), barrier 3e-3 (soft
+        fallback; 1e-2 parks). The rho-scale law applies: the fold lands
+        rho * C^T C on the R block, so scale rho DOWN by ||C||^2 when the map
+        is large. Telemetry reports the cone margin violation
+        max(0, ||x-bar|| - t) (interval rows: interval violation)."""
         C = np.ascontiguousarray(np.asarray(C, dtype=np.float32))
         if C.ndim != 2 or C.shape[1] != self.nu:
             raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")

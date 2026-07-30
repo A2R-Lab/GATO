@@ -21,9 +21,20 @@ solver EE frame, SQP iters, and merit. The report table compares mechanisms
 per (plant, problem) against the arc gates: active-box violation <= 1e-5 and
 fig8 tracking regression <= 2% vs the unconstrained baseline.
 
+R2 additions: sweep-parameterized mechanism names (``<mech>~r<val>~i<val>`` —
+r = the mechanism's primary strength knob: cone_rho for cone_* cells, mu for
+rb, rho otherwise; i = ADMM inner iters), the ``press_mild`` problem (wide
+cone + large normal-force headroom, so the "viol<=1e-5 at <=2% cost" gate is
+tested where the cone barely binds, not only at the adversarial press cell),
+and an ``--exact`` axis (SO-SQP exact-Hessian toggle; needs an
+EXACT_HESSIAN_AVAILABLE module .so-swapped into python/gato — records/cells
+are suffixed ``+ex`` so they never collide with default rows).
+
 Usage:
   python examples/benchmarks/constraint_eval.py --run            # all cells
   python examples/benchmarks/constraint_eval.py --run --quick    # smoke subset
+  python examples/benchmarks/constraint_eval.py --run --cells a,b,c  # explicit list
+  python examples/benchmarks/constraint_eval.py --run --exact    # exact-Hessian axis
   python examples/benchmarks/constraint_eval.py --report         # tables from data
   python examples/benchmarks/constraint_eval.py --cell <name>    # one cell (child mode)
 """
@@ -73,6 +84,8 @@ MECHANISMS = {
     # the boxes. cone_off = telemetry-only cone (the press baseline).
     "cone_off": dict(cone="soc", cone_mech="telemetry", cone_rho=0.0),
     "cone_soc_admm": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm", cone_rho=0.01),
+    "cone_soc_admm_m": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
+                            cone_rho=0.01, merit=True),  # R2 merit-under-cone ablation
     "cone_soc_al": dict(rho=1.0, cone="soc", cone_mech="al", cone_rho=1.0),
     "cone_pyr_admm": dict(rho=0.01, iters=10, cone="pyramid", cone_mech="admm", cone_rho=0.01),
     "cone_pyr_al": dict(rho=1.0, cone="pyramid", cone_mech="al", cone_rho=1.0),
@@ -80,22 +93,51 @@ MECHANISMS = {
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
+CONE_PROBLEMS = ["press", "press_mild"]
 EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"],
-                    **{m: ["press"] for m in CONE_MECHS}}
-CONE_MU = 0.5        # friction coefficient of the press-surface cone
-CONE_F_BIAS = 5.0    # N of normal-force headroom around the gravity-comp point
+                    **{m: CONE_PROBLEMS for m in CONE_MECHS}}
+# per-problem (friction coefficient, N of normal-force headroom around the
+# gravity-comp point): press is deliberately adversarial (tight cone, little
+# headroom); press_mild barely binds — wide cone, big headroom AND a scaled-down
+# reach (inertial torques dominate the implied static force during fast
+# transients, so cone width alone cannot make the cell mild) — separating
+# "mechanism costs nothing when feasible" from "mechanism fights the task".
+# press_mild additionally SELF-CALIBRATES f_bias so the START pose's
+# gravity-comp point is cone-feasible with >= PRESS_MILD_START_MARGIN margin
+# (R2 finding: iiwa14's zeros start violated the goal-frozen cone by -6.7 —
+# an infeasible-at-start cell parks EVERY hard mechanism by construction,
+# measuring problem design, not the mechanism).
+CONE_PARAMS = {"press": (0.5, 5.0), "press_mild": (0.9, 20.0)}
+PRESS_MILD_START_MARGIN = 1.0
+PRESS_MILD_GOAL_SCALE = 0.4
 CONE_FACETS = 8
 SWING_TORQUE_SCALE = 0.3     # heavy-payload emulation: torque box fraction
 PICKPLACE_SEG_S = 1.2        # seconds per waypoint
 PICKPLACE_GOALS = [          # _common.PICKPLACE_DEFAULT_GOALS (first 4)
     [0.5, -0.1865, 0.5], [0.5, 0.5, 0.2], [0.3, 0.3, 0.8], [0.6, -0.5, 0.2]]
 SIM_S = {"fig8": 4.0, "reach": 2.0, "pickplace": 4.8, "swing_heavy": 3.0,
-         "press": 2.0}
+         "press": 2.0, "press_mild": 2.0}
 REACH_DQ_GOAL = [1.2, 0.7, -0.7, 0.5, 0.4, 0.3, 0.3]  # reach/press goal offset
 
 
 def cell_name(plant, mech, problem):
     return f"{plant}-{mech}-{problem}"
+
+
+def resolve_mech(mech):
+    """'cone_soc_admm~r0.02~i5' -> ('cone_soc_admm', params w/ overrides).
+    r<float> = primary strength knob (cone_rho for cone mechs, mu for rb,
+    rho otherwise); i<int> = ADMM inner iters."""
+    base, *toks = mech.split("~")
+    p = dict(MECHANISMS[base])
+    for t in toks:
+        if t[:1] == "r":
+            p["cone_rho" if "cone" in p else ("mu" if "mu" in p else "rho")] = float(t[1:])
+        elif t[:1] == "i":
+            p["iters"] = int(t[1:])
+        else:
+            raise ValueError(f"bad sweep token {t!r} in {mech!r}")
+    return base, p
 
 
 def all_cells(quick=False):
@@ -131,6 +173,11 @@ def gpu_load_note():
 
 # ---- problem definitions ---------------------------------------------------
 
+def _dq_goal(s, problem):
+    dq = np.array(REACH_DQ_GOAL)[:s.nq]
+    return dq * PRESS_MILD_GOAL_SCALE if problem == "press_mild" else dq
+
+
 def _start_x(s, plant):
     from gato.config import INDY7_START_CONFIGS
     if PLANTS[plant]["start"] == "ready":
@@ -156,10 +203,10 @@ def build_problem(s, plant, problem):
             return traj[off:off + 6 * N_KNOTS]
         return x0, goal, n_steps, None, None
 
-    if problem in ("reach", "swing_heavy", "press"):
+    if problem in ("reach", "swing_heavy") or problem.startswith("press"):
         # goal = solver-frame EE at a displaced (guaranteed-reachable) config
         # (press = reach with the EE-force cone frozen at the goal config)
-        dq_goal = np.array(REACH_DQ_GOAL)[:s.nq]
+        dq_goal = _dq_goal(s, problem)
         q_goal = x0[:s.nq] + dq_goal
         tgt = np.asarray(s.ee_pos(q_goal.astype(np.float32), frame="solver"),
                          dtype=np.float64)[:3]
@@ -191,11 +238,11 @@ def build_problem(s, plant, problem):
     raise ValueError(problem)
 
 
-def _ee_force_cone_map(s, q_ref):
+def _ee_force_cone_map(s, q_ref, mu, f_bias):
     """(C, d) for the EE-force friction cone at the frozen config q_ref:
     implied static EE force f = pinv(J^T)(tau - g(q)) (world-aligned linear
-    part, solver EE joint), cone rows [mu*(f_z + F_BIAS); f_x; f_y] — feasible
-    iff the commanded force stays inside the mu-cone about +z with F_BIAS of
+    part, solver EE joint), cone rows [mu*(f_z + f_bias); f_x; f_y] — feasible
+    iff the commanded force stays inside the mu-cone about +z with f_bias of
     normal headroom. Frobenius-normalized (cone-preserving: K is positively
     homogeneous), so cone_rho lives on the same scale as the box rho."""
     import pinocchio as pin
@@ -206,31 +253,54 @@ def _ee_force_cone_map(s, q_ref):
                              pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)[:3, :]
     tau_g = pin.computeGeneralizedGravity(s.model, s.data, q)
     Cf = np.linalg.solve(J @ J.T, J)              # pinv(J^T): f = Cf @ (tau - g)
-    S = np.array([[0.0, 0.0, CONE_MU], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    S = np.array([[0.0, 0.0, mu], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     C = S @ Cf
-    d = -C @ tau_g + np.array([CONE_MU * CONE_F_BIAS, 0.0, 0.0])
+    d = -C @ tau_g + np.array([mu * f_bias, 0.0, 0.0])
     scale = np.linalg.norm(C) / np.sqrt(C.shape[0])
     return C / scale, d / scale
 
 
-def enable_mechanism(s, mech, ee_target, q_goal=None):
-    p = MECHANISMS[mech]
-    if mech == "baseline" or mech == "cone_off":
+def _press_mild_bias(s, q_goal, q_start, mu, f_bias):
+    """Raise f_bias (never lower) until the START pose's gravity-comp point is
+    cone-feasible with PRESS_MILD_START_MARGIN to spare. The margin is affine
+    in f_bias (only row 0 of d moves), so one finite shift gives the slope."""
+    import pinocchio as pin
+    tau_g = pin.computeGeneralizedGravity(s.model, s.data,
+                                          np.asarray(q_start, dtype=np.float64))
+
+    def margin(fb):
+        C, d = _ee_force_cone_map(s, q_goal, mu, fb)
+        g = C @ tau_g + d
+        return g[0] - np.linalg.norm(g[1:])
+
+    m = margin(f_bias)
+    if m >= PRESS_MILD_START_MARGIN:
+        return f_bias
+    slope = margin(f_bias + 1.0) - m
+    return f_bias + (PRESS_MILD_START_MARGIN - m) / slope
+
+
+def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None):
+    base, p = resolve_mech(mech)
+    if base == "baseline" or base == "cone_off":
         s.enable_limit_telemetry()
-    elif mech == "rb" or mech == "cone_rb":
+    elif base == "rb" or base == "cone_rb":
         s.enable_limit_barrier(mu=p["mu"], delta=p["delta"])
-    elif mech.startswith("admm") or mech.endswith("_admm"):
+    elif base.startswith("admm") or "_admm" in base:
         s.enable_limit_admm(rho=p["rho"], iters=p["iters"])
         if p.get("merit"):
             s.set_admm_merit(True)
-    elif mech in ("al", "al_ee") or mech.endswith("_al"):
+    elif base in ("al", "al_ee") or base.endswith("_al"):
         s.enable_limit_al(rho=p["rho"])
-    if mech.endswith("_ee"):
+    if base.endswith("_ee"):
         assert ee_target is not None
         s.enable_ee_terminal_equality(ee_target.astype(np.float32), rho=p["ee_rho"])
     if "cone" in p:
         assert q_goal is not None
-        C, d = _ee_force_cone_map(s, q_goal)
+        mu_c, f_bias = CONE_PARAMS[problem]
+        if problem == "press_mild" and q_start is not None:
+            f_bias = _press_mild_bias(s, q_goal, q_start, mu_c, f_bias)
+        C, d = _ee_force_cone_map(s, q_goal, mu_c, f_bias)
         s.enable_u_cone(C, d, mech=p["cone_mech"],
                         rho=(p["cone_rho"] or None), form=p["cone"],
                         facets=CONE_FACETS,
@@ -240,22 +310,28 @@ def enable_mechanism(s, mech, ee_target, q_goal=None):
 
 # ---- one cell: fixed-pacing closed-loop episode ----------------------------
 
-def run_cell(name):
+def run_cell(name, exact=False, bdsv=False):
     import pinocchio  # noqa: F401  (rk4 needs the model)
     import gato
     from gato.common import rk4
 
     plant, mech, problem = name.split("-")
+    base_mech, params = resolve_mech(mech)
     urdf = str(PLANTS[plant]["urdf"])
     # rho=1e-3: f32 bdsv (forced by AL mode, factored by ADMM's inner loop)
     # produces garbage steps on an UNREGULARIZED Schur system (R1 measured:
-    # closed-loop cascade at the interface default rho=0.0)
+    # closed-loop cascade at the interface default rho=0.0). Also >= the
+    # exact-Hessian f32 envelope rho >= 1e-4 (so_sqp_device RESULTS).
+    # bdsv=True: force the bdsv linsys — the single-variable control arm for
+    # +ex comparisons (exact mode force-switches to bdsv internally).
     s = gato.BSQP(model_path=urdf, batch_size=1, N=N_KNOTS, dt=DT,
-                  plant_type=plant, rho=1e-3)
+                  plant_type=plant, rho=1e-3, exact_hessian=exact,
+                  linsys=("bdsv" if bdsv else "pcg"))
 
     x0, goal_of, n_steps, ee_target, apply_bounds = build_problem(s, plant, problem)
-    q_goal = (x0[:s.nq] + np.array(REACH_DQ_GOAL)[:s.nq]) if problem == "press" else None
-    enable_mechanism(s, mech, ee_target, q_goal)
+    q_goal = (x0[:s.nq] + _dq_goal(s, problem)) \
+        if problem.startswith("press") else None
+    enable_mechanism(s, mech, ee_target, q_goal, problem, x0[:s.nq])
     if apply_bounds is not None:
         apply_bounds(s)
     groups = s.get_row_groups()
@@ -309,9 +385,10 @@ def run_cell(name):
     gd = np.asarray(rec["goal_dist"])
     vmax = np.asarray([max(v) if v else np.nan for v in rec["viol_max"]])
     ue = np.asarray(rec["u_exceed"])
+    tag = "+ex" if exact else ("+bdsv" if bdsv else "")
     out = dict(
-        cell=name, plant=plant, mechanism=mech, problem=problem,
-        params=MECHANISMS[mech], n_steps=n_steps,
+        cell=name + tag, plant=plant, mechanism=mech + tag, problem=problem,
+        params=params, exact=bool(exact), n_steps=n_steps,
         track_mean=float(gd.mean()), track_max=float(gd.max()),
         track_final=float(gd[-min(20, len(gd)):].mean()),
         viol_soln_max=float(np.nanmax(vmax)) if len(vmax) else None,
@@ -329,7 +406,7 @@ def run_cell(name):
     # cone cells: group 3 = the appended cone group (margin violation for SOC,
     # facet violation for pyramid)
     vm_full = np.asarray([v for v in rec["viol_max"] if v], dtype=np.float64)
-    if vm_full.ndim == 2 and vm_full.shape[1] > 3 and mech.startswith("cone"):
+    if vm_full.ndim == 2 and vm_full.shape[1] > 3 and base_mech.startswith("cone"):
         out["cone_viol_max"] = float(vm_full[:, 3].max())
         out["cone_viol_mean"] = float(vm_full[:, 3].mean())
     return out
@@ -345,8 +422,12 @@ def report(rows):
     for r in latest.values():
         by_pp.setdefault((r["plant"], r["problem"]), []).append(r)
     order = {m: i for i, m in enumerate(MECHANISMS)}
+
+    def mech_key(m):  # sweep/exact variants sort next to their base mech
+        return (order.get(m.split("+")[0].split("~")[0], 99), m)
+
     for (plant, prob), rs in sorted(by_pp.items()):
-        rs.sort(key=lambda r: order.get(r["mechanism"], 99))
+        rs.sort(key=lambda r: mech_key(r["mechanism"]))
         base = next((r for r in rs if r["mechanism"] in ("baseline", "cone_off")), None)
         print(f"\n### {plant} / {prob}  (steps={rs[0]['n_steps']})")
         has_cone = any(r.get("cone_viol_max") is not None for r in rs)
@@ -371,26 +452,32 @@ def main():
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--cell")
+    ap.add_argument("--cells", help="explicit comma-separated cell list (sweep driver)")
     ap.add_argument("--only", help="substring filter on cell names")
+    ap.add_argument("--exact", action="store_true",
+                    help="run cells with exact_hessian=True (+ex records)")
+    ap.add_argument("--bdsv", action="store_true",
+                    help="force the bdsv linsys (+bdsv records — the +ex control arm)")
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
     DATA.mkdir(parents=True, exist_ok=True)
     results_path = DATA / "results.jsonl"
 
     if args.cell:
-        print(json.dumps(run_cell(args.cell)))
+        print(json.dumps(run_cell(args.cell, exact=args.exact, bdsv=args.bdsv)))
         return
 
     if args.run:
         gpu_load_note()
         prov = provenance()
-        cells = all_cells(args.quick)
+        cells = args.cells.split(",") if args.cells else all_cells(args.quick)
         if args.only:
             cells = [c for c in cells if args.only in c]
+        child_extra = (["--exact"] if args.exact else []) + (["--bdsv"] if args.bdsv else [])
         with open(results_path, "a") as f:
             for cell in cells:
-                r = subprocess.run([sys.executable, __file__, "--cell", cell],
-                                   capture_output=True, text=True)
+                r = subprocess.run([sys.executable, __file__, "--cell", cell]
+                                   + child_extra, capture_output=True, text=True)
                 if r.returncode != 0:
                     print(f"[FAIL] {cell}\n{r.stderr[-2000:]}", file=sys.stderr)
                     continue
@@ -398,7 +485,7 @@ def main():
                 rec["provenance"] = prov
                 f.write(json.dumps(rec) + "\n")
                 f.flush()
-                print(f"[ok] {cell}: track_mean={rec['track_mean']:.4f}m "
+                print(f"[ok] {rec['cell']}: track_mean={rec['track_mean']:.4f}m "
                       f"viol_max={rec['viol_soln_max']:.2e} "
                       f"u_exceed={rec['u_exceed_max']:.2e}")
 
