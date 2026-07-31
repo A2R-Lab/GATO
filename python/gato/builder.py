@@ -127,13 +127,24 @@ def _write_limits(robot, out_path, name, urdf_name):
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
-            register=True):
+            register=True, collision_res=None, contact_frames=None):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
     gato.build() and tools/regen_grid.py go through it. algorithm_list=None uses
     GRiD's profile="all" (recommended; also emits the grid_plant cost surface).
     out_dir/register let tests generate elsewhere without touching the repo.
+
+    collision_res: sphere spacing in meters for the grid_collision namespace
+    (CL-2). The URDF's <collision> geometry is spherized at this resolution
+    (GRiD's spherizer; meshes need trimesh) and grid.cuh grows the
+    grid_collision:: device ABI (config_free + the differentiable clearance
+    family). None (default) emits no collision code — byte-identical additions
+    otherwise. Coarser = fewer/fatter spheres; the sphere set IS the clearance
+    row set, so keep it small (0.15 ⇒ ~30-45 spheres on the vendored arms).
+
+    contact_frames: list of URDF fixed-joint names to bake as contact frames
+    (CL-3 prep): grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -159,6 +170,17 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         kwargs["codegen_profile"] = "all"
     else:
         kwargs["algorithm_list"] = list(algorithm_list)
+    n_spheres = None
+    if collision_res is not None:
+        from grid_codegen.algorithms._collision import (
+            collision_spec_from_urdf, normalize_collision_tiers)
+        spec = collision_spec_from_urdf(robot, str(urdf_path),
+                                        resolution=float(collision_res))
+        n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
+        kwargs["collision_spec"] = spec
+    if contact_frames:
+        from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+        kwargs["contact_frames"] = contact_frames_from_urdf(robot, list(contact_frames))
     gen.gen_all_code(**kwargs)
 
     try:
@@ -167,13 +189,17 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         urdf_rel = str(urdf_path)
     meta = {"nq": robot.get_num_pos(), "nv": robot.get_num_vel(),
             "ee_frame": ee_frame, "urdf": urdf_rel}
+    if collision_res is not None:
+        meta["collision"] = {"res": float(collision_res), "n_spheres": n_spheres}
+    if contact_frames:
+        meta["contact_frames"] = list(contact_frames)
     if register:
         _update_registry(name, meta)
     return meta
 
 
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
-          build_dir=None):
+          build_dir=None, collision_res=None, contact_frames=None):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -185,6 +211,9 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         jobs: parallel compile jobs (each TU pulls the large grid.cuh; keep small).
         build_dir: CMake build tree (default <repo>/build). NOTE: the tree is
             reconfigured for exactly this (plant, N) request.
+        collision_res / contact_frames: see codegen() — collision sphere
+            spacing (enables the grid_collision clearance rows) and CL-3
+            contact-frame baking.
     Returns: list of built (name, N) pairs.
     """
     name = name or Path(urdf_path).stem
@@ -194,7 +223,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     Ns = [int(n) for n in ([N] if isinstance(N, int) else N)]
 
     root = repo_root()
-    codegen(urdf_path, name, ee_frame=ee_frame)
+    codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
+            contact_frames=contact_frames)
 
     try:
         import pybind11

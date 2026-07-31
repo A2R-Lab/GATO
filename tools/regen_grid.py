@@ -23,12 +23,15 @@ sys.path.insert(0, str(REPO_ROOT / "python"))
 
 from gato.builder import codegen  # noqa: E402
 
-# robot id -> (URDF path, EE target fixed-joint name)
+# robot id -> (URDF path, EE target fixed-joint name, collision/contact bake).
+# collision_res 0.15 keeps the sphere set row-group sized (iiwa14 44 / indy7 29
+# spheres, rmax ~0.13 m inflation — conservative covering spheres, CL-2);
+# contact_frames bakes the EE wrench map so CL-3 starts regen-free.
 ROBOTS = {
     "iiwa14": dict(urdf=REPO_ROOT / "examples" / "iiwa_description" / "iiwa14.urdf",
-                   ee_frame="EE"),
+                   ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
     "indy7": dict(urdf=REPO_ROOT / "examples" / "indy7_description" / "indy7.urdf",
-                  ee_frame="EE"),
+                  ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
 }
 
 # Explicit list covering everything GATO's plant.cuh needs + integrators + EE
@@ -56,7 +59,9 @@ def main() -> None:
         spec = ROBOTS[rid]
         print(f"[{rid}] parsing {spec['urdf']} (EE target joint = {spec['ee_frame']!r})")
         meta = codegen(spec["urdf"], rid, ee_frame=spec["ee_frame"],
-                       algorithm_list=ALGORITHM_LIST if args.use_list else None)
+                       algorithm_list=ALGORITHM_LIST if args.use_list else None,
+                       collision_res=spec.get("collision_res"),
+                       contact_frames=spec.get("contact_frames"))
         print(f"[{rid}] wrote gato/dynamics/{rid}/{{grid.cuh, limits.cuh}}  meta={meta}")
     print("Done.")
 

@@ -62,7 +62,8 @@ if(GATO_BUILD_DEMO)
   # Top-level GLASS (global `glass::`, distinct from grid.cuh's vendored `grid::glass`).
   # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
   target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/gato/dynamics/indy7
-                                          ${CMAKE_SOURCE_DIR}/external/GLASS)
+                                          ${CMAKE_SOURCE_DIR}/external/GLASS
+                                          ${CMAKE_SOURCE_DIR}/external/GRiD/grid_codegen/collision)
   target_link_libraries(bsqp PRIVATE CUDA::cudart)
 endif()
 
@@ -99,10 +100,13 @@ foreach(plant ${PLANT})
     message(STATUS "Configuring Python module: ${MODULE_NAME}")
     pybind11_add_module(${MODULE_NAME} SHARED python/bindings.cu)
 
-    # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
+    # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant
+    # header; the GRiD collision dir supplies grid_collision_geometry.cuh
+    # (SDF primitives grid.cuh includes when built with collision_res).
     target_include_directories(${MODULE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/gato
                                                       ${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}
-                                                      ${CMAKE_SOURCE_DIR}/external/GLASS)
+                                                      ${CMAKE_SOURCE_DIR}/external/GLASS
+                                                      ${CMAKE_SOURCE_DIR}/external/GRiD/grid_codegen/collision)
 
     target_compile_definitions(${MODULE_NAME} PRIVATE
       KNOT_POINTS=${knot}

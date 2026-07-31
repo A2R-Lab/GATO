@@ -1,11 +1,25 @@
 {
   "iiwa14": {
+    "collision": {
+      "n_spheres": 44,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "EE"
+    ],
     "ee_frame": "EE",
     "nq": 7,
     "nv": 7,
     "urdf": "examples/iiwa_description/iiwa14.urdf"
   },
   "indy7": {
+    "collision": {
+      "n_spheres": 29,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "EE"
+    ],
     "ee_frame": "EE",
     "nq": 6,
     "nv": 6,
