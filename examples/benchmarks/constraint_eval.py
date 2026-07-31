@@ -105,6 +105,16 @@ MECHANISMS = {
     "cc_admm": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0),
     "cc_al": dict(rho=1.0, cc_mech="al", cc_rho=1.0),
     "cc_rb": dict(mu=3e-3, delta=0.05, cc_mech="barrier", cc_rho=3e-3),
+    # _lpcg = ADMM inner-loop linsys A/B arms (Phase-3 timing): identical cells
+    # to their base except set_admm_linsys("pcg") — warm-started PCG per inner
+    # iteration instead of the default factor-once BDSV + factored re-solves.
+    # Same iterates up to linsys tolerance; the night runner times base vs _lpcg
+    # on a quiet box (solve_us is NOT quotable from ordinary matrix runs).
+    "admm_lpcg": dict(rho=0.01, iters=10, admm_linsys="pcg"),
+    "cone_soc_admm_lpcg": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
+                               cone_rho=0.01, admm_linsys="pcg"),
+    "cc_admm_lpcg": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0,
+                         admm_linsys="pcg"),
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
@@ -112,7 +122,10 @@ CONE_PROBLEMS = ["press", "press_mild"]
 CC_MECHS = [m for m in MECHANISMS if m.startswith("cc_")]
 EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"],
                     **{m: CONE_PROBLEMS for m in CONE_MECHS},
-                    **{m: ["pillars"] for m in CC_MECHS}}
+                    **{m: ["pillars"] for m in CC_MECHS},
+                    # A/B arms: one canonical problem each (they exist for the
+                    # night runner's timing leg, not the evaluation matrix)
+                    "admm_lpcg": ["fig8"], "cone_soc_admm_lpcg": ["press_mild"]}
 # per-problem (friction coefficient, N of normal-force headroom around the
 # gravity-comp point): press is deliberately adversarial (tight cone, little
 # headroom); press_mild barely binds — wide cone, big headroom AND a scaled-down
@@ -339,6 +352,8 @@ def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None
         s.enable_limit_admm(rho=p["rho"], iters=p["iters"])
         if p.get("merit"):
             s.set_admm_merit(True)
+    if "admm_linsys" in p:
+        s.set_admm_linsys(p["admm_linsys"])
     elif base in ("al", "al_ee") or base.endswith("_al"):
         s.enable_limit_al(rho=p["rho"])
     if base.endswith("_ee"):

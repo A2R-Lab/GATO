@@ -450,6 +450,15 @@ class BSQP {
         }
         int linsys_mode() const { return linsys_mode_; }
 
+        // ADMM inner-loop linsys A/B (Phase-3 timing axis): false (default) =
+        // factor-once BDSV + factored re-solve per inner iteration (the Schur
+        // matrix is constant across the loop at fixed rho); true = warm-started
+        // PCG per inner iteration (λ carries across the loop; no factor at all).
+        // Same iterates up to linsys tolerance — a timing/robustness axis, not a
+        // semantics change; the default path is untouched (bitwise).
+        void set_admm_linsys_pcg(bool on) { admm_linsys_pcg_ = on; }
+        bool admm_linsys_pcg() const { return admm_linsys_pcg_; }
+
         // Exact-Hessian (SO-SQP) per-TASK toggle: stage-block PSD projection in
         // setup_kkt (PROJECT-only; so_sqp_prototype/RESULTS_2026-07-17 — wins on
         // EE-terminal tasks, neutral-to-worse on joint-terminal ones). Needs the
@@ -564,19 +573,25 @@ class BSQP {
                                 // gradient kernel rebuilds them from the preserved base copies.
                                 gpuErrchk(cudaMemcpyAsync(d_q_base_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
-                                factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_);
+                                if (!admm_linsys_pcg_) { factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
                                         rows::admmGradientBatched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_);
                                         computeGammaBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
-                                        solveBDSVFactoredBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
+                                        if (admm_linsys_pcg_) {
+                                                solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                        } else {
+                                                solveBDSVFactoredBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
+                                        }
                                         computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                                         rows::admmProjectDualBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_);
                                 }
-                                // NOTE: the factored solve reports iterations 1 (solved) / 2
-                                // (non-PD skip) — never 0, so the pcg_iters==0 SQP early-exit
-                                // does not fire in ADMM mode (fixed-budget semantics; the
-                                // solve_ratio break below is inert and the loop runs
-                                // max_sqp_iters, matching the approximately-hard design).
+                                // NOTE: ADMM mode is fixed-budget by design (approximately-hard):
+                                // the pcg_iters==0 SQP early-exit is guarded on !admm_active_
+                                // below. Factor arm: the factored solve reports 1 (solved) / 2
+                                // (non-PD skip) / 0 only for already-converged solves, so the
+                                // guard is a no-op there. PCG arm: warm-started PCG CAN report 0
+                                // near convergence — the guard keeps both arms on identical
+                                // budget semantics (a fair A/B and the intended design).
                                 // ADMM mode: pcg_times_us covers the WHOLE inner loop
                                 if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
                         } else {
@@ -622,8 +637,9 @@ class BSQP {
 
                         uint32_t num_solved = 0;
                         for (uint32_t b = 0; b < batch_size_; ++b) {
-                                // converged when PCG took no steps (already at the linsys solution)
-                                if (h_pcg_iters_[b] == 0) { h_kkt_converged_batch_[b] = 1; }
+                                // converged when PCG took no steps (already at the linsys solution);
+                                // guarded off in ADMM mode (fixed-budget — see the ADMM branch NOTE)
+                                if (h_pcg_iters_[b] == 0 && !admm_active_) { h_kkt_converged_batch_[b] = 1; }
 
                                 if (h_kkt_converged_batch_[b]) {
                                         num_solved++;
@@ -989,5 +1005,6 @@ class BSQP {
         T           rho_;
         bool        adapt_rho_;
         int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first
+        bool        admm_linsys_pcg_ = false;  // ADMM inner loop: false = bdsv factor-reuse (default), true = warm PCG
         bool        exact_hessian_ = false;  // set_exact_hessian (needs USE_EXACT_HESSIAN build)
 };

@@ -378,6 +378,7 @@ class PyBSQP {
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
         void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
         void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
+        void set_admm_linsys_pcg(bool on) { solver_.set_admm_linsys_pcg(on); }
         void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
         bool exact_hessian() const { return solver_.exact_hessian(); }
 
@@ -528,6 +529,7 @@ class PyBSQP {
             .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
             .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
+            .def("set_admm_linsys_pcg", &PyBSQP<Type>::set_admm_linsys_pcg, py::arg("on"))                                                                                                             \
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
             .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
             .def("debug_setup_kkt", &PyBSQP<Type>::debug_setup_kkt)                                                                                                                                    \

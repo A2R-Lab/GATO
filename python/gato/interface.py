@@ -264,6 +264,19 @@ class BSQP:
             self.solver.set_linsys_mode(LINSYS_MODES[mode])
             self.linsys = mode
 
+    def set_admm_linsys(self, mode):
+        """ADMM inner-loop linear solver: "bdsv_factor" (default) | "pcg".
+
+        "bdsv_factor" factors the (constant-within-the-loop) Schur matrix once
+        per SQP iteration and re-solves per ADMM iteration; "pcg" runs
+        warm-started PCG per ADMM iteration instead (no factor). Identical
+        iterates up to linsys tolerance — a timing/robustness A/B axis
+        (Phase-3), not a semantics change. Only affects MECH_ADMM solves.
+        """
+        if mode not in ("bdsv_factor", "pcg"):
+            raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')
+        self.solver.set_admm_linsys_pcg(mode == "pcg")
+
     def exact_hessian_available(self):
         """True if the loaded module was compiled with -DGATO_EXACT_HESSIAN=ON."""
         return bool(getattr(self.lib, "EXACT_HESSIAN_AVAILABLE", False))
