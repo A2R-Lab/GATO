@@ -163,10 +163,23 @@ fi
   grep -E "PASS|FAIL" "$LOGDIR/fence-mpcgpu.log" 2>/dev/null | tail -6
   grep -E "RESULT" "$LOGDIR/3way.log" 2>/dev/null | head -6
   grep -E "GATOvsBT|GATOvsMPCGPU|=== Fig-3" -m 12 "$LOGDIR/fig3.log" 2>/dev/null | head -14
-  echo "-- ablinsys solve_us_median (factor-reuse vs _lpcg) --"
-  grep -oE '"cell": "[^"]*"|"solve_us_median": [0-9.]+' "$LOGDIR/ablinsys.log" 2>/dev/null | paste - - | head -14
-  echo "-- so per-iter solve_us (control +bdsv, then +ex) --"
-  grep -oE '"cell": "[^"]*"|"solve_us_median": [0-9.]+' "$LOGDIR/so-control.log" "$LOGDIR/so-exact.log" 2>/dev/null | paste - - | head -10
+  # solve_us lives in results.jsonl (the --run driver logs only [ok] lines);
+  # last row per (cell, exact-flag) wins — exactly the harness supersede rule
+  echo "-- quiet-box solve_us_median (last row per cell+arm, this run's legs) --"
+  "$PY" - <<'PYEOF'
+import json
+rows = {}
+with open("examples/benchmarks/data/constraint_eval/results.jsonl") as f:
+    for line in f:
+        r = json.loads(line)
+        rows[r["cell"]] = r  # arm tags (+ex/+bdsv) are part of the cell name
+want = [c for c in sorted(rows) if ("lpcg" in c or "+ex" in c or "+bdsv" in c
+        or "admm" in c or "cone_" in c or "cc_" in c or "baseline" in c)]
+for c in want:
+    r = rows[c]
+    print(f'{c:48s} solve_us={r.get("solve_us_median", float("nan")):10.1f}  '
+          f'track={r.get("track_mean", float("nan")):.4f}')
+PYEOF
   grep -E "TABLE I|^ *Batch|^ *[0-9]+ +[0-9.]+" "$LOGDIR/fig7.log" 2>/dev/null | tail -12
 } >> "$SUMMARY"
 echo "DONE $(date -u +%H:%M:%S). Summary: $SUMMARY"

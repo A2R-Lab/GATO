@@ -123,9 +123,12 @@ def report_fig3_left(N, batches, gato, bt, mpc):
 
 
 def plot_fig3_left(N, batches, gato, bt, mpc):
+    Bs = [B for B in batches if (N, B) in gato]
+    if not Bs:
+        print(f"[fig3-fair] no GATO cells at N={N} — skipping the fig3-left plot")
+        return
     plt = C.set_paper_rcParams()
     fig = plt.figure(figsize=(7, 5))
-    Bs = [B for B in batches if (N, B) in gato]
     plt.plot(Bs, [gato[(N, B)] for B in Bs], "o-", color="#00693E", label="GATO (GPU, batched)")
     bBs = [B for B in batches if (N, B) in bt]
     if bBs:
@@ -221,6 +224,7 @@ def main():
     solves, sim_time = args.solves, args.sim_time
     if args.quick:
         N_list, batches, extra, solves, sim_time = [16], [1, 8], [], 30, 1.0
+        args.fig3_N = 16  # fig3-left must use a horizon the quick subset ran
         print("[quick] tiny subset — NOT paper numbers")
 
     if args.run_gato:
