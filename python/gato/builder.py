@@ -148,6 +148,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 
     contact_frames: list of URDF fixed-joint names to bake as contact frames
     (CL-3 prep): grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
+    None (default) bakes [ee_frame] — every GATO plant carries its EE contact
+    map; pass [] to opt out.
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -181,6 +183,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
                                         resolution=float(collision_res))
         n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
         kwargs["collision_spec"] = spec
+    if contact_frames is None:
+        contact_frames = [ee_frame]
     if contact_frames:
         from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
         kwargs["contact_frames"] = contact_frames_from_urdf(robot, list(contact_frames))
