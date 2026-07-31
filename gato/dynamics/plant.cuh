@@ -456,5 +456,112 @@ namespace plant {
                 __syncthreads();
         }
 
+        // ===================================================================
+        // Environment-collision clearance evaluators (CL-2). Caller-scratch
+        // adapters over the generated grid_collision:: family — the generated
+        // *_device wrappers carve `extern __shared__` FROM OFFSET 0, which
+        // would alias any consumer kernel's own dynamic-smem layout (same
+        // reason eePos/eePosGrad exist above). Layout mirrors
+        // grid::multi_target_position[_gradient]_device exactly.
+        //
+        // d_i(q) = signed clearance of collision sphere i to the NEAREST
+        // environment obstacle (min over obstacles; +1e30 when env is empty).
+        // The argmin re-picks at every call site's linearization point q —
+        // within one QP/ADMM inner loop q is constant, so the active obstacle
+        // is frozen per quadratic model by construction (the upstream
+        // non-smoothness caveat); across SQP iterations it relinearizes like
+        // every other nonlinearity. If the argmin switch ever bites, the
+        // generated collision_distance_pairs[_gradient] (per-(sphere,obstacle)
+        // rows, each smooth in q) is the principled fallback.
+        // ===================================================================
+
+        inline constexpr int NCC = grid_collision::NUM_COLLISION_SPHERES;
+
+        template<typename T>
+        __host__ __device__ constexpr unsigned collisionDist_TempMemCt()
+        {
+                // XmatsHom + FK temp (value arena) + sphere pos/radii + normals + align slop
+                return 144 + 144 + 3 * NCC + NCC + 3 * NCC + 16 / sizeof(T) + 1;
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned collisionDistGrad_TempMemCt()
+        {
+                // XmatsHom + FK temp (gradient arena) + pos/radii/normals + dp/dq batch
+                return 144 + 570 + 3 * NCC + NCC + 3 * NCC + 3 * NQ * NCC + 16 / sizeof(T) + 1;
+        }
+
+        // s_dist: NCC per-sphere clearances. ALL threads must call (barriers).
+        template<typename T>
+        __device__ void collisionDist(T* s_dist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
+                                      const grid_collision::Environment<T>& env)
+        {
+                using namespace grid;
+                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
+                size_t         off = grid_align_up(0, alignof(T));
+                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(144);
+                off = grid_align_up(off, alignof(T));
+                T* s_temp = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(144);
+                T* s_pos = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(3 * NCC);
+                T* s_r = grid_arena_ptr<T>(s_arena, off);
+                int* s_topology_helpers = nullptr;
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, nullptr);
+                grid_collision::load_collision_radii<T>(s_r);
+                __syncthreads();
+                for (int i = threadIdx.x; i < NCC; i += blockDim.x) {
+                        T nx, ny, nz;
+                        s_dist[i] = grid_collision::grid_cc_nearest_obstacle<T>(env, s_pos[3 * i], s_pos[3 * i + 1], s_pos[3 * i + 2], s_r[i], &nx, &ny, &nz);
+                }
+                __syncthreads();
+        }
+
+        // s_dist: NCC clearances; s_ddist: NCC x NQ sphere-major Jacobian
+        // (s_ddist[i*NQ + vi] = n_i^T dp_i/dq_vi). ALL threads must call.
+        template<typename T>
+        __device__ void collisionDistGrad(T* s_dist, T* s_ddist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
+                                          const grid_collision::Environment<T>& env)
+        {
+                using namespace grid;
+                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
+                size_t         off = grid_align_up(0, alignof(T));
+                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(144);
+                off = grid_align_up(off, alignof(T));
+                T* s_temp = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(570);
+                T* s_pos = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(3 * NCC);
+                T* s_r = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(NCC);
+                T* s_normal = grid_arena_ptr<T>(s_arena, off);
+                off += sizeof(T) * static_cast<size_t>(3 * NCC);
+                T* s_pos_grad = grid_arena_ptr<T>(s_arena, off);
+                int* s_topology_helpers = nullptr;
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, nullptr);
+                grid_collision::load_collision_radii<T>(s_r);
+                __syncthreads();
+                for (int i = threadIdx.x; i < NCC; i += blockDim.x) {
+                        T nx, ny, nz;
+                        s_dist[i] = grid_collision::grid_cc_nearest_obstacle<T>(env, s_pos[3 * i], s_pos[3 * i + 1], s_pos[3 * i + 2], s_r[i], &nx, &ny, &nz);
+                        s_normal[3 * i + 0] = nx;
+                        s_normal[3 * i + 1] = ny;
+                        s_normal[3 * i + 2] = nz;
+                }
+                __syncthreads();
+                multi_target_position_gradient_inner<T, true>(s_pos_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, nullptr);
+                __syncthreads();
+                for (int ind = threadIdx.x; ind < NCC * NQ; ind += blockDim.x) {
+                        const int vi = ind % NQ;
+                        const int i = ind / NQ;
+                        const int jb = 3 * (NQ * i + vi);
+                        s_ddist[i * NQ + vi] = s_normal[3 * i + 0] * s_pos_grad[jb + 0] + s_normal[3 * i + 1] * s_pos_grad[jb + 1] + s_normal[3 * i + 2] * s_pos_grad[jb + 2];
+                }
+                __syncthreads();
+        }
+
 }  // namespace plant
 }  // namespace gato

@@ -14,6 +14,15 @@ using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
 
+template<typename T>
+__host__ __device__ constexpr size_t computeMeritBaseSMemCt()
+{
+        // xux_k + reference_traj_k + s_temp (used by BOTH the kernel's carve and
+        // the host sizer — the collision tail carve offsets from this)
+        constexpr size_t a = gato::plant::trackingCostValue_TempMemCt<T>();
+        constexpr size_t b = gato::plant::forwardDynamics_TempMemSize_Shared();
+        return 2 * STATE_SIZE + CONTROL_SIZE + constants::EE_POS_SIZE + (a > b ? a : b);
+}
 
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
@@ -39,7 +48,8 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           const T* __restrict__       d_lam_hi_batch,                    // per-solve AL duals (nullable; MECH_AL only)
                                           const T* __restrict__       d_lam_lo_batch,
                                           const T* __restrict__       d_z_admm_batch,                    // per-solve ADMM row state (nullable; only with
-                                          const T* __restrict__       d_y_admm_batch)                    // set_admm_merit — adds the AL-form ADMM value term)
+                                          const T* __restrict__       d_y_admm_batch,                    // set_admm_merit — adds the AL-form ADMM value term)
+                                          const grid_collision::Environment<T> env)                      // obstacle set (COLLISION rows; empty default = no-op)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
@@ -92,10 +102,10 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's
         // grad/hess fold or the line search accepts against a different objective)
         if (n_row_groups > 0) {
-                const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
-                const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
-                const T* d_z_admm = d_z_admm_batch ? d_z_admm_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
-                const T* d_y_admm = d_y_admm_batch ? d_y_admm_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
+                const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
+                const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
+                const T* d_z_admm = d_z_admm_batch ? d_z_admm_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
+                const T* d_y_admm = d_y_admm_batch ? d_y_admm_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
                 cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1), d_z_admm, d_y_admm);
                 // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
                 // value — the fold linearizes, the merit must not). s_temp is free
@@ -104,6 +114,15 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
                         cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm);
+                }
+                // COLLISION rows: true nonlinear clearance value at the CANDIDATE
+                // state (same mirroring requirement). The collision value carve
+                // exceeds s_temp — it lives in the dedicated tail carve (host
+                // sized it iff a collision group is registered).
+                if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                        T* s_cc = s_mem + computeMeritBaseSMemCt<T>();
+                        __syncthreads();
+                        cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm);
                 }
         }
 
@@ -134,11 +153,11 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
 }
 
 template<typename T>
-__host__ size_t getComputeMeritBatchedSMemSize()
+__host__ size_t getComputeMeritBatchedSMemSize(int has_collision = 0)
 {
-        size_t size = sizeof(T)
-                      * (2 * STATE_SIZE + CONTROL_SIZE + constants::EE_POS_SIZE +                                                                                          // reference_traj_k
-                         max(gato::plant::trackingCostValue_TempMemCt<T>(), gato::plant::forwardDynamics_TempMemSize_Shared()));  // TODO: verify this
+        size_t size = sizeof(T) * computeMeritBaseSMemCt<T>();
+        // runtime-sized: only when a COLLISION group is registered (host-known)
+        if (has_collision) { size += sizeof(T) * gato::rows::collision_rows_scratch_ct<T>(); }
         return size;
 }
 
@@ -165,11 +184,13 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   const T*                    d_lam_hi_batch = nullptr,
                                   const T*                    d_lam_lo_batch = nullptr,
                                   const T*                    d_z_admm_batch = nullptr,
-                                  const T*                    d_y_admm_batch = nullptr)
+                                  const T*                    d_y_admm_batch = nullptr,
+                                  int32_t                     has_collision = 0,
+                                  const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
-        size_t s_mem_size = getComputeMeritBatchedSMemSize<T>();
+        size_t s_mem_size = getComputeMeritBatchedSMemSize<T>(has_collision);
 
         // The NumAlphas>1 merit buffer is re-zeroed by the line-search kernel after each
         // read (and zeroed once at allocation), so only the 1-alpha targets (the merit
@@ -199,5 +220,6 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_lam_hi_batch,
                                                                                     d_lam_lo_batch,
                                                                                     d_z_admm_batch,
-                                                                                    d_y_admm_batch);
+                                                                                    d_y_admm_batch,
+                                                                                    env);
 }

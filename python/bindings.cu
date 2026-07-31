@@ -286,6 +286,44 @@ class PyBSQP {
                 return d;
         }
 
+        py::dict get_collision_row_duals()
+        {
+                auto p = collision_state_pair(/*admm=*/false);
+                py::dict d;
+                d["lam_hi"] = p.first;
+                d["lam_lo"] = p.second;
+                return d;
+        }
+        py::dict get_collision_admm_state()
+        {
+                auto p = collision_state_pair(/*admm=*/true);
+                py::dict d;
+                d["z"] = p.first;
+                d["y"] = p.second;
+                return d;
+        }
+
+        // flat (n, k) float arrays per primitive: spheres (n,4) {x,y,z,r};
+        // capsules (n,7) {a(3),b(3),r}; cuboids (n,15) {c(3),u(3),hu,v(3),hv,
+        // w(3),hw}; planes (n,4) {n_unit(3),d} — geometry-header layouts
+        void set_collision_environment(py::array_t<T> spheres, py::array_t<T> capsules, py::array_t<T> cuboids, py::array_t<T> planes)
+        {
+                auto check = [](py::buffer_info& b, py::ssize_t w, const char* nm) {
+                        if (b.size == 0) return (py::ssize_t)0;
+                        if (b.ndim != 2 || b.shape[1] != w) { throw py::value_error(std::string("set_collision_environment: ") + nm + " must be (n, " + std::to_string(w) + ")"); }
+                        return b.shape[0];
+                };
+                auto bs = spheres.request(), bc = capsules.request(), bb = cuboids.request(), bp = planes.request();
+                const int32_t ns = (int32_t)check(bs, 4, "spheres"), nc = (int32_t)check(bc, 7, "capsules");
+                const int32_t nb = (int32_t)check(bb, 15, "cuboids"), np_ = (int32_t)check(bp, 4, "planes");
+                solver_.set_collision_environment(ns ? static_cast<T*>(bs.ptr) : nullptr, ns, nc ? static_cast<T*>(bc.ptr) : nullptr, nc,
+                                                  nb ? static_cast<T*>(bb.ptr) : nullptr, nb, np_ ? static_cast<T*>(bp.ptr) : nullptr, np_);
+        }
+        void enable_collision(int32_t mech, T margin, T rho, T delta, T sigma, int32_t knot_lo, uint32_t admm_iters)
+        {
+                solver_.enable_collision(mech, margin, rho, delta, sigma, knot_lo, admm_iters);
+        }
+
         void set_row_group_soft(int32_t g, T sigma) { solver_.set_row_group_soft(g, sigma); }
         void set_admm_merit(bool on) { solver_.set_admm_merit(on); }
 
@@ -402,15 +440,52 @@ class PyBSQP {
       private:
         std::pair<py::array_t<T>, py::array_t<T>> row_state_pair(bool admm)
         {
+                // device buffers are TOTAL_ROW_STATE_SIZE-strided per solve (dense
+                // per-group slots + the collision band); this view exposes the DENSE
+                // prefix — the collision band has its own getter below
                 const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
                 const py::ssize_t G = (py::ssize_t)gato::rows::MAX_ROW_GROUPS;
                 const py::ssize_t K = (py::ssize_t)KNOT_POINTS;
                 const py::ssize_t R = (py::ssize_t)gato::rows::MAX_ROWS_PER_GROUP;
+                const size_t      TOT = gato::rows::TOTAL_ROW_STATE_SIZE;
+                const size_t      DENSE = gato::rows::ROW_STATE_SIZE;
                 py::array_t<T>    a({B, G, K, R}), b({B, G, K, R});
+                std::vector<T>    ha(TOT * batch_size_), hb(TOT * batch_size_);
                 if (admm) {
-                        solver_.copy_admm_state_to_host(static_cast<T*>(a.request().ptr), static_cast<T*>(b.request().ptr));
+                        solver_.copy_admm_state_to_host(ha.data(), hb.data());
                 } else {
-                        solver_.copy_row_duals_to_host(static_cast<T*>(a.request().ptr), static_cast<T*>(b.request().ptr));
+                        solver_.copy_row_duals_to_host(ha.data(), hb.data());
+                }
+                T* pa = static_cast<T*>(a.request().ptr);
+                T* pb = static_cast<T*>(b.request().ptr);
+                for (uint32_t s = 0; s < batch_size_; s++) {
+                        memcpy(pa + (size_t)s * DENSE, ha.data() + (size_t)s * TOT, DENSE * sizeof(T));
+                        memcpy(pb + (size_t)s * DENSE, hb.data() + (size_t)s * TOT, DENSE * sizeof(T));
+                }
+                return {a, b};
+        }
+
+        std::pair<py::array_t<T>, py::array_t<T>> collision_state_pair(bool admm)
+        {
+                // the collision band: (B, KNOT_POINTS, NCC) per array
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
+                const py::ssize_t K = (py::ssize_t)KNOT_POINTS;
+                const py::ssize_t S = (py::ssize_t)gato::plant::NCC;
+                const size_t      TOT = gato::rows::TOTAL_ROW_STATE_SIZE;
+                const size_t      DENSE = gato::rows::ROW_STATE_SIZE;
+                const size_t      BAND = gato::rows::COLLISION_ROW_STATE_SIZE;
+                py::array_t<T>    a({B, K, S}), b({B, K, S});
+                std::vector<T>    ha(TOT * batch_size_), hb(TOT * batch_size_);
+                if (admm) {
+                        solver_.copy_admm_state_to_host(ha.data(), hb.data());
+                } else {
+                        solver_.copy_row_duals_to_host(ha.data(), hb.data());
+                }
+                T* pa = static_cast<T*>(a.request().ptr);
+                T* pb = static_cast<T*>(b.request().ptr);
+                for (uint32_t s = 0; s < batch_size_; s++) {
+                        memcpy(pa + (size_t)s * BAND, ha.data() + (size_t)s * TOT + DENSE, BAND * sizeof(T));
+                        memcpy(pb + (size_t)s * BAND, hb.data() + (size_t)s * TOT + DENSE, BAND * sizeof(T));
                 }
                 return {a, b};
         }
@@ -473,12 +548,18 @@ class PyBSQP {
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
             .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \
             .def("add_lin_u_group", &PyBSQP<Type>::add_lin_u_group, py::arg("mech"), py::arg("C"), py::arg("d"), py::arg("lo"), py::arg("hi"), py::arg("cone"),               \
-                 py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters"))
+                 py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters"))                                            \
+            .def("set_collision_environment", &PyBSQP<Type>::set_collision_environment, py::arg("spheres"), py::arg("capsules"), py::arg("cuboids"), py::arg("planes"))       \
+            .def("enable_collision", &PyBSQP<Type>::enable_collision, py::arg("mech"), py::arg("margin"), py::arg("rho"), py::arg("delta"), py::arg("sigma"),                 \
+                 py::arg("knot_lo"), py::arg("admm_iters"))                                                                                                                   \
+            .def("get_collision_row_duals", &PyBSQP<Type>::get_collision_row_duals)                                                                                          \
+            .def("get_collision_admm_state", &PyBSQP<Type>::get_collision_admm_state)
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve
+        m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)
         m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
 
 #ifdef USE_DOUBLES

@@ -127,7 +127,7 @@ def _write_limits(robot, out_path, name, urdf_name):
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
-            register=True, collision_res=None, contact_frames=None):
+            register=True, collision_res=0.15, contact_frames=None):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -139,8 +139,11 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     (CL-2). The URDF's <collision> geometry is spherized at this resolution
     (GRiD's spherizer; meshes need trimesh) and grid.cuh grows the
     grid_collision:: device ABI (config_free + the differentiable clearance
-    family). None (default) emits no collision code — byte-identical additions
-    otherwise. Coarser = fewer/fatter spheres; the sphere set IS the clearance
+    family). REQUIRED for solver modules — the constraint layer
+    (plant.cuh/rowgroups.cuh) compiles against grid_collision:: — so the
+    default bakes it (0.15). None emits no collision code (headers-only /
+    codegen-inspection use; bsqp modules will not compile against it).
+    Coarser = fewer/fatter spheres; the sphere set IS the clearance
     row set, so keep it small (0.15 ⇒ ~30-45 spheres on the vendored arms).
 
     contact_frames: list of URDF fixed-joint names to bake as contact frames
@@ -199,7 +202,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 
 
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
-          build_dir=None, collision_res=None, contact_frames=None):
+          build_dir=None, collision_res=0.15, contact_frames=None):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:

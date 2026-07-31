@@ -156,7 +156,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // constraint row-groups (MECH_BARRIER_RELAXED /
                                             int32_t                     n_row_groups,                      // MECH_AL fold into the cost blocks; 0 -> untouched path)
                                             const T* __restrict__       d_lam_hi_batch,                    // per-solve AL duals (nullable; MECH_AL only)
-                                            const T* __restrict__       d_lam_lo_batch
+                                            const T* __restrict__       d_lam_lo_batch,
+                                            const grid_collision::Environment<T> env                       // obstacle set (COLLISION rows; empty default = no-op)
 #if USE_EXACT_HESSIAN
                                             ,
                                             int32_t                     exact_hessian,   // runtime per-TASK toggle (0 = GN path)
@@ -168,8 +169,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         const uint32_t solve_idx = blockIdx.y;
         if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: freeze (no KKT rebuild)
 
-        const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
-        const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::ROW_STATE_SIZE : nullptr;
+        const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
+        const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
 
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1
@@ -185,6 +186,11 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 #if USE_EXACT_HESSIAN
         // past BOTH branch layouts (running s_temp AND the terminal Q_last..r_dummy+s_temp chain)
         T* s_eh = s_mem + setupKKTBaseSMemCt<T>();
+        // collision carve sits past the exact carve when that is live; only
+        // dereferenced when a COLLISION group is active (host sized it then)
+        T* s_cc = s_eh + (exact_hessian ? setupKKTExactHessSMemCt<T>() : 0);
+#else
+        T* s_cc = s_mem + setupKKTBaseSMemCt<T>();
 #endif
 
 
@@ -266,6 +272,12 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                         __syncthreads();  // s_Q_last/s_q_last selection writes above
                                         gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel);
                                 }
+                                // COLLISION rows on the terminal state block (dense
+                                // q-half fold; dedicated carve — s_temp is too small)
+                                if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                        __syncthreads();
+                                        gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, env);
+                                }
                         }
 
                         // c_0 = x_0 - x_s
@@ -287,6 +299,11 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 if (n_row_groups > 0) {
                         gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_R_k, s_r_k, /*has_control=*/true);
                         __syncthreads();
+                        // COLLISION rows fold at EVERY active knot (clearance is a
+                        // per-knot state constraint, unlike the terminal-only EE rows)
+                        if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                                gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, env);
+                        }
                 }
 
 #if USE_EXACT_HESSIAN
@@ -303,7 +320,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 }
 
 template<typename T>
-__host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0)
+__host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_collision = 0)
 {
         size_t size = sizeof(T) * setupKKTBaseSMemCt<T>();
 #if USE_EXACT_HESSIAN
@@ -313,11 +330,14 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0)
 #else
         (void)exact_hessian;
 #endif
+        // runtime-sized like the exact carve: only when a COLLISION group is
+        // registered (host-known); the default path keeps the small launch
+        if (has_collision) { size += sizeof(T) * gato::rows::collision_rows_grad_scratch_ct<T>(); }
         return size;
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
@@ -325,18 +345,16 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
 #endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
-        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian);  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
-#if USE_EXACT_HESSIAN
-        // the exact carve can exceed the 48KB default dynamic-smem ceiling on
-        // bigger robots — opt the kernel in once (harmless when already under)
-        if (exact_hessian && s_mem_size > 48 * 1024) {
+        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian, has_collision);  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
+        // the exact / collision carves can exceed the 48KB default dynamic-smem
+        // ceiling — opt the kernel in once (harmless when already under)
+        if (s_mem_size > 48 * 1024) {
                 static bool attr_set = false;
                 if (!attr_set) {
                         cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size);
                         attr_set = true;
                 }
         }
-#endif
 
         setupKKTSystemBatchedKernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
                                                                                kkt.d_R_batch,
@@ -363,7 +381,8 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                d_row_groups,
                                                                                n_row_groups,
                                                                                d_lam_hi_batch,
-                                                                               d_lam_lo_batch
+                                                                               d_lam_lo_batch,
+                                                                               env
 #if USE_EXACT_HESSIAN
                                                                                ,
                                                                                exact_hessian,

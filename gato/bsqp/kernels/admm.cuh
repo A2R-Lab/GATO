@@ -107,23 +107,27 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                                                                            const RowGroupDesc<T>* __restrict__ d_groups,
                                                                            int32_t n_groups,
                                                                            const grid::robotModel<T>* __restrict__ d_robot_model,
+                                                                           const grid_collision::Environment<T> env,
                                                                            bool eq_rows_only)
 {
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         extern __shared__ char s_raw_init[];
-        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_init);  // ee_rows_scratch_ct
-        T* d_z = d_z_batch + (size_t)solve_idx * ROW_STATE_SIZE;
-        T* d_y = d_y_batch + (size_t)solve_idx * ROW_STATE_SIZE;
+        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_init);  // rowgroup_eval_scratch_ct
+        T* d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
+        T* d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
 
         if (eq_rows_only) {
                 // z clips to the degenerate interval regardless of the primal —
-                // no FK needed even for EE rows
+                // no FK needed even for EE rows. COLLISION rows are never
+                // equalities (one-sided) AND their per-row lo/hi are not
+                // indexable past 0 — skip them.
                 for (int32_t gi = 0; gi < n_groups; gi++) {
                         const RowGroupDesc<T>& grp = d_groups[gi];
                         if (grp.mech != MECH_ADMM) continue;
+                        if (grp.kind == COLLISION) continue;
                         const int32_t n_elems = (grp.knot_hi - grp.knot_lo) * grp.n_rows;
                         for (int32_t e = rank; e < n_elems; e += size) {
                                 const int32_t knot = grp.knot_lo + e / grp.n_rows;
@@ -137,11 +141,29 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                 return;
         }
 
-        for (uint32_t e = rank; e < ROW_STATE_SIZE; e += size) { d_y[e] = static_cast<T>(0); d_z[e] = static_cast<T>(0); }
+        for (uint32_t e = rank; e < TOTAL_ROW_STATE_SIZE; e += size) { d_y[e] = static_cast<T>(0); d_z[e] = static_cast<T>(0); }
         __syncthreads();
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_ADMM) continue;
+                if (grp.kind == COLLISION) {
+                        // cooperative clearance per knot; z = clip(d_i(x_warm))
+                        // onto [margin, +inf) — band-indexed state
+                        T* s_dist = s_ee_scratch;
+                        T* s_arena = align16_ptr<T>(s_dist + gato::plant::NCC);
+                        const T margin = grp.lo[0];
+                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
+                                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                        T z = s_dist[i];
+                                        if (z < margin) z = margin;
+                                        d_z[collision_row_state_index((uint32_t)knot, (uint32_t)i)] = z;
+                                }
+                                __syncthreads();  // s_dist reused next knot
+                        }
+                        continue;
+                }
                 if (grp.kind == EE_POS) {
                         // cooperative FK per knot (barriers inside — ALL threads)
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
@@ -198,7 +220,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
                                                                           const RowGroupDesc<T>* __restrict__ d_groups,
                                                                           int32_t n_groups,
                                                                           const int32_t* __restrict__ d_kkt_converged_batch,
-                                                                          const grid::robotModel<T>* __restrict__ d_robot_model)
+                                                                          const grid::robotModel<T>* __restrict__ d_robot_model,
+                                                                          const grid_collision::Environment<T> env)
 {
         // grid (KNOT_POINTS, batch_size)
         const uint32_t knot_idx = blockIdx.x;
@@ -207,15 +230,15 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         extern __shared__ char s_raw_grad[];
-        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_grad);  // ee_rows_grad_scratch_ct
+        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_grad);  // rowgroup_eval_grad_scratch_ct
 
         T*       d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
         T*       d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
         const T* d_q_base_k = getOffsetState<T>(d_q_base_batch, solve_idx, knot_idx);
         const T* d_r_base_k = getOffsetControl<T>(d_r_base_batch, solve_idx, knot_idx);
         const T* d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
-        const T* d_z = d_z_batch + (size_t)solve_idx * ROW_STATE_SIZE;
-        const T* d_y = d_y_batch + (size_t)solve_idx * ROW_STATE_SIZE;
+        const T* d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
+        const T* d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
 
         for (uint32_t i = rank; i < STATE_SIZE; i += size) { d_q_k[i] = d_q_base_k[i]; }
         for (uint32_t i = rank; i < CONTROL_SIZE; i += size) { d_r_k[i] = d_r_base_k[i]; }
@@ -228,6 +251,29 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
                 if (grp.mech != MECH_ADMM) continue;
                 if ((int32_t)knot_idx < grp.knot_lo || (int32_t)knot_idx >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
+                if (grp.kind == COLLISION) {
+                        // cooperative clearance + J, then the dense J^T scatter onto
+                        // the q half: q += sum_i J_i * (y_i - rho*(z_i - d_i(x))).
+                        // Same carve as apply_collision_row_grad_hess (mod in gr slot).
+                        constexpr int32_t NS = gato::plant::NCC;
+                        T* s_dist = s_ee_scratch;
+                        T* s_ddist = s_dist + NS;
+                        T* s_mod = s_ddist + NS * NQ;
+                        T* s_arena = align16_ptr<T>(s_mod + 2 * NS);
+                        gato::plant::collisionDistGrad<T>(s_dist, s_ddist, d_xu_k, s_arena, d_robot_model, env);
+                        for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                const uint32_t idx = collision_row_state_index(knot_idx, (uint32_t)i);
+                                s_mod[i] = d_y[idx] - grp.mu * (d_z[idx] - s_dist[i]);
+                        }
+                        __syncthreads();
+                        for (int32_t qi = rank; qi < NQ; qi += size) {
+                                T acc = static_cast<T>(0);
+                                for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_ddist[i * NQ + qi]; }
+                                d_q_k[qi] += acc;
+                        }
+                        __syncthreads();
+                        continue;
+                }
                 if (grp.kind == EE_POS) {
                         // cooperative pose + J, then the dense J^T scatter onto the q
                         // half: q += sum_i J_i * (y_i - rho*(z_i - g_i(x))). Same
@@ -295,7 +341,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                                                              const RowGroupDesc<T>* __restrict__ d_groups,
                                                                              int32_t n_groups,
                                                                              const int32_t* __restrict__ d_kkt_converged_batch,
-                                                                             const grid::robotModel<T>* __restrict__ d_robot_model)
+                                                                             const grid::robotModel<T>* __restrict__ d_robot_model,
+                                                                             const grid_collision::Environment<T> env)
 {
         const uint32_t solve_idx = blockIdx.x;
         if (d_kkt_converged_batch && d_kkt_converged_batch[solve_idx]) return;
@@ -304,12 +351,12 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
         constexpr int32_t NQ = constants::STATE_SIZE / 2;
 
         extern __shared__ char s_raw[];
-        T* s_prim = reinterpret_cast<T*>(s_raw);              // KNOT_POINTS * MAX_ROWS_PER_GROUP
-        T* s_dual = s_prim + KNOT_POINTS * MAX_ROWS_PER_GROUP;
-        T* s_ee_scratch = s_dual + KNOT_POINTS * MAX_ROWS_PER_GROUP;  // ee_rows_grad_scratch_ct
+        T* s_prim = reinterpret_cast<T*>(s_raw);              // KNOT_POINTS * TELEMETRY_MAX_ROWS
+        T* s_dual = s_prim + KNOT_POINTS * TELEMETRY_MAX_ROWS;
+        T* s_ee_scratch = s_dual + KNOT_POINTS * TELEMETRY_MAX_ROWS;  // rowgroup_eval_grad_scratch_ct
 
-        T*       d_z = d_z_batch + (size_t)solve_idx * ROW_STATE_SIZE;
-        T*       d_y = d_y_batch + (size_t)solve_idx * ROW_STATE_SIZE;
+        T*       d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
+        T*       d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
         const T* d_dz = d_dz_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
 
@@ -318,7 +365,38 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_ADMM) continue;
                 const int32_t n_elems = (grp.knot_hi - grp.knot_lo) * grp.n_rows;
-                if (grp.kind == EE_POS) {
+                if (grp.kind == COLLISION) {
+                        // linearized step value w = d_i(x) + J_i*dz_q; cooperative
+                        // clearance+J per knot, then the identical clip (one-sided
+                        // [margin, +inf)) / dual update / residual writes
+                        constexpr int32_t NS = gato::plant::NCC;
+                        T* s_dist = s_ee_scratch;
+                        T* s_ddist = s_dist + NS;
+                        T* s_arena = align16_ptr<T>(s_ddist + NS * NQ + 2 * NS);
+                        const T margin = grp.lo[0];
+                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
+                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                gato::plant::collisionDistGrad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
+                                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                        const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
+                                        const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
+                                        T w = s_dist[i];
+                                        for (int32_t qi = 0; qi < NQ; qi++) { w += s_ddist[i * NQ + qi] * dz_k[qi]; }
+                                        const T z_prev = d_z[idx];
+                                        const T z = admm_z_update<T>(w + d_y[idx] / grp.mu, margin, grp.hi[0], grp.mu, grp.sigma);
+                                        d_y[idx] += grp.mu * (w - z);
+                                        d_z[idx] = z;
+                                        T dp = w - z;
+                                        if (dp < 0) dp = -dp;
+                                        T dd = grp.mu * (z - z_prev);
+                                        if (dd < 0) dd = -dd;
+                                        s_prim[e] = dp;
+                                        s_dual[e] = dd;
+                                }
+                                __syncthreads();  // scratch reused next knot; writes visible below
+                        }
+                } else if (grp.kind == EE_POS) {
                         // linearized step value w = g(x) + J*dz_q (position rows -> the
                         // q half of dz); cooperative eePosGrad per knot, then the
                         // identical clip / dual update / residual writes
@@ -417,30 +495,43 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
 // ---- host wrappers --------------------------------------------------------
 
 template<typename T>
-__host__ void admmInitStateBatched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, const T* d_xu_traj_batch, const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem, bool eq_rows_only = false)
+__host__ void admmInitStateBatched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, const T* d_xu_traj_batch, const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem, bool eq_rows_only = false,
+                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
-        admmInitStateBatchedKernel<T><<<batch_size, ADMM_THREADS, sizeof(T) * ee_rows_scratch_ct<T>()>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, eq_rows_only);
+        admmInitStateBatchedKernel<T><<<batch_size, ADMM_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env, eq_rows_only);
 }
 
 template<typename T>
 __host__ void admmGradientBatched(uint32_t batch_size, T* d_q_batch, T* d_r_batch, const T* d_q_base_batch, const T* d_r_base_batch, const T* d_xu_traj_batch, const T* d_z_batch, const T* d_y_batch,
-                                  const RowGroupDesc<T>* d_groups, int32_t n_groups, const int32_t* d_kkt_converged_batch, const void* d_GRiD_mem)
+                                  const RowGroupDesc<T>* d_groups, int32_t n_groups, const int32_t* d_kkt_converged_batch, const void* d_GRiD_mem,
+                                  const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
         dim3 grid(KNOT_POINTS, batch_size);
-        admmGradientBatchedKernel<T><<<grid, ADMM_THREADS, sizeof(T) * ee_rows_grad_scratch_ct<T>()>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem);
+        admmGradientBatchedKernel<T><<<grid, ADMM_THREADS, sizeof(T) * rowgroup_eval_grad_scratch_ct<T>()>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env);
 }
 
 template<typename T>
 __host__ size_t getAdmmProjectDualSMemSize()
 {
-        return sizeof(T) * (2 * KNOT_POINTS * MAX_ROWS_PER_GROUP + ee_rows_grad_scratch_ct<T>());
+        return sizeof(T) * (2 * KNOT_POINTS * TELEMETRY_MAX_ROWS + rowgroup_eval_grad_scratch_ct<T>());
 }
 
 template<typename T>
 __host__ void admmProjectDualBatched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, T* d_resid_batch, const T* d_xu_traj_batch, const T* d_dz_batch,
-                                     const RowGroupDesc<T>* d_groups, int32_t n_groups, const int32_t* d_kkt_converged_batch, const void* d_GRiD_mem)
+                                     const RowGroupDesc<T>* d_groups, int32_t n_groups, const int32_t* d_kkt_converged_batch, const void* d_GRiD_mem,
+                                     const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
-        admmProjectDualBatchedKernel<T><<<batch_size, ADMM_THREADS, getAdmmProjectDualSMemSize<T>()>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem);
+        const size_t s_mem_size = getAdmmProjectDualSMemSize<T>();
+        // the TELEMETRY_MAX_ROWS residual scratch can exceed the 48KB default
+        // dynamic-smem ceiling at large N — opt the kernel in once
+        if (s_mem_size > 48 * 1024) {
+                static bool attr_set = false;
+                if (!attr_set) {
+                        cudaFuncSetAttribute(admmProjectDualBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size);
+                        attr_set = true;
+                }
+        }
+        admmProjectDualBatchedKernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env);
 }
 
 }  // namespace rows

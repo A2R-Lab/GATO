@@ -90,12 +90,29 @@ MECHANISMS = {
     "cone_pyr_admm": dict(rho=0.01, iters=10, cone="pyramid", cone_mech="admm", cone_rho=0.01),
     "cone_pyr_al": dict(rho=1.0, cone="pyramid", cone_mech="al", cone_rho=1.0),
     "cone_rb": dict(mu=3e-3, delta=0.05, cone="soc", cone_mech="barrier", cone_rho=3e-3),
+    # CL-2 collision cells ("pillars" problem): per-sphere clearance rows
+    # d_i(q_k) >= margin against two vertical capsule pillars at the fig8
+    # lobe points (+ a floor plane), stacked ON the same-mechanism limit
+    # boxes. cc_off = telemetry-only clearance (the pillars baseline —
+    # tracks straight through the pillars and reports the penetration).
+    # cc_rho = 1.0 BOUND by the 2b pillars round: clearance rows fold onto
+    # the Q block (natural scale O(q_cost)), so unlike the cone's sharp
+    # u-block pocket the rho pocket is WIDE AND FLAT — viol_max drops
+    # monotonically 0.043->0.0027 (indy7) / 0.079->0.021 (iiwa14) over rho
+    # 0.01->1.0 at FLAT tracking cost; 5.0 still stable and strictly better
+    # (indy7 1.7mm / iiwa14 9.9mm) — the rho-scale law, Q-block edition.
+    "cc_off": dict(cc_mech="telemetry", cc_rho=0.0),
+    "cc_admm": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0),
+    "cc_al": dict(rho=1.0, cc_mech="al", cc_rho=1.0),
+    "cc_rb": dict(mu=3e-3, delta=0.05, cc_mech="barrier", cc_rho=3e-3),
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
 CONE_PROBLEMS = ["press", "press_mild"]
+CC_MECHS = [m for m in MECHANISMS if m.startswith("cc_")]
 EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["reach"],
-                    **{m: CONE_PROBLEMS for m in CONE_MECHS}}
+                    **{m: CONE_PROBLEMS for m in CONE_MECHS},
+                    **{m: ["pillars"] for m in CC_MECHS}}
 # per-problem (friction coefficient, N of normal-force headroom around the
 # gravity-comp point): press is deliberately adversarial (tight cone, little
 # headroom); press_mild barely binds — wide cone, big headroom AND a scaled-down
@@ -116,7 +133,20 @@ PICKPLACE_SEG_S = 1.2        # seconds per waypoint
 PICKPLACE_GOALS = [          # _common.PICKPLACE_DEFAULT_GOALS (first 4)
     [0.5, -0.1865, 0.5], [0.5, 0.5, 0.2], [0.3, 0.3, 0.8], [0.6, -0.5, 0.2]]
 SIM_S = {"fig8": 4.0, "reach": 2.0, "pickplace": 4.8, "swing_heavy": 3.0,
-         "press": 2.0, "press_mild": 2.0}
+         "press": 2.0, "press_mild": 2.0, "pillars": 4.0}
+# pillars: vertical capsules at PILLAR_LOBE_FRAC x the fig8 lobe amplitude
+# (same rotation math as gato.common.figure8), so the straight fig8 grazes
+# them by ~(sphere inflation + pillar radius - lobe overshoot); mechanisms
+# must shave the lobe tips. Floor plane rides along as an INERT sanity row —
+# it must clear every reachable sphere: near-base spheres sit at z ~0.06
+# with r ~0.13, and a floor they permanently violate is an unsatisfiable
+# row the base can't fix (the R2 infeasible-at-start class; measured: a
+# z=0.05 floor pinned cc_viol at a constant 0.12 and drowned the pillars).
+PILLAR_LOBE_FRAC = 0.9
+PILLAR_RADIUS = 0.05
+PILLAR_Z = (0.2, 1.3)
+PILLAR_MARGIN = 0.02
+FLOOR_Z = -0.25
 REACH_DQ_GOAL = [1.2, 0.7, -0.7, 0.5, 0.4, 0.3, 0.3]  # reach/press goal offset
 
 
@@ -126,13 +156,15 @@ def cell_name(plant, mech, problem):
 
 def resolve_mech(mech):
     """'cone_soc_admm~r0.02~i5' -> ('cone_soc_admm', params w/ overrides).
-    r<float> = primary strength knob (cone_rho for cone mechs, mu for rb,
-    rho otherwise); i<int> = ADMM inner iters."""
+    r<float> = primary strength knob (cc_rho for collision mechs, cone_rho
+    for cone mechs, mu for rb, rho otherwise); i<int> = ADMM inner iters."""
     base, *toks = mech.split("~")
     p = dict(MECHANISMS[base])
     for t in toks:
         if t[:1] == "r":
-            p["cone_rho" if "cone" in p else ("mu" if "mu" in p else "rho")] = float(t[1:])
+            key = ("cc_rho" if "cc_mech" in p else
+                   ("cone_rho" if "cone" in p else ("mu" if "mu" in p else "rho")))
+            p[key] = float(t[1:])
         elif t[:1] == "i":
             p["iters"] = int(t[1:])
         else:
@@ -195,7 +227,7 @@ def build_problem(s, plant, problem):
     x0 = _start_x(s, plant)
     n_steps = int(SIM_S[problem] / DT)
 
-    if problem == "fig8":
+    if problem in ("fig8", "pillars"):
         traj = figure8(DT, **FIG8_DEFAULT_PARAMS)
 
         def goal(step):
@@ -280,11 +312,28 @@ def _press_mild_bias(s, q_goal, q_start, mu, f_bias):
     return f_bias + (PRESS_MILD_START_MARGIN - m) / slope
 
 
+def _pillars_env():
+    """(capsules, planes) for the pillars problem: two vertical capsules at
+    PILLAR_LOBE_FRAC x the fig8 lobe tips (t = +-pi/2 of the unrotated curve,
+    rotated by theta about Z — the same math as gato.common.figure8) + the
+    floor plane."""
+    from gato.config import FIG8_DEFAULT_PARAMS as P
+    th = P["theta"]
+    R = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+    caps = []
+    for sx in (+1.0, -1.0):
+        xy = R @ np.array([P["offset"][0] + sx * PILLAR_LOBE_FRAC * P["A_x"],
+                           P["offset"][1]])
+        caps.append((xy[0], xy[1], PILLAR_Z[0], xy[0], xy[1], PILLAR_Z[1],
+                     PILLAR_RADIUS))
+    return caps, [(0.0, 0.0, 1.0, FLOOR_Z)]
+
+
 def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None):
     base, p = resolve_mech(mech)
-    if base == "baseline" or base == "cone_off":
+    if base in ("baseline", "cone_off", "cc_off"):
         s.enable_limit_telemetry()
-    elif base == "rb" or base == "cone_rb":
+    elif base in ("rb", "cone_rb", "cc_rb"):
         s.enable_limit_barrier(mu=p["mu"], delta=p["delta"])
     elif base.startswith("admm") or "_admm" in base:
         s.enable_limit_admm(rho=p["rho"], iters=p["iters"])
@@ -306,6 +355,13 @@ def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None
                         facets=CONE_FACETS,
                         **(dict(admm_iters=p["iters"]) if "iters" in p else {}),
                         **(dict(delta=p["delta"]) if "delta" in p else {}))
+    if "cc_mech" in p:
+        caps, planes = _pillars_env()
+        s.set_collision_environment(capsules=caps, planes=planes)
+        s.enable_collision(mech=p["cc_mech"], margin=PILLAR_MARGIN,
+                           rho=(p["cc_rho"] or None),
+                           **(dict(admm_iters=p["iters"]) if "iters" in p else {}),
+                           **(dict(delta=p["delta"]) if "delta" in p else {}))
 
 
 # ---- one cell: fixed-pacing closed-loop episode ----------------------------
@@ -403,12 +459,20 @@ def run_cell(name, exact=False, bdsv=False):
             [v for v in rec["viol_max"] if v], dtype=np.float64), axis=0).tolist()
             if any(rec["viol_max"]) else None,
     )
-    # cone cells: group 3 = the appended cone group (margin violation for SOC,
-    # facet violation for pyramid)
+    # appended-group telemetry columns, found BY KIND (not by the old
+    # hardcoded index 3, which broke once cells could append >1 group):
+    # LIN_U (4) = the cone group (margin violation for SOC, facet violation
+    # for pyramid); COLLISION (5) = the clearance group (margin - min d_i).
     vm_full = np.asarray([v for v in rec["viol_max"] if v], dtype=np.float64)
-    if vm_full.ndim == 2 and vm_full.shape[1] > 3 and base_mech.startswith("cone"):
-        out["cone_viol_max"] = float(vm_full[:, 3].max())
-        out["cone_viol_mean"] = float(vm_full[:, 3].mean())
+    if vm_full.ndim == 2:
+        cone_gi = next((i for i, g in enumerate(groups) if g["kind"] == 4), None)
+        cc_gi = next((i for i, g in enumerate(groups) if g["kind"] == 5), None)
+        if cone_gi is not None and vm_full.shape[1] > cone_gi:
+            out["cone_viol_max"] = float(vm_full[:, cone_gi].max())
+            out["cone_viol_mean"] = float(vm_full[:, cone_gi].mean())
+        if cc_gi is not None and vm_full.shape[1] > cc_gi:
+            out["cc_viol_max"] = float(vm_full[:, cc_gi].max())
+            out["cc_viol_mean"] = float(vm_full[:, cc_gi].mean())
     return out
 
 

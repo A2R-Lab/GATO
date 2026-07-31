@@ -555,6 +555,77 @@ class BSQP:
             raise ValueError(f"form must be 'soc' or 'pyramid', got {form!r}")
         return gi
 
+    def set_collision_environment(self, spheres=None, capsules=None,
+                                  cuboids=None, planes=None):
+        """Upload the runtime obstacle set for the COLLISION clearance rows
+        (CL-2). Lists of tuples, one per obstacle (all in world frame, meters):
+
+        - spheres: (x, y, z, r)
+        - capsules: (ax, ay, az, bx, by, bz, r) — segment endpoints + radius
+        - cuboids: (cx, cy, cz, ux, uy, uz, hu, vx, vy, vz, hv, wx, wy, wz, hw)
+          — oriented box: center, then 3 (unit axis, half-extent) pairs
+        - planes: (nx, ny, nz, d) — half-space n·p >= d, n a UNIT normal
+          pointing into FREE space (ground floor at z0: (0, 0, 1, z0))
+
+        Deep-copied to the device; callable between solves. An empty
+        environment makes every clearance +1e30 (rows inert)."""
+        def arr(x, w):
+            a = np.ascontiguousarray(np.asarray([] if x is None else x, dtype=np.float32))
+            return a.reshape(-1, w) if a.size else np.zeros((0, w), dtype=np.float32)
+        self.solver.set_collision_environment(arr(spheres, 4), arr(capsules, 7),
+                                              arr(cuboids, 15), arr(planes, 4))
+
+    def enable_collision(self, mech=None, margin=0.02, rho=None, delta=0.05,
+                         sigma=0.0, knot_lo=1, admm_iters=0):
+        """Append THE collision clearance group (one max): per-sphere rows
+        d_i(q_k) >= margin over knots [knot_lo, N] — d_i = signed clearance of
+        collision sphere i (baked at codegen, ``collision_res``) to the
+        nearest obstacle from set_collision_environment (call that FIRST).
+        The covering spheres are already conservative (inflated by the
+        spherizer), so margin is extra safety on top.
+
+        ``mech``: "admm" (linearized one-sided intervals in the inner loop —
+        the transient/MPC recommendation, mirroring the R2 cone verdict; AL
+        under-enforces on transient avoidance even at rho 5), "al" (PHR
+        hinge; +L1 elastic via sigma>0), "barrier" (soft), or "telemetry"
+        (report-only). None follows the active enable_limit_* mode.
+
+        rho defaults: admm 1.0 — BOUND by the 2b pillars round (2026-07-30):
+        clearance rows fold onto the Q block (natural scale O(q_cost)), so
+        the admm rho pocket is WIDE AND FLAT, unlike the cone's sharp
+        u-block pocket at 0.01 — violation drops monotonically over rho
+        0.01..5.0 at flat tracking cost (indy7 2.7mm / iiwa14 21mm sphere-
+        margin violation at 1.0; 5.0 strictly clears both). Raise toward 5
+        for strict clearance; the rho-scale law applies per target block.
+        al 1.0 / barrier 3e-3 as elsewhere.
+        knot_lo >= 1 always: x_0 is data — a start pose in collision would
+        make knot-0 rows unsatisfiable (the R1 windup lesson).
+
+        Telemetry group slot: the clearance group's {max, sum} true violation
+        rides get_row_telemetry() at this group's index (see get_row_groups).
+        Call AFTER enable_limit_* (mechanism enables reinstall the canonical
+        groups, dropping appended ones)."""
+        if mech is None:
+            mech = self._row_mech or "telemetry"
+        if mech not in self._MECHS:
+            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
+        if rho is None:
+            # admm 1.0 (NOT the cone/box 0.01): clearance rows fold onto the
+            # Q block — see the docstring's 2b binding paragraph
+            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 1.0, "al": 1.0}[mech]
+        self.solver.enable_collision(self._MECHS[mech], float(margin), float(rho),
+                                     float(delta), float(sigma), int(knot_lo),
+                                     int(admm_iters))
+
+    def get_collision_row_duals(self):
+        """COLLISION-band AL duals: dict of (B, N, n_spheres) arrays
+        (lam_hi unused — the rows are one-sided; lam_lo is the hinge dual)."""
+        return self.solver.get_collision_row_duals()
+
+    def get_collision_admm_state(self):
+        """COLLISION-band ADMM (z, y): dict of (B, N, n_spheres) arrays."""
+        return self.solver.get_collision_admm_state()
+
     def set_cost_weights(self, q_cost=None, qd_cost=None, u_cost=None, N_cost=None,
                          q_lim_cost=None, vel_lim_cost=None, ctrl_lim_cost=None):
         """Update scalar cost weights at runtime (None keeps the current value)."""
