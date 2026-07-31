@@ -58,10 +58,13 @@ examples/benchmarks/baselines/batchthneed_fig8_results.pkl
 examples/benchmarks/baselines/sqpcpu_env.sh
 examples/benchmarks/data/benchmark_fig8_*.pkl
 examples/benchmarks/data/benchmark_stats*.pkl
+examples/benchmarks/data/stale_L7_frame_pre20260730/*.pkl
+examples/benchmarks/night_logs/
 
 # paper-figures: regenerated data + rendered figures are artifacts (recovered/
 # bundled datasets live elsewhere, e.g. examples/gato_hparam_batch_results.pkl)
 examples/paper-figures/data/*.pkl
+examples/paper-figures/data/stale_L7_frame_pre20260730/*.pkl
 examples/paper-figures/*.png
 examples/paper-figures/*.txt
 
