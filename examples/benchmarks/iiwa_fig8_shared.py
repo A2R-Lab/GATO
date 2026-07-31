@@ -1,11 +1,13 @@
 """Single source of truth for the FAIR 3-way iiwa14 figure-8 (GATO / MPCGPU / BatchThneed).
 
 All three solvers must track the IDENTICAL goal, measured at the IDENTICAL end-effector frame:
-  - EE frame = grid's end_effector_pose = the **L7 link frame** (NOT pinocchio's "EE"/contact frame,
-    which is +0.04 m beyond L7). GATO's and MPCGPU's grid.cuh COST both track L7; GATO's python
-    solver.ee_pos reports the offset contact frame, so we always re-measure tracking at L7 here.
+  - EE frame = the URDF **"EE" fixed joint** (+0.04 m beyond the L7 link frame). Since the
+    2026-07-30 named-target regen (`fixed_target_name="EE"`), grid's end_effector_pose — GATO's
+    and MPCGPU's grid.cuh COST — tracks EE, and so do the regenerated trajfiles; solver frame,
+    goal frame, and metric frame all coincide (pre-regen these were L7 and old L7-frame
+    data/baselines are NOT comparable).
   - fig8 (matches MPCGPU tools/gen_reference.cu exactly):
-        center = L7(q0)              # so ee(0) == center  => zero initial error
+        center = EE(q0)              # so ee(0) == center  => zero initial error
         ee(t)  = [cx + A*sin(wt), cy, cz + 0.5*A*sin(2 wt)]   with wt = 2*pi/period * t*dt
     theta = 0 (vertical fig8 in the y=const plane); q0 = "readyC".
   - warm-start (all three): x_curr replicated + ZERO controls (infeasible on purpose; a gravity-comp
@@ -20,8 +22,8 @@ import pinocchio as pin
 
 # canonical iiwa14 URDF: the one GATO regen + MPCGPU both codegen from (md5 eeb7d4ff), NOT GRiD/robot_assets.
 IIWA14_URDF = "/home/plancher/Desktop/GATO/examples/iiwa_description/iiwa14.urdf"
-EE_FRAME = "L7"                                        # grid end_effector_pose == L7 link frame
-Q0_READYC = np.array([0.0, 0.30, 0.0, -1.60, 0.0, 1.20, 0.0])   # bent start; EE ~ [0.506, 0, 0.551]
+EE_FRAME = "EE"                                        # grid end_effector_pose == URDF "EE" fixed joint
+Q0_READYC = np.array([0.0, 0.30, 0.0, -1.60, 0.0, 1.20, 0.0])   # bent start; EE ~ [0.5077, 0, 0.511]
 
 # fig8 defaults — MUST equal tools/gen_reference.cu (A, period, dt)
 FIG8_A = 0.15
@@ -36,7 +38,7 @@ def build_model(urdf=IIWA14_URDF):
 
 
 def ee_pos(model, data, q, frame=EE_FRAME):
-    """Position of `frame` at config q (grid-EE == L7)."""
+    """Position of `frame` at config q (grid-EE == URDF "EE" fixed joint)."""
     pin.forwardKinematics(model, data, q)
     pin.updateFramePlacements(model, data)
     return data.oMf[model.getFrameId(frame)].translation.copy()
@@ -73,9 +75,9 @@ def load_goal_file(prefix="/home/plancher/Desktop/MPCGPU/examples/trajfiles/0_0"
     return rows.reshape(-1).astype(float)
 
 
-def l7_tracking_errors(model, data, joint_positions, goal_flat, dt=DT):
-    """Per-control-step L7 tracking error given the logged joint configs and the fig8 goal.
-    Assumes fixed-dt pacing (goal index == step index). Returns np.array of |L7(q_i) - goal_i|."""
+def ee_tracking_errors(model, data, joint_positions, goal_flat, dt=DT):
+    """Per-control-step EE tracking error given the logged joint configs and the fig8 goal.
+    Assumes fixed-dt pacing (goal index == step index). Returns np.array of |EE(q_i) - goal_i|."""
     errs = []
     n_goal = len(goal_flat) // 6
     for i, q in enumerate(joint_positions):
@@ -88,10 +90,10 @@ def l7_tracking_errors(model, data, joint_positions, goal_flat, dt=DT):
 
 
 if __name__ == "__main__":
-    # off-GPU verification: L7 center + fig8(0)==center + (if present) match vs the generated goal file
+    # off-GPU verification: EE center + fig8(0)==center + (if present) match vs the generated goal file
     m, d = build_model()
     c = fig8_center(m, d)
-    print(f"L7(q0) center = {c.round(4)}   (gen_reference grid-FK printed [0.5060 0.0000 0.5510])")
+    print(f"EE(q0) center = {c.round(4)}   (gen_reference grid-FK prints [0.5077 0.0000 0.5110])")
     g = figure8_goal(4, center=c)
     print(f"fig8(0) = {g[0:3].round(4)}  (should == center)   fig8(1) = {g[6:9].round(4)}")
     gf = load_goal_file()

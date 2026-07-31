@@ -1,7 +1,8 @@
 """GATO iiwa14 fig8 tracking on the FAIR shared problem (see iiwa_fig8_shared.py).
-Uses the canonical fig8 (center = grid-EE/L7 at readyC, A=0.15, T=6), fixed-dt pacing, and measures
-tracking error at the L7 frame (grid-EE) so it is directly comparable to MPCGPU's validate_track and the
-BatchThneed baseline. Run with the GRiD venv (pinocchio); needs the prebuilt bsqpN64_iiwa14 module.
+Uses the canonical fig8 (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6), fixed-dt
+pacing, and measures tracking error at the EE frame so it is directly comparable to MPCGPU's
+validate_track and the BatchThneed baseline. Run with the GRiD venv (pinocchio); needs the prebuilt
+bsqpN64_iiwa14 module.
 
   PYTHONPATH=/home/plancher/Desktop/GATO/python \
   /home/plancher/Desktop/GRiD/.venv/bin/python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time]
@@ -26,7 +27,7 @@ goal = fig8mod.load_goal_file()
 n_needed = int(SIM_TIME / DT) + N + 8
 if goal is None or len(goal) // 6 < n_needed:
     goal = fig8mod.figure8_goal(n_needed, center=center)
-print(f"iiwa14 GATO fig8: center(L7)={center.round(4)} A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} "
+print(f"iiwa14 GATO fig8: center(EE)={center.round(4)} A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} "
       f"N={N} sim_time={SIM_TIME}  goal_steps={len(goal)//6}")
 
 x_start = np.hstack((q0, np.zeros(model.nv)))
@@ -36,14 +37,15 @@ mpc = MPC_GATO(model=model, N=N, dt=DT, batch_size=1, model_path=fig8mod.IIWA14_
 # CONST_UPDATE_FREQ and the CPU baseline. This is also the fairest per-solve timing basis.
 _, stats = mpc.run_mpc_fig8(x_start, goal, sim_dt=0.001, sim_time=SIM_TIME, pace_by_solve_time=False)
 
-# measure at L7 from the logged joint configs (NOT solver.ee_pos, which reports the offset contact frame)
+# measure at EE from the logged joint configs (uniform metric across all three solvers; post-regen
+# the solver frame coincides with EE, so this equals solver.ee_pos up to the pin-vs-grid FK path)
 jp = stats.get('joint_positions', [])
-errs = fig8mod.l7_tracking_errors(model, data, jp, goal, dt=DT)
+errs = fig8mod.ee_tracking_errors(model, data, jp, goal, dt=DT)
 st = np.asarray(stats['solve_times'], float)
 sqp = np.asarray(stats.get('sqp_iters', []), float)
 if len(errs):
-    print(f"RESULT_GATO steps={len(errs)} L7_mean={errs.mean():.6f} L7_max={errs.max():.6f} "
-          f"L7_final={errs[-1]:.6f}  median_solve_ms={np.median(st):.4f}  "
+    print(f"RESULT_GATO steps={len(errs)} EE_mean={errs.mean():.6f} EE_max={errs.max():.6f} "
+          f"EE_final={errs[-1]:.6f}  median_solve_ms={np.median(st):.4f}  "
           f"sqp_iters~{np.mean(sqp) if len(sqp) else float('nan'):.2f}")
     print("trace:", " ".join(f"{errs[i]:.4f}" for i in range(0, len(errs), max(1, len(errs)//20))))
 else:

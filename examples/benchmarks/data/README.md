@@ -1,5 +1,12 @@
 # Measured result data (recovered from pre-migration branches)
 
+> **⚠ 2026-07-31 rotation:** `stale_L7_frame_pre20260730/` holds the 07-08
+> fig3-fair sweep CSVs + benchmark_fig8 pkls measured at the old **L7** metric
+> frame (pre named-target `_EE` regen) — see its README. Do not mix with fresh
+> EE-frame rows; the fig3 assembler takes the last row per (N,B). The recovered
+> archives below (fig3_scalability_p2p, legacy CSVs) are older still and were
+> already quarantined by provenance.
+
 These are **measured** GPU/solver results recovered during the cross-branch consolidation
 (see [`docs/archaeology.md`](../docs/archaeology.md)). They let the paper figures re-plot
 **without re-running on a GPU**. Provenance is recorded per directory below.

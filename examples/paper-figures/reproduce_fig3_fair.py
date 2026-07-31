@@ -2,7 +2,7 @@
 
 Supersedes the June indy7 DATA path of reproduce_fig3_{scalability,heatmap}.py: all three
 solvers solve the IDENTICAL problem (examples/benchmarks/iiwa_fig8_shared.py — same fig8,
-same L7 frame, same costs, same zero-control warm start) under the 2026-07-07 benchmark
+same EE frame, same costs, same zero-control warm start) under the 2026-07-07 benchmark
 config: SQP=1 (RTI), PCG cap 200 / rel 1e-4, rho 0.01, and MPCGPU running GATO_REG_PATTERN
 with its native eta-exit. Full provenance: MPCGPU docs/benchmark_3way_2026-07-06.md.
 
@@ -99,7 +99,7 @@ def read_cells(path):
 def report_fig3_left(N, batches, gato, bt, mpc):
     mpc1 = mpc.get((N, 1))
     lines = [f"=== Fig-3 (left, FAIR): iiwa14 fig8, N={N}, batched total solve time vs B ===",
-             "config: SQP=1, PCG<=200 rel 1e-4, rho 0.01, shared fig8/L7/costs; "
+             "config: SQP=1, PCG<=200 rel 1e-4, rho 0.01, shared fig8/EE-frame/costs; "
              "MPCGPU = GATO_REG_PATTERN + native exit (docs/benchmark_3way_2026-07-06.md)",
              f"{'B':>4} {'GATO_ms':>9} {'BT_ms':>9} {'MPCGPUxB_ms':>12} {'GATOvsBT':>9} {'GATOvsMPCGPU':>13}"]
     for B in batches:

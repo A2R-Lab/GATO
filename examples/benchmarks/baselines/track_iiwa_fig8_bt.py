@@ -1,7 +1,7 @@
 """BatchThneed (CPU/OSQP baseline) iiwa14 fig8 tracking on the FAIR shared problem.
-Same canonical fig8 as GATO/MPCGPU (center = grid-EE/L7 at readyC, A=0.15, T=6), iiwa14 URDF, EE frame
-= "L7" (= grid end_effector_pose, NOT pinocchio "EE"/contact), warm-start = zero controls, 1 QP iter.
-Tracking measured at L7 from the logged joint configs (same metric as GATO/MPCGPU).
+Same canonical fig8 as GATO/MPCGPU (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6),
+iiwa14 URDF, EE frame = "EE" (= grid end_effector_pose post-regen), warm-start = zero controls, 1 QP
+iter. Tracking measured at EE from the logged joint configs (same metric as GATO/MPCGPU).
 
   baselines/build_cpu_baseline.sh /home/plancher/Desktop/GRiD/.venv   # once
   source baselines/sqpcpu_env.sh                                       # LD_LIBRARY_PATH + PYTHONPATH
@@ -50,11 +50,11 @@ def main():
     n_goal = len(goal) // 6
 
     bt = pysqpcpu.BatchThneed(
-        urdf_filename=fig8mod.IIWA14_URDF, eepos_frame_name=fig8mod.EE_FRAME,   # "L7" = grid-EE
+        urdf_filename=fig8mod.IIWA14_URDF, eepos_frame_name=fig8mod.EE_FRAME,   # "EE" = grid-EE
         batch_size=BATCH, N=N, dt=DT, max_qp_iters=SP['max_sqp_iters'], num_threads=BATCH,
         Q_cost=SP['q_cost'], dQ_cost=SP['qd_cost'], R_cost=SP['u_cost'], QN_cost=SP['N_cost'])
     nq, nv, nx, nu = bt.nq, bt.nv, bt.nx, bt.nu
-    print(f"iiwa14 BatchThneed fig8: center(L7)={center.round(4)} frame={fig8mod.EE_FRAME} "
+    print(f"iiwa14 BatchThneed fig8: center(EE)={center.round(4)} frame={fig8mod.EE_FRAME} "
           f"A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} N={N} nq={nq} goal_steps={n_goal}")
 
     q = q0.copy(); dq = np.zeros(nv)
@@ -81,18 +81,18 @@ def main():
             total += 0.001
         q_log.append(q.copy())
 
-    errs = fig8mod.l7_tracking_errors(model, data, q_log, goal, dt=DT)
+    errs = fig8mod.ee_tracking_errors(model, data, q_log, goal, dt=DT)
     st = np.asarray(solve_ms, float)
     if len(errs):
-        print(f"RESULT_BT steps={len(errs)} L7_mean={errs.mean():.6f} L7_max={errs.max():.6f} "
-              f"L7_final={errs[-1]:.6f}  median_solve_ms={np.median(st):.4f}")
+        print(f"RESULT_BT steps={len(errs)} EE_mean={errs.mean():.6f} EE_max={errs.max():.6f} "
+              f"EE_final={errs[-1]:.6f}  median_solve_ms={np.median(st):.4f}")
         print("trace:", " ".join(f"{errs[i]:.4f}" for i in range(0, len(errs), max(1, len(errs)//20))))
         if OUT_CSV:
             fresh = not os.path.exists(OUT_CSV)
             os.makedirs(os.path.dirname(os.path.abspath(OUT_CSV)), exist_ok=True)
             with open(OUT_CSV, "a") as f:
                 if fresh:
-                    f.write("N,B,median_ms,p90_ms,per_traj_us,n_solves,L7_mean\n")
+                    f.write("N,B,median_ms,p90_ms,per_traj_us,n_solves,EE_mean\n")
                 med, p90 = np.median(st), np.percentile(st, 90)
                 f.write(f"{N},{BATCH},{med:.4f},{p90:.4f},{med*1000/BATCH:.1f},{len(st)},{errs.mean():.6f}\n")
             print(f"[bt] appended row -> {OUT_CSV}")
