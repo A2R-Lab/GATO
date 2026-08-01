@@ -450,12 +450,15 @@ class BSQP {
         }
         int linsys_mode() const { return linsys_mode_; }
 
-        // ADMM inner-loop linsys A/B (Phase-3 timing axis): false (default) =
-        // factor-once BDSV + factored re-solve per inner iteration (the Schur
-        // matrix is constant across the loop at fixed rho); true = warm-started
-        // PCG per inner iteration (λ carries across the loop; no factor at all).
-        // Same iterates up to linsys tolerance — a timing/robustness axis, not a
-        // semantics change; the default path is untouched (bitwise).
+        // ADMM inner-loop linsys: true (DEFAULT since 2026-08-01) = warm-started
+        // PCG per inner iteration (λ carries across the loop; no factor);
+        // false = factor-once BDSV + factored re-solve per iteration (the Schur
+        // matrix is constant across the loop at fixed rho). Same iterates up to
+        // linsys tolerance. Default BOUND by the 2026-08-01 quiet-box A/B:
+        // warm-PCG is 1.4-2.5x faster per solve at identical tracking on every
+        // ADMM family (box/cone/collision, both plants); the factor path's
+        // tighter inner residual (transient box viol ~3.7e-2 vs 1.0e-1) remains
+        // one call away for strict-enforcement users.
         void set_admm_linsys_pcg(bool on) { admm_linsys_pcg_ = on; }
         bool admm_linsys_pcg() const { return admm_linsys_pcg_; }
 
@@ -1005,6 +1008,6 @@ class BSQP {
         T           rho_;
         bool        adapt_rho_;
         int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first
-        bool        admm_linsys_pcg_ = false;  // ADMM inner loop: false = bdsv factor-reuse (default), true = warm PCG
+        bool        admm_linsys_pcg_ = true;  // ADMM inner loop: true = warm PCG (default, 2026-08-01 A/B), false = bdsv factor-reuse
         bool        exact_hessian_ = false;  // set_exact_hessian (needs USE_EXACT_HESSIAN build)
 };

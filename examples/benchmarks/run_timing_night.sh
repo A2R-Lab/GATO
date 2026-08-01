@@ -13,8 +13,9 @@
 #   2. 3way    : MPCGPU tools/run_3way_iiwa.sh — regenerates trajfiles (EE frame)
 #                + 3-way tracking parity. Feeds fig3's goal inputs.
 #   3. fig3    : reproduce_fig3_fair.py full (GATO NxB sweep + BT + MPCGPU).
-#   4. ablinsys: ADMM inner-loop linsys A/B — bdsv-factor-reuse (default) vs
-#                warm PCG (_lpcg cells), box/cone/collision ADMM families.
+#   4. ablinsys: ADMM inner-loop linsys A/B — warm PCG (default since
+#                2026-08-01) vs bdsv-factor-reuse (_lbdsv cells),
+#                box/cone/collision ADMM families.
 #   5. so_cost : SO-SQP per-iter cost — +bdsv control arm on default modules,
 #                then .so-swap build_eh exact modules, +ex arm, restore.
 #   6. r2quote : quiet-box solve_us re-runs of the R2/2b bound-default cells
@@ -97,12 +98,12 @@ grep -q "\[3way\] PASS" "$SUMMARY" || echo "NOTE: 3way failed — fig3 falls bac
 leg fig3 "$PY" examples/paper-figures/reproduce_fig3_fair.py --run-gato --run-bt --run-mpcgpu "${QUICKQ[@]}"
 
 # ---- 4. ADMM inner-loop linsys A/B (factor-reuse vs warm PCG) ----
-AB_CELLS="indy7-admm-fig8,iiwa14-admm-fig8,indy7-admm_lpcg-fig8,iiwa14-admm_lpcg-fig8"
+AB_CELLS="indy7-admm-fig8,iiwa14-admm-fig8,indy7-admm_lbdsv-fig8,iiwa14-admm_lbdsv-fig8"
 AB_CELLS+=",indy7-cone_soc_admm-press_mild,iiwa14-cone_soc_admm-press_mild"
-AB_CELLS+=",indy7-cone_soc_admm_lpcg-press_mild,iiwa14-cone_soc_admm_lpcg-press_mild"
+AB_CELLS+=",indy7-cone_soc_admm_lbdsv-press_mild,iiwa14-cone_soc_admm_lbdsv-press_mild"
 AB_CELLS+=",indy7-cc_admm-pillars,iiwa14-cc_admm-pillars"
-AB_CELLS+=",indy7-cc_admm_lpcg-pillars,iiwa14-cc_admm_lpcg-pillars"
-[[ "${QUICK:-0}" == "1" ]] && AB_CELLS="indy7-cc_admm-pillars,indy7-cc_admm_lpcg-pillars"
+AB_CELLS+=",indy7-cc_admm_lbdsv-pillars,iiwa14-cc_admm_lbdsv-pillars"
+[[ "${QUICK:-0}" == "1" ]] && AB_CELLS="indy7-cc_admm-pillars,indy7-cc_admm_lbdsv-pillars"
 leg ablinsys "$PY" "$CEV" --run --cells "$AB_CELLS"
 
 # ---- 5. SO-SQP per-iter cost (+bdsv control vs +ex exact, .so-swap) ----
@@ -173,7 +174,7 @@ with open("examples/benchmarks/data/constraint_eval/results.jsonl") as f:
     for line in f:
         r = json.loads(line)
         rows[r["cell"]] = r  # arm tags (+ex/+bdsv) are part of the cell name
-want = [c for c in sorted(rows) if ("lpcg" in c or "+ex" in c or "+bdsv" in c
+want = [c for c in sorted(rows) if ("lbdsv" in c or "lpcg" in c or "+ex" in c or "+bdsv" in c
         or "admm" in c or "cone_" in c or "cc_" in c or "baseline" in c)]
 for c in want:
     r = rows[c]

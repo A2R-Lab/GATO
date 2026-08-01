@@ -265,13 +265,21 @@ class BSQP:
             self.linsys = mode
 
     def set_admm_linsys(self, mode):
-        """ADMM inner-loop linear solver: "bdsv_factor" (default) | "pcg".
+        """ADMM inner-loop linear solver: "pcg" (default) | "bdsv_factor".
 
-        "bdsv_factor" factors the (constant-within-the-loop) Schur matrix once
-        per SQP iteration and re-solves per ADMM iteration; "pcg" runs
-        warm-started PCG per ADMM iteration instead (no factor). Identical
-        iterates up to linsys tolerance — a timing/robustness A/B axis
-        (Phase-3), not a semantics change. Only affects MECH_ADMM solves.
+        "pcg" runs warm-started PCG per ADMM iteration (λ carries across the
+        loop, no factorization); "bdsv_factor" factors the (constant-within-
+        the-loop) Schur matrix once per SQP iteration and re-solves per ADMM
+        iteration. Identical iterates up to linsys tolerance; only affects
+        MECH_ADMM solves.
+
+        Default BOUND "pcg" by the 2026-08-01 quiet-box A/B: 1.4-2.5x faster
+        per solve at identical tracking on every ADMM family (box fig8
+        16.5->6.6 ms indy7 / 18.9->9.7 ms iiwa14; cone 2.4x/2.2x; collision
+        1.6x/1.4x). The trade: PCG's looser inner residual leaves transient
+        box violations ~2-3x higher (same order, still enforced — e.g.
+        3.7e-2 -> 1.0e-1 on fig8 boxes). Pick "bdsv_factor" when tightest
+        transient enforcement matters more than speed.
         """
         if mode not in ("bdsv_factor", "pcg"):
             raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')

@@ -105,16 +105,17 @@ MECHANISMS = {
     "cc_admm": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0),
     "cc_al": dict(rho=1.0, cc_mech="al", cc_rho=1.0),
     "cc_rb": dict(mu=3e-3, delta=0.05, cc_mech="barrier", cc_rho=3e-3),
-    # _lpcg = ADMM inner-loop linsys A/B arms (Phase-3 timing): identical cells
-    # to their base except set_admm_linsys("pcg") — warm-started PCG per inner
-    # iteration instead of the default factor-once BDSV + factored re-solves.
-    # Same iterates up to linsys tolerance; the night runner times base vs _lpcg
-    # on a quiet box (solve_us is NOT quotable from ordinary matrix runs).
-    "admm_lpcg": dict(rho=0.01, iters=10, admm_linsys="pcg"),
-    "cone_soc_admm_lpcg": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
-                               cone_rho=0.01, admm_linsys="pcg"),
-    "cc_admm_lpcg": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0,
-                         admm_linsys="pcg"),
+    # _lbdsv = ADMM inner-loop linsys A/B arms: identical cells to their base
+    # except set_admm_linsys("bdsv_factor") — factor-once BDSV + factored
+    # re-solves instead of the DEFAULT warm-started PCG (default flipped to pcg
+    # 2026-08-01 on the quiet-box A/B: pcg 1.4-2.5x faster, identical tracking,
+    # ~2-3x looser transients). Night-runner timing cells; solve_us is NOT
+    # quotable from ordinary matrix runs.
+    "admm_lbdsv": dict(rho=0.01, iters=10, admm_linsys="bdsv_factor"),
+    "cone_soc_admm_lbdsv": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
+                                cone_rho=0.01, admm_linsys="bdsv_factor"),
+    "cc_admm_lbdsv": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0,
+                          admm_linsys="bdsv_factor"),
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
@@ -125,7 +126,7 @@ EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["rea
                     **{m: ["pillars"] for m in CC_MECHS},
                     # A/B arms: one canonical problem each (they exist for the
                     # night runner's timing leg, not the evaluation matrix)
-                    "admm_lpcg": ["fig8"], "cone_soc_admm_lpcg": ["press_mild"]}
+                    "admm_lbdsv": ["fig8"], "cone_soc_admm_lbdsv": ["press_mild"]}
 # per-problem (friction coefficient, N of normal-force headroom around the
 # gravity-comp point): press is deliberately adversarial (tight cone, little
 # headroom); press_mild barely binds — wide cone, big headroom AND a scaled-down
