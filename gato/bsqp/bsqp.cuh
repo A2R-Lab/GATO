@@ -831,6 +831,12 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_R_batch, CONTROL_SQ_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_q_batch, STATE_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BT));
+                // zero once: setup_kkt never writes the terminal knot's r slot
+                // (no control there), but the ADMM base-copy reads the WHOLE
+                // buffer — the slot is never consumed downstream, this just
+                // keeps the copy initcheck-clean (found by the P4.4 audit)
+                gpuErrchk(cudaMemset(kkt_system_batch_.d_q_batch, 0, STATE_P_KNOTS * BT));
+                gpuErrchk(cudaMemset(kkt_system_batch_.d_r_batch, 0, CONTROL_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_A_batch, STATE_SQ_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_B_batch, STATE_P_CONTROL_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_c_batch, STATE_P_KNOTS * BT));

@@ -21,6 +21,9 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
 
         __shared__ T        s_merit[NumAlphas];
         __shared__ uint32_t s_step_idx[NumAlphas];
+        __shared__ T        s_step_size;   // thread-0 -> block broadcasts (own slots: reusing
+        __shared__ int      s_ls_success;  // s_merit[0] / re-reading d_merit_initial raced
+                                           // with thread 0's writes — see below)
 
         // Initialize for parallel min reduction
         T        local_min_merit = static_cast<T>(1e38);  // max float
@@ -57,12 +60,16 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
                 __syncthreads();
         }
 
-        T min_merit = s_merit[0];
-
-        bool line_search_success = (min_merit < d_merit_initial_batch[solve_idx]);
-
-        // Thread 0 handles step size computation and rho update
+        // Thread 0 alone judges the line search and broadcasts the verdict:
+        // a per-thread `min_merit < d_merit_initial_batch[...]` here would RACE
+        // with thread 0's success-path write of that same global slot below
+        // (same class as the s_merit[0] reuse — a late reader could see the
+        // UPDATED merit, flip its local verdict, and partially update the
+        // trajectory). Fixed 2026-08-01 with the 40-hazard shared-mem race.
         if (tid == 0) {
+                const T    min_merit = s_merit[0];
+                const bool line_search_success = (min_merit < d_merit_initial_batch[solve_idx]);
+                s_ls_success = line_search_success ? 1 : 0;
 
                 // Update rho (only if adaptation is enabled)
                 if (adapt_rho) {
@@ -85,17 +92,22 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
                         }
                         d_step_size_batch[solve_idx] = -1;
                 } else {
-                        // Compute step size and store in shared memory for all threads to use
-                        s_merit[0] = 1.0 / (T)(1 << s_step_idx[0]);
+                        // Compute step size and store in shared memory for all threads to use.
+                        // NOT s_merit[0]: every thread reads s_merit[0] above with no barrier
+                        // before this write — under independent thread scheduling a late
+                        // thread could read the STEP SIZE as its merit, flip its
+                        // line_search_success, and partially update the trajectory (the
+                        // 40-hazard lineSearch racecheck family; fixed 2026-08-01).
+                        s_step_size = 1.0 / (T)(1 << s_step_idx[0]);
                         d_merit_initial_batch[solve_idx] = min_merit;
-                        d_step_size_batch[solve_idx] = s_merit[0];
+                        d_step_size_batch[solve_idx] = s_step_size;
                 }
         }
         __syncthreads();
 
         // Only proceed with trajectory update if line search was successful
-        if (line_search_success) {
-                const T step_size = s_merit[0];
+        if (s_ls_success) {
+                const T step_size = s_step_size;
                 T*      d_xu_traj = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
                 T*      d_dz = getOffsetTraj<T>(d_dz_batch, solve_idx, 0);
 #pragma unroll
