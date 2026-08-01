@@ -25,7 +25,7 @@ __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
 }
 
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
-__global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
+__global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
                                           T* __restrict__       d_x_initial_batch,
@@ -147,11 +147,35 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
         }
         __syncthreads();
 
-        // compute merit
+        // per-knot partial write (one block owns one slot — no atomics). The
+        // final merit is summed in FIXED knot order by reduceMeritPartialsKernel:
+        // the old atomicAdd accumulation summed in schedule order, whose ±1ulp
+        // run-to-run jitter could flip line-search ties and break trajectory
+        // bit-determinism (the 2026-08-01 P4.4 class) — two-pass is exact.
         if (threadIdx.x == 0) {
                 uint32_t merit_index = solve_idx * gridDim.z + alpha_idx;
-                atomicAdd(d_merit_batch + merit_index, cost_k + mu * constraint_k);
+                d_merit_partial_batch[(size_t)merit_index * KNOT_POINTS + knot_idx] = cost_k + mu * constraint_k;
         }
+}
+
+// fixed-order per-slot reduction of the per-knot merit partials (deterministic
+// by construction; one thread per (solve, alpha) slot, serial over knots).
+// Converged solves are skipped — their d_merit_batch slots stay untouched,
+// mirroring the merit kernel's own converged-skip (line search skips them too).
+template<typename T>
+__global__ void reduceMeritPartialsKernel(T* __restrict__ d_merit_batch,
+                                          const T* __restrict__ d_merit_partial_batch,
+                                          uint32_t n_slots,
+                                          uint32_t num_alphas,
+                                          const int32_t* __restrict__ d_kkt_converged_batch)
+{
+        const uint32_t m = blockIdx.x * blockDim.x + threadIdx.x;
+        if (m >= n_slots) return;
+        if (d_kkt_converged_batch != nullptr && d_kkt_converged_batch[m / num_alphas]) return;
+        const T* p = d_merit_partial_batch + (size_t)m * KNOT_POINTS;
+        T acc = static_cast<T>(0);
+        for (uint32_t k = 0; k < KNOT_POINTS; k++) { acc += p[k]; }
+        d_merit_batch[m] = acc;
 }
 
 template<typename T>
@@ -168,6 +192,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   const int32_t*              d_kkt_converged_batch,  // nullptr => no converged-skip (initial merit)
                                   const T*                    d_knot_cost_weights,    // nullptr => scalar weights
                                   T*                          d_merit_batch,
+                                  T*                          d_merit_partial_batch,  // scratch: >= batch * NumAlphas * KNOT_POINTS
                                   T*                          d_dz_batch,
                                   T*                          d_xu_traj_batch,
                                   T*                          d_f_ext_batch,
@@ -195,12 +220,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>(has_collision);
 
-        // The NumAlphas>1 merit buffer is re-zeroed by the line-search kernel after each
-        // read (and zeroed once at allocation), so only the 1-alpha targets (the merit
-        // scratch buffers, not slot-recycled) need clearing here.
-        if (NumAlphas == 1) { gpuErrchk(cudaMemset(d_merit_batch, 0, batch_size * NumAlphas * sizeof(T))); }
-
-        computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_batch,
+        computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
                                                                                     d_dz_batch,
                                                                                     d_xu_traj_batch,
                                                                                     inputs.d_x_s_batch,
@@ -226,4 +246,6 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_y_admm_batch,
                                                                                     env,
                                                                                     d_admm_rho_scale_batch);
+        const uint32_t n_slots = batch_size * NumAlphas;
+        reduceMeritPartialsKernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch);
 }

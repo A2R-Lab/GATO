@@ -601,7 +601,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 computeMeritBatched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
@@ -715,10 +715,10 @@ class BSQP {
                         const bool admm_merit = admm_active_ && admm_merit_term_;
                         if (admm_merit) {
                                 computeMeritBatched<T, 1>(
-                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_dz_zero_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
                         }
                         computeMeritBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -853,6 +853,7 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_merit_initial_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_initial0_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_batch_, NUM_ALPHAS * BT));
+                gpuErrchk(cudaMalloc(&d_merit_partial_batch_, (size_t)NUM_ALPHAS * KNOT_POINTS * BT));
                 // the multi-alpha merit buffer accumulates via atomicAdd and is re-zeroed by
                 // the line-search kernel after each read — zero it ONCE here, not per call
                 gpuErrchk(cudaMemset(d_merit_batch_, 0, NUM_ALPHAS * BT));
@@ -940,6 +941,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_merit_initial_batch_));
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_));
+                gpuErrchk(cudaFree(d_merit_partial_batch_));
                 gpuErrchk(cudaFree(d_sqp_iters_B_));
                 gpuErrchk(cudaFree(d_pcg_iterations_));
                 gpuErrchk(cudaFree(d_step_size_batch_));
@@ -985,6 +987,7 @@ class BSQP {
         T* d_merit_initial_batch_;
         T* d_merit_initial0_batch_;
         T* d_merit_batch_;
+        T* d_merit_partial_batch_;  // per-(solve,alpha,knot) merit partials (deterministic two-pass)
         // Line search
         T*        d_step_size_batch_;
         int32_t*  d_all_kkt_converged_;

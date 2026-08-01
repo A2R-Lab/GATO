@@ -132,8 +132,11 @@ tree for its own (plant, N) request — re-run your usual cmake configure afterw
 - **`gato.build` is a lazy FUNCTION export from `gato/builder.py`** — the module is deliberately
   not named `build.py`: `from gato.build import ...` would import the submodule and permanently
   shadow the `gato.build()` callable on the package (PEP 562).
-- **`final_merit` has ±1 ulp run-to-run jitter** (atomicAdd order in the merit kernel) — compare
-  merits with rtol ~1e-5; trajectories (`xu`), iteration counts, and PCG counts are bit-exact.
+- **Merit is deterministic since 2026-08-01** (two-pass fixed-order reduction; the old atomicAdd
+  accumulation had ±1 ulp schedule jitter that could flip line-search TIES and break trajectory
+  bit-determinism — it did, intermittently, after any SASS-shifting recompile). Everything is now
+  bit-exact run-to-run: `final_merit`, `xu`, iteration counts, PCG counts. Numbers from pre-fix
+  binaries may differ by ulps (the atomic sum order was unspecified) — re-baseline, don't mix.
 - **GATO is the unique dual-namespace GLASS consumer** — the same TU holds the vendored
   `grid::glass` (inside grid.cuh) AND external `glass::`. Any *preprocessor guard* in a GLASS
   base header breaks this (namespace-blind: whichever copy is included first claims the macro
