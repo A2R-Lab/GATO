@@ -116,6 +116,23 @@ MECHANISMS = {
                                 cone_rho=0.01, admm_linsys="bdsv_factor"),
     "cc_admm_lbdsv": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0,
                           admm_linsys="bdsv_factor"),
+    # P4.3 adaptive-rho recovery cells: OSQP-style per-solve rho scaling
+    # (set_admm_rho_adaptation) evaluated where a MIS-SET rho is known to
+    # hurt. _rho1 = cone at rho=1.0, 100x above the sharp 0.01 u-block pocket
+    # (R2: parks the closed loop) — _rho1_ad asks whether adaptation recovers
+    # it. cc_admm_ad starts at the bound 1.0 Q-block baseline where 5.0 is
+    # known strictly better (2b: graze 0.021 -> 0.0099 iiwa14) — adaptation
+    # should tighten toward it. cone_pyr_admm_eq = the pyramid-facet interval
+    # cell with enable-time row equilibration (equilibrate=True; exact
+    # reformulation — tests the TinyMPC-style normalization path end-to-end).
+    "cone_soc_admm_rho1": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
+                               cone_rho=1.0),
+    "cone_soc_admm_rho1_ad": dict(rho=0.01, iters=10, cone="soc", cone_mech="admm",
+                                  cone_rho=1.0, rho_adapt=True),
+    "cc_admm_ad": dict(rho=0.01, iters=10, cc_mech="admm", cc_rho=1.0,
+                       rho_adapt=True),
+    "cone_pyr_admm_eq": dict(rho=0.01, iters=10, cone="pyramid", cone_mech="admm",
+                             cone_rho=0.01, equilibrate=True),
 }
 PROBLEMS = ["fig8", "reach", "pickplace", "swing_heavy"]
 CONE_MECHS = [m for m in MECHANISMS if m.startswith("cone_")]
@@ -126,7 +143,13 @@ EE_ONLY_PROBLEMS = {"admm_ee": ["reach"], "admm_m_ee": ["reach"], "al_ee": ["rea
                     **{m: ["pillars"] for m in CC_MECHS},
                     # A/B arms: one canonical problem each (they exist for the
                     # night runner's timing leg, not the evaluation matrix)
-                    "admm_lbdsv": ["fig8"], "cone_soc_admm_lbdsv": ["press_mild"]}
+                    "admm_lbdsv": ["fig8"], "cone_soc_admm_lbdsv": ["press_mild"],
+                    # adaptive-rho recovery cells: press_mild only (press is
+                    # adversarial by design — it parks every hard mechanism
+                    # and would measure the problem, not the adaptation)
+                    "cone_soc_admm_rho1": ["press_mild"],
+                    "cone_soc_admm_rho1_ad": ["press_mild"],
+                    "cone_pyr_admm_eq": ["press_mild"]}
 # per-problem (friction coefficient, N of normal-force headroom around the
 # gravity-comp point): press is deliberately adversarial (tight cone, little
 # headroom); press_mild barely binds — wide cone, big headroom AND a scaled-down
@@ -353,10 +376,13 @@ def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None
         s.enable_limit_admm(rho=p["rho"], iters=p["iters"])
         if p.get("merit"):
             s.set_admm_merit(True)
-    if "admm_linsys" in p:
-        s.set_admm_linsys(p["admm_linsys"])
     elif base in ("al", "al_ee") or base.endswith("_al"):
         s.enable_limit_al(rho=p["rho"])
+    # mode-independent ADMM modifiers (no-ops outside ADMM mode)
+    if "admm_linsys" in p:
+        s.set_admm_linsys(p["admm_linsys"])
+    if p.get("rho_adapt"):
+        s.set_admm_rho_adaptation(True)
     if base.endswith("_ee"):
         assert ee_target is not None
         s.enable_ee_terminal_equality(ee_target.astype(np.float32), rho=p["ee_rho"])
@@ -370,7 +396,8 @@ def enable_mechanism(s, mech, ee_target, q_goal=None, problem=None, q_start=None
                         rho=(p["cone_rho"] or None), form=p["cone"],
                         facets=CONE_FACETS,
                         **(dict(admm_iters=p["iters"]) if "iters" in p else {}),
-                        **(dict(delta=p["delta"]) if "delta" in p else {}))
+                        **(dict(delta=p["delta"]) if "delta" in p else {}),
+                        **(dict(equilibrate=True) if p.get("equilibrate") else {}))
     if "cc_mech" in p:
         caps, planes = _pillars_env()
         s.set_collision_environment(capsules=caps, planes=planes)

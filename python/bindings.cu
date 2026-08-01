@@ -254,7 +254,7 @@ class PyBSQP {
         // LIN_U row-group append (CL-2): C is (m, NU); d/lo/hi length m (d may be
         // empty -> zero offset; lo/hi ignored for cone rows). mech is the
         // rows::Mechanism enum value (0 telemetry, 1 barrier, 2 admm, 3 al).
-        void add_lin_u_group(int32_t mech, py::array_t<T> C, py::array_t<T> d, py::array_t<T> lo, py::array_t<T> hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters)
+        void add_lin_u_group(int32_t mech, py::array_t<T> C, py::array_t<T> d, py::array_t<T> lo, py::array_t<T> hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters, bool equilibrate)
         {
                 py::buffer_info bC = C.request();
                 if (bC.ndim != 2 || bC.shape[1] != (py::ssize_t)CONTROL_SIZE) { throw py::value_error("add_lin_u_group: C must be (m, " + std::to_string(CONTROL_SIZE) + ")"); }
@@ -263,7 +263,7 @@ class PyBSQP {
                 if (bd.size != 0 && bd.size != m) { throw py::value_error("add_lin_u_group: d must be empty or length m"); }
                 if (!cone && (blo.size != m || bhi.size != m)) { throw py::value_error("add_lin_u_group: interval rows need lo/hi of length m"); }
                 solver_.add_lin_u_group(mech, m, static_cast<T*>(bC.ptr), bd.size ? static_cast<T*>(bd.ptr) : nullptr, blo.size ? static_cast<T*>(blo.ptr) : nullptr,
-                                        bhi.size ? static_cast<T*>(bhi.ptr) : nullptr, cone, rho, delta, sigma, knot_lo, knot_hi, admm_iters);
+                                        bhi.size ? static_cast<T*>(bhi.ptr) : nullptr, cone, rho, delta, sigma, knot_lo, knot_hi, admm_iters, equilibrate);
         }
 
         // per-solve row-state pair, dense row_state_index layout
@@ -326,6 +326,14 @@ class PyBSQP {
 
         void set_row_group_soft(int32_t g, T sigma) { solver_.set_row_group_soft(g, sigma); }
         void set_admm_merit(bool on) { solver_.set_admm_merit(on); }
+        void set_admm_rho_adaptation(bool on) { solver_.set_admm_rho_adaptation(on); }
+        // per-solve adapted rho scale (B,): rho_effective = group rho * scale
+        py::array_t<T> get_admm_rho_scale()
+        {
+                py::array_t<T> out((py::ssize_t)batch_size_);
+                solver_.copy_admm_rho_scale_to_host(static_cast<T*>(out.request().ptr));
+                return out;
+        }
 
         void set_row_group_bounds(int32_t g, py::array_t<T> lo, py::array_t<T> hi)
         {
@@ -549,8 +557,10 @@ class PyBSQP {
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
             .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \
+            .def("set_admm_rho_adaptation", &PyBSQP<Type>::set_admm_rho_adaptation, py::arg("on"))                                                                            \
+            .def("get_admm_rho_scale", &PyBSQP<Type>::get_admm_rho_scale)                                                                                                     \
             .def("add_lin_u_group", &PyBSQP<Type>::add_lin_u_group, py::arg("mech"), py::arg("C"), py::arg("d"), py::arg("lo"), py::arg("hi"), py::arg("cone"),               \
-                 py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters"))                                            \
+                 py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters"), py::arg("equilibrate") = false)            \
             .def("set_collision_environment", &PyBSQP<Type>::set_collision_environment, py::arg("spheres"), py::arg("capsules"), py::arg("cuboids"), py::arg("planes"))       \
             .def("enable_collision", &PyBSQP<Type>::enable_collision, py::arg("mech"), py::arg("margin"), py::arg("rho"), py::arg("delta"), py::arg("sigma"),                 \
                  py::arg("knot_lo"), py::arg("admm_iters"))                                                                                                                   \

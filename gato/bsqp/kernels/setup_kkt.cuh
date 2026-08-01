@@ -157,7 +157,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             int32_t                     n_row_groups,                      // MECH_AL fold into the cost blocks; 0 -> untouched path)
                                             const T* __restrict__       d_lam_hi_batch,                    // per-solve AL duals (nullable; MECH_AL only)
                                             const T* __restrict__       d_lam_lo_batch,
-                                            const grid_collision::Environment<T> env                       // obstacle set (COLLISION rows; empty default = no-op)
+                                            const grid_collision::Environment<T> env,                      // obstacle set (COLLISION rows; empty default = no-op)
+                                            const T* __restrict__       d_admm_rho_scale_batch             // per-solve ADMM rho adaptation scale (nullable -> 1)
 #if USE_EXACT_HESSIAN
                                             ,
                                             int32_t                     exact_hessian,   // runtime per-TASK toggle (0 = GN path)
@@ -171,6 +172,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
         const T* d_lam_hi = d_lam_hi_batch ? d_lam_hi_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
         const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
+        const T admm_rho_scale = d_admm_rho_scale_batch ? d_admm_rho_scale_batch[solve_idx] : static_cast<T>(1);
 
         extern __shared__ T s_mem[];
         T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1
@@ -263,20 +265,20 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         // constraint row-groups on the TERMINAL knot's state block
                         // (no control there; the c_0 __syncthreads below covers the writes)
                         if (n_row_groups > 0) {
-                                gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, /*has_control=*/false);
+                                gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, /*has_control=*/false, admm_rho_scale);
                                 // EE_POS rows (cooperative FK; dense J^T J fold — v1 installs
                                 // them terminal-only, so this is their single fold site).
                                 // s_temp is free here (trackingCostGradHess above is done) and
                                 // trackingCostGradHess_TempMemCt >= the EE grad carve.
                                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();  // s_Q_last/s_q_last selection writes above
-                                        gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel);
+                                        gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel, admm_rho_scale);
                                 }
                                 // COLLISION rows on the terminal state block (dense
                                 // q-half fold; dedicated carve — s_temp is too small)
                                 if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();
-                                        gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, env);
+                                        gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, env, admm_rho_scale);
                                 }
                         }
 
@@ -297,12 +299,12 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 // (both branches: trackingCostGradHess ended on a barrier, and the
                 // copies below need one after our strided diagonal writes)
                 if (n_row_groups > 0) {
-                        gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_R_k, s_r_k, /*has_control=*/true);
+                        gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_R_k, s_r_k, /*has_control=*/true, admm_rho_scale);
                         __syncthreads();
                         // COLLISION rows fold at EVERY active knot (clearance is a
                         // per-knot state constraint, unlike the terminal-only EE rows)
                         if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
-                                gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, env);
+                                gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, env, admm_rho_scale);
                         }
                 }
 
@@ -337,7 +339,7 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
@@ -382,7 +384,8 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                n_row_groups,
                                                                                d_lam_hi_batch,
                                                                                d_lam_lo_batch,
-                                                                               env
+                                                                               env,
+                                                                               d_admm_rho_scale_batch
 #if USE_EXACT_HESSIAN
                                                                                ,
                                                                                exact_hessian,

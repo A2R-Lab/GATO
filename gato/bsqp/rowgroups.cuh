@@ -243,7 +243,8 @@ template<typename T>
 __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
                                        int32_t knot, const T* xu_k,
                                        const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
-                                       T* s_Q, T* s_q, T* s_scratch, const grid::robotModel<T>* d_robot_model)
+                                       T* s_Q, T* s_q, T* s_scratch, const grid::robotModel<T>* d_robot_model,
+                                       T admm_rho_scale = static_cast<T>(1))
 {
         constexpr int32_t NQ = constants::STATE_SIZE / 2;
         const uint32_t rank = threadIdx.x;
@@ -266,7 +267,7 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
                         if (grp.mech == MECH_ADMM) {
                                 // constant rho*J^T*J fold; gradient half per-ADMM-iteration
                                 s_gr[i] = static_cast<T>(0);
-                                s_h[i] = grp.mu;  // mu = ADMM rho
+                                s_h[i] = grp.mu * admm_rho_scale;  // mu = ADMM rho (x per-solve adaptation scale)
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 glass::al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
@@ -301,7 +302,8 @@ __device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32
                                const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
                                T* s_scratch, const grid::robotModel<T>* d_robot_model,
                                const T* __restrict__ d_z_admm = nullptr,
-                               const T* __restrict__ d_y_admm = nullptr)
+                               const T* __restrict__ d_y_admm = nullptr,
+                               T admm_rho_scale = static_cast<T>(1))
 {
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
@@ -317,7 +319,7 @@ __device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32
                                 // state (set_admm_merit; see row_cost_value)
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 const T r = s_pose[i] - d_z_admm[idx];
-                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * admm_rho_scale * r * r;
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 total += glass::al_interval_value<T>(s_pose[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
@@ -376,7 +378,8 @@ __device__ __noinline__ void apply_collision_row_grad_hess(const RowGroupDesc<T>
                                                            const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
                                                            T* s_Q, T* s_q, T* s_scratch,
                                                            const grid::robotModel<T>* d_robot_model,
-                                                           const grid_collision::Environment<T>& env)
+                                                           const grid_collision::Environment<T>& env,
+                                                           T admm_rho_scale = static_cast<T>(1))
 {
         constexpr int32_t NQ = constants::STATE_SIZE / 2;
         constexpr int32_t NS = gato::plant::NCC;
@@ -400,7 +403,7 @@ __device__ __noinline__ void apply_collision_row_grad_hess(const RowGroupDesc<T>
                         if (grp.mech == MECH_ADMM) {
                                 // constant rho*J^T*J fold; gradient half per-ADMM-iteration
                                 s_gr[i] = static_cast<T>(0);
-                                s_h[i] = grp.mu;  // mu = ADMM rho
+                                s_h[i] = grp.mu * admm_rho_scale;  // mu = ADMM rho (x per-solve adaptation scale)
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
                                 glass::al_interval_grad_hess<T>(s_dist[i], margin, grp.hi[0], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
@@ -436,7 +439,8 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
                                                    T* s_scratch, const grid::robotModel<T>* d_robot_model,
                                                    const grid_collision::Environment<T>& env,
                                                    const T* __restrict__ d_z_admm = nullptr,
-                                                   const T* __restrict__ d_y_admm = nullptr)
+                                                   const T* __restrict__ d_y_admm = nullptr,
+                                                   T admm_rho_scale = static_cast<T>(1))
 {
         constexpr int32_t NS = gato::plant::NCC;
         T total = static_cast<T>(0);
@@ -454,7 +458,7 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
                         if (admm_term) {
                                 const T r = s_dist[i] - d_z_admm[idx];
-                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * admm_rho_scale * r * r;
                         } else if (grp.mech == MECH_AL) {
                                 total += glass::al_interval_value<T>(s_dist[i], margin, grp.hi[0], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
                         } else {
@@ -563,7 +567,7 @@ __device__ __noinline__ void fold_lin_u_rb_cone(const RowGroupDesc<T>& grp, cons
 }
 
 template<typename T>
-__device__ __noinline__ void fold_lin_u_admm_cone(const RowGroupDesc<T>& grp, T* s_R, uint32_t rank, uint32_t size)
+__device__ __noinline__ void fold_lin_u_admm_cone(const RowGroupDesc<T>& grp, T* s_R, uint32_t rank, uint32_t size, T admm_rho_scale)
 {
         constexpr int32_t NU = constants::CONTROL_SIZE;
         const int32_t m = grp.n_rows;
@@ -572,14 +576,14 @@ __device__ __noinline__ void fold_lin_u_admm_cone(const RowGroupDesc<T>& grp, T*
                 const int32_t a = e / NU, b = e % NU;
                 T acc = static_cast<T>(0);
                 for (int32_t i = 0; i < m; i++) { acc += grp.Cmat[i * NU + a] * grp.Cmat[i * NU + b]; }
-                s_R[a * NU + b] += grp.mu * acc;
+                s_R[a * NU + b] += grp.mu * admm_rho_scale * acc;
         }
 }
 
 template<typename T>
 __device__ __noinline__ void fold_lin_u_interval(const RowGroupDesc<T>& grp, int32_t gi, int32_t knot, const T* xu_k,
                                                  const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
-                                                 T* s_R, T* s_r, uint32_t rank, uint32_t size)
+                                                 T* s_R, T* s_r, uint32_t rank, uint32_t size, T admm_rho_scale)
 {
         constexpr int32_t NU = constants::CONTROL_SIZE;
         const int32_t m = grp.n_rows;
@@ -591,7 +595,7 @@ __device__ __noinline__ void fold_lin_u_interval(const RowGroupDesc<T>& grp, int
         for (int32_t i = 0; i < m; i++) {
                 if (grp.mech == MECH_ADMM) {
                         grs[i] = static_cast<T>(0);
-                        hs[i] = grp.mu;
+                        hs[i] = grp.mu * admm_rho_scale;
                 } else if (grp.mech == MECH_AL) {
                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                         glass::al_interval_grad_hess<T>(g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, grs[i], hs[i]);
@@ -619,7 +623,8 @@ template<typename T>
 __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                                     int32_t n_groups, int32_t knot, const T* xu_k,
                                     const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
-                                    T* s_Q, T* s_q, T* s_R, T* s_r, bool has_control)
+                                    T* s_Q, T* s_q, T* s_R, T* s_r, bool has_control,
+                                    T admm_rho_scale = static_cast<T>(1))
 {
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
@@ -650,9 +655,9 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                         } else if (grp.cone && grp.mech == MECH_BARRIER_RELAXED) {
                                 fold_lin_u_rb_cone<T>(grp, xu_k, s_R, s_r, rank, size);
                         } else if (grp.cone && grp.mech == MECH_ADMM) {
-                                fold_lin_u_admm_cone<T>(grp, s_R, rank, size);
+                                fold_lin_u_admm_cone<T>(grp, s_R, rank, size, admm_rho_scale);
                         } else {
-                                fold_lin_u_interval<T>(grp, gi, (int32_t)knot, xu_k, d_lam_hi, d_lam_lo, s_R, s_r, rank, size);
+                                fold_lin_u_interval<T>(grp, gi, (int32_t)knot, xu_k, d_lam_hi, d_lam_lo, s_R, s_r, rank, size, admm_rho_scale);
                         }
                         __syncthreads();  // later groups may re-target these slots (see above)
                         continue;
@@ -674,7 +679,7 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                                 // constant rho*G^T G diagonal fold — the gradient half is
                                 // per-ADMM-iteration (kernels/admm.cuh), NOT here
                                 gr = static_cast<T>(0);
-                                h = grp.mu;  // mu = ADMM rho
+                                h = grp.mu * admm_rho_scale;  // mu = ADMM rho (x per-solve adaptation scale)
                         } else if (grp.mech == MECH_AL) {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
@@ -707,7 +712,8 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                             const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
                             bool has_control,
                             const T* __restrict__ d_z_admm = nullptr,
-                            const T* __restrict__ d_y_admm = nullptr)
+                            const T* __restrict__ d_y_admm = nullptr,
+                            T admm_rho_scale = static_cast<T>(1))
 {
         T total = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
@@ -740,7 +746,7 @@ __device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                                 // the feasibility progress the ADMM-modified QP encodes
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 const T r = g - d_z_admm[idx];
-                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * r * r;
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * admm_rho_scale * r * r;
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 total += glass::al_interval_value<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);

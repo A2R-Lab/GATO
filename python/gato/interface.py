@@ -489,9 +489,39 @@ class BSQP:
         constraint set is known feasible-along-the-path."""
         self.solver.set_admm_merit(bool(on))
 
+    def set_admm_rho_adaptation(self, on=True):
+        """OSQP-style ADMM rho adaptation (opt-in; default OFF = bitwise
+        pre-adaptation path). One per-solve SCALAR multiplier on top of every
+        ADMM group's rho baseline (the bound per-group ratios — cone u-block
+        0.01 vs collision Q-block 1.0+ — are preserved), updated once per SQP
+        iteration from the inner loop's final residuals: adapt when
+        r_prim/r_dual is imbalanced by >5x, step by sqrt(ratio), clamp to
+        [1e-2, 1e2] (OSQP's rule). The dual form is unscaled, so rho changes
+        need no y-rescaling; the rho*G'G fold refreshes each SQP iteration.
+        The scale persists across solves (warm rho, like the (z, y) dual warm
+        start); toggling resets it to 1. Telemetry: get_admm_rho_scale().
+
+        MEASURED (2026-08-01 recovery cells, both plants): a clear WIN on
+        collision/Q-block rows — pillars at the bound cc_rho=1.0 tightens
+        iiwa14 cc_viol_max 0.021 -> 0.0031 (beats even the static 5.0
+        binding's 0.0099) and halves indy7's mean violation at flat tracking,
+        inner residual ~5x tighter. Do NOT enable on CONFLICTED cone cells:
+        an irreducible primal residual reads as "under-penalized", the rule
+        adapts UP away from the sharp 0.01 u-block pocket, and the
+        fixed-budget loop destabilizes (press_mild cone@1.0 got worse, not
+        recovered). Rule of thumb: adapt where the imbalance is a SCALE
+        problem (state-block rows), keep the bound static rho where the
+        constraint fights the task."""
+        self.solver.set_admm_rho_adaptation(bool(on))
+
+    def get_admm_rho_scale(self):
+        """Per-solve adapted rho scale, shape (B,). Effective ADMM rho of a
+        group = its rho baseline * this scale (1.0 = unadapted)."""
+        return np.asarray(self.solver.get_admm_rho_scale())
+
     def add_lin_u_rows(self, C, d=None, lo=None, hi=None, mech=None, rho=None,
                        delta=0.05, sigma=0.0, cone=False, knot_lo=0,
-                       knot_hi=None, admm_iters=0):
+                       knot_hi=None, admm_iters=0, equilibrate=False):
         """Append a LIN_U row-group: m rows ``g = C @ u + d`` on the control
         block (C shape (m, nu), FROZEN at a host-chosen configuration — the
         cross-term audit's contact-frame rule for config-dependent maps).
@@ -516,7 +546,15 @@ class BSQP:
         fallback; 1e-2 parks). The rho-scale law applies: the fold lands
         rho * C^T C on the R block, so scale rho DOWN by ||C||^2 when the map
         is large. Telemetry reports the cone margin violation
-        max(0, ||x-bar|| - t) (interval rows: interval violation)."""
+        max(0, ||x-bar|| - t) (interval rows: interval violation).
+
+        ``equilibrate=True`` (interval rows only) rescales each row of
+        (C, d, lo, hi) by 1/||C_i||_2 at enable time — an exact
+        reformulation (same feasible set) that puts the group's rho on
+        unit-norm rows (the TinyMPC-style normalization; the manual
+        rho-scale-law correction becomes automatic). Rejected for cone
+        rows: an SOC couples its rows, so per-row scaling would change
+        the cone (normalize the whole map uniformly instead)."""
         C = np.ascontiguousarray(np.asarray(C, dtype=np.float32))
         if C.ndim != 2 or C.shape[1] != self.nu:
             raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")
@@ -541,7 +579,7 @@ class BSQP:
         self.solver.add_lin_u_group(self._MECHS[mech], C, d, lo_a, hi_a,
                                     bool(cone), float(rho), float(delta),
                                     float(sigma), int(knot_lo), int(knot_hi),
-                                    int(admm_iters))
+                                    int(admm_iters), bool(equilibrate))
 
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):

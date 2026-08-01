@@ -49,7 +49,8 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                                           const T* __restrict__       d_lam_lo_batch,
                                           const T* __restrict__       d_z_admm_batch,                    // per-solve ADMM row state (nullable; only with
                                           const T* __restrict__       d_y_admm_batch,                    // set_admm_merit — adds the AL-form ADMM value term)
-                                          const grid_collision::Environment<T> env)                      // obstacle set (COLLISION rows; empty default = no-op)
+                                          const grid_collision::Environment<T> env,                      // obstacle set (COLLISION rows; empty default = no-op)
+                                          const T* __restrict__       d_admm_rho_scale_batch)            // per-solve ADMM rho adaptation scale (nullable -> 1)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, num_alphas)
 
@@ -106,14 +107,15 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                 const T* d_lam_lo = d_lam_lo_batch ? d_lam_lo_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
                 const T* d_z_admm = d_z_admm_batch ? d_z_admm_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
                 const T* d_y_admm = d_y_admm_batch ? d_y_admm_batch + (size_t)solve_idx * gato::rows::TOTAL_ROW_STATE_SIZE : nullptr;
-                cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1), d_z_admm, d_y_admm);
+                const T admm_rho_scale = d_admm_rho_scale_batch ? d_admm_rho_scale_batch[solve_idx] : static_cast<T>(1);
+                cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1), d_z_admm, d_y_admm, admm_rho_scale);
                 // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
                 // value — the fold linearizes, the merit must not). s_temp is free
                 // between trackingCostValue and the constraint-error section, and
                 // trackingCostValue_TempMemCt >= the EE value carve.
                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
-                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm);
+                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);
                 }
                 // COLLISION rows: true nonlinear clearance value at the CANDIDATE
                 // state (same mirroring requirement). The collision value carve
@@ -122,7 +124,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_batch,
                 if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         T* s_cc = s_mem + computeMeritBaseSMemCt<T>();
                         __syncthreads();
-                        cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm);
+                        cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm, admm_rho_scale);
                 }
         }
 
@@ -186,7 +188,8 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   const T*                    d_z_admm_batch = nullptr,
                                   const T*                    d_y_admm_batch = nullptr,
                                   int32_t                     has_collision = 0,
-                                  const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
+                                  const grid_collision::Environment<T>& env = grid_collision::Environment<T>{},
+                                  const T*                    d_admm_rho_scale_batch = nullptr)
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
@@ -221,5 +224,6 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_lam_lo_batch,
                                                                                     d_z_admm_batch,
                                                                                     d_y_admm_batch,
-                                                                                    env);
+                                                                                    env,
+                                                                                    d_admm_rho_scale_batch);
 }
