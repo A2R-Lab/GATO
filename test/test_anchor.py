@@ -116,3 +116,43 @@ def test_anchor_pulls_toward_q_nom(make_solver, smallest_module):
     qN_b = run(nom_b)
     assert np.linalg.norm(qN_a - nom_a) < np.linalg.norm(qN_b - nom_a)
     assert np.linalg.norm(qN_b - nom_b) < np.linalg.norm(qN_a - nom_b)
+
+
+def test_per_joint_cost_vectors_kkt(make_solver, smallest_module):
+    """set_u_cost_vec / per-joint set_q_pos_cost land EXACTLY on the KKT
+    diagonals (R actuated rows / Q q rows), per joint, every knot — the
+    round-5 per-joint gain knobs. Empty/scalar resets restore the baseline."""
+    plant, N = smallest_module
+    s0 = make_solver(plant, N, batch_size=1)
+    x0, ref, xu = _held(s0, plant)
+    Q0, _ = _kkt(s0, x0, ref, xu)
+    d0 = s0.solver.debug_setup_kkt(xu[None, :], np.float32(0.01), x0[None, :],
+                                   ref.ravel()[None, :])
+    R0 = np.asarray(d0["R"]).reshape(N, s0.nu, s0.nu)
+
+    nq, na = s0.nq, s0.n_actuated
+    uvec = (1e-6 + 1e-3 * np.arange(na)).astype(np.float32)
+    wvec = (0.01 + 0.01 * np.arange(nq)).astype(np.float32)
+
+    sv = make_solver(plant, N, batch_size=1)
+    sv.set_u_cost_vec(uvec)
+    sv.set_q_pos_cost(wvec)          # per-joint anchor stiffness
+    sv.set_q_nom(x0[:nq])
+    Qv, _ = _kkt(sv, x0, ref, xu)
+    dv = sv.solver.debug_setup_kkt(xu[None, :], np.float32(0.01), x0[None, :],
+                                   ref.ravel()[None, :])
+    Rv = np.asarray(dv["R"]).reshape(N, sv.nu, sv.nu)
+
+    for k in range(N - 1):           # terminal knot has no control block
+        np.testing.assert_allclose(np.diag(Rv[k])[:na] - np.diag(R0[k])[:na],
+                                   uvec - np.float32(1e-6), atol=1e-7)
+    for k in range(N):
+        np.testing.assert_allclose(np.diag(Qv[k])[:nq] - np.diag(Q0[k])[:nq],
+                                   wvec, atol=1e-6)
+
+    # resets restore the scalar path bitwise
+    sv.set_u_cost_vec(None)
+    sv.set_q_pos_cost(0.0)
+    sv.set_q_nom(None)
+    Qr, qr = _kkt(sv, x0, ref, xu)
+    np.testing.assert_array_equal(Qr, Q0)

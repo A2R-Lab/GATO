@@ -411,19 +411,27 @@ namespace plant {
             T* s_Q, T* s_R, T* s_W, T* s_x_des, T* s_u_des, T* s_ee_des,
             T* s_q_lo, T* s_q_hi, T* s_qd_lo, T* s_qd_hi, T* s_u_lo, T* s_u_hi,
             const T* s_eePos_traj, T qd_cost, T u_cost, T ee_weight,
-            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr)
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr)
         {
                 const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                 const int nth = blockDim.x * blockDim.y;
                 // s_Q q-block: q_pos_cost toward d_q_nom (default 0/nullptr = the historic
                 // EE-only cost — the q-block was hardcoded 0 and the limit barrier was the
                 // only q-space term; q_pos_cost is the nullspace posture anchor, PDDP ask
-                // 2026-08-02). qd_cost on the qd-block.
+                // 2026-08-02). qd_cost on the qd-block. Per-joint overrides (nullable
+                // device vectors, PDDP round-5: tune single-joint effort/anchor gains —
+                // the q7 Nyquist story): d_q_pos_w_vec (NQ) over q_pos_cost,
+                // d_u_cost_vec (NU actuated) over u_cost. Terminal knots (no control
+                // reg) pass d_u_cost_vec = nullptr alongside u_cost = 0 — caller's job.
                 for (int i = tid; i < NX; i += nth) {
-                        s_Q[i] = (i < NQ) ? q_pos_cost : qd_cost;
+                        s_Q[i] = (i < NQ) ? (d_q_pos_w_vec != nullptr ? d_q_pos_w_vec[i] : q_pos_cost) : qd_cost;
                         s_x_des[i] = (i < NQ && d_q_nom != nullptr) ? d_q_nom[i] : static_cast<T>(0);
                 }
-                for (int i = tid; i < NU; i += nth) { s_R[i] = u_cost; s_u_des[i] = static_cast<T>(0); }
+                for (int i = tid; i < NU; i += nth) {
+                        s_R[i] = (d_u_cost_vec != nullptr) ? d_u_cost_vec[i] : u_cost;
+                        s_u_des[i] = static_cast<T>(0);
+                }
                 for (int i = tid; i < 3;  i += nth) { s_W[i] = ee_weight; s_ee_des[i] = s_eePos_traj[i]; }
                 // de-interleave the constexpr [NQ][2] limits into contiguous lower/upper buffers.
                 for (int i = tid; i < NQ; i += nth) {
@@ -443,7 +451,8 @@ namespace plant {
             T q_cost, T qd_cost, T u_cost, T N_cost,
             T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal,
             T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
-            T fc_cost = static_cast<T>(0))
+            T fc_cost = static_cast<T>(0),
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr)
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -457,7 +466,8 @@ namespace plant {
                 const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost; // terminal knot: no ctrl barrier
                 buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
-                                            s_eePos_traj, qd_cost, u_w, ee_w, q_pos_cost, d_q_nom);
+                                            s_eePos_traj, qd_cost, u_w, ee_w, q_pos_cost, d_q_nom,
+                                            is_terminal ? nullptr : d_u_cost_vec, d_q_pos_w_vec);
                 __syncthreads();
                 __shared__ T s_out[1];
                 grid_plant::tracking_cost<T, 0>(s_out, s_x, s_u, s_x_des, s_u_des, s_ee_des,
@@ -491,7 +501,8 @@ namespace plant {
             const grid::robotModel<T>* d_robotModel,
             T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight,
             T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
-            T fc_cost = static_cast<T>(0))
+            T fc_cost = static_cast<T>(0),
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr)
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -516,7 +527,8 @@ namespace plant {
 
                 buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
-                                            s_eePos_traj, qd_cost, u_cost, ee_weight, q_pos_cost, d_q_nom);
+                                            s_eePos_traj, qd_cost, u_cost, ee_weight, q_pos_cost, d_q_nom,
+                                            d_u_cost_vec, d_q_pos_w_vec);
                 __syncthreads();
                 // Block layout note: grid_plant writes s_Qk/s_Rk COLUMN-major; GATO's old code
                 // wrote row-major (i*NX+j). The tracking Hessian (diag(qd,barrier) + JᵀWJ) is

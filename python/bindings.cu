@@ -493,6 +493,20 @@ class PyBSQP {
 
         void set_q_pos_cost(T w) { solver_.set_q_pos_cost(w); }
         void set_fc_cost(T w) { solver_.set_fc_cost(w); }
+        void set_u_cost_vec(py::array_t<T, py::array::c_style | py::array::forcecast> w)
+        {
+                auto buf = w.request();
+                if (buf.size == 0) { solver_.set_u_cost_vec(nullptr); return; }  // empty -> scalar u_cost
+                if (buf.size != (py::ssize_t)grid::NUM_JOINTS) throw std::runtime_error("u_cost_vec must have NUM_JOINTS entries (or be empty to reset)");
+                solver_.set_u_cost_vec(static_cast<T*>(buf.ptr));
+        }
+        void set_q_pos_cost_vec(py::array_t<T, py::array::c_style | py::array::forcecast> w)
+        {
+                auto buf = w.request();
+                if (buf.size == 0) { solver_.set_q_pos_cost_vec(nullptr); return; }  // empty -> scalar q_pos_cost
+                if (buf.size != (py::ssize_t)grid::NUM_JOINTS) throw std::runtime_error("q_pos_cost_vec must have NUM_JOINTS entries (or be empty to reset)");
+                solver_.set_q_pos_cost_vec(static_cast<T*>(buf.ptr));
+        }
         void set_q_nom(py::array_t<T> q_nom)
         {
                 auto buf = q_nom.request();
@@ -612,6 +626,8 @@ class PyBSQP {
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_q_pos_cost", &PyBSQP<Type>::set_q_pos_cost)                                                                                                                                 \
             .def("set_fc_cost", &PyBSQP<Type>::set_fc_cost)                                                                                                                                            \
+            .def("set_u_cost_vec", &PyBSQP<Type>::set_u_cost_vec)                                                                                                                                 \
+            .def("set_q_pos_cost_vec", &PyBSQP<Type>::set_q_pos_cost_vec)                                                                                                                          \
             .def("set_q_nom", &PyBSQP<Type>::set_q_nom)                                                                                                                                                \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \

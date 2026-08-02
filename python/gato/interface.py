@@ -771,8 +771,35 @@ class BSQP:
         margin-shrunk limits (barrier limits = URDF limits - 0.1 rad, plant.cuh
         JOINT_LIMIT_MARGIN), set q_lim_cost=0 and use a small q_pos_cost toward
         set_q_nom(x0[:nq]) instead — anchors without the barrier field.
+
+        ``weight`` may be a scalar or a length-nq array (per-joint anchor
+        stiffness — tune light joints independently; see set_u_cost_vec for the
+        matching effort-side knob and the closed-loop rate-limit story).
         """
-        self.solver.set_q_pos_cost(float(weight))
+        import numpy as _np
+        w = _np.asarray(weight, dtype=_np.float32)
+        if w.ndim == 0:
+            self.solver.set_q_pos_cost_vec(_np.empty(0, dtype=_np.float32))  # back to scalar
+            self.solver.set_q_pos_cost(float(w))
+        else:
+            self.solver.set_q_pos_cost_vec(_np.ascontiguousarray(w.reshape(-1)))
+
+    def set_u_cost_vec(self, weights=None):
+        """Per-joint control effort weights (length n_actuated; None resets to the
+        scalar u_cost). The per-joint knob that makes a joint's commanded
+        correction respect a discrete control loop: with effort nearly free
+        (u_cost=1e-6 default) the optimal posture/velocity correction is
+        deadbeat-aggressive, and on a near-massless joint (iiwa14 j7,
+        J_eff ~ 1e-3 kg m^2) a plant-model inertia mismatch turns the 100 Hz
+        loop into a growing Nyquist oscillation (PDDP round-5, 2026-08-02).
+        Raising ONLY that joint's effort weight (e.g. [1e-6]*6 + [3e-3]) softens
+        its channel without degrading the arm's tracking."""
+        import numpy as _np
+        if weights is None:
+            self.solver.set_u_cost_vec(_np.empty(0, dtype=_np.float32))
+        else:
+            w = _np.ascontiguousarray(_np.asarray(weights, dtype=_np.float32).reshape(-1))
+            self.solver.set_u_cost_vec(w)
 
     def set_q_nom(self, q_nom=None):
         """Posture target for set_q_pos_cost (length-nq array; None resets to zeros)."""
