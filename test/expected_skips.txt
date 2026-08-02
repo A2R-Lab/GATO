@@ -8,3 +8,12 @@
 # sessions (docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md).
 test/test_exact_hessian.py::test_projection_matches_numpy_lambda_zero
 test/test_exact_hessian.py::test_contraction_matches_pinocchio_fd
+#
+# Contact-force (CL-3a) gates: need a module compiled with
+# -DGATO_CONTACT_FORCES=ON (canary workflow: build_fc/ + .so swap into
+# python/gato, scripted — the fc gate runner). The attested default modules
+# have FC_SIZE == 0, so these skip on the receipt run; they are exercised in
+# the fc-build gate sessions (docs/open-tasks/cl3a_contact_forces_2026-08-02.md).
+test/test_f_ext.py::test_fc_adapter_matches_oracle
+test/test_f_ext.py::test_fc_solve_finite_deterministic
+test/test_f_ext.py::test_fc_box_pin_zeroes_fc
