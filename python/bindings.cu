@@ -476,6 +476,16 @@ class PyBSQP {
                 solver_.set_cost_weights(q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
         }
 
+        void set_q_pos_cost(T w) { solver_.set_q_pos_cost(w); }
+        void set_fc_cost(T w) { solver_.set_fc_cost(w); }
+        void set_q_nom(py::array_t<T> q_nom)
+        {
+                auto buf = q_nom.request();
+                if (buf.size == 0) { solver_.set_q_nom(nullptr); return; }  // empty -> reset to zeros
+                if (buf.size != (py::ssize_t)grid::NUM_JOINTS) throw std::runtime_error("q_nom must have NUM_JOINTS entries (or be empty to reset)");
+                solver_.set_q_nom(static_cast<T*>(buf.ptr));
+        }
+
         void set_cost_weights_per_knot(py::array_t<T> knot_weights)
         {
                 py::buffer_info buf = knot_weights.request();
@@ -585,6 +595,9 @@ class PyBSQP {
             .def("debug_contact_dynamics", &PyBSQP<Type>::debug_contact_dynamics, py::arg("q"), py::arg("qd"), py::arg("u"), py::arg("fc"))                                                             \
             .def("get_lambda", &PyBSQP<Type>::get_lambda)                                                                                                                                              \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
+            .def("set_q_pos_cost", &PyBSQP<Type>::set_q_pos_cost)                                                                                                                                 \
+            .def("set_fc_cost", &PyBSQP<Type>::set_fc_cost)                                                                                                                                            \
+            .def("set_q_nom", &PyBSQP<Type>::set_q_nom)                                                                                                                                                \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \
             .def("enable_limit_telemetry", &PyBSQP<Type>::enable_limit_telemetry)                                                                                                                      \

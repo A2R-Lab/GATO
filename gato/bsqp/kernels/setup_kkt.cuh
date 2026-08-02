@@ -151,6 +151,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                             T     q_lim_cost,
                                             T     vel_lim_cost,
                                             T     ctrl_lim_cost,
+                                            T     q_pos_cost,                                 // joint-posture anchor weight (0 = off)
+                                            const T* __restrict__       d_q_nom,              // posture target (nullable = zeros)
+                                            T     fc_cost,                                    // contact-force regularization (GATO_CONTACT_FORCES)
                                             const int32_t* __restrict__ d_kkt_converged_batch,
                                             const T* __restrict__       d_knot_cost_weights,  // optional (nullable) per-knot [ee,qd,u] triples
                                             const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // constraint row-groups (MECH_BARRIER_RELAXED /
@@ -236,7 +239,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         gato::plant::trackingCostGradHess<T>(
                             s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost);
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
@@ -250,7 +253,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         gato::plant::trackingCostGradHess<T>(
                             s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost);
                         __syncthreads();
 
                         // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
@@ -260,7 +263,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         gato::plant::trackingCostGradHess<T>(
                             s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1, q_pos_cost, d_q_nom, fc_cost);
 
                         // constraint row-groups on the TERMINAL knot's state block
                         // (no control there; the c_0 __syncthreads below covers the writes)
@@ -339,7 +342,7 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr)
+__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
@@ -378,6 +381,9 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                q_lim_cost,
                                                                                vel_lim_cost,
                                                                                ctrl_lim_cost,
+                                                                               q_pos_cost,
+                                                                               d_q_nom,
+                                                                               fc_cost,
                                                                                d_kkt_converged_batch,
                                                                                d_knot_cost_weights,
                                                                                d_row_groups,

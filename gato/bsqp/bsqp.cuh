@@ -34,6 +34,7 @@ class BSQP {
         explicit BSQP(uint32_t batch_size)
             : batch_size_(batch_size), dt_(0.01), max_sqp_iters_(5), kkt_tol_(0.0001), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0),
               q_cost_(1.0), qd_cost_(1e-3), u_cost_(1e-6), N_cost_(50.0), q_lim_cost_(1e-3), vel_lim_cost_(0.0), ctrl_lim_cost_(0.0),
+              q_pos_cost_(0.0), fc_cost_(0.0),
               rho_(1e-3), adapt_rho_(true)
         {
                 allocateMemory();
@@ -42,7 +43,7 @@ class BSQP {
 
         BSQP(uint32_t batch_size, T dt, uint32_t max_sqp_iters, T kkt_tol, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
             : batch_size_(batch_size), dt_(dt), max_sqp_iters_(max_sqp_iters), kkt_tol_(kkt_tol), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
-              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), rho_(rho), adapt_rho_(true)
+              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), q_pos_cost_(0.0), fc_cost_(0.0), rho_(rho), adapt_rho_(true)
         {
                 allocateMemory();
                 initBatchedHyperparams();
@@ -561,6 +562,23 @@ class BSQP {
                 ctrl_lim_cost_ = ctrl_lim_cost;
         }
 
+        // Joint-posture nullspace anchor (PDDP ask 2026-08-02): a small running cost
+        // q_pos_cost * ||q - q_nom||^2/2 on the q-block (default 0 = the historic EE-only
+        // cost, bitwise). Anchors the EE-nullspace joints WITHOUT the limit barrier —
+        // use where the operating posture sits near/outside the margin-shrunk limits.
+        void set_q_pos_cost(T w) { q_pos_cost_ = w; }
+        void set_q_nom(const T* h_q_nom)  // nullptr -> reset to zeros (the default target)
+        {
+                if (h_q_nom == nullptr) {
+                        if (d_q_nom_) { gpuErrchk(cudaFree(d_q_nom_)); d_q_nom_ = nullptr; }
+                        return;
+                }
+                if (!d_q_nom_) { gpuErrchk(cudaMalloc(&d_q_nom_, grid::NUM_JOINTS * sizeof(T))); }
+                gpuErrchk(cudaMemcpy(d_q_nom_, h_q_nom, grid::NUM_JOINTS * sizeof(T), cudaMemcpyHostToDevice));
+        }
+        // Contact-force regularization weight (GATO_CONTACT_FORCES builds; inert otherwise).
+        void set_fc_cost(T w) { fc_cost_ = w; }
+
         // per-knot [ee, qd, u] weight triples (KNOT_POINTS x 3, knot-major); overrides the
         // scalar q/qd/u/N weights (terminal EE weight = last knot's ee entry). Enables
         // via-points / terminal-only goals / horizon masking at runtime.
@@ -592,7 +610,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -660,7 +678,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 computeMeritBatched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, d_f_ext_batch_, inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
@@ -676,7 +694,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -1012,6 +1030,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_step_size_batch_));
                 gpuErrchk(cudaFree(d_all_kkt_converged_));
                 gpuErrchk(cudaFree(d_f_ext_batch_));
+                if (d_q_nom_) { gpuErrchk(cudaFree(d_q_nom_)); d_q_nom_ = nullptr; }
                 gpuErrchk(cudaFree(d_rho_penalty_batch_));
                 gpuErrchk(cudaFree(d_drho_batch_));
                 gpuErrchk(cudaFree(d_mu_batch_));
@@ -1143,6 +1162,9 @@ class BSQP {
         T           q_lim_cost_;
         T           vel_lim_cost_;
         T           ctrl_lim_cost_;
+        T           q_pos_cost_;
+        T           fc_cost_;
+        T*          d_q_nom_ = nullptr;  // posture target (NQ device vec; nullptr = zeros)
         T           rho_;
         bool        adapt_rho_;
         int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first

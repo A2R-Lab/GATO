@@ -705,6 +705,33 @@ class BSQP:
         self.solver.set_cost_weights(w["q_cost"], w["qd_cost"], w["u_cost"], w["N_cost"],
                                      w["q_lim_cost"], w["vel_lim_cost"], w["ctrl_lim_cost"])
 
+    def set_q_pos_cost(self, weight):
+        """Joint-posture nullspace anchor: adds 0.5*weight*||q - q_nom||^2 as a RUNNING
+        cost on the q-block (default 0 = the historic EE-only cost, bitwise-off).
+
+        The EE-position cost leaves a nullspace on redundant arms (iiwa14: wrist roll
+        j7 has a ~zero EE-position Jacobian column); by default only the q-limit
+        barrier anchors it. Where the operating posture sits near/outside the
+        margin-shrunk limits (barrier limits = URDF limits - 0.1 rad, plant.cuh
+        JOINT_LIMIT_MARGIN), set q_lim_cost=0 and use a small q_pos_cost toward
+        set_q_nom(x0[:nq]) instead — anchors without the barrier field.
+        """
+        self.solver.set_q_pos_cost(float(weight))
+
+    def set_q_nom(self, q_nom=None):
+        """Posture target for set_q_pos_cost (length-nq array; None resets to zeros)."""
+        import numpy as _np
+        if q_nom is None:
+            self.solver.set_q_nom(_np.empty(0, dtype=_np.float32))
+        else:
+            q = _np.ascontiguousarray(_np.asarray(q_nom, dtype=_np.float32).ravel())
+            self.solver.set_q_nom(q)
+
+    def set_fc_cost(self, weight):
+        """Contact-force regularization 0.5*weight*||f_c||^2 per knot (GATO_CONTACT_FORCES
+        modules only — the fc slots appended to every control; inert on default builds)."""
+        self.solver.set_fc_cost(float(weight))
+
     def set_cost_weights_per_knot(self, knot_weights):
         """Per-knot [ee, qd, u] weight triples, shape (N, 3): overrides the scalar
         q/qd/u/N weights (terminal EE weight = row N-1's ee entry). Enables

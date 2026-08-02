@@ -41,6 +41,9 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_partial_
                                           T                     q_lim_cost,
                                           T                     vel_lim_cost,
                                           T                     ctrl_lim_cost,
+                                          T                     q_pos_cost,
+                                          const T* __restrict__ d_q_nom,
+                                          T                     fc_cost,
                                           const int32_t* __restrict__ d_kkt_converged_batch,
                                           const T* __restrict__       d_knot_cost_weights,  // optional (nullable) per-knot [ee,qd,u] triples
                                           const gato::rows::RowGroupDesc<T>* __restrict__ d_row_groups,  // MECH_BARRIER_RELAXED / MECH_AL value terms
@@ -97,7 +100,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_partial_
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks
         // N_cost EE weight + drops the control reg/barrier, matching the old trackingcost).
         cost_k =
-            plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1));
+            plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost);
         __syncthreads();
 
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's
@@ -214,7 +217,10 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                   const T*                    d_y_admm_batch = nullptr,
                                   int32_t                     has_collision = 0,
                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{},
-                                  const T*                    d_admm_rho_scale_batch = nullptr)
+                                  const T*                    d_admm_rho_scale_batch = nullptr,
+                                  T                           q_pos_cost = 0,
+                                  const T*                    d_q_nom = nullptr,
+                                  T                           fc_cost = 0)
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
@@ -236,6 +242,9 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     q_lim_cost,
                                                                                     vel_lim_cost,
                                                                                     ctrl_lim_cost,
+                                                                                    q_pos_cost,
+                                                                                    d_q_nom,
+                                                                                    fc_cost,
                                                                                     d_kkt_converged_batch,
                                                                                     d_knot_cost_weights,
                                                                                     d_row_groups,
