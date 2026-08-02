@@ -206,6 +206,11 @@ namespace plant {
                 T* s_c = s_temp;
                 grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[6], d_f_ext, GRAVITY<T>());
                 grid::forward_dynamics_finish<T>(s_qdd, s_u, s_c, s_Minv);
+                // finish WRITES s_qdd (parallel over rows); inner_vaf READS it under a
+                // different thread mapping — GRiD's own generated finish→vaf composition
+                // emits this sync, our hand-rolled copy dropped it (racecheck WAW family,
+                // GRiD reply 2026-08-02; bit-identical, ordering-hazard-only fix).
+                __syncthreads();
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_f_ext, GRAVITY<T>());
                 // Inverse-dynamics gradient is not f_ext-threaded in GRiD (matches prior GATO behavior,
                 // which also omitted d_f_ext on the gradient). d_temp_spill == nullptr (USE_DA_DF_SPILL=false).
@@ -391,8 +396,10 @@ namespace plant {
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
         {
-                // + s_end_effector_pose_gradient (6*NUM_VEL*NEE) + the larger gradient arena.
+                // + s_end_effector_pose_gradient (6*NUM_VEL*NEE) + the larger gradient arena
+                // (+ the NU-wide generated-R/r redirect scratch under GATO_CONTACT_FORCES).
                 return (2 * NX + 2 * NU + 6) + (4 * NQ + 2 * NU) + 6 * NEE + 6 * NQ * NEE
+                       + (FC > 0 ? (unsigned)(NU * NU + NU) : 0u)
                        + grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
         }
 
@@ -403,12 +410,19 @@ namespace plant {
         __device__ void buildTrackingCostBuffers(
             T* s_Q, T* s_R, T* s_W, T* s_x_des, T* s_u_des, T* s_ee_des,
             T* s_q_lo, T* s_q_hi, T* s_qd_lo, T* s_qd_hi, T* s_u_lo, T* s_u_hi,
-            const T* s_eePos_traj, T qd_cost, T u_cost, T ee_weight)
+            const T* s_eePos_traj, T qd_cost, T u_cost, T ee_weight,
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr)
         {
                 const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                 const int nth = blockDim.x * blockDim.y;
-                // s_Q: 0 on the q-block (EE term carries position cost), qd_cost on the qd-block.
-                for (int i = tid; i < NX; i += nth) { s_Q[i] = (i < NQ) ? static_cast<T>(0) : qd_cost; s_x_des[i] = static_cast<T>(0); }
+                // s_Q q-block: q_pos_cost toward d_q_nom (default 0/nullptr = the historic
+                // EE-only cost — the q-block was hardcoded 0 and the limit barrier was the
+                // only q-space term; q_pos_cost is the nullspace posture anchor, PDDP ask
+                // 2026-08-02). qd_cost on the qd-block.
+                for (int i = tid; i < NX; i += nth) {
+                        s_Q[i] = (i < NQ) ? q_pos_cost : qd_cost;
+                        s_x_des[i] = (i < NQ && d_q_nom != nullptr) ? d_q_nom[i] : static_cast<T>(0);
+                }
                 for (int i = tid; i < NU; i += nth) { s_R[i] = u_cost; s_u_des[i] = static_cast<T>(0); }
                 for (int i = tid; i < 3;  i += nth) { s_W[i] = ee_weight; s_ee_des[i] = s_eePos_traj[i]; }
                 // de-interleave the constexpr [NQ][2] limits into contiguous lower/upper buffers.
@@ -427,7 +441,9 @@ namespace plant {
             const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
             T q_cost, T qd_cost, T u_cost, T N_cost,
-            T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal)
+            T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal,
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
+            T fc_cost = static_cast<T>(0))
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -441,7 +457,7 @@ namespace plant {
                 const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost; // terminal knot: no ctrl barrier
                 buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
-                                            s_eePos_traj, qd_cost, u_w, ee_w);
+                                            s_eePos_traj, qd_cost, u_w, ee_w, q_pos_cost, d_q_nom);
                 __syncthreads();
                 __shared__ T s_out[1];
                 grid_plant::tracking_cost<T, 0>(s_out, s_x, s_u, s_x_des, s_u_des, s_ee_des,
@@ -449,7 +465,19 @@ namespace plant {
                                                 s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, mu_u,
                                                 s_eePos, s_scratch, d_robotModel);
                 __syncthreads();
-                return s_out[0];
+                T total = s_out[0];
+#if GATO_CONTACT_FORCES
+                // fc regularization (0.5*fc_cost*|fc|^2; terminal knot has no control slot,
+                // matching the u-reg drop). Uniform per-thread compute — no shared write.
+                if (!is_terminal) {
+                        T fcreg = static_cast<T>(0);
+                        for (int j = 0; j < FC; j++) { fcreg += s_u[NU + j] * s_u[NU + j]; }
+                        total += static_cast<T>(0.5) * fc_cost * fcreg;
+                }
+#else
+                (void)fc_cost;
+#endif
+                return total;
         }
 
         // GRAD+HESS adapter (replaces trackingCostGradientAndHessian). Writes s_qk/s_Qk
@@ -461,7 +489,9 @@ namespace plant {
             const T* s_x, const T* s_u, const T* s_eePos_traj,
             T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
-            T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight)
+            T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight,
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
+            T fc_cost = static_cast<T>(0))
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -469,25 +499,57 @@ namespace plant {
                 T* s_qd_lo = s_q_hi + NQ;   T* s_qd_hi = s_qd_lo + NQ;
                 T* s_u_lo = s_qd_hi + NQ;   T* s_u_hi = s_u_lo + NU;
                 T* s_eePos = s_u_hi + NU;   T* s_eePosGrad = s_eePos + 6 * NEE;
+#if GATO_CONTACT_FORCES
+                // The generated grid_plant cost is NU(=actuated)-wide with R layout [r + NU*c];
+                // the caller's s_Rk/s_rk are CONTROL_SIZE-wide. Redirect the generated writes
+                // to NU-wide scratch, then scatter + fill the fc block below.
+                T* s_R7 = s_eePosGrad + 6 * NQ * NEE;
+                T* s_r7 = s_R7 + NU * NU;
+                T* s_scratch = s_r7 + NU;
+                T* s_Rk_gen = s_R7;
+                T* s_rk_gen = s_r7;
+#else
                 T* s_scratch = s_eePosGrad + 6 * NQ * NEE;
+                T* s_Rk_gen = s_Rk;
+                T* s_rk_gen = s_rk;
+#endif
 
                 buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
-                                            s_eePos_traj, qd_cost, u_cost, ee_weight);
+                                            s_eePos_traj, qd_cost, u_cost, ee_weight, q_pos_cost, d_q_nom);
                 __syncthreads();
                 // Block layout note: grid_plant writes s_Qk/s_Rk COLUMN-major; GATO's old code
                 // wrote row-major (i*NX+j). The tracking Hessian (diag(qd,barrier) + JᵀWJ) is
                 // SYMMETRIC, so the two layouts are bit-identical — do NOT "transpose-fix" this.
-                grid_plant::tracking_cost_gradient<T, 0>(s_qk, s_rk, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+                grid_plant::tracking_cost_gradient<T, 0>(s_qk, s_rk_gen, s_x, s_u, s_x_des, s_u_des, s_ee_des,
                                                          s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
                                                          s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
                                                          s_eePos, s_eePosGrad, s_scratch, d_robotModel);
                 __syncthreads();
-                grid_plant::tracking_cost_hessian<T, 0>(s_Qk, s_Rk, s_x, s_u,
+                grid_plant::tracking_cost_hessian<T, 0>(s_Qk, s_Rk_gen, s_x, s_u,
                                                         s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
                                                         s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
                                                         s_eePosGrad, s_scratch, d_robotModel);
                 __syncthreads();
+#if GATO_CONTACT_FORCES
+                {
+                        // Scatter the NU-wide generated R/r into the CONTROL_SIZE-wide caller
+                        // buffers: actuated block verbatim, fc diag = fc_cost, cross terms 0,
+                        // fc gradient rows = fc_cost * fc (fc reference is 0).
+                        constexpr int CS = NU + FC;
+                        const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                        const int nth = blockDim.x * blockDim.y;
+                        for (int ind = tid; ind < CS * CS; ind += nth) {
+                                int r = ind % CS; int c = ind / CS;
+                                s_Rk[ind] = (r < NU && c < NU) ? s_R7[r + NU * c]
+                                          : (r == c ? fc_cost : static_cast<T>(0));
+                        }
+                        for (int j = tid; j < CS; j += nth) {
+                                s_rk[j] = (j < NU) ? s_r7[j] : fc_cost * s_u[j];
+                        }
+                        __syncthreads();
+                }
+#endif
         }
 
         // ===================================================================
