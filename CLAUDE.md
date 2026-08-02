@@ -126,6 +126,14 @@ limits.cuh + registry) and compiles the modules in one call (fixed-base serial c
 `<limit>` tags only; `ee_frame` must be a URDF fixed joint). NOTE: it reconfigures the `build/`
 tree for its own (plant, N) request — re-run your usual cmake configure afterwards.
 
+**External consumers start at [`docs/consumer_contract.md`](docs/consumer_contract.md)** —
+the conventions cross-repo integrations depend on (EE frame, JOINT_LIMIT_MARGIN, cost
+semantics, xu layout, receipt scope) + the **dynamics fingerprint**
+(`test/dynamics_fingerprint.json` + `gato.fingerprint.check`): verify any external
+simulator is the same robot as our model in one screen of code (per-joint
+inertia-response ratios; regenerate with `tools/gen_dynamics_fingerprint.py` whenever
+the URDFs or dynamics semantics change — the pytest gate enforces staleness).
+
 ## Conventions & gotchas (learned the hard way)
 
 - **Two GLASS namespaces coexist.** `grid.cuh` inlines an older GLASS into **`grid::glass::`**;
