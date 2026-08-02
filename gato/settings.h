@@ -48,6 +48,19 @@ constexpr uint32_t DZ_THREADS = 128;
 #ifndef USE_EXACT_HESSIAN
     #define USE_EXACT_HESSIAN 0
 #endif
+
+// CL-3a contact-force flag: 0 (default) keeps CONTROL_SIZE = actuated torques and
+// the device tree preprocessor-identical to the baseline solver (bitwise parity
+// by construction). 1 appends a per-knot world-aligned contact WRENCH decision
+// variable (6 per contact frame) to every control slot — f_c extends u; the KKT/
+// Schur/merit/batch machinery sees one wider control and is structurally
+// unchanged. Requires a grid.cuh generated with contact_frames (2b.1+). Build
+// with cmake -DGATO_CONTACT_FORCES=ON into build_fc/ (module-ABI change: .so
+// variants, the build_eh pattern). SSOT: docs/open-tasks/
+// cl3a_contact_forces_2026-08-02.md.
+#ifndef GATO_CONTACT_FORCES
+    #define GATO_CONTACT_FORCES 0
+#endif
 constexpr uint32_t LINE_SEARCH_THREADS = 512;
 constexpr uint32_t SIM_FORWARD_THREADS = 128;
 

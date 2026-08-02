@@ -12,7 +12,17 @@ namespace constants {
     constexpr uint32_t EE_POS_SIZE = 6;
     constexpr uint32_t REFERENCE_TRAJ_SIZE = EE_POS_SIZE * KNOT_POINTS;
     constexpr uint32_t STATE_SIZE = grid::NUM_JOINTS * 2; // positions, velocities
-    constexpr uint32_t CONTROL_SIZE = grid::NUM_JOINTS; // torques
+    constexpr uint32_t ACTUATED_SIZE = grid::NUM_JOINTS; // torques (the applied control)
+#if GATO_CONTACT_FORCES
+    #ifndef GRID_HAS_CONTACT_FRAMES
+        #error "GATO_CONTACT_FORCES=1 needs a grid.cuh generated with contact_frames (2b.1+)"
+    #endif
+    // per-knot world-aligned wrench [n; f] per contact frame, appended to u
+    constexpr uint32_t FC_SIZE = 6 * grid::NUM_CONTACT_FRAMES;
+#else
+    constexpr uint32_t FC_SIZE = 0;
+#endif
+    constexpr uint32_t CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE; // torques [+ contact wrench]
     constexpr uint32_t STATE_SIZE_SQ = STATE_SIZE * STATE_SIZE;
     constexpr uint32_t CONTROL_SIZE_SQ = CONTROL_SIZE * CONTROL_SIZE;
     constexpr uint32_t STATE_P_CONTROL = STATE_SIZE * CONTROL_SIZE;

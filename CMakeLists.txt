@@ -18,6 +18,7 @@ endif()
 option(GATO_FAST_MATH "Compile CUDA with -use_fast_math (disable for tight-tolerance validation)" ON)
 option(GATO_BUILD_DEMO "Build the bsqp C++ demo executable" ON)
 option(GATO_EXACT_HESSIAN "Compile the exact-Hessian (SO-SQP) stage-projection path; OFF keeps the device tree preprocessor-identical to the GN-only solver" OFF)
+option(GATO_CONTACT_FORCES "CL-3a: append a per-knot contact wrench to the control vector (f_c extends u; module-ABI change — build into build_fc/); OFF keeps the baseline solver bit-identical" OFF)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # NOTE: -G is an nvcc flag and lives in the CUDA debug flags only; ASan on a CUDA
@@ -58,6 +59,9 @@ if(GATO_BUILD_DEMO)
     GATO_PLANT_HEADER="dynamics/plant.cuh")
   if(GATO_EXACT_HESSIAN)
     target_compile_definitions(bsqp PRIVATE USE_EXACT_HESSIAN=1)
+  endif()
+  if(GATO_CONTACT_FORCES)
+    target_compile_definitions(bsqp PRIVATE GATO_CONTACT_FORCES=1)
   endif()
   # Top-level GLASS (global `glass::`, distinct from grid.cuh's vendored `grid::glass`).
   # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
@@ -114,6 +118,9 @@ foreach(plant ${PLANT})
       GATO_PLANT_HEADER="dynamics/plant.cuh")
     if(GATO_EXACT_HESSIAN)
       target_compile_definitions(${MODULE_NAME} PRIVATE USE_EXACT_HESSIAN=1)
+    endif()
+    if(GATO_CONTACT_FORCES)
+      target_compile_definitions(${MODULE_NAME} PRIVATE GATO_CONTACT_FORCES=1)
     endif()
 
     set_target_properties(
