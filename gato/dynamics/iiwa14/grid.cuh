@@ -9336,27 +9336,6 @@ namespace grid {
         }
     }
 
-    /**
-     * Compute the outer product between two vectors: dest = ab^T
-     *
-     * Notes:
-     *   Function assumes it is called by a single thread.
-     *
-     * @param a - first vector
-     * @param b - second vector
-     * @param dest - destination matrix
-     * @param aLength - length of a
-     * @param bLength - length of b
-     * @param idx - index of resulting matrix to be computed by this thread
-     */
-    template <typename T>
-    __device__
-    void outerProduct(T *a, T *b, T *dest, int aLength, int bLength, int idx) {
-        int row = idx / bLength;
-        int col = idx % bLength;
-        if (row < aLength && col < bLength) dest[col * aLength + row] = a[row] * b[col];
-    }
-
     //
     // Topology Helpers not needed!
     //
@@ -31426,11 +31405,11 @@ namespace grid {
                 { 20, 19, 18, 17, 16, 15, -1 },
                 { 27, 26, 25, 24, 23, 22, 21 },
             };
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[jid*6], &psid[ancestor_j*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psid[ancestor_j*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31461,11 +31440,11 @@ namespace grid {
 
             // Compute t2 = outer(S[j], S[ancestor])
             // t2[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[jid*6], &S[ancestor_j*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &S[ancestor_j*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31497,11 +31476,11 @@ namespace grid {
 
             // Compute t3 = outer(psid[j], psid[ancestor])
             // t3[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&psid[jid*6], &psid[ancestor_j*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &psid[jid*6], &psid[ancestor_j*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31525,11 +31504,11 @@ namespace grid {
 
             // Compute t4 = outer(S[j], psidd[ancestor])
             // t4[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[jid*6], &psidd[ancestor_j*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psidd[ancestor_j*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31553,11 +31532,11 @@ namespace grid {
 
             // Compute t5 = outer(S[j], (Sd+psid)[ancestor])
             // t5[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[jid*6], &psid_Sd[ancestor_j*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psid_Sd[ancestor_j*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31579,11 +31558,11 @@ namespace grid {
 
             // Compute t6 = outer(S[ancestor], psid[joint])
             // t6[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[ancestor_j*6], &psid[jid*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psid[jid*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31611,11 +31590,11 @@ namespace grid {
 
             // Compute t7 = outer(S[ancestor], psidd[joint])
             // t7[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[ancestor_j*6], &psidd[jid*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psidd[jid*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31637,11 +31616,11 @@ namespace grid {
 
             // Compute t8 = outer(S[ancestor], S[joint])
             // t8[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[ancestor_j*6], &S[jid*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &S[jid*6], &t[t_idx]);
             }
             __syncthreads();
             
@@ -31678,11 +31657,11 @@ namespace grid {
 
             // Compute t9 = outer(S[ancestor], (Sd+psid)[joint])
             // t9[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28*36; i += blockDim.x*blockDim.y){
-                int jid = jids[i / 36];
-                int ancestor_j = ancestors_j[i / 36];
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
+                int jid = jids[i];
+                int ancestor_j = ancestors_j[i];
                 int t_idx = t_index_map[jid][ancestor_j]*36;
-                outerProduct<T>(&S[ancestor_j*6], &psid_Sd[jid*6], &t[t_idx], 6, 6, i%36);
+                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psid_Sd[jid*6], &t[t_idx]);
             }
             __syncthreads();
             
