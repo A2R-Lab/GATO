@@ -295,6 +295,14 @@ class BSQP:
         Per-TASK feature: wins on EE-terminal tasks, neutral-to-worse on
         full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
         Raises if the module was built without -DGATO_EXACT_HESSIAN=ON.
+
+        Constraint-mechanism pairing (measured): exact pairs with AL, not ADMM
+        (R2 2026-07-30: un-parks AL-cone both plants; admm_ee diverges). The
+        2026-08-01 ADMM-fold cells extend the rule: exact x cone-ADMM parks
+        BOTH plants (track 0.67-0.78 vs 0.02-0.03 GN) and exact x
+        collision-ADMM parks iiwa14; the one healthy pairing is indy7
+        collision-ADMM (parity with GN, tighter inner residual). Don't
+        combine exact with ADMM row groups by default.
         """
         on = bool(on)
         if on and not self.exact_hessian_available():
@@ -736,30 +744,50 @@ class BSQP:
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def set_f_ext_B(self, f_ext_B):
-        # The GPU wrench buffer is body-major: 6*NUM_BODIES per solve. Each 6-slot is
-        # that body's spatial force in its JOINT-LOCAL frame about the joint origin,
-        # Featherstone-ordered [angular(3); linear(3)] (verified vs pin.aba 2026-07-07).
-        # World wrenches must go through gato.common.world_wrench_to_joint_local and
-        # be reordered — see hypotheses.ForceHypothesisBatch._world_to_gato. Accept either
-        # a per-solve 6-vector EE wrench (scattered into the end-effector body slot)
-        # or a full body-major (batch, 6*NUM_BODIES) array, and always upload a
-        # correctly-sized contiguous buffer (a short buffer makes set_f_ext_batch's
-        # cudaMemcpy over-read host memory -> garbage wrench -> NaN dynamics).
-        f_ext_B = np.asarray(f_ext_B, dtype=np.float32).reshape(self.batch_size, -1)
-        self.f_ext_B = f_ext_B
+        # The GPU wrench buffer is body-major: 6*NUM_BODIES per (solve, knot). Each
+        # 6-slot is that body's spatial force in its JOINT-LOCAL frame about the joint
+        # origin, Featherstone-ordered [angular(3); linear(3)] (verified vs pin.aba
+        # 2026-07-07). World wrenches must go through
+        # gato.common.world_wrench_to_joint_local and be reordered — see
+        # hypotheses.ForceHypothesisBatch._world_to_gato.
+        #
+        # Accepted shapes (N = knot count; wrench k applies to interval [k, k+1]):
+        #   (B, 6)            per-solve EE wrench, broadcast over knots (historic)
+        #   (B, 6*NUM_BODIES) per-solve body-major, broadcast over knots (historic)
+        #   (B, N, 6)         per-knot EE wrench (scattered into the EE body slot)
+        #   (B, N, 6*NUM_BODIES) per-knot body-major
+        # Always upload a correctly-sized contiguous buffer (a short buffer makes the
+        # upload's cudaMemcpy over-read host memory -> garbage wrench -> NaN dynamics).
+        f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
         nb = self.n_bodies or self.model.nv
-        body_major = np.zeros((self.batch_size, 6 * nb), dtype=np.float32)
-        if f_ext_B.shape[1] == 6:
+        per_knot = (f_ext_B.ndim == 3)
+        if per_knot:
+            if f_ext_B.shape[:2] != (self.batch_size, self.N):
+                raise ValueError(
+                    f"per-knot f_ext_B must be (batch, N, ...) = ({self.batch_size}, "
+                    f"{self.N}, ...); got {f_ext_B.shape}"
+                )
+            width = f_ext_B.shape[2]
+            body_major = np.zeros((self.batch_size, self.N, 6 * nb), dtype=np.float32)
+        else:
+            f_ext_B = f_ext_B.reshape(self.batch_size, -1)
+            width = f_ext_B.shape[1]
+            body_major = np.zeros((self.batch_size, 6 * nb), dtype=np.float32)
+        self.f_ext_B = f_ext_B
+        if width == 6:
             ee = 6 * (nb - 1)  # end-effector body slot
-            body_major[:, ee:ee + 6] = f_ext_B
-        elif f_ext_B.shape[1] == 6 * nb:
-            body_major[:] = f_ext_B
+            body_major[..., ee:ee + 6] = f_ext_B
+        elif width == 6 * nb:
+            body_major[...] = f_ext_B
         else:
             raise ValueError(
                 f"f_ext_B must have width 6 (EE wrench) or {6 * nb} (body-major "
-                f"6*NUM_BODIES); got {f_ext_B.shape[1]}"
+                f"6*NUM_BODIES); got {width}"
             )
-        self.solver.set_f_ext_batch(np.ascontiguousarray(body_major))
+        if per_knot:
+            self.solver.set_f_ext_knot_batch(np.ascontiguousarray(body_major))
+        else:
+            self.solver.set_f_ext_batch(np.ascontiguousarray(body_major))
         
     def reset_rho(self):
         self.solver.reset_rho()

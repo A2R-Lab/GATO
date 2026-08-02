@@ -201,7 +201,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 // Input pointers
                 T* d_xu_traj_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
                 T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
-                T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
+                T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
                 // Output pointers
                 T* d_Q_k = getOffsetStateSq<T>(d_Q_batch, solve_idx, knot_idx);

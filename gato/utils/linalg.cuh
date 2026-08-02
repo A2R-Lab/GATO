@@ -10,15 +10,16 @@ using namespace gato::constants;
 namespace gato {
 
 template<typename T>
-__device__ __forceinline__ T* getOffsetWrench(T* batch, uint32_t solve_idx)
+__device__ __forceinline__ T* getOffsetWrench(T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * 6 * grid::NUM_BODIES;   // [K3] body-major f_ext: 6*NUM_BODIES per solve
+        // body-major f_ext: 6*NUM_BODIES per knot, KNOT_POINTS knots per solve
+        return batch + (solve_idx * KNOT_POINTS + knot_idx) * 6 * grid::NUM_BODIES;
 }
 
 template<typename T>
-__device__ __forceinline__ const T* getOffsetWrench(const T* batch, uint32_t solve_idx)
+__device__ __forceinline__ const T* getOffsetWrench(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * 6 * grid::NUM_BODIES;   // [K3] body-major f_ext: 6*NUM_BODIES per solve
+        return batch + (solve_idx * KNOT_POINTS + knot_idx) * 6 * grid::NUM_BODIES;
 }
 
 // compute pointer to a (STATE_SIZE) vector from a batch (BATCH_SIZE X KNOT_POINTS)

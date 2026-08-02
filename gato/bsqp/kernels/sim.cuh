@@ -25,7 +25,8 @@ void simForwardBatchedKernel(
 ) {
     const uint32_t solve_idx = blockIdx.y;
     T *d_xkp1 = d_xkp1_batch + solve_idx * STATE_SIZE;
-    T *d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
+    // sim_forward rolls the CURRENT step: knot 0's wrench
+    T *d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, 0);
 
     extern __shared__ T s_mem[];
     T *s_xkp1 = s_mem;

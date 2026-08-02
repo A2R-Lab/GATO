@@ -193,6 +193,14 @@ class PyBSQP {
                 solver_.set_f_ext_batch(static_cast<T*>(f_ext_buf.ptr));
         }
 
+        // per-knot wrench band: (B, KNOT_POINTS, 6*NUM_BODIES) flattened
+        void set_f_ext_knot_batch(py::array_t<T> f_ext_knot_batch)
+        {
+                py::buffer_info buf = f_ext_knot_batch.request();
+                check_size(buf, (size_t)6 * grid::NUM_BODIES * KNOT_POINTS * batch_size_, "f_ext_knot_batch");
+                solver_.set_f_ext_knot_batch(static_cast<T*>(buf.ptr));
+        }
+
         void set_rho_penalty_batch(py::array_t<T> rho_batch, bool set_as_reset_default = true)
         {
                 py::buffer_info buf = rho_batch.request();
@@ -423,6 +431,38 @@ class PyBSQP {
                 out["r"] = r;
                 return out;
         }
+        // debug/oracle: contact-wrench chain at one (q, qd, u, f_c) sample (CL-3 prep).
+        // Jacobians come back as (rows, cols) numpy arrays (strided from the device
+        // col-major buffers): dqdd_dfc (NQ, 6*NUM_CONTACT_FRAMES), dqdd_dq /
+        // dqdd_dq_corr (NQ, NQ). dqdd_dq holds f_ext FIXED; dqdd_dq_corr is the
+        // dfext/dq chain term (total = dqdd_dq + dqdd_dq_corr).
+        py::dict debug_contact_dynamics(py::array_t<T> q, py::array_t<T> qd, py::array_t<T> u, py::array_t<T> fc)
+        {
+#ifdef GRID_HAS_CONTACT_FRAMES
+                constexpr py::ssize_t NQ = gato::plant::NQ;
+                constexpr py::ssize_t FEXT = 6 * grid::NUM_BODIES;
+                constexpr py::ssize_t NFCW = 6 * grid::NUM_CONTACT_FRAMES;
+                py::buffer_info       q_buf = q.request(), qd_buf = qd.request(), u_buf = u.request(), fc_buf = fc.request();
+                check_size(q_buf, (size_t)NQ, "q");
+                check_size(qd_buf, (size_t)NQ, "qd");
+                check_size(u_buf, (size_t)NQ, "u");
+                check_size(fc_buf, (size_t)NFCW, "fc");
+                std::vector<T> qdd(NQ), fext(FEXT), dfc(NQ * NFCW), dq(NQ * NQ), dq_corr(NQ * NQ);
+                solver_.debug_contact_dynamics(static_cast<T*>(q_buf.ptr), static_cast<T*>(qd_buf.ptr), static_cast<T*>(u_buf.ptr), static_cast<T*>(fc_buf.ptr),
+                                               qdd.data(), fext.data(), dfc.data(), dq.data(), dq_corr.data());
+                const py::ssize_t sT = (py::ssize_t)sizeof(T);
+                py::dict          out;
+                out["qdd"] = py::array_t<T>({NQ}, qdd.data());
+                out["fext"] = py::array_t<T>({FEXT}, fext.data());
+                out["dqdd_dfc"] = py::array_t<T>({NQ, NFCW}, {sT, NQ * sT}, dfc.data());
+                out["dqdd_dq"] = py::array_t<T>({NQ, NQ}, {sT, NQ * sT}, dq.data());
+                out["dqdd_dq_corr"] = py::array_t<T>({NQ, NQ}, {sT, NQ * sT}, dq_corr.data());
+                return out;
+#else
+                throw std::runtime_error("module generated without contact frames (GRID_HAS_CONTACT_FRAMES)");
+#endif
+        }
+
         py::array_t<T> get_lambda()
         {
                 const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
@@ -528,6 +568,7 @@ class PyBSQP {
             .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
             .def("reset_dual", &PyBSQP<Type>::reset_dual)                                                                                                                                          \
             .def("set_f_ext_batch", &PyBSQP<Type>::set_f_ext_batch)                                                                                                                                \
+            .def("set_f_ext_knot_batch", &PyBSQP<Type>::set_f_ext_knot_batch)                                                                                                                      \
             .def("set_rho_penalty_batch", &PyBSQP<Type>::set_rho_penalty_batch, py::arg("rho_batch"), py::arg("set_as_reset_default") = true)                                                      \
             .def("set_drho_batch", &PyBSQP<Type>::set_drho_batch, py::arg("drho_batch"), py::arg("set_as_reset_default") = true)                                                                   \
             .def("set_mu_batch", &PyBSQP<Type>::set_mu_batch)                                                                                                                                      \
@@ -541,6 +582,7 @@ class PyBSQP {
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
             .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
             .def("debug_setup_kkt", &PyBSQP<Type>::debug_setup_kkt)                                                                                                                                    \
+            .def("debug_contact_dynamics", &PyBSQP<Type>::debug_contact_dynamics, py::arg("q"), py::arg("qd"), py::arg("u"), py::arg("fc"))                                                             \
             .def("get_lambda", &PyBSQP<Type>::get_lambda)                                                                                                                                              \
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
@@ -570,7 +612,7 @@ class PyBSQP {
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
-        m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per solve
+        m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)
         m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)
         m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
 

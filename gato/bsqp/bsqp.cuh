@@ -19,6 +19,7 @@
 #include "kernels/merit.cuh"
 #include "kernels/line_search.cuh"
 #include "kernels/sim.cuh"
+#include "kernels/contact_debug.cuh"
 #include "rowgroups.cuh"
 #include "kernels/admm.cuh"
 
@@ -51,7 +52,27 @@ class BSQP {
 
         uint32_t batch_size() const { return batch_size_; }
 
-        void set_f_ext_batch(T* h_f_ext_batch) { gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_batch, 6 * grid::NUM_BODIES * batch_size_ * sizeof(T), cudaMemcpyHostToDevice)); }
+        // Per-SOLVE wrench upload (body-major 6*NUM_BODIES per solve), broadcast to
+        // every knot — the historic constant-over-horizon semantics.
+        void set_f_ext_batch(T* h_f_ext_batch)
+        {
+                constexpr size_t WPS = 6 * grid::NUM_BODIES;   // wrench elements per (solve, knot)
+                std::vector<T>   staged(WPS * KNOT_POINTS * batch_size_);
+                for (uint32_t b = 0; b < batch_size_; b++) {
+                        for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(staged.data() + (b * KNOT_POINTS + k) * WPS, h_f_ext_batch + b * WPS, WPS * sizeof(T)); }
+                }
+                gpuErrchk(cudaMemcpy(d_f_ext_batch_, staged.data(), staged.size() * sizeof(T), cudaMemcpyHostToDevice));
+        }
+
+        // Per-KNOT wrench upload: solve-major then knot-major, 6*NUM_BODIES per knot
+        // (layout matches getOffsetWrench). Wrench k applies to dynamics interval
+        // [k, k+1] (setup_kkt linearization + merit integrator error); sim_forward
+        // uses knot 0's wrench. CL-3 prep: forces-as-controls will write this band
+        // per-knot from the contact-wrench decision variables.
+        void set_f_ext_knot_batch(T* h_f_ext_knot_batch)
+        {
+                gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_knot_batch, 6 * grid::NUM_BODIES * KNOT_POINTS * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+        }
 
         // Hyperparameter setters (batched)
         void set_rho_penalty_batch(const T* h_rho_penalty_batch, bool set_as_reset_default = true)
@@ -574,6 +595,44 @@ class BSQP {
                 setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, d_f_ext_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
                 gpuErrchk(cudaDeviceSynchronize());
         }
+#ifdef GRID_HAS_CONTACT_FRAMES
+        // debug/oracle: evaluate the contact-wrench chain (CL-3 prep) at ONE
+        // (q, qd, u, f_c) sample — f_ext map, qdd, dqdd/dq at fixed f_ext, the
+        // composed dqdd/df_c (future B-block columns) and the dfext/dq chain
+        // correction. See kernels/contact_debug.cuh + test/test_f_ext.py.
+        void debug_contact_dynamics(const T* h_q, const T* h_qd, const T* h_u, const T* h_fc,
+                                    T* h_qdd, T* h_fext, T* h_dqdd_dfc, T* h_dqdd_dq, T* h_dqdd_dq_corr)
+        {
+                constexpr int NQ = gato::plant::NQ;
+                constexpr int FEXT = 6 * grid::NUM_BODIES;
+                constexpr int NFCW = 6 * grid::NUM_CONTACT_FRAMES;
+                constexpr int IN = 3 * NQ + NFCW;
+                constexpr int OUT = NQ + FEXT + NQ * NFCW + 2 * NQ * NQ;
+                T*            d_buf;
+                gpuErrchk(cudaMalloc(&d_buf, (IN + OUT) * sizeof(T)));
+                T* d_q = d_buf;
+                T* d_qd = d_q + NQ;
+                T* d_u = d_qd + NQ;
+                T* d_fc = d_u + NQ;
+                T* d_qdd = d_fc + NFCW;
+                T* d_fext = d_qdd + NQ;
+                T* d_dqdd_dfc = d_fext + FEXT;
+                T* d_dqdd_dq = d_dqdd_dfc + NQ * NFCW;
+                T* d_dqdd_dq_corr = d_dqdd_dq + NQ * NQ;
+                gpuErrchk(cudaMemcpy(d_q, h_q, NQ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_qd, h_qd, NQ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_u, h_u, NQ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_fc, h_fc, NFCW * sizeof(T), cudaMemcpyHostToDevice));
+                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr, d_q, d_qd, d_u, d_fc, d_GRiD_mem_);
+                gpuErrchk(cudaMemcpy(h_qdd, d_qdd, NQ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_fext, d_fext, FEXT * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_dqdd_dfc, d_dqdd_dfc, NQ * NFCW * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_dqdd_dq, d_dqdd_dq, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_dqdd_dq_corr, d_dqdd_dq_corr, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaFree(d_buf));
+        }
+#endif  // GRID_HAS_CONTACT_FRAMES
+
         void copy_kkt_blocks_to_host(T* h_Q, T* h_R, T* h_q, T* h_r)
         {
                 gpuErrchk(cudaMemcpy(h_Q, kkt_system_batch_.d_Q_batch, STATE_SQ_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
@@ -875,8 +934,8 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_rho_penalty_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_drho_batch_, BT));
 
-                gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * grid::NUM_BODIES * BT));
-                gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * grid::NUM_BODIES * BT));
+                gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
+                gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
 
                 // Batched hyperparameters
                 gpuErrchk(cudaMalloc(&d_mu_batch_, BT));

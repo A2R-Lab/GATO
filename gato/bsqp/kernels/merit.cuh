@@ -73,7 +73,7 @@ __global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_partial_
         T* d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
         T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx);
         T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
-        T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx);
+        T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
         // line-search trial step: s_xux_k = d_xu_k + alpha * d_dz_k (axpby z = 1*x + alpha*y)
         if (knot_idx == KNOT_POINTS - 1) {

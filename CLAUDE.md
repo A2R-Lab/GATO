@@ -53,6 +53,14 @@ kernels (all in `gato/bsqp/kernels/`):
    `compute_integrator_error`), pick a step.
 6. **`sim.cuh`** — roll the chosen control forward (`grid_plant::sim_step`).
 
+External wrenches are a per-(solve, **knot**) band since 2026-08-01 (`d_f_ext_batch_`,
+body-major 6·NUM_BODIES per knot; wrench k applies to dynamics interval [k, k+1],
+`sim_forward` uses knot 0). `set_f_ext_B` accepts the historic per-solve shapes
+(broadcast over knots, bit-identical to the old behavior) and per-knot `(B, N, ...)`
+arrays. CL-3 prep: `kernels/contact_debug.cuh` + `debug_contact_dynamics` expose the
+contact-frame chain (f_c → f_ext, dqdd/df_c B-block columns, the dfext/dq A-block
+chain correction), FD-gated in `test/test_f_ext.py`.
+
 `gato/utils/linalg.cuh` keeps only GATO-specific helpers: `block::reduce` (kept — several
 consumers), the `getOffset*` batch-layout accessors, and printers. All other `block::` linalg was
 migrated to `glass::`.
