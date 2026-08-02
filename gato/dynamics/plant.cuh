@@ -29,6 +29,24 @@ namespace plant {
         inline constexpr int XIMATS_COUNT = 72 * grid::NUM_JOINTS; // X + I (6x6 each) per joint
         inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES; // v, a, f (6 each) per body
 
+#if GATO_CONTACT_FORCES
+    #if USE_EXACT_HESSIAN
+        #error "GATO_CONTACT_FORCES x USE_EXACT_HESSIAN unsupported (fdsva_so is not fc-aware; W2+ item)"
+    #endif
+        // CL-3a: NU stays the ACTUATED width (the generated grid_plant cost code is
+        // NU-wide); gato::constants::CONTROL_SIZE = NU + FC is the solver-facing width.
+        inline constexpr int FC         = 6 * grid::NUM_CONTACT_FRAMES; // wrench slots appended to u
+        inline constexpr int FEXT_COUNT = 6 * grid::NUM_BODIES;         // per-body wrench array
+        // Persistent fc scratch APPENDED after the FD/FD_DU arenas (inner-call scratch
+        // reuses the existing temp region — ID-gradient's need is the high-water mark):
+        // XmatsHom + fext + dtau_dfext + dfext_dfc + dtau_dfc.
+        inline constexpr int FC_PERSIST_COUNT =
+            grid::XHOM_T_COUNT + FEXT_COUNT + NQ * FEXT_COUNT + FEXT_COUNT * FC + NQ * FC;
+#else
+        inline constexpr int FC = 0;
+        inline constexpr int FC_PERSIST_COUNT = 0;
+#endif
+
         template<class T>
         __host__ __device__ constexpr T PI()
         {
@@ -99,6 +117,33 @@ namespace plant {
                 cudaFree((grid::robotModel<T>*)d_dynMem_const);
         }
 
+#if GATO_CONTACT_FORCES
+        // CL-3a: map the per-knot contact wrench decision variables (the fc tail of the
+        // control slice, world-aligned [n; f] per contact frame) to the body-major
+        // per-body wrench array the dynamics inners consume, ADDING the known external
+        // band (P4.6 d_f_ext) if present. s_fc_scratch layout: XmatsHom | fext | temp
+        // (temp = the caller's ordinary scratch region, reused sequentially — safe:
+        // strictly-ordered inner calls, same pattern as contact_debug.cuh).
+        template<typename T>
+        __device__ void buildContactFext(T* s_fext, const T* s_fc, const T* s_q,
+                                         T* s_XmatsHom, T* s_temp,
+                                         grid::robotModel<T>* d_robotModel, const T* d_f_ext_band)
+        {
+                int* s_topology_helpers = nullptr;
+                grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                __syncthreads();
+                grid::f_ext_body_inner<T>(s_fext, s_fc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
+                                          /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                __syncthreads();
+                if (d_f_ext_band != nullptr) {
+                        for (int i = threadIdx.x + threadIdx.y * blockDim.x; i < FEXT_COUNT; i += blockDim.x * blockDim.y) {
+                                s_fext[i] += d_f_ext_band[i];
+                        }
+                        __syncthreads();
+                }
+        }
+#endif
+
         template<typename T>
         __device__ void forwardDynamics(T* s_qdd, T* s_q, T* s_qd, T* s_u, T* s_XITemp, void* d_dynMem_const, T* d_f_ext = nullptr)
         {
@@ -107,6 +152,16 @@ namespace plant {
                 int* s_topology_helpers = nullptr;
                 T* s_XImats = s_XITemp;
                 T* s_temp = &s_XITemp[XIMATS_COUNT];
+#if GATO_CONTACT_FORCES
+                // fc persistent block = the appended region AFTER the grid FD arena, so
+                // s_temp keeps its usual extent in front of it (TempMemSize grew by
+                // FC_PERSIST_COUNT below).
+                T* s_XmatsHom = &s_XITemp[grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT];
+                T* s_fext = s_XmatsHom + grid::XHOM_T_COUNT;
+                buildContactFext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp,
+                                    (grid::robotModel<T>*)d_dynMem_const, d_f_ext);
+                d_f_ext = s_fext;
+#endif
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, (grid::robotModel<T>*)d_dynMem_const, s_temp);
                 __syncthreads();
 
@@ -118,7 +173,7 @@ namespace plant {
 
         __host__ __device__ constexpr unsigned forwardDynamics_TempMemSize_Shared()
         {
-                return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT;
+                return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
         }
 
         template<typename T, bool INCLUDE_DU = true>
@@ -133,6 +188,18 @@ namespace plant {
                 T* s_dc_du = &s_vaf[VAF_COUNT];
                 T* s_Minv = &s_dc_du[2 * NQ * NQ];
                 T* s_temp = &s_Minv[NQ * NQ];
+#if GATO_CONTACT_FORCES
+                // fc persistent block = the appended region after the grid FD_DU arena
+                // (TempMemSize grew by FC_PERSIST_COUNT). Inner-call scratch reuses s_temp
+                // sequentially — the ID-gradient's need is the region's high-water mark.
+                T* s_XmatsHom   = &s_XITemp[grid::FD_DU_MAX_SHARED_MEM_COUNT];
+                T* s_fext       = s_XmatsHom + grid::XHOM_T_COUNT;
+                T* s_dtau_dfext = s_fext + FEXT_COUNT;            // NQ x 6NB, [v + NQ*(6i+r)]
+                T* s_dfext_dfc  = s_dtau_dfext + NQ * FEXT_COUNT; // 6NB x FC, [row + 6NB*col]
+                T* s_dtau_dfc   = s_dfext_dfc + FEXT_COUNT * FC;  // NQ x FC,  [k + NQ*c]
+                buildContactFext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, d_robotModel, d_f_ext);
+                d_f_ext = s_fext;
+#endif
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
                 // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 grid::minv_inner<T>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, /*d_workspace*/nullptr);
@@ -164,11 +231,48 @@ namespace plant {
                         }
                 }
                 __syncthreads();
+#if GATO_CONTACT_FORCES
+                // CL-3a: append dqdd/dfc = dqdd_dfext @ dfext_dfc = -Minv @ (dtau_dfext @ dfext_dfc)
+                // as CONTROL columns NU..NU+FC-1 of s_df_du (offset 3NQ^2, [c*NQ + r]) — the
+                // integrator gradient already iterates CONTROL_SIZE columns and consumes them
+                // as B's fc columns with no further changes. Reference composition:
+                // grid::f_ext_gradient_device (dqdd_dfext = -Minv @ dtau_dfext).
+                if (INCLUDE_DU) {
+                        const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                        const int nth = blockDim.x * blockDim.y;
+                        // ID gradient is done -> s_temp is free scratch again; XImats/XmatsHom still live.
+                        grid::f_ext_gradient_jacobianT_inner<T>(s_dtau_dfext, s_q, s_XImats, s_topology_helpers, s_temp);
+                        __syncthreads();
+                        grid::f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
+                                                               /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                        __syncthreads();
+                        for (int ind = tid; ind < NQ * FC; ind += nth) {  // dtau_dfc = dtau_dfext @ dfext_dfc
+                                int k = ind % NQ; int c = ind / NQ;
+                                T acc = static_cast<T>(0);
+                                for (int i = 0; i < FEXT_COUNT; i++) {
+                                        acc += s_dtau_dfext[k + NQ * i] * s_dfext_dfc[i + FEXT_COUNT * c];
+                                }
+                                s_dtau_dfc[ind] = acc;
+                        }
+                        __syncthreads();
+                        for (int ind = tid; ind < NQ * FC; ind += nth) {  // -Minv (sym-upper) @ dtau_dfc
+                                int r = ind % NQ; int c = ind / NQ;
+                                T val = static_cast<T>(0);
+#pragma unroll
+                                for (int col = 0; col < NQ; col++) {
+                                        int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
+                                        val += s_Minv[index] * s_dtau_dfc[c * NQ + col];
+                                }
+                                s_df_du[3 * NQ * NQ + ind] = -val;
+                        }
+                        __syncthreads();
+                }
+#endif
         }
 
         __host__ __device__ constexpr unsigned forwardDynamicsAndGradient_TempMemSize_Shared()
         {
-                return grid::FD_DU_MAX_SHARED_MEM_COUNT;
+                return grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
         }
 
 #if USE_EXACT_HESSIAN
