@@ -262,7 +262,16 @@ class PyBSQP {
         // LIN_U row-group append (CL-2): C is (m, NU); d/lo/hi length m (d may be
         // empty -> zero offset; lo/hi ignored for cone rows). mech is the
         // rows::Mechanism enum value (0 telemetry, 1 barrier, 2 admm, 3 al).
-        void add_lin_u_group(int32_t mech, py::array_t<T> C, py::array_t<T> d, py::array_t<T> lo, py::array_t<T> hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters, bool equilibrate)
+        // c_style|forcecast: the host consumes .ptr as a dense buffer, so pybind MUST
+        // deliver a contiguous copy for strided inputs (a 0-stride np.broadcast_to
+        // view passed as lo/hi read 1 valid element + heap garbage as bounds —
+        // per-process-constant corruption, found 2026-08-02 via the fc-pin flake)
+        void add_lin_u_group(int32_t mech,
+                             py::array_t<T, py::array::c_style | py::array::forcecast> C,
+                             py::array_t<T, py::array::c_style | py::array::forcecast> d,
+                             py::array_t<T, py::array::c_style | py::array::forcecast> lo,
+                             py::array_t<T, py::array::c_style | py::array::forcecast> hi,
+                             bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters, bool equilibrate)
         {
                 py::buffer_info bC = C.request();
                 if (bC.ndim != 2 || bC.shape[1] != (py::ssize_t)CONTROL_SIZE) { throw py::value_error("add_lin_u_group: C must be (m, " + std::to_string(CONTROL_SIZE) + ")"); }
@@ -448,8 +457,9 @@ class PyBSQP {
                 check_size(u_buf, (size_t)NQ, "u");
                 check_size(fc_buf, (size_t)NFCW, "fc");
                 std::vector<T> qdd(NQ), fext(FEXT), dfc(NQ * NFCW), dq(NQ * NQ), dq_corr(NQ * NQ);
+                std::vector<T> dfc_adapter(NQ * NFCW);
                 solver_.debug_contact_dynamics(static_cast<T*>(q_buf.ptr), static_cast<T*>(qd_buf.ptr), static_cast<T*>(u_buf.ptr), static_cast<T*>(fc_buf.ptr),
-                                               qdd.data(), fext.data(), dfc.data(), dq.data(), dq_corr.data());
+                                               qdd.data(), fext.data(), dfc.data(), dq.data(), dq_corr.data(), dfc_adapter.data());
                 const py::ssize_t sT = (py::ssize_t)sizeof(T);
                 py::dict          out;
                 out["qdd"] = py::array_t<T>({NQ}, qdd.data());
@@ -457,6 +467,11 @@ class PyBSQP {
                 out["dqdd_dfc"] = py::array_t<T>({NQ, NFCW}, {sT, NQ * sT}, dfc.data());
                 out["dqdd_dq"] = py::array_t<T>({NQ, NQ}, {sT, NQ * sT}, dq.data());
                 out["dqdd_dq_corr"] = py::array_t<T>({NQ, NQ}, {sT, NQ * sT}, dq_corr.data());
+#if GATO_CONTACT_FORCES
+                // the ADAPTER's B-block fc columns (fc-build gate: same math as
+                // dqdd_dfc through the solver's in-adapter code path)
+                out["dqdd_dfc_adapter"] = py::array_t<T>({NQ, NFCW}, {sT, NQ * sT}, dfc_adapter.data());
+#endif
                 return out;
 #else
                 throw std::runtime_error("module generated without contact frames (GRID_HAS_CONTACT_FRAMES)");
@@ -628,6 +643,11 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)
         m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)
         m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
+        // control layout (CL-3a): CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE; FC_SIZE > 0
+        // only on GATO_CONTACT_FORCES builds (fc wrench slots appended after torques)
+        m.attr("CONTROL_SIZE") = gato::constants::CONTROL_SIZE;
+        m.attr("ACTUATED_SIZE") = gato::constants::ACTUATED_SIZE;
+        m.attr("FC_SIZE") = gato::constants::FC_SIZE;
 
 #ifdef USE_DOUBLES
         REGISTER_BSQP_CLASS(double);

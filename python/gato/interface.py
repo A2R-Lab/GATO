@@ -75,26 +75,51 @@ class SolveResult:
     solve_time_us: int
     stats: SolverStats
     nx: int
-    nu: int
+    nu: int                     # full control width (== n_actuated + n_fc)
     N: int
+    # On GATO_CONTACT_FORCES builds the control is [tau; fc] and only the first
+    # n_actuated entries are torques an MPC applies; fc is the solver's contact
+    # explanation. 0 = legacy default (all of nu is actuated).
+    n_actuated: int = 0
 
     @property
     def batch_size(self):
         return self.xu.shape[0]
+
+    @property
+    def _na(self):
+        return self.n_actuated or self.nu
+
+    @property
+    def n_fc(self):
+        return self.nu - self._na
 
     def xu_b(self, b=0):
         """Trajectory of batch entry b (flat)."""
         return self.xu[b]
 
     def u0(self, b=0):
-        """First control of batch entry b — what an MPC applies."""
-        return self.xu[b, self.nx:self.nx + self.nu]
+        """First ACTUATED control of batch entry b — what an MPC applies
+        (contact-force slots, if any, are excluded)."""
+        return self.xu[b, self.nx:self.nx + self._na]
 
     def control_at(self, k, b=0):
-        """Control at knot k (clamped to the last control knot) of batch entry b."""
+        """Actuated control at knot k (clamped to the last control knot) of batch
+        entry b (contact-force slots, if any, are excluded)."""
         k = min(int(k), self.N - 2)  # last knot has no control
         start = self.nx + (self.nx + self.nu) * k
-        return self.xu[b, start:start + self.nu]
+        return self.xu[b, start:start + self._na]
+
+    def fc_at(self, k, b=0):
+        """Contact-wrench slots at knot k of batch entry b ((n_fc,); empty on
+        non-contact-force builds)."""
+        k = min(int(k), self.N - 2)
+        start = self.nx + (self.nx + self.nu) * k + self._na
+        return self.xu[b, start:start + self.n_fc]
+
+    def fc_traj(self, b=0):
+        """(N-1, n_fc) contact-wrench trajectory of batch entry b."""
+        return np.stack([self.fc_at(k, b) for k in range(self.N - 1)])
 
     @property
     def diverged(self):
@@ -224,7 +249,12 @@ class BSQP:
         self.set_f_ext_B(self.f_ext_B)
 
         self.nx = self.model.nq + self.model.nv
-        self.nu = self.model.nv
+        # Control width comes from the MODULE: on GATO_CONTACT_FORCES builds
+        # CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE (contact-wrench slots appended
+        # after the torques), so nu > nv and every xu stride follows it.
+        self.n_actuated = int(getattr(base, "ACTUATED_SIZE", self.model.nv))
+        self.n_fc = int(getattr(base, "FC_SIZE", 0))
+        self.nu = int(getattr(base, "CONTROL_SIZE", self.model.nv))
         self.nq = self.model.nq
         self.nv = self.model.nv
 
@@ -350,7 +380,8 @@ class BSQP:
                          if "admm_r_dual" in raw else None),
         )
         return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
-                           stats=stats, nx=self.nx, nu=self.nu, N=self.N)
+                           stats=stats, nx=self.nx, nu=self.nu, N=self.N,
+                           n_actuated=self.n_actuated)
 
     # rows::Mechanism enum values (rowgroups.cuh)
     _MECHS = {"telemetry": 0, "barrier": 1, "admm": 2, "al": 3}
@@ -573,21 +604,46 @@ class BSQP:
             raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
         if rho is None:
             rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 0.01, "al": 1.0}[mech]
-        d = np.asarray([] if d is None else d, dtype=np.float32).reshape(-1)
+        # ascontiguousarray: the binding consumes raw .ptr buffers — a strided view
+        # (e.g. np.broadcast_to) must be densified here (belt; the binding also
+        # forces c_style since 2026-08-02)
+        d = np.ascontiguousarray(np.asarray([] if d is None else d,
+                                            dtype=np.float32).reshape(-1))
         if cone:
             lo_a = np.asarray([], dtype=np.float32)
             hi_a = np.asarray([], dtype=np.float32)
         else:
             if lo is None or hi is None:
                 raise ValueError("interval LIN_U rows need lo and hi (length m)")
-            lo_a = np.asarray(lo, dtype=np.float32).reshape(m)
-            hi_a = np.asarray(hi, dtype=np.float32).reshape(m)
+            lo_a = np.ascontiguousarray(np.asarray(lo, dtype=np.float32).reshape(m))
+            hi_a = np.ascontiguousarray(np.asarray(hi, dtype=np.float32).reshape(m))
         if knot_hi is None:
             knot_hi = self.N - 1  # no terminal control
         self.solver.add_lin_u_group(self._MECHS[mech], C, d, lo_a, hi_a,
                                     bool(cone), float(rho), float(delta),
                                     float(sigma), int(knot_lo), int(knot_hi),
                                     int(admm_iters), bool(equilibrate))
+
+    def add_fc_box(self, lo, hi, slots=None, **kw):
+        """Box rows on contact-force slots (GATO_CONTACT_FORCES builds only):
+        selection LIN_U rows on control columns n_actuated+slots. ``slots``
+        indexes into the fc block (default: all n_fc slots); lo/hi broadcast.
+        Pin the wrench torque rows of a point contact with
+        ``add_fc_box(0, 0, slots=range(3))`` (wrench layout is [n; f]).
+        Extra kwargs go to add_lin_u_rows (mech/rho/knot range/...)."""
+        if self.n_fc == 0:
+            raise RuntimeError("add_fc_box needs a GATO_CONTACT_FORCES build "
+                               "(this module has no fc slots)")
+        slots = list(range(self.n_fc)) if slots is None else list(slots)
+        if any(s < 0 or s >= self.n_fc for s in slots):
+            raise ValueError(f"fc slots must be in [0, {self.n_fc}); got {slots}")
+        m = len(slots)
+        C = np.zeros((m, self.nu), dtype=np.float32)
+        for i, s in enumerate(slots):
+            C[i, self.n_actuated + s] = 1.0
+        lo_a = np.full(m, lo, dtype=np.float32) if np.ndim(lo) == 0 else np.asarray(lo, dtype=np.float32)
+        hi_a = np.full(m, hi, dtype=np.float32) if np.ndim(hi) == 0 else np.asarray(hi, dtype=np.float32)
+        return self.add_lin_u_rows(C, lo=lo_a, hi=hi_a, **kw)
 
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):
@@ -729,7 +785,11 @@ class BSQP:
 
     def set_fc_cost(self, weight):
         """Contact-force regularization 0.5*weight*||f_c||^2 per knot (GATO_CONTACT_FORCES
-        modules only — the fc slots appended to every control; inert on default builds)."""
+        modules only — the fc slots appended to every control; inert on default builds).
+        Default on fc builds is 1e-2, NOT 0: unregularized fc is a free 6-DoF wrench
+        actuator and the solve destabilizes (1e-3 is already marginal — measured
+        2026-08-02). Use large weights (~1e6) to effectively pin fc to zero, or 0
+        only together with fc box rows (add_fc_box)."""
         self.solver.set_fc_cost(float(weight))
 
     def set_cost_weights_per_knot(self, knot_weights):

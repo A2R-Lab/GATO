@@ -174,3 +174,84 @@ def test_wrong_per_knot_shape_raises(make_solver, smallest_module):
         s.set_f_ext_B(np.zeros((2, N + 1, 6), dtype=np.float32))
     with pytest.raises(ValueError):
         s.set_f_ext_B(np.zeros((2, N, 5), dtype=np.float32))
+
+
+# ---------------------------------------------------------------------------
+# CL-3a contact-force builds (GATO_CONTACT_FORCES=1): the contact wrench f_c is
+# the tail of every control (CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE). These
+# gates SKIP on default builds (n_fc == 0) — run the suite against the
+# build_fc modules (.so-swap) to engage them.
+# ---------------------------------------------------------------------------
+
+def _fc_solver(make_solver, smallest_module, B=1, **kw):
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=B, **kw)
+    if s.n_fc == 0:
+        pytest.skip("default build (no fc slots) — run against build_fc modules")
+    return plant, N, s
+
+
+def test_fc_adapter_matches_oracle(make_solver, smallest_module):
+    """The ADAPTER's B-block fc columns (the solver's in-plant composition) ==
+    the oracle composition (independent *_device path). Same math, different
+    code path — catches wiring/offset/scratch bugs in the hot path."""
+    plant, N, s = _fc_solver(make_solver, smallest_module)
+    q, qd, u, fc = _contact_sample(s, seed=13)
+    d = s.solver.debug_contact_dynamics(q, qd, u, fc)
+    assert "dqdd_dfc_adapter" in d
+    oracle = np.asarray(d["dqdd_dfc"], dtype=np.float64)
+    adapter = np.asarray(d["dqdd_dfc_adapter"], dtype=np.float64)
+    scale = max(1.0, np.abs(oracle).max())
+    np.testing.assert_allclose(adapter, oracle, rtol=1e-4, atol=1e-5 * scale)
+
+
+def test_fc_solve_finite_deterministic(make_solver, smallest_module):
+    """fc-build solve with regularized fc slots: finite, run-twice bitwise,
+    and fc_traj has the fc-build shape."""
+    plant, N = smallest_module
+    xus = []
+    for _ in range(2):
+        s = make_solver(plant, N, batch_size=2)
+        if s.n_fc == 0:
+            pytest.skip("default build (no fc slots) — run against build_fc modules")
+        s.set_fc_cost(1e-3)
+        X, goals = _inputs(plant, N, B=2)
+        r = s.solve(X, goals)
+        assert np.isfinite(r.xu).all()
+        assert r.fc_traj(0).shape == (N - 1, s.n_fc)
+        xus.append(np.asarray(r.xu).copy())
+    np.testing.assert_array_equal(xus[0], xus[1])
+
+
+def test_lin_u_rows_strided_input_roundtrip(make_solver, smallest_module):
+    """REGRESSION (2026-08-02): a 0-stride np.broadcast_to view passed as lo/hi
+    reached the binding's raw .ptr read — 1 valid element + heap garbage became
+    per-process-random bounds (the fc-pin nondeterminism). The device-side group
+    descriptor must round-trip exactly for strided inputs. Build-agnostic."""
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    m = s.nu
+    C = np.eye(m, dtype=np.float32)
+    s.add_lin_u_rows(C, lo=np.broadcast_to(np.float32(-3.5), (m,)),
+                     hi=np.broadcast_to(np.float32(7.25), (m,)), mech="al")
+    g = s.solver.get_row_groups()[-1]
+    np.testing.assert_array_equal(np.asarray(g["lo"]), np.full(m, -3.5, np.float32))
+    np.testing.assert_array_equal(np.asarray(g["hi"]), np.full(m, 7.25, np.float32))
+    np.testing.assert_array_equal(np.asarray(g["C"]), C)
+
+
+def test_fc_box_pin_zeroes_fc(make_solver, smallest_module):
+    """LIN_U box rows [0,0] on all fc slots (AL mech) pin the wrench to ~0:
+    the fc build with pinned fc must behave like a plain solver."""
+    plant, N, s = _fc_solver(make_solver, smallest_module)
+    s.set_fc_cost(1e-4)
+    s.enable_limit_al()
+    s.add_fc_box(0.0, 0.0, mech="al")
+    g = s.solver.get_row_groups()[-1]
+    np.testing.assert_array_equal(np.asarray(g["lo"]), np.zeros(s.n_fc, np.float32))
+    np.testing.assert_array_equal(np.asarray(g["hi"]), np.zeros(s.n_fc, np.float32))
+    X, goals = _inputs(plant, N, B=1)
+    r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    fc = r.fc_traj(0)
+    assert np.abs(fc).max() < 5e-2, f"pinned fc leaked: max|fc|={np.abs(fc).max()}"
