@@ -61,6 +61,19 @@ arrays. CL-3 prep: `kernels/contact_debug.cuh` + `debug_contact_dynamics` expose
 contact-frame chain (f_c → f_ext, dqdd/df_c B-block columns, the dfext/dq A-block
 chain correction), FD-gated in `test/test_f_ext.py`.
 
+**Contact-force builds (CL-3a)**: `-DGATO_CONTACT_FORCES=ON` grows the control to
+`CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE` (FC_SIZE = 6·NUM_CONTACT_FRAMES wrench slots
+[n; f], world-aligned at the baked contact frame); the fc tail feeds `f_ext_body` into
+the dynamics and the B-block gains the dqdd/dfc columns. Default builds are
+preprocessor-identical (bitwise). Build to a separate dir (`build_fc/`, the build_eh
+pattern) — modules bake the flag. Python reads the module attrs CONTROL_SIZE/
+ACTUATED_SIZE/FC_SIZE: `SolveResult.u0/control_at` return ACTUATED control only,
+`fc_at/fc_traj` the wrench slots; `add_fc_box` pins/caps fc slots via LIN_U rows.
+⚠ fc_cost defaults to 1e-2 on fc builds — 0 makes fc a free wrench actuator and the
+solve destabilizes (pin with fc_cost≈1e6 or box rows instead). ⚠ Cross-build
+comparisons must not add AL rows to only one arm: ANY AL group freezes trust-region
+adaptation and legitimately changes the trajectory.
+
 `gato/utils/linalg.cuh` keeps only GATO-specific helpers: `block::reduce` (kept — several
 consumers), the `getOffset*` batch-layout accessors, and printers. All other `block::` linalg was
 migrated to `glass::`.

@@ -41,7 +41,9 @@ constexpr uint32_t MAX_ROWS_PER_GROUP = constants::STATE_SIZE;
 enum Kind : int32_t {
         BOX_Q = 0,   // g_i = q_i      (block X, rows = NQ)
         BOX_QD = 1,  // g_i = qd_i     (block X, rows = NQ)
-        BOX_U = 2,   // g_i = u_i      (block U, rows = NU; no terminal control)
+        BOX_U = 2,   // g_i = u_i      (block U, rows = ACTUATED_SIZE — the URDF torque
+                     // limits; fc slots (contact-force builds) have no table row and
+                     // are bounded via user LIN_U rows instead; no terminal control)
         EE_POS = 3,  // g_i = ee_pos_i(q_k), i < 3 (block X; equality when lo == hi).
                      // NOT a selection row: needs a block-COOPERATIVE FK eval
                      // (gato::plant::eePos[Grad]) — handled at dedicated sites,
@@ -1048,7 +1050,9 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         constexpr int32_t NQ = constants::STATE_SIZE / 2;
-        constexpr int32_t NU = constants::CONTROL_SIZE;
+        // CTRL_LIMITS has ACTUATED_SIZE rows — on contact-force builds
+        // (CONTROL_SIZE > ACTUATED_SIZE) the fc slots have no limit table row.
+        constexpr int32_t NA = constants::ACTUATED_SIZE;
 
         if (rank == 0) {
                 // State boxes start at knot 1: x_0 is DATA (pinned to the
@@ -1072,7 +1076,7 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
 
                 d_groups[2].kind = BOX_U;
                 d_groups[2].block = BLOCK_U;
-                d_groups[2].n_rows = NU;
+                d_groups[2].n_rows = NA;
                 d_groups[2].knot_lo = 0;
                 d_groups[2].knot_hi = KNOT_POINTS - 1;
 
@@ -1090,7 +1094,7 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
                 d_groups[1].lo[i] = gato::plant::VEL_LIMITS<T>()[i][0];
                 d_groups[1].hi[i] = gato::plant::VEL_LIMITS<T>()[i][1];
         }
-        for (int32_t i = rank; i < NU; i += size) {
+        for (int32_t i = rank; i < NA; i += size) {
                 d_groups[2].lo[i] = gato::plant::CTRL_LIMITS<T>()[i][0];
                 d_groups[2].hi[i] = gato::plant::CTRL_LIMITS<T>()[i][1];
         }

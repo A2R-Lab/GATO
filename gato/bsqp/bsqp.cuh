@@ -34,7 +34,7 @@ class BSQP {
         explicit BSQP(uint32_t batch_size)
             : batch_size_(batch_size), dt_(0.01), max_sqp_iters_(5), kkt_tol_(0.0001), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0),
               q_cost_(1.0), qd_cost_(1e-3), u_cost_(1e-6), N_cost_(50.0), q_lim_cost_(1e-3), vel_lim_cost_(0.0), ctrl_lim_cost_(0.0),
-              q_pos_cost_(0.0), fc_cost_(0.0),
+              q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)),
               rho_(1e-3), adapt_rho_(true)
         {
                 allocateMemory();
@@ -43,7 +43,7 @@ class BSQP {
 
         BSQP(uint32_t batch_size, T dt, uint32_t max_sqp_iters, T kkt_tol, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
             : batch_size_(batch_size), dt_(dt), max_sqp_iters_(max_sqp_iters), kkt_tol_(kkt_tol), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
-              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), q_pos_cost_(0.0), fc_cost_(0.0), rho_(rho), adapt_rho_(true)
+              u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)), rho_(rho), adapt_rho_(true)
         {
                 allocateMemory();
                 initBatchedHyperparams();
@@ -577,6 +577,10 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(d_q_nom_, h_q_nom, grid::NUM_JOINTS * sizeof(T), cudaMemcpyHostToDevice));
         }
         // Contact-force regularization weight (GATO_CONTACT_FORCES builds; inert otherwise).
+        // fc builds default to 1e-2 (ctor): fc_cost = 0 makes the fc slots a FREE
+        // 6-DoF wrench actuator — the reach problem is unbounded-below-ish and the
+        // solve destabilizes (measured 2026-08-02: 1e-3 marginal/NaN-merit,
+        // >= 1e-2 sane). 0 is allowed but you must bound fc another way (box rows).
         void set_fc_cost(T w) { fc_cost_ = w; }
 
         // per-knot [ee, qd, u] weight triples (KNOT_POINTS x 3, knot-major); overrides the
@@ -619,13 +623,14 @@ class BSQP {
         // composed dqdd/df_c (future B-block columns) and the dfext/dq chain
         // correction. See kernels/contact_debug.cuh + test/test_f_ext.py.
         void debug_contact_dynamics(const T* h_q, const T* h_qd, const T* h_u, const T* h_fc,
-                                    T* h_qdd, T* h_fext, T* h_dqdd_dfc, T* h_dqdd_dq, T* h_dqdd_dq_corr)
+                                    T* h_qdd, T* h_fext, T* h_dqdd_dfc, T* h_dqdd_dq, T* h_dqdd_dq_corr,
+                                    T* h_dqdd_dfc_adapter = nullptr)
         {
                 constexpr int NQ = gato::plant::NQ;
                 constexpr int FEXT = 6 * grid::NUM_BODIES;
                 constexpr int NFCW = 6 * grid::NUM_CONTACT_FRAMES;
                 constexpr int IN = 3 * NQ + NFCW;
-                constexpr int OUT = NQ + FEXT + NQ * NFCW + 2 * NQ * NQ;
+                constexpr int OUT = NQ + FEXT + 2 * NQ * NFCW + 2 * NQ * NQ;
                 T*            d_buf;
                 gpuErrchk(cudaMalloc(&d_buf, (IN + OUT) * sizeof(T)));
                 T* d_q = d_buf;
@@ -637,16 +642,21 @@ class BSQP {
                 T* d_dqdd_dfc = d_fext + FEXT;
                 T* d_dqdd_dq = d_dqdd_dfc + NQ * NFCW;
                 T* d_dqdd_dq_corr = d_dqdd_dq + NQ * NQ;
+                T* d_dqdd_dfc_adapter = d_dqdd_dq_corr + NQ * NQ;
                 gpuErrchk(cudaMemcpy(d_q, h_q, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_qd, h_qd, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_u, h_u, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_fc, h_fc, NFCW * sizeof(T), cudaMemcpyHostToDevice));
-                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr, d_q, d_qd, d_u, d_fc, d_GRiD_mem_);
+                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr, d_dqdd_dfc_adapter,
+                                              d_q, d_qd, d_u, d_fc, d_GRiD_mem_);
                 gpuErrchk(cudaMemcpy(h_qdd, d_qdd, NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_fext, d_fext, FEXT * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_dqdd_dfc, d_dqdd_dfc, NQ * NFCW * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_dqdd_dq, d_dqdd_dq, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_dqdd_dq_corr, d_dqdd_dq_corr, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
+                if (h_dqdd_dfc_adapter != nullptr) {
+                        gpuErrchk(cudaMemcpy(h_dqdd_dfc_adapter, d_dqdd_dfc_adapter, NQ * NFCW * sizeof(T), cudaMemcpyDeviceToHost));
+                }
                 gpuErrchk(cudaFree(d_buf));
         }
 #endif  // GRID_HAS_CONTACT_FRAMES

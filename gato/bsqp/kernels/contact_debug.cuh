@@ -33,9 +33,11 @@ namespace gato {
 template<typename T>
 __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
                                            T*       d_fext,         // 6*NUM_BODIES
-                                           T*       d_dqdd_dfc,     // NQ x 6*NFC col-major
+                                           T*       d_dqdd_dfc,     // NQ x 6*NFC col-major (oracle composition)
                                            T*       d_dqdd_dq,      // NQ x NQ col-major (f_ext held FIXED)
                                            T*       d_dqdd_dq_corr, // NQ x NQ col-major (the dfext/dq chain term)
+                                           T*       d_dqdd_dfc_adapter, // NQ x 6*NFC (ADAPTER's B-block fc
+                                                                        // columns; written on fc builds only)
                                            const T* d_q,
                                            const T* d_qd,
                                            const T* d_u,
@@ -49,10 +51,14 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
 
         const grid::robotModel<T>* d_robotModel = (const grid::robotModel<T>*)d_GRiD_mem;
 
-        __shared__ T s_q[NQ], s_qd[NQ], s_u[NQ], s_fc[6 * NFC];
+        // On GATO_CONTACT_FORCES builds the adapter reads fc as the control tail
+        // (s_u[NQ..)) and appends its dqdd/dfc block at s_df_du[3*NQ*NQ..) — size
+        // both for the wide layout unconditionally (debug kernel; smem is cheap).
+        __shared__ T s_q[NQ], s_qd[NQ], s_fc[6 * NFC];
+        __shared__ T s_u[NQ + 6 * NFC];
         __shared__ T s_fext[FEXT];
         __shared__ T s_qdd[NQ];
-        __shared__ T s_df_du[3 * NQ * NQ];              // [dq | dqd | Minv] blocks
+        __shared__ T s_df_du[3 * NQ * NQ + NQ * 6 * NFC]; // [dq | dqd | Minv | dfc(fc builds)]
         __shared__ T s_dtau_dfext[NQ * FEXT];           // -J^T, col-major [v + NQ*(6b+k)]
         __shared__ T s_dqdd_dfext[NQ * FEXT];           // Minv J^T, same layout
         __shared__ T s_dfext_dfc[FEXT * 6 * NFC];       // col-major [row + FEXT*col]
@@ -70,8 +76,17 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
         grid::f_ext_body_device<T>(s_fext, s_fc, s_q, d_robotModel);
         __syncthreads();
 
+#if GATO_CONTACT_FORCES
+        // fc build: hand fc to the ADAPTER as the control tail and let it map the
+        // wrench itself (band = nullptr) — same f_ext as the oracle's, and its
+        // dqdd/dfc block lands at s_df_du[3*NQ*NQ..) for the adapter-vs-oracle gate.
+        for (int i = tid; i < 6 * NFC; i += nth) { s_u[NQ + i] = s_fc[i]; }
+        __syncthreads();
+        gato::plant::forwardDynamicsAndGradient<T, true>(s_df_du, s_qdd, s_q, s_qd, s_u, s_scratch, (void*)d_robotModel, nullptr);
+#else
         // qdd + dqdd/d[q,qd] at the mapped (held-fixed) f_ext
         gato::plant::forwardDynamicsAndGradient<T, true>(s_df_du, s_qdd, s_q, s_qd, s_u, s_scratch, (void*)d_robotModel, s_fext);
+#endif
 
         // dtau/dfext (-J^T) and dqdd/dfext (Minv J^T)
         grid::f_ext_gradient_device<T>(s_dtau_dfext, s_dqdd_dfext, s_q, d_robotModel);
@@ -99,20 +114,27 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
                 for (int r = 0; r < FEXT; r++) { acc += s_dqdd_dfext[v + NQ * r] * s_dfext_dq[r + FEXT * j]; }
                 d_dqdd_dq_corr[ind] = acc;
         }
+#if GATO_CONTACT_FORCES
+        for (int ind = tid; ind < NQ * 6 * NFC; ind += nth) {
+                d_dqdd_dfc_adapter[ind] = s_df_du[3 * NQ * NQ + ind];
+        }
+#endif
 }
 
 template<typename T>
 __host__ void debugContactDynamics(T* d_qdd, T* d_fext, T* d_dqdd_dfc, T* d_dqdd_dq, T* d_dqdd_dq_corr,
+                                   T* d_dqdd_dfc_adapter,
                                    const T* d_q, const T* d_qd, const T* d_u, const T* d_fc, void* d_GRiD_mem)
 {
         // Arena must cover every sequential grid arena claim + the plant FD-gradient
         // scratch. FD_DU_MAX (minv + id + id-gradient + vaf temps) dominates the
         // f_ext_gradient arena (XImats + minv/jacobianT temp) and the hom-transform
-        // family (~288 + EE linalg bytes) on every generated robot.
-        const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT) * sizeof(T)
+        // family (~288 + EE linalg bytes) on every generated robot. fc builds append
+        // the adapter's persistent fc block after the FD_DU arena.
+        const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT) * sizeof(T)
                             + static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
         debugContactDynamicsKernel<T><<<1, 128, smem>>>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
-                                                        d_q, d_qd, d_u, d_fc, d_GRiD_mem);
+                                                        d_dqdd_dfc_adapter, d_q, d_qd, d_u, d_fc, d_GRiD_mem);
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
 }
