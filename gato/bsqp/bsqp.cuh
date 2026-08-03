@@ -646,15 +646,19 @@ class BSQP {
         // correction. See kernels/contact_debug.cuh + test/test_f_ext.py.
         void debug_contact_dynamics(const T* h_q, const T* h_qd, const T* h_u, const T* h_fc,
                                     T* h_qdd, T* h_fext, T* h_dqdd_dfc, T* h_dqdd_dq, T* h_dqdd_dq_corr,
-                                    T* h_dqdd_dfc_adapter = nullptr)
+                                    T* h_dqdd_dfc_adapter = nullptr, T* h_dqdd_dq_adapter = nullptr)
         {
                 constexpr int NQ = gato::plant::NQ;
                 constexpr int FEXT = 6 * grid::NUM_BODIES;
                 constexpr int NFCW = 6 * grid::NUM_CONTACT_FRAMES;
                 constexpr int IN = 3 * NQ + NFCW;
-                constexpr int OUT = NQ + FEXT + 2 * NQ * NFCW + 2 * NQ * NQ;
+                constexpr int OUT = NQ + FEXT + 2 * NQ * NFCW + 3 * NQ * NQ;
                 T*            d_buf;
                 gpuErrchk(cudaMalloc(&d_buf, (IN + OUT) * sizeof(T)));
+                // zero the OUT half: the *_adapter blocks are written on fc builds only,
+                // and the host copies them unconditionally — never hand back uninitialized
+                // device memory (and keep initcheck clean on default builds).
+                gpuErrchk(cudaMemset(d_buf, 0, (IN + OUT) * sizeof(T)));
                 T* d_q = d_buf;
                 T* d_qd = d_q + NQ;
                 T* d_u = d_qd + NQ;
@@ -665,11 +669,13 @@ class BSQP {
                 T* d_dqdd_dq = d_dqdd_dfc + NQ * NFCW;
                 T* d_dqdd_dq_corr = d_dqdd_dq + NQ * NQ;
                 T* d_dqdd_dfc_adapter = d_dqdd_dq_corr + NQ * NQ;
+                T* d_dqdd_dq_adapter = d_dqdd_dfc_adapter + NQ * NFCW;
                 gpuErrchk(cudaMemcpy(d_q, h_q, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_qd, h_qd, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_u, h_u, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_fc, h_fc, NFCW * sizeof(T), cudaMemcpyHostToDevice));
-                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr, d_dqdd_dfc_adapter,
+                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
+                                              d_dqdd_dfc_adapter, d_dqdd_dq_adapter,
                                               d_q, d_qd, d_u, d_fc, d_GRiD_mem_);
                 gpuErrchk(cudaMemcpy(h_qdd, d_qdd, NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_fext, d_fext, FEXT * sizeof(T), cudaMemcpyDeviceToHost));
@@ -678,6 +684,9 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(h_dqdd_dq_corr, d_dqdd_dq_corr, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 if (h_dqdd_dfc_adapter != nullptr) {
                         gpuErrchk(cudaMemcpy(h_dqdd_dfc_adapter, d_dqdd_dfc_adapter, NQ * NFCW * sizeof(T), cudaMemcpyDeviceToHost));
+                }
+                if (h_dqdd_dq_adapter != nullptr) {
+                        gpuErrchk(cudaMemcpy(h_dqdd_dq_adapter, d_dqdd_dq_adapter, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 }
                 gpuErrchk(cudaFree(d_buf));
         }

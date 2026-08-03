@@ -205,6 +205,35 @@ def test_fc_adapter_matches_oracle(make_solver, smallest_module):
     np.testing.assert_allclose(adapter, oracle, rtol=1e-4, atol=1e-5 * scale)
 
 
+def test_fc_adapter_dq_carries_chain_term(make_solver, smallest_module):
+    """W2 exactness: the ADAPTER's A-block dq columns must CARRY the dfext/dq
+    chain term — i.e. equal the oracle's fixed-f_ext gradient plus the correction
+    (independent *_device composition). W1 dropped it; at a 10 N wrench the term
+    is the same size as the whole gradient, so this gate is not cosmetic."""
+    plant, N, s = _fc_solver(make_solver, smallest_module)
+    q, qd, u, fc = _contact_sample(s, seed=17)
+    d = s.solver.debug_contact_dynamics(q, qd, u, fc)
+    assert "dqdd_dq_adapter" in d
+    fixed = np.asarray(d["dqdd_dq"], dtype=np.float64)
+    corr = np.asarray(d["dqdd_dq_corr"], dtype=np.float64)
+    adapter = np.asarray(d["dqdd_dq_adapter"], dtype=np.float64)
+    # non-triviality: without this the gate would pass on a zeroed correction
+    assert np.abs(corr).max() > 1e-6
+    scale = max(1.0, np.abs(fixed + corr).max())
+    np.testing.assert_allclose(adapter, fixed + corr, rtol=1e-4, atol=1e-5 * scale)
+
+
+def test_fc_adapter_dq_zero_wrench_bitwise(make_solver, smallest_module):
+    """f_c = 0: the chain term is LINEAR in f_c so it is exactly zero, and the
+    adapter's dq block is BITWISE the fixed-f_ext gradient — W2 cannot perturb a
+    zero-wrench trajectory."""
+    plant, N, s = _fc_solver(make_solver, smallest_module)
+    q, qd, u, _ = _contact_sample(s, seed=19)
+    d = s.solver.debug_contact_dynamics(q, qd, u, np.zeros(s.n_fc, dtype=np.float32))
+    np.testing.assert_array_equal(np.asarray(d["dqdd_dq_adapter"]),
+                                  np.asarray(d["dqdd_dq"]))
+
+
 def test_fc_solve_finite_deterministic(make_solver, smallest_module):
     """fc-build solve with regularized fc slots: finite, run-twice bitwise,
     and fc_traj has the fc-build shape."""

@@ -39,9 +39,10 @@ namespace plant {
         inline constexpr int FEXT_COUNT = 6 * grid::NUM_BODIES;         // per-body wrench array
         // Persistent fc scratch APPENDED after the FD/FD_DU arenas (inner-call scratch
         // reuses the existing temp region — ID-gradient's need is the high-water mark):
-        // XmatsHom + fext + dtau_dfext + dfext_dfc + dtau_dfc.
+        // XmatsHom + fext + dtau_dfext + dfext_dfc + dtau_dfc  (+ W2: dfext_dq + dtau_dq).
         inline constexpr int FC_PERSIST_COUNT =
-            grid::XHOM_T_COUNT + FEXT_COUNT + NQ * FEXT_COUNT + FEXT_COUNT * FC + NQ * FC;
+            grid::XHOM_T_COUNT + FEXT_COUNT + NQ * FEXT_COUNT + FEXT_COUNT * FC + NQ * FC
+            + FEXT_COUNT * NQ + NQ * NQ;
 #else
         inline constexpr int FC = 0;
         inline constexpr int FC_PERSIST_COUNT = 0;
@@ -142,6 +143,52 @@ namespace plant {
                         __syncthreads();
                 }
         }
+
+        // CL-3a W2: the chain-rule term the A-block drops when the applied wrench is
+        // treated as q-independent. f_c is WORLD-aligned, so f_ext = f_ext_body(q, f_c)
+        // rotates with the arm and dqdd/dq gains
+        //     dqdd_dfext . dfext_dq = -Minv . (dtau_dfext . dfext_dq).
+        // At a 10 N wrench this term is the same size as the whole first-order gradient
+        // (oracle measurement, test/test_f_ext.py) — dropping it costs SQP convergence
+        // rate, not fixed points (defects use exact rollouts). dfext_dq is LINEAR in f_c
+        // ⇒ identically zero at f_c = 0, so zero-wrench trajectories are unchanged.
+        // __noinline__: cicc-cliff guard (this body lands in the setup_kkt TU).
+        template<typename T>
+        __device__ __noinline__ void addContactChainCorrection(T* s_df_du, T* s_dfext_dq, T* s_dtau_dq,
+                                                               const T* s_fc, const T* s_dtau_dfext,
+                                                               const T* s_Minv, const T* s_q, const T* s_XmatsHom,
+                                                               int* s_topology_helpers, T* s_temp)
+        {
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                // dfext/dq at fixed f_c (needs the LOCAL body Jacobians == dtau_dfext's columns)
+                grid::f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_fc, s_dtau_dfext, s_q, s_XmatsHom,
+                                                      s_topology_helpers, s_temp,
+                                                      /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                __syncthreads();
+                // dtau_dq_corr = dtau_dfext @ dfext_dq   (NQ x NQ, col-major [j*NQ + k])
+                for (int ind = tid; ind < NQ * NQ; ind += nth) {
+                        const int k = ind % NQ, j = ind / NQ;
+                        T acc = static_cast<T>(0);
+                        for (int i = 0; i < FEXT_COUNT; i++) {
+                                acc += s_dtau_dfext[k + NQ * i] * s_dfext_dq[i + FEXT_COUNT * j];
+                        }
+                        s_dtau_dq[ind] = acc;
+                }
+                __syncthreads();
+                // dqdd/dq += -Minv (SYMMETRIC_UPPER) @ dtau_dq_corr
+                for (int ind = tid; ind < NQ * NQ; ind += nth) {
+                        const int r = ind % NQ, c = ind / NQ;
+                        T val = static_cast<T>(0);
+#pragma unroll
+                        for (int col = 0; col < NQ; col++) {
+                                const int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
+                                val += s_Minv[index] * s_dtau_dq[c * NQ + col];
+                        }
+                        s_df_du[ind] -= val;
+                }
+                __syncthreads();
+        }
 #endif
 
         template<typename T>
@@ -197,6 +244,8 @@ namespace plant {
                 T* s_dtau_dfext = s_fext + FEXT_COUNT;            // NQ x 6NB, [v + NQ*(6i+r)]
                 T* s_dfext_dfc  = s_dtau_dfext + NQ * FEXT_COUNT; // 6NB x FC, [row + 6NB*col]
                 T* s_dtau_dfc   = s_dfext_dfc + FEXT_COUNT * FC;  // NQ x FC,  [k + NQ*c]
+                T* s_dfext_dq   = s_dtau_dfc + NQ * FC;           // 6NB x NQ, [row + 6NB*v]
+                T* s_dtau_dq    = s_dfext_dq + FEXT_COUNT * NQ;   // NQ x NQ,  [v*NQ + k]
                 buildContactFext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, d_robotModel, d_f_ext);
                 d_f_ext = s_fext;
 #endif
@@ -242,35 +291,43 @@ namespace plant {
                 // integrator gradient already iterates CONTROL_SIZE columns and consumes them
                 // as B's fc columns with no further changes. Reference composition:
                 // grid::f_ext_gradient_device (dqdd_dfext = -Minv @ dtau_dfext).
-                if (INCLUDE_DU) {
+                {
                         const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                         const int nth = blockDim.x * blockDim.y;
                         // ID gradient is done -> s_temp is free scratch again; XImats/XmatsHom still live.
+                        // dtau_dfext (== -J^T, columns are the local body Jacobians) feeds BOTH the
+                        // fc control columns and the W2 dq correction, so it is computed either way.
                         grid::f_ext_gradient_jacobianT_inner<T>(s_dtau_dfext, s_q, s_XImats, s_topology_helpers, s_temp);
                         __syncthreads();
-                        grid::f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
-                                                               /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
-                        __syncthreads();
-                        for (int ind = tid; ind < NQ * FC; ind += nth) {  // dtau_dfc = dtau_dfext @ dfext_dfc
-                                int k = ind % NQ; int c = ind / NQ;
-                                T acc = static_cast<T>(0);
-                                for (int i = 0; i < FEXT_COUNT; i++) {
-                                        acc += s_dtau_dfext[k + NQ * i] * s_dfext_dfc[i + FEXT_COUNT * c];
+                        if (INCLUDE_DU) {
+                                grid::f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
+                                                                       /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                __syncthreads();
+                                for (int ind = tid; ind < NQ * FC; ind += nth) {  // dtau_dfc = dtau_dfext @ dfext_dfc
+                                        int k = ind % NQ; int c = ind / NQ;
+                                        T acc = static_cast<T>(0);
+                                        for (int i = 0; i < FEXT_COUNT; i++) {
+                                                acc += s_dtau_dfext[k + NQ * i] * s_dfext_dfc[i + FEXT_COUNT * c];
+                                        }
+                                        s_dtau_dfc[ind] = acc;
                                 }
-                                s_dtau_dfc[ind] = acc;
-                        }
-                        __syncthreads();
-                        for (int ind = tid; ind < NQ * FC; ind += nth) {  // -Minv (sym-upper) @ dtau_dfc
-                                int r = ind % NQ; int c = ind / NQ;
-                                T val = static_cast<T>(0);
+                                __syncthreads();
+                                for (int ind = tid; ind < NQ * FC; ind += nth) {  // -Minv (sym-upper) @ dtau_dfc
+                                        int r = ind % NQ; int c = ind / NQ;
+                                        T val = static_cast<T>(0);
 #pragma unroll
-                                for (int col = 0; col < NQ; col++) {
-                                        int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
-                                        val += s_Minv[index] * s_dtau_dfc[c * NQ + col];
+                                        for (int col = 0; col < NQ; col++) {
+                                                int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
+                                                val += s_Minv[index] * s_dtau_dfc[c * NQ + col];
+                                        }
+                                        s_df_du[3 * NQ * NQ + ind] = -val;
                                 }
-                                s_df_du[3 * NQ * NQ + ind] = -val;
+                                __syncthreads();
                         }
-                        __syncthreads();
+                        // W2: fold the dfext/dq chain term into the A-block (dqdd/dq) — applies
+                        // to the dq columns, so it is NOT gated on INCLUDE_DU.
+                        addContactChainCorrection<T>(s_df_du, s_dfext_dq, s_dtau_dq, &s_u[NU], s_dtau_dfext,
+                                                     s_Minv, s_q, s_XmatsHom, s_topology_helpers, s_temp);
                 }
 #endif
         }

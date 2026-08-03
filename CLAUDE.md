@@ -64,7 +64,11 @@ chain correction), FD-gated in `test/test_f_ext.py`.
 **Contact-force builds (CL-3a)**: `-DGATO_CONTACT_FORCES=ON` grows the control to
 `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE` (FC_SIZE = 6·NUM_CONTACT_FRAMES wrench slots
 [n; f], world-aligned at the baked contact frame); the fc tail feeds `f_ext_body` into
-the dynamics and the B-block gains the dqdd/dfc columns. Default builds are
+the dynamics, the B-block gains the dqdd/dfc columns, and the A-block carries the
+**dfext/dq chain term** (`dqdd_dfext · dfext_dq`) — f_c is world-aligned, so the mapped
+wrench rotates with the arm and dropping the term leaves an inexact Jacobian (it is
+~1.5× the whole fixed-f_ext gradient at 1 N and ~14× at 10 N on iiwa14; linear in f_c, so
+zero-wrench trajectories are bitwise unchanged). Default builds are
 preprocessor-identical (bitwise). Build to a separate dir (`build_fc/`, the build_eh
 pattern) — modules bake the flag. Python reads the module attrs CONTROL_SIZE/
 ACTUATED_SIZE/FC_SIZE: `SolveResult.u0/control_at` return ACTUATED control only,

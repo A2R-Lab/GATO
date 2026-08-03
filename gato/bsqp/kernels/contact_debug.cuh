@@ -38,6 +38,9 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
                                            T*       d_dqdd_dq_corr, // NQ x NQ col-major (the dfext/dq chain term)
                                            T*       d_dqdd_dfc_adapter, // NQ x 6*NFC (ADAPTER's B-block fc
                                                                         // columns; written on fc builds only)
+                                           T*       d_dqdd_dq_adapter,  // NQ x NQ (ADAPTER's A-block dq
+                                                                        // block, W2 chain term INCLUDED;
+                                                                        // written on fc builds only)
                                            const T* d_q,
                                            const T* d_qd,
                                            const T* d_u,
@@ -77,12 +80,23 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
         __syncthreads();
 
 #if GATO_CONTACT_FORCES
-        // fc build: hand fc to the ADAPTER as the control tail and let it map the
-        // wrench itself (band = nullptr) — same f_ext as the oracle's, and its
-        // dqdd/dfc block lands at s_df_du[3*NQ*NQ..) for the adapter-vs-oracle gate.
+        // fc build, call 1: hand fc to the ADAPTER as the control tail and let it map the
+        // wrench itself (band = nullptr) — same f_ext as the oracle's. Its dqdd/dfc block
+        // lands at s_df_du[3*NQ*NQ..) and its dq block CARRIES the W2 chain term; both are
+        // published for the adapter-vs-oracle gates.
         for (int i = tid; i < 6 * NFC; i += nth) { s_u[NQ + i] = s_fc[i]; }
         __syncthreads();
         gato::plant::forwardDynamicsAndGradient<T, true>(s_df_du, s_qdd, s_q, s_qd, s_u, s_scratch, (void*)d_robotModel, nullptr);
+        __syncthreads();
+        for (int ind = tid; ind < NQ * NQ; ind += nth) { d_dqdd_dq_adapter[ind] = s_df_du[ind]; }
+        for (int ind = tid; ind < NQ * 6 * NFC; ind += nth) { d_dqdd_dfc_adapter[ind] = s_df_du[3 * NQ * NQ + ind]; }
+        __syncthreads();
+        // call 2: SAME wrench held q-INDEPENDENT (fc slots zeroed, the mapped wrench passed
+        // as the P4.6 band) — the chain term is linear in f_c so it vanishes, leaving the
+        // fixed-f_ext gradient. Keeps d_dqdd_dq meaning the same thing on both builds.
+        for (int i = tid; i < 6 * NFC; i += nth) { s_u[NQ + i] = static_cast<T>(0); }
+        __syncthreads();
+        gato::plant::forwardDynamicsAndGradient<T, true>(s_df_du, s_qdd, s_q, s_qd, s_u, s_scratch, (void*)d_robotModel, s_fext);
 #else
         // qdd + dqdd/d[q,qd] at the mapped (held-fixed) f_ext
         gato::plant::forwardDynamicsAndGradient<T, true>(s_df_du, s_qdd, s_q, s_qd, s_u, s_scratch, (void*)d_robotModel, s_fext);
@@ -114,16 +128,11 @@ __global__ void debugContactDynamicsKernel(T*       d_qdd,          // NQ
                 for (int r = 0; r < FEXT; r++) { acc += s_dqdd_dfext[v + NQ * r] * s_dfext_dq[r + FEXT * j]; }
                 d_dqdd_dq_corr[ind] = acc;
         }
-#if GATO_CONTACT_FORCES
-        for (int ind = tid; ind < NQ * 6 * NFC; ind += nth) {
-                d_dqdd_dfc_adapter[ind] = s_df_du[3 * NQ * NQ + ind];
-        }
-#endif
 }
 
 template<typename T>
 __host__ void debugContactDynamics(T* d_qdd, T* d_fext, T* d_dqdd_dfc, T* d_dqdd_dq, T* d_dqdd_dq_corr,
-                                   T* d_dqdd_dfc_adapter,
+                                   T* d_dqdd_dfc_adapter, T* d_dqdd_dq_adapter,
                                    const T* d_q, const T* d_qd, const T* d_u, const T* d_fc, void* d_GRiD_mem)
 {
         // Arena must cover every sequential grid arena claim + the plant FD-gradient
@@ -134,7 +143,8 @@ __host__ void debugContactDynamics(T* d_qdd, T* d_fext, T* d_dqdd_dfc, T* d_dqdd
         const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT) * sizeof(T)
                             + static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
         debugContactDynamicsKernel<T><<<1, 128, smem>>>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
-                                                        d_dqdd_dfc_adapter, d_q, d_qd, d_u, d_fc, d_GRiD_mem);
+                                                        d_dqdd_dfc_adapter, d_dqdd_dq_adapter,
+                                                        d_q, d_qd, d_u, d_fc, d_GRiD_mem);
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
 }

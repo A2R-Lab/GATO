@@ -457,9 +457,10 @@ class PyBSQP {
                 check_size(u_buf, (size_t)NQ, "u");
                 check_size(fc_buf, (size_t)NFCW, "fc");
                 std::vector<T> qdd(NQ), fext(FEXT), dfc(NQ * NFCW), dq(NQ * NQ), dq_corr(NQ * NQ);
-                std::vector<T> dfc_adapter(NQ * NFCW);
+                std::vector<T> dfc_adapter(NQ * NFCW), dq_adapter(NQ * NQ);
                 solver_.debug_contact_dynamics(static_cast<T*>(q_buf.ptr), static_cast<T*>(qd_buf.ptr), static_cast<T*>(u_buf.ptr), static_cast<T*>(fc_buf.ptr),
-                                               qdd.data(), fext.data(), dfc.data(), dq.data(), dq_corr.data(), dfc_adapter.data());
+                                               qdd.data(), fext.data(), dfc.data(), dq.data(), dq_corr.data(),
+                                               dfc_adapter.data(), dq_adapter.data());
                 const py::ssize_t sT = (py::ssize_t)sizeof(T);
                 py::dict          out;
                 out["qdd"] = py::array_t<T>({NQ}, qdd.data());
@@ -471,6 +472,9 @@ class PyBSQP {
                 // the ADAPTER's B-block fc columns (fc-build gate: same math as
                 // dqdd_dfc through the solver's in-adapter code path)
                 out["dqdd_dfc_adapter"] = py::array_t<T>({NQ, NFCW}, {sT, NQ * sT}, dfc_adapter.data());
+                // the ADAPTER's A-block dq columns, W2 chain term INCLUDED (fc-build gate:
+                // must equal dqdd_dq + dqdd_dq_corr, the independent oracle composition)
+                out["dqdd_dq_adapter"] = py::array_t<T>({NQ, NQ}, {sT, NQ * sT}, dq_adapter.data());
 #endif
                 return out;
 #else
