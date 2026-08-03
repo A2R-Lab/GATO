@@ -284,3 +284,41 @@ def test_fc_box_pin_zeroes_fc(make_solver, smallest_module):
     assert np.isfinite(r.xu).all()
     fc = r.fc_traj(0)
     assert np.abs(fc).max() < 5e-2, f"pinned fc leaked: max|fc|={np.abs(fc).max()}"
+
+
+# ---------------------------------------------------------------------------
+# MPC_GATO fc plumbing (W3). These run on DEFAULT builds — the contract under
+# test is that the driver separates the xu control STRIDE from the applied
+# ACTUATED slice, and refuses fc_config loudly when the module has no fc slots.
+# ---------------------------------------------------------------------------
+
+def _mpc_gato(urdfs, plant, N, **kw):
+    pin = pytest.importorskip("pinocchio")
+    from gato.mpc_gato import MPC_GATO
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    return MPC_GATO(model, model_path=urdf, N=N, dt=0.01, batch_size=1,
+                    plant_type=plant, **kw)
+
+
+def test_mpc_gato_control_widths(urdfs, smallest_module):
+    """nu is the xu STRIDE (== solver.nu) and nu_act is the applied-torque
+    slice (== solver.n_actuated). They coincide on default builds and diverge
+    on GATO_CONTACT_FORCES builds, where fc must never be played into the sim."""
+    plant, N = smallest_module
+    mpc = _mpc_gato(urdfs, plant, N)
+    assert mpc.nu == mpc.solver.nu
+    assert mpc.nu_act == mpc.solver.n_actuated
+    assert mpc.nu == mpc.nu_act + mpc.solver.n_fc
+
+
+def test_mpc_gato_fc_config_needs_fc_build(urdfs, smallest_module):
+    """fc_config on a module without fc slots must FAIL LOUD — silently
+    ignoring it would run the no-estimator baseline while the caller believes
+    the solver is explaining the wrench (the W3 arm-2 confound)."""
+    plant, N = smallest_module
+    mpc = _mpc_gato(urdfs, plant, N)
+    if mpc.solver.n_fc:
+        pytest.skip("fc build — the raise is the default-build contract")
+    with pytest.raises(RuntimeError, match="GATO_CONTACT_FORCES"):
+        _mpc_gato(urdfs, plant, N, fc_config={"cost": 1e-2, "pin_torque_rows": True})

@@ -35,6 +35,7 @@ class MPC_GATO:
         pendulum_config=None,
         solver_params=None,
         fe_seed=0,
+        fc_config=None,
     ):
         """
         Initialize MPC driver.
@@ -52,6 +53,12 @@ class MPC_GATO:
             pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
             solver_params: overrides merged onto config.DEFAULT_SOLVER_PARAMS
             fe_seed: seed for the force-estimator hypothesis sampling
+            fc_config: GATO_CONTACT_FORCES modules only — program the solver's
+                contact-wrench slots so the SOLVER explains an unmodeled wrench
+                with decision variables. Keys: 'cost' (fc regularization weight)
+                and 'pin_torque_rows' (bool). This is the B=1 counterpart to the
+                ForceEstimator hypothesis batch; raises on a default module
+                rather than silently degrading to the no-estimator baseline.
         """
         # Store original model for solver (without pendulum)
         self.solver_model = model
@@ -105,12 +112,21 @@ class MPC_GATO:
         self.nq = self.model.nq
         self.nv = self.model.nv
         self.nx = self.nq_robot + self.nv_robot  # Solver state dimension (robot only)
-        self.nu = self.solver_model.nv           # Control dimension (robot only)
+        # The xu stride and the applied-torque slice diverge on GATO_CONTACT_FORCES
+        # builds, where the control is [tau; fc]: only the first n_actuated entries
+        # are actuator commands — fc is the solver's own contact explanation and is
+        # never played into the sim. Both equal solver_model.nv on default builds.
+        self.nu = self.solver.nu                 # xu control stride
+        self.nu_act = self.solver.n_actuated     # torques applied to the plant
         self.N = N
         self.dt = dt
         self.batch_size = batch_size
         self.track_full_stats = track_full_stats
         self.fe_seed = fe_seed
+
+        self.fc_config = fc_config
+        if fc_config is not None:
+            self._configure_fc(fc_config)
 
         # Ground-truth external force applied in the SIM (what the batch hypothesizes about)
         self.setup_external_forces(constant_f_ext)
@@ -134,6 +150,23 @@ class MPC_GATO:
 
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
                                         warm_start="shift", reset_rho_each_step=True)
+
+    def _configure_fc(self, cfg):
+        """Program the solver's contact-wrench slots from an fc_config dict."""
+        if self.solver.n_fc == 0:
+            raise RuntimeError(
+                "fc_config requires a GATO_CONTACT_FORCES module, but this plant "
+                "has no fc slots (n_fc == 0) — rebuild with -DGATO_CONTACT_FORCES=ON "
+                "and install the build_fc modules before running the fc arm.")
+        cost = cfg.get('cost')
+        if cost is not None:
+            self.solver.set_fc_cost(float(cost))
+        if cfg.get('pin_torque_rows', False):
+            # The world-aligned wrench layout is [n; f]; a point-mass payload
+            # exerts pure force at the EE, so pinning the moment rows to zero
+            # halves the fc decision space instead of letting the solve spend
+            # it on a moment the physics can't produce.
+            self.solver.add_fc_box(0.0, 0.0, slots=range(3))
 
     @property
     def force_estimator(self):
@@ -180,7 +213,7 @@ class MPC_GATO:
         for i in range(nsteps):
             offset = int(i / (self.dt / sim_dt))
             u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
-            u = xu_best[u_idx:u_idx + self.nu]
+            u = xu_best[u_idx:u_idx + self.nu_act]
             u_aug = self._augment_control(u, dq)
             self._update_sim_f_ext(q)
             q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
@@ -193,7 +226,7 @@ class MPC_GATO:
                 accumulated_time = 0.0
                 offset = int(nsteps / (self.dt / sim_dt))
                 u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
-                u = xu_best[u_idx:u_idx + self.nu]
+                u = xu_best[u_idx:u_idx + self.nu_act]
                 u_aug = self._augment_control(u, dq)
                 self._update_sim_f_ext(q)
                 q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
@@ -207,7 +240,7 @@ class MPC_GATO:
             return u
         damping = self.pendulum_config.get('damping', 0.4)
         u_aug = np.zeros(self.nv)
-        u_aug[:self.nu] = u
+        u_aug[:self.nu_act] = u
         u_aug[self.nv_robot:] = -damping * dq[self.nv_robot:]
         return u_aug
 
