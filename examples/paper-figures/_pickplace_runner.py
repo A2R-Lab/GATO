@@ -50,6 +50,7 @@ class ExperimentRunner:
         mpc_defaults: Dict = None,
         start_config: str = 'home',
         fc_config: Dict = None,
+        wrench_id: Dict = None,
         verbose: bool = True,
     ) -> Dict:
         """
@@ -76,6 +77,9 @@ class ExperimentRunner:
             mpc_defaults: goal_timeout / goal_threshold / velocity_threshold /
                 velocity_norm / pace_by_solve_time (default PICKPLACE_MPC_DEFAULTS).
             start_config: IIWA14_START_CONFIGS key for the initial robot state.
+            wrench_id: least-squares wrench-identification arm (B=1): dict of
+                OneStepWrenchIdentifier options ({} for defaults). Mutually
+                exclusive with the ForceEstimator batch.
             fc_config: GATO_CONTACT_FORCES arm — {'cost', 'pin_torque_rows'}
                 passed to MPC_GATO so the solver's own contact-wrench slots
                 explain the payload (the B=1 alternative to the hypothesis
@@ -123,6 +127,7 @@ class ExperimentRunner:
                         solver_params=solver_params,
                         track_full_stats=True,
                         fc_config=fc_config,
+                        wrench_id=wrench_id,
                     )
                     _, stats = mpc.run_mpc_goals(
                         x_start, seq, sim_dt=sim_dt,

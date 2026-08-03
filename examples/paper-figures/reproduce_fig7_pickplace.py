@@ -51,7 +51,7 @@ N = 16
 DT = 0.01
 
 
-def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None):
+def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None):
     from _pickplace_runner import ExperimentRunner
     from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS,
                          PICKPLACE_MPC_DEFAULTS, sample_pendulum_params)
@@ -76,7 +76,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None):
             batch_sizes=batch_sizes, N=N, dt=DT, sim_dt=0.001, plant_type="iiwa14",
             goal_sequences=[PICKPLACE_DEFAULT_GOALS], pendulum_config=pend,
             solver_params=PICKPLACE_SOLVER_PARAMS, mpc_defaults=PICKPLACE_MPC_DEFAULTS,
-            fc_config=fc_config, verbose=False,
+            fc_config=fc_config, wrench_id=wrench_id, verbose=False,
         )
         for b in batch_sizes:
             r = res.get(b, {})
@@ -85,7 +85,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None):
             goal_outcomes[b].append(seq.get("goal_outcomes"))
     return {"batch_sizes": batch_sizes, "n_scenarios": n_scenarios, "pool": pool,
             "goal_outcomes": goal_outcomes, "scenarios": scenarios, "protocol": protocol,
-            "fc_config": fc_config}
+            "fc_config": fc_config, "wrench_id": wrench_id}
 
 
 def table_I(data):
@@ -94,9 +94,13 @@ def table_I(data):
     if proto:
         plines = [f"protocol: mass={proto['mass']}kg L={proto['length_range']} "
                   f"d={proto['damping_range']} |th|={proto['angle_range']}"]
-    fc = data.get("fc_config")
-    plines.append(f"arm: solver contact-force slots, fc_config={fc}" if fc
-                  else "arm: ForceEstimator hypothesis batch (no fc slots)")
+    fc, wid = data.get("fc_config"), data.get("wrench_id")
+    if wid is not None:
+        plines.append(f"arm: least-squares wrench identification, wrench_id={wid}")
+    elif fc:
+        plines.append(f"arm: solver contact-force slots, fc_config={fc}")
+    else:
+        plines.append("arm: ForceEstimator hypothesis batch (no fc slots)")
     lines = ["", "=" * 48, "TABLE I — pick-place success vs batch size", "=" * 48] + plines + [
              f"{'Batch':>6} {'Success [%]':>12} {'Mean time* [s]':>15}   (*successes only)"]
     for b in data["batch_sizes"]:
@@ -158,6 +162,15 @@ def main():
     p.add_argument("--angle-range", default="0.0,0.6", help="initial |axis-angle| range [rad]")
     p.add_argument("--tag", default="fig7_pickplace",
                    help="data/plot basename (use a distinct tag per protocol — never mix pools)")
+    p.add_argument("--wrench-id", action="store_true",
+                   help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
+                        "wrench from sensor-rate motion, injected as f_ext. B=1 only "
+                        "(replaces the ForceEstimator batch).")
+    p.add_argument("--wrench-id-alpha", type=float, default=None,
+                   help="EMA smoothing for --wrench-id (default = identifier default)")
+    p.add_argument("--wrench-id-mode", default=None, choices=["wrench", "weight"],
+                   help="--wrench-id disturbance model: full wrench, or only its "
+                        "gravity-aligned (horizon-constant) component")
     p.add_argument("--fc", action="store_true",
                    help="contact-force arm: the SOLVER's fc slots explain the payload "
                         "(needs a GATO_CONTACT_FORCES module; no ForceEstimator). "
@@ -183,12 +196,20 @@ def main():
         protocol = {"mass": args.pend_mass, "length_range": rng(args.length_range),
                     "damping_range": rng(args.damping_range),
                     "angle_range": rng(args.angle_range), "seed": args.seed}
+        wrench_id = None
+        if args.wrench_id:
+            wrench_id = {}
+            if args.wrench_id_alpha is not None:
+                wrench_id["alpha"] = args.wrench_id_alpha
+            if args.wrench_id_mode is not None:
+                wrench_id["mode"] = args.wrench_id_mode
+            print(f"[wrench-id arm] least-squares wrench identification: {wrench_id}")
         fc_config = None
         if args.fc:
             fc_config = {"cost": args.fc_cost,
                          "pin_torque_rows": not args.fc_free_torque}
             print(f"[fc arm] solver contact-wrench slots active: {fc_config}")
-        data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config)
+        data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id)
         data["tag"] = args.tag
         C.save_data(data, args.tag)
 

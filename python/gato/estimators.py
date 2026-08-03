@@ -388,3 +388,174 @@ class CEMForceEstimator:
             "momentum": self.momentum.copy(),
             "last_error": self.error_history[-1] if self.error_history else float("inf"),
         }
+
+
+class OneStepWrenchIdentifier:
+    """Least-squares wrench identification from the one-step motion residual.
+
+    The sampling estimators above search for the wrench that best explains the
+    observed motion; this one SOLVES for it. Over an interval where a constant
+    torque tau was applied, the nominal (payload-free) model needs generalized
+    force ``rnea(q, dq, ddq_measured)`` to produce the motion that was actually
+    observed, so
+
+        tau_resid = rnea(q, dq, ddq_meas) - tau_applied
+
+    is exactly the generalized force contributed by everything the solver's
+    model omits. An external wrench w at the EE frame contributes ``J^T w``, so
+    w is the least-squares solution of ``J^T w = tau_resid`` — 6 unknowns from
+    nv equations, one linear solve, NO batch dimension.
+
+    That is the point: the hypothesis batch spends B parallel solves searching
+    a 6-D space that a single lstsq resolves directly. Accuracy is limited by
+    the finite-difference ddq and by wrenches outside the EE-Jacobian range
+    (which no EE wrench can explain), not by sample count.
+
+    Frame conventions match ForceEstimator so the two are interchangeable
+    behind gato.hypotheses: ``generate_batch()`` returns (1, 6) WORLD-frame
+    wrenches ordered [force(3); torque(3)] at the EE frame origin.
+
+    Args:
+        model: the SOLVER's pinocchio model (robot only — the whole point is
+            that the payload is unmodeled).
+        ee_frame: URDF frame the wrench acts at.
+        alpha: EMA smoothing on the estimate (1.0 = raw per-tick fit). The
+            one-step fit is unbiased but noisy — ddq is a finite difference.
+        damping: Tikhonov damping on the lstsq (0 = plain pseudo-inverse);
+            regularizes wrench directions the Jacobian barely observes. Near
+            kinematic singularities an undamped pseudo-inverse amplifies the
+            measurement residual without bound, so the default is nonzero.
+        mode: 'wrench' (default) uses the full identified wrench; 'weight'
+            keeps only its gravity-aligned component (the payload weight),
+            which is the part a constant-over-the-horizon wrench model can
+            legitimately extrapolate.
+        max_wrench: magnitude clamp on force/torque halves, a divergence guard.
+            NOT a physical prior: on this task the true wrench swings over
+            34-1041 N (a swinging payload on an accelerating arm is mostly
+            inertial reaction, not weight), so clamp well above the static
+            weight or the observer will saturate exactly when it matters.
+    """
+
+    batch_size = 1
+
+    def __init__(self, model, ee_frame="EE", alpha=0.5, damping=1e-3,
+                 max_wrench=2000.0, mode="wrench"):
+        from .common import _require_pin
+        self._pin = _require_pin()
+        self.model = model
+        self._data = model.createData()
+        self._ee_frame_id = model.getFrameId(ee_frame)
+        if self._ee_frame_id >= model.nframes:
+            raise ValueError(f"URDF has no frame named {ee_frame!r}")
+        if mode not in ("wrench", "weight"):
+            raise ValueError(f"mode must be 'wrench' or 'weight', got {mode!r}")
+        self.alpha = float(alpha)
+        self.damping = float(damping)
+        self.max_wrench = float(max_wrench)
+        self.mode = mode
+        self.dim = 6
+        self.reset()
+
+    def reset(self):
+        self.estimate = np.zeros(self.dim, dtype=np.float32)
+        self.raw = np.zeros(self.dim, dtype=np.float32)
+        self.residual_norm = 0.0     # ||J^T w - tau_resid||: what NO EE wrench explains
+        self.tau_resid_norm = 0.0
+        self.n_updates = 0
+
+    def generate_batch(self):
+        """(1, 6) world-frame wrench — the current identified estimate."""
+        return self.estimate.reshape(1, self.dim).copy()
+
+    def identify(self, q, dq, dq_next, tau_applied, dt, q_next=None):
+        """Fit the wrench explaining (q, dq) -> (q_next, dq_next) under tau_applied.
+
+        q/dq/dq_next/q_next are ROBOT-only (the solver model's coordinates);
+        tau_applied is the actuated torque held over the interval. Returns the
+        raw fit (unsmoothed); the smoothed value lands in ``self.estimate``.
+
+        ★ ACCURACY IS ALL ABOUT THE INTERVAL. ``ddq`` is the AVERAGE
+        acceleration over [t, t+dt], so the dynamics must be evaluated at the
+        interval MIDPOINT (second-order) rather than its start (first-order),
+        and dt must be the SENSOR period, not the control period. Measured on
+        the closed-loop pick-place task against an exact-acceleration observer:
+
+            1 ms interval, midpoint  ->  0.5% median error   (usable)
+           10 ms interval, start     ->  9.4% median error   (diverges in the
+                                         loop: a wrong wrench drives worse
+                                         control, which corrupts the next fit)
+
+        so pass the shortest measurement interval available and give q_next.
+        """
+        pin = self._pin
+        nv = self.model.nv
+        nq = self.model.nq
+        q = np.asarray(q, dtype=np.float64)[:nq]
+        dq = np.asarray(dq, dtype=np.float64)[:nv]
+        dq_next = np.asarray(dq_next, dtype=np.float64)[:nv]
+        tau_applied = np.asarray(tau_applied, dtype=np.float64)[:nv]
+
+        ddq = (dq_next - dq) / float(dt)
+        if q_next is not None:
+            q_eval = pin.interpolate(self.model, q,
+                                     np.asarray(q_next, dtype=np.float64)[:nq], 0.5)
+            dq_eval = 0.5 * (dq + dq_next)
+        else:
+            q_eval, dq_eval = q, dq
+        tau_needed = pin.rnea(self.model, self._data, q_eval, dq_eval, ddq)
+        tau_resid = tau_needed - tau_applied
+        q = q_eval
+        dq = dq_eval
+
+        # J maps joint velocity -> EE spatial velocity in world-aligned axes at
+        # the frame origin; its transpose maps a wrench there to joint torques.
+        # pinocchio orders spatial quantities [linear; angular] == [force; torque]
+        # for the dual, which is the world-wrench convention the injection path
+        # (world_wrench_to_joint_local) expects.
+        pin.computeJointJacobians(self.model, self._data, q)
+        pin.updateFramePlacements(self.model, self._data)
+        J = pin.getFrameJacobian(self.model, self._data, self._ee_frame_id,
+                                 pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+
+        A = J.T                                   # (nv, 6)
+        if self.damping > 0:
+            AtA = A.T @ A + self.damping * np.eye(6)
+            w = np.linalg.solve(AtA, A.T @ tau_resid)
+        else:
+            w, *_ = np.linalg.lstsq(A, tau_resid, rcond=None)
+
+        for half in (slice(0, 3), slice(3, 6)):
+            n = np.linalg.norm(w[half])
+            if n > self.max_wrench:
+                w[half] *= self.max_wrench / n
+
+        if self.mode == "weight":
+            # Keep only the part a constant-wrench model can honestly
+            # EXTRAPOLATE over the horizon. The measured wrench is dominated by
+            # the payload's inertial reaction to the arm's OWN acceleration —
+            # state-dependent, so holding it fixed across 16 knots plans against
+            # a force the plan itself changes. The gravity-aligned component is
+            # the payload's weight, which really is horizon-constant.
+            g = np.array([0.0, 0.0, -1.0])
+            w = np.concatenate([g * max(0.0, float(w[:3] @ g)), np.zeros(3)])
+        self.raw = w.astype(np.float32)
+        self.tau_resid_norm = float(np.linalg.norm(tau_resid))
+        self.residual_norm = float(np.linalg.norm(A @ w - tau_resid))
+        self.estimate = ((1.0 - self.alpha) * self.estimate
+                         + self.alpha * self.raw).astype(np.float32)
+        self.n_updates += 1
+        return self.raw
+
+    def update(self, best_idx, prediction_errors, batch_used=None):
+        """No-op: the fit is driven by ``identify``, not by batch feedback."""
+
+    def get_stats(self):
+        return {
+            "estimate": self.estimate.copy(),
+            "raw": self.raw.copy(),
+            "force_norm": float(np.linalg.norm(self.estimate[:3])),
+            "torque_norm": float(np.linalg.norm(self.estimate[3:])),
+            "tau_resid_norm": self.tau_resid_norm,
+            "unexplained_norm": self.residual_norm,
+            "n_updates": self.n_updates,
+        }

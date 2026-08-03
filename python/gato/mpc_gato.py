@@ -13,8 +13,8 @@ import numpy as np
 import pinocchio as pin
 
 from .controller import MPCController
-from .estimators import ForceEstimator
-from .hypotheses import ForceHypothesisBatch
+from .estimators import ForceEstimator, OneStepWrenchIdentifier
+from .hypotheses import ForceHypothesisBatch, IdentifiedWrenchBatch
 from .interface import BSQP
 from .common import rk4, world_wrench_to_joint_local
 from .config import DEFAULT_SOLVER_PARAMS
@@ -36,6 +36,7 @@ class MPC_GATO:
         solver_params=None,
         fe_seed=0,
         fc_config=None,
+        wrench_id=None,
     ):
         """
         Initialize MPC driver.
@@ -59,6 +60,13 @@ class MPC_GATO:
                 and 'pin_torque_rows' (bool). This is the B=1 counterpart to the
                 ForceEstimator hypothesis batch; raises on a default module
                 rather than silently degrading to the no-estimator baseline.
+            wrench_id: B=1 wrench IDENTIFICATION (dict, or {} for defaults):
+                least-squares fit of the disturbance wrench from the one-step
+                motion residual, injected through the same f_ext path the
+                ForceEstimator uses. Keys: 'alpha' (EMA smoothing),
+                'damping' (lstsq Tikhonov), 'max_wrench' (clamp). Requires
+                batch_size == 1 — it replaces the hypothesis batch rather than
+                augmenting it, and silently coexisting would confound the A/B.
         """
         # Store original model for solver (without pendulum)
         self.solver_model = model
@@ -124,6 +132,7 @@ class MPC_GATO:
         self.track_full_stats = track_full_stats
         self.fe_seed = fe_seed
 
+        self.wrench_id = wrench_id
         self.fc_config = fc_config
         if fc_config is not None:
             self._configure_fc(fc_config)
@@ -134,7 +143,22 @@ class MPC_GATO:
         # Hypothesis batch (B > 1): fibonacci-sphere force estimator, same tuning +
         # alpha/beta as the paper experiments
         hypotheses = None
-        if batch_size > 1:
+        if wrench_id is not None:
+            if batch_size != 1:
+                raise ValueError(
+                    "wrench_id requires batch_size == 1: it REPLACES the "
+                    f"ForceEstimator hypothesis batch (got batch_size={batch_size}). "
+                    "Running both would confound which mechanism explains the wrench.")
+            # forward only the keys the caller set, so the identifier's own
+            # (measured) defaults stay the single source of truth
+            id_kw = {k: wrench_id[k] for k in ('alpha', 'damping', 'max_wrench', 'mode')
+                     if k in wrench_id}
+            identifier = OneStepWrenchIdentifier(
+                self.solver_model, ee_frame=self.solver.ee_frame, **id_kw)
+            hypotheses = IdentifiedWrenchBatch(
+                identifier, self.solver_model, ee_frame=self.solver.ee_frame,
+                n_actuated=self.solver.n_actuated)
+        elif batch_size > 1:
             estimator = ForceEstimator(
                 batch_size=batch_size,
                 initial_radius=5.0,
@@ -172,7 +196,13 @@ class MPC_GATO:
     def force_estimator(self):
         """The hypothesis estimator (None at batch_size == 1)."""
         h = self.controller.hypotheses
-        return h.estimator if h is not None else None
+        return getattr(h, "estimator", None) if h is not None else None
+
+    @property
+    def wrench_identifier(self):
+        """The least-squares wrench identifier (None unless wrench_id was set)."""
+        h = self.controller.hypotheses
+        return getattr(h, "identifier", None) if h is not None else None
 
     def setup_external_forces(self, constant_f_ext):
         """Setup ground-truth external forces for the simulation.
@@ -201,6 +231,25 @@ class MPC_GATO:
                                               self._f_ext_frame_id)
         self.actual_f_ext[jid] = Fj
 
+    def _observe_substep(self, q_pre, dq_pre, q_post, dq_post, tau, sim_dt):
+        """Feed one SENSOR-RATE motion sample to the wrench identifier.
+
+        Called per sim substep, not per control tick, and that is the whole
+        point: the fit needs the shortest measurement interval available. The
+        average acceleration over a 10 ms control tick is a poor match for any
+        single-point evaluation of the dynamics (9.4% median wrench error,
+        which destabilizes the loop once the estimate is fed back); over the
+        1 ms substep it is 0.5%. A real robot reads encoders at sensor rate for
+        the same reason. The identifier never sees the payload — only the
+        robot-only model, the applied torque, and the measured motion.
+        """
+        ident = self.wrench_identifier
+        if ident is None:
+            return
+        nq_r, nv_r = self.nq_robot, self.nv_robot
+        ident.identify(q=q_pre[:nq_r], dq=dq_pre[:nv_r], dq_next=dq_post[:nv_r],
+                       tau_applied=tau, dt=sim_dt, q_next=q_post[:nq_r])
+
     def _play_control(self, xu_best, q, dq, timestep, sim_dt, total_sim_time,
                       accumulated_time):
         """Advance the sim by ~timestep using the trajectory's per-knot controls.
@@ -216,7 +265,9 @@ class MPC_GATO:
             u = xu_best[u_idx:u_idx + self.nu_act]
             u_aug = self._augment_control(u, dq)
             self._update_sim_f_ext(q)
+            q_pre, dq_pre = q.copy(), dq.copy()
             q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+            self._observe_substep(q_pre, dq_pre, q, dq, u, sim_dt)
             total_sim_time += sim_dt
 
         # Handle residual time
@@ -229,7 +280,9 @@ class MPC_GATO:
                 u = xu_best[u_idx:u_idx + self.nu_act]
                 u_aug = self._augment_control(u, dq)
                 self._update_sim_f_ext(q)
+                q_pre, dq_pre = q.copy(), dq.copy()
                 q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+                self._observe_substep(q_pre, dq_pre, q, dq, u, sim_dt)
                 total_sim_time += sim_dt
 
         return q, dq, total_sim_time, accumulated_time

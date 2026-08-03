@@ -111,3 +111,75 @@ class ForceHypothesisBatch(HypothesisBatch):
         _, Fj = world_wrench_to_joint_local(self.model, self._data, q, f_world,
                                             self._ee_frame_id)
         return np.concatenate([Fj.angular, Fj.linear])
+
+
+class IdentifiedWrenchBatch(HypothesisBatch):
+    """B=1 "batch": the wrench IDENTIFIED from the last one-step motion residual.
+
+    Structurally identical to ForceHypothesisBatch — same world->GATO frame
+    transform, same ``set_f_ext_B`` injection — so an A/B against it isolates
+    exactly one variable: how the wrench is obtained. ForceHypothesisBatch
+    SAMPLES B candidates and lets a GPU rollout pick a winner;
+    this SOLVES for the wrench with one least-squares fit and needs no batch.
+
+    Lifecycle note: the fit needs (x_prev, u_prev, x_measured), which the
+    controller supplies to ``select()`` — i.e. AFTER the solve. The estimate
+    therefore lands one tick later, in the next ``apply()``. That one-tick lag
+    is inherent to any observer (the FE has it too: its batch is scored against
+    the previous interval).
+
+    Args:
+        identifier: an OneStepWrenchIdentifier over the SOLVER model.
+        model: the solver's pinocchio model (robot only).
+        ee_frame: URDF frame the wrench acts at.
+        n_actuated: width of the applied-torque head of the control vector
+            (``solver.n_actuated``); on contact-force builds ``u_prev`` also
+            carries the solver's fc tail, which is NOT an applied torque and
+            must not enter the residual.
+    """
+
+    def __init__(self, identifier, model, ee_frame="EE", n_actuated=None):
+        pin = _require_pin()
+        self.identifier = identifier
+        self.batch_size = 1
+        self.model = model
+        self._data = model.createData()
+        self._ee_frame_id = model.getFrameId(ee_frame)
+        if self._ee_frame_id >= model.nframes:
+            raise ValueError(f"URDF has no frame named {ee_frame!r}")
+        self.n_actuated = int(n_actuated) if n_actuated is not None else model.nv
+
+    def apply(self, solver, x):
+        w = self.identifier.generate_batch()          # (1, 6) world frame
+        q = np.asarray(x)[: self.model.nq]
+        solver.set_f_ext_B(
+            np.stack([self._world_to_gato(q, w[0])]).astype(np.float32))
+
+    def select(self, solver, result, x_prev, u_prev, x_meas, dt):
+        """No-op: there is only one hypothesis.
+
+        The fit itself is driven at SENSOR rate by the driver
+        (MPC_GATO._observe_substep), not from this tick-rate hook — the
+        control-period motion sample is too coarse to identify a wrench from
+        (9.4% vs 0.5% median error; see OneStepWrenchIdentifier.identify).
+        A caller running its own sim loop should call identifier.identify()
+        at its measurement rate instead.
+        """
+        return 0
+
+    def update(self, best_id, errors):
+        """No-op: select() already folded the observation into the fit."""
+
+    def reset(self):
+        self.identifier.reset()
+
+    def get_stats(self):
+        return self.identifier.get_stats()
+
+    def _world_to_gato(self, q, f_world):
+        """World-axes wrench at the EE frame origin -> GRiD's last-body f_ext slot.
+        Identical transform to ForceHypothesisBatch (see its docstring)."""
+        from gato.common import world_wrench_to_joint_local
+        _, Fj = world_wrench_to_joint_local(self.model, self._data, q, f_world,
+                                            self._ee_frame_id)
+        return np.concatenate([Fj.angular, Fj.linear])

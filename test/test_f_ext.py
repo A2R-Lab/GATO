@@ -292,12 +292,12 @@ def test_fc_box_pin_zeroes_fc(make_solver, smallest_module):
 # ACTUATED slice, and refuses fc_config loudly when the module has no fc slots.
 # ---------------------------------------------------------------------------
 
-def _mpc_gato(urdfs, plant, N, **kw):
+def _mpc_gato(urdfs, plant, N, batch_size=1, **kw):
     pin = pytest.importorskip("pinocchio")
     from gato.mpc_gato import MPC_GATO
     urdf = str(urdfs[plant])
     model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
-    return MPC_GATO(model, model_path=urdf, N=N, dt=0.01, batch_size=1,
+    return MPC_GATO(model, model_path=urdf, N=N, dt=0.01, batch_size=batch_size,
                     plant_type=plant, **kw)
 
 
@@ -322,3 +322,114 @@ def test_mpc_gato_fc_config_needs_fc_build(urdfs, smallest_module):
         pytest.skip("fc build — the raise is the default-build contract")
     with pytest.raises(RuntimeError, match="GATO_CONTACT_FORCES"):
         _mpc_gato(urdfs, plant, N, fc_config={"cost": 1e-2, "pin_torque_rows": True})
+
+
+# ---------------------------------------------------------------------------
+# Wrench IDENTIFICATION (W3 arm 2). The estimator is pure host math over the
+# solver's own model, so these are exact-oracle gates, not statistical ones.
+# ---------------------------------------------------------------------------
+
+def test_wrench_identifier_recovers_known_wrench(urdfs, smallest_module):
+    """A wrench applied through pin.aba must be recovered EXACTLY from the
+    resulting motion. This pins the whole convention stack at once — the rnea
+    residual sign, the LOCAL_WORLD_ALIGNED frame, and the [force; torque]
+    ordering shared with world_wrench_to_joint_local. Any one of them being
+    wrong silently turns the observer into a divergence generator."""
+    pin = pytest.importorskip("pinocchio")
+    from gato.estimators import OneStepWrenchIdentifier
+    from gato.common import world_wrench_to_joint_local
+
+    plant, _ = smallest_module
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    model.gravity.linear = np.array([0.0, 0.0, -9.81])
+    data = model.createData()
+    rng = np.random.default_rng(0)
+    q = rng.uniform(-0.8, 0.8, model.nq)
+    dq = rng.uniform(-0.4, 0.4, model.nv)
+    tau = rng.uniform(-8.0, 8.0, model.nv)
+    truth = np.array([3.0, -5.0, -98.1, 0.0, 0.0, 0.0])   # world [force; torque]
+
+    ident = OneStepWrenchIdentifier(model, ee_frame="EE", alpha=1.0, damping=0.0)
+    fext = pin.StdVec_Force()
+    for _ in range(model.njoints):
+        fext.append(pin.Force.Zero())
+    jid, Fj = world_wrench_to_joint_local(model, data, q, truth,
+                                          model.getFrameId("EE"))
+    fext[jid] = Fj
+    ddq = pin.aba(model, data, q, dq, tau, fext)
+
+    # tiny dt so (dq_next - dq)/dt is the instantaneous ddq: isolates the FIT
+    dt = 1e-6
+    w = ident.identify(q, dq, dq + dt * ddq, tau, dt)
+    np.testing.assert_allclose(w, truth, atol=1e-4)
+    assert ident.residual_norm < 1e-8, "an exact EE wrench must be fully explained"
+
+
+def test_wrench_identifier_midpoint_beats_startpoint(urdfs, smallest_module):
+    """Evaluating the dynamics at the interval MIDPOINT must beat evaluating at
+    its start when ddq is a finite difference over a realistic interval. This
+    is not cosmetic: at the control period the start-evaluated fit was ~9%
+    off, and feeding that back destabilized the closed loop."""
+    pin = pytest.importorskip("pinocchio")
+    from gato.estimators import OneStepWrenchIdentifier
+    from gato.common import world_wrench_to_joint_local, rk4
+
+    plant, _ = smallest_module
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    model.gravity.linear = np.array([0.0, 0.0, -9.81])
+    data = model.createData()
+    rng = np.random.default_rng(3)
+    q = rng.uniform(-0.8, 0.8, model.nq)
+    dq = rng.uniform(-0.4, 0.4, model.nv)
+    tau = rng.uniform(-40.0, 40.0, model.nv)
+    truth = np.array([0.0, 0.0, -98.1, 0.0, 0.0, 0.0])
+    fid = model.getFrameId("EE")
+
+    qq, dqq = q.copy(), dq.copy()
+    dt = 0.002
+    for _ in range(2):
+        fext = pin.StdVec_Force()
+        for _ in range(model.njoints):
+            fext.append(pin.Force.Zero())
+        jid, Fj = world_wrench_to_joint_local(model, data, qq, truth, fid)
+        fext[jid] = Fj
+        qq, dqq = rk4(model, data, qq, dqq, tau, dt / 2)
+
+    ident = OneStepWrenchIdentifier(model, ee_frame="EE", alpha=1.0, damping=0.0)
+    e_start = np.linalg.norm(ident.identify(q, dq, dqq, tau, dt)[:3] - truth[:3])
+    e_mid = np.linalg.norm(
+        ident.identify(q, dq, dqq, tau, dt, q_next=qq)[:3] - truth[:3])
+    assert e_mid < e_start, f"midpoint {e_mid:.3f} should beat start {e_start:.3f}"
+
+
+def test_wrench_identifier_weight_mode_is_gravity_aligned(urdfs, smallest_module):
+    """'weight' mode must emit a purely downward force and no moment: it exists
+    to keep ONLY the horizon-constant part of the disturbance, because the full
+    instantaneous wrench is dominated by the payload's inertial reaction to the
+    arm's own motion and holding that fixed across the horizon measurably hurts."""
+    pin = pytest.importorskip("pinocchio")
+    from gato.estimators import OneStepWrenchIdentifier
+    plant, _ = smallest_module
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    model.gravity.linear = np.array([0.0, 0.0, -9.81])
+    rng = np.random.default_rng(5)
+    ident = OneStepWrenchIdentifier(model, ee_frame="EE", alpha=1.0, mode="weight")
+    q = rng.uniform(-0.8, 0.8, model.nq)
+    dq = rng.uniform(-0.4, 0.4, model.nv)
+    w = ident.identify(q, dq, dq + 1e-3 * rng.normal(size=model.nv),
+                       rng.uniform(-20, 20, model.nv), 1e-3, q_next=q)
+    assert w[0] == 0.0 and w[1] == 0.0, "weight mode must emit no lateral force"
+    assert w[2] <= 0.0, "weight mode must emit a downward (or zero) force"
+    np.testing.assert_array_equal(w[3:], np.zeros(3))
+
+
+def test_wrench_id_rejects_batch(urdfs, smallest_module):
+    """wrench_id + B>1 must raise: it REPLACES the hypothesis batch, and
+    silently running both would confound which mechanism explains the wrench."""
+    pytest.importorskip("pinocchio")
+    plant, N = smallest_module
+    with pytest.raises(ValueError, match="batch_size == 1"):
+        _mpc_gato(urdfs, plant, N, batch_size=4, wrench_id={})
