@@ -95,12 +95,15 @@ def table_I(data):
         plines = [f"protocol: mass={proto['mass']}kg L={proto['length_range']} "
                   f"d={proto['damping_range']} |th|={proto['angle_range']}"]
     fc, wid = data.get("fc_config"), data.get("wrench_id")
-    if wid is not None:
-        plines.append(f"arm: least-squares wrench identification, wrench_id={wid}")
-    elif fc:
-        plines.append(f"arm: solver contact-force slots, fc_config={fc}")
-    else:
+    if wid is None and not fc:
         plines.append("arm: ForceEstimator hypothesis batch (no fc slots)")
+    else:
+        # the combined arm is a real configuration (identified wrench sets the
+        # f_ext bias, fc absorbs the residual) — record BOTH, never just one
+        if wid is not None:
+            plines.append(f"arm: least-squares wrench identification, wrench_id={wid}")
+        if fc:
+            plines.append(f"arm: solver contact-force slots, fc_config={fc}")
     lines = ["", "=" * 48, "TABLE I — pick-place success vs batch size", "=" * 48] + plines + [
              f"{'Batch':>6} {'Success [%]':>12} {'Mean time* [s]':>15}   (*successes only)"]
     for b in data["batch_sizes"]:
