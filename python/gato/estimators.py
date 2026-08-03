@@ -426,9 +426,23 @@ class OneStepWrenchIdentifier:
             kinematic singularities an undamped pseudo-inverse amplifies the
             measurement residual without bound, so the default is nonzero.
         mode: 'wrench' (default) uses the full identified wrench; 'weight'
-            keeps only its gravity-aligned component (the payload weight),
-            which is the part a constant-over-the-horizon wrench model can
-            legitimately extrapolate.
+            estimates the payload WEIGHT — the gravity-aligned component
+            filtered on weight_tau — which is the part a constant-over-the-
+            horizon wrench model can legitimately extrapolate.
+        weight_tau: time constant [s] of the weight filter (mode='weight').
+            ★ Measured on the pick-place task (100 scenarios at the default,
+            15-scenario probes elsewhere; success / mean goals per 5):
+                instantaneous  10/100, 3.10
+                tau = 0.05      -     , 3.47
+                tau = 0.10   ★ 27/100, 3.80   <- default
+                tau = 0.15      -     , 3.20
+                tau = 0.25      -     , 2.27
+                tau = 0.50      -     , 1.73  <- WORSE THAN NO ESTIMATOR (2.55)
+            The optimum is sharp and the penalty for over-filtering is severe:
+            long constants lag a payload the arm is actively swinging, and the
+            lagged weight is worse than no correction at all. Do not raise this
+            toward the swing period on the intuition that more averaging is
+            safer -- it is not.
         max_wrench: magnitude clamp on force/torque halves, a divergence guard.
             NOT a physical prior: on this task the true wrench swings over
             34-1041 N (a swinging payload on an accelerating arm is mostly
@@ -439,7 +453,7 @@ class OneStepWrenchIdentifier:
     batch_size = 1
 
     def __init__(self, model, ee_frame="EE", alpha=0.5, damping=1e-3,
-                 max_wrench=2000.0, mode="wrench"):
+                 max_wrench=2000.0, mode="wrench", weight_tau=0.1):
         from .common import _require_pin
         self._pin = _require_pin()
         self.model = model
@@ -453,12 +467,20 @@ class OneStepWrenchIdentifier:
         self.damping = float(damping)
         self.max_wrench = float(max_wrench)
         self.mode = mode
+        self.weight_tau = float(weight_tau)
+        g_vec = np.asarray(model.gravity.linear, dtype=np.float64)
+        if not np.any(g_vec):
+            g_vec = np.array([0.0, 0.0, -9.81])
+        # unit vector along gravity: the direction a hanging payload pulls
+        self._g_hat = g_vec / np.linalg.norm(g_vec)
         self.dim = 6
         self.reset()
 
     def reset(self):
         self.estimate = np.zeros(self.dim, dtype=np.float32)
         self.raw = np.zeros(self.dim, dtype=np.float32)
+        self._weight_raw = 0.0
+        self.weight = 0.0
         self.residual_norm = 0.0     # ||J^T w - tau_resid||: what NO EE wrench explains
         self.tau_resid_norm = 0.0
         self.n_updates = 0
@@ -529,20 +551,39 @@ class OneStepWrenchIdentifier:
             if n > self.max_wrench:
                 w[half] *= self.max_wrench / n
 
+        self.tau_resid_norm = float(np.linalg.norm(tau_resid))
+        self.residual_norm = float(np.linalg.norm(A @ w - tau_resid))
+
         if self.mode == "weight":
             # Keep only the part a constant-wrench model can honestly
             # EXTRAPOLATE over the horizon. The measured wrench is dominated by
             # the payload's inertial reaction to the arm's OWN acceleration —
             # state-dependent, so holding it fixed across 16 knots plans against
-            # a force the plan itself changes. The gravity-aligned component is
-            # the payload's weight, which really is horizon-constant.
-            g = np.array([0.0, 0.0, -1.0])
-            w = np.concatenate([g * max(0.0, float(w[:3] @ g)), np.zeros(3)])
-        self.raw = w.astype(np.float32)
-        self.tau_resid_norm = float(np.linalg.norm(tau_resid))
-        self.residual_norm = float(np.linalg.norm(A @ w - tau_resid))
-        self.estimate = ((1.0 - self.alpha) * self.estimate
-                         + self.alpha * self.raw).astype(np.float32)
+            # a force the plan itself changes.
+            #
+            # ★ Estimate the WEIGHT, not the instantaneous downward component.
+            # The payload weight is CONSTANT; the inertial reaction oscillates
+            # and also projects onto gravity, so an instantaneous read is not a
+            # weight at all (measured: it sat at 0 through a transient, then
+            # read 270-556 N against a true 98.1 N). Filter it on a time
+            # constant longer than the payload's swing period (T = 2*pi*sqrt(L/g)
+            # ~ 1.5 s here) so the oscillating part averages out.
+            #
+            # ⚠ Lag is harmless HERE and only here: the target does not move.
+            # Filtering the full wrench this slowly is much worse than not
+            # filtering at all (mode="wrench" mean goals/5: 1.87 at alpha=0.5,
+            # 1.27 at 0.1, 0.93 at 0.02) because that signal is genuinely fast.
+            # Slow-filter the constant part; never the varying part.
+            a = float(dt) / (self.weight_tau + float(dt))   # sample-rate independent
+            self._weight_raw = (1.0 - a) * self._weight_raw + a * float(w[:3] @ self._g_hat)
+            self.weight = max(0.0, self._weight_raw)        # a negative weight is unphysical
+            self.raw = np.concatenate(
+                [self._g_hat * self.weight, np.zeros(3)]).astype(np.float32)
+            self.estimate = self.raw                        # filtering already done
+        else:
+            self.raw = w.astype(np.float32)
+            self.estimate = ((1.0 - self.alpha) * self.estimate
+                             + self.alpha * self.raw).astype(np.float32)
         self.n_updates += 1
         return self.raw
 
@@ -557,5 +598,6 @@ class OneStepWrenchIdentifier:
             "torque_norm": float(np.linalg.norm(self.estimate[3:])),
             "tau_resid_norm": self.tau_resid_norm,
             "unexplained_norm": self.residual_norm,
+            "weight": self.weight,
             "n_updates": self.n_updates,
         }

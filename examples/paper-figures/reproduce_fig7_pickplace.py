@@ -171,6 +171,8 @@ def main():
                         "(replaces the ForceEstimator batch).")
     p.add_argument("--wrench-id-alpha", type=float, default=None,
                    help="EMA smoothing for --wrench-id (default = identifier default)")
+    p.add_argument("--wrench-id-tau", type=float, default=None,
+                   help="weight-filter time constant [s] for --wrench-id-mode weight")
     p.add_argument("--wrench-id-mode", default=None, choices=["wrench", "weight"],
                    help="--wrench-id disturbance model: full wrench, or only its "
                         "gravity-aligned (horizon-constant) component")
@@ -206,6 +208,8 @@ def main():
                 wrench_id["alpha"] = args.wrench_id_alpha
             if args.wrench_id_mode is not None:
                 wrench_id["mode"] = args.wrench_id_mode
+            if args.wrench_id_tau is not None:
+                wrench_id["weight_tau"] = args.wrench_id_tau
             print(f"[wrench-id arm] least-squares wrench identification: {wrench_id}")
         fc_config = None
         if args.fc:

@@ -404,6 +404,35 @@ def test_wrench_identifier_midpoint_beats_startpoint(urdfs, smallest_module):
     assert e_mid < e_start, f"midpoint {e_mid:.3f} should beat start {e_start:.3f}"
 
 
+def test_wrench_identifier_vertical_force_unobservable_at_zero_config(urdfs, smallest_module):
+    """★ At the all-zeros configuration the arm is extended straight up, so a
+    VERTICAL EE force produces exactly zero joint torque -- J^T w == 0 -- and no
+    wrench observer can see it, however good its math. Both iiwa14 start configs
+    ('zero' and 'home') ARE all-zeros, so the pick-place benchmark begins in this
+    blind spot and the estimate necessarily reads 0 until the arm bends away.
+    Pinned as a property of the task, not a bug: a validation run seeded at this
+    config measures the singularity, not the estimator."""
+    pin = pytest.importorskip("pinocchio")
+    plant, _ = smallest_module
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    data = model.createData()
+    fid = model.getFrameId("EE")
+    w_vert = np.array([0.0, 0.0, -98.1, 0.0, 0.0, 0.0])
+    J0 = pin.computeFrameJacobian(model, data, np.zeros(model.nq), fid,
+                                  pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+    blind = np.linalg.norm(J0.T @ w_vert)
+    assert blind < 1e-4, f"expected the vertical blind spot, got |J^T w|={blind:.3e}"
+    # ... and that it IS observable once the arm bends away
+    q = np.zeros(model.nq)
+    q[1] = 0.6
+    J1 = pin.computeFrameJacobian(model, data, q, fid,
+                                  pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+    bent = np.linalg.norm(J1.T @ w_vert)
+    assert bent > 1e5 * max(blind, 1e-12), (
+        f"bending away must restore observability: {blind:.3e} -> {bent:.3e}")
+
+
 def test_wrench_identifier_weight_mode_is_gravity_aligned(urdfs, smallest_module):
     """'weight' mode must emit a purely downward force and no moment: it exists
     to keep ONLY the horizon-constant part of the disturbance, because the full
@@ -417,6 +446,8 @@ def test_wrench_identifier_weight_mode_is_gravity_aligned(urdfs, smallest_module
     model.gravity.linear = np.array([0.0, 0.0, -9.81])
     rng = np.random.default_rng(5)
     ident = OneStepWrenchIdentifier(model, ee_frame="EE", alpha=1.0, mode="weight")
+    # a generic (non-vertical) configuration: at all-zeros a vertical force is
+    # unobservable, so seeding there would test the singularity, not the mode
     q = rng.uniform(-0.8, 0.8, model.nq)
     dq = rng.uniform(-0.4, 0.4, model.nv)
     w = ident.identify(q, dq, dq + 1e-3 * rng.normal(size=model.nv),

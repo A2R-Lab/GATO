@@ -151,7 +151,7 @@ class MPC_GATO:
                     "Running both would confound which mechanism explains the wrench.")
             # forward only the keys the caller set, so the identifier's own
             # (measured) defaults stay the single source of truth
-            id_kw = {k: wrench_id[k] for k in ('alpha', 'damping', 'max_wrench', 'mode')
+            id_kw = {k: wrench_id[k] for k in ('alpha', 'damping', 'max_wrench', 'mode', 'weight_tau')
                      if k in wrench_id}
             identifier = OneStepWrenchIdentifier(
                 self.solver_model, ee_frame=self.solver.ee_frame, **id_kw)
