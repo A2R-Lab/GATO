@@ -58,13 +58,18 @@ examples/benchmarks/baselines/batchthneed_fig8_results.pkl
 examples/benchmarks/baselines/sqpcpu_env.sh
 examples/benchmarks/data/benchmark_fig8_*.pkl
 examples/benchmarks/data/benchmark_stats*.pkl
-examples/benchmarks/data/stale_L7_frame_pre20260730/*.pkl
+examples/benchmarks/data/**/*.pkl
 examples/benchmarks/night_logs/
 
 # paper-figures: regenerated data + rendered figures are artifacts (recovered/
 # bundled datasets live elsewhere, e.g. examples/gato_hparam_batch_results.pkl)
-examples/paper-figures/data/*.pkl
-examples/paper-figures/data/stale_L7_frame_pre20260730/*.pkl
+# NOTE: these are recursive (**) on purpose — a rotation into a stale_*/ subdir
+# used to escape the flat patterns and dirty the tree, failing the receipt's
+# clean-tree check (hit at the L7 rotation, again at the Drake-swap rotation).
+# READMEs in those dirs stay tracked: they carry the do-not-mix rule.
+examples/paper-figures/data/**/*.pkl
+examples/paper-figures/data/**/*.png
+examples/paper-figures/data/**/*.txt
 examples/paper-figures/*.png
 examples/paper-figures/*.txt
 
