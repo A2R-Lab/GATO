@@ -88,11 +88,16 @@ def test_anchor_gradient_sign(make_solver, smallest_module):
 
 
 def test_anchor_pulls_toward_q_nom(make_solver, smallest_module):
-    """A/B pull direction: with everything else identical, the solve anchored
-    at target A ends closer to A than the solve anchored at target B does —
-    the anchors demonstrably steer the nullspace. (Comparing anchored vs
-    UNanchored final postures is not a clean property: the anchor's Hessian
-    regularization deepens convergence, which can move the solution more.)"""
+    """A/B pull direction: shifting the anchor target from A to B moves the
+    final posture in the direction of the shift — the differential
+    (qN_b - qN_a) . (B - A) > 0 with meaningful gain. This is the
+    model-robust invariant: the EE task cost drags BOTH solves the same
+    (possibly large, model-dependent) common-mode distance from either
+    anchor, which cancels in the difference; absolute closer-to-own-anchor
+    comparisons drown in that drift when the task and anchor conflict.
+    (Comparing anchored vs UNanchored final postures is not clean either:
+    the anchor's Hessian regularization deepens convergence, which can move
+    the solution more.)"""
     plant, N = smallest_module
     w = 0.5
 
@@ -114,8 +119,9 @@ def test_anchor_pulls_toward_q_nom(make_solver, smallest_module):
 
     qN_a = run(nom_a)
     qN_b = run(nom_b)
-    assert np.linalg.norm(qN_a - nom_a) < np.linalg.norm(qN_b - nom_a)
-    assert np.linalg.norm(qN_b - nom_b) < np.linalg.norm(qN_a - nom_b)
+    shift = nom_b - nom_a
+    gain = float(np.dot(qN_b - qN_a, shift)) / float(np.dot(shift, shift))
+    assert gain > 0.05, f"anchor shift steering gain {gain:.4f} <= 0.05"
 
 
 def test_per_joint_cost_vectors_kkt(make_solver, smallest_module):
