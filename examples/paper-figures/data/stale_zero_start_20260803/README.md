@@ -46,3 +46,12 @@ was substantially compensating for the bad start pose. At `ready`, the
 at all, versus 59% at B=128 from the zero start. Post-rotation pools therefore
 run the stated paper protocol, and the "eased protocol has no paper-era
 implementation" caveat no longer needs to carry the result.
+
+## Also rotated: `fig7_pickplace.pkl` (the canonical-tag pool)
+
+The 2026-08-01 night run's fig7 leg, at the all-zeros start and the 15 kg protocol
+(no `protocol` key — it predates protocol stamping): 5 / 16 / 46 / 61 / 60 / 57 /
+59% for B = 1..128, non-monotone. Superseded by the `ready`-start run of the same
+protocol (1 / 10 / 68 / 78 / 79 / 80 / 83%, monotone). Rotated so the night
+runner's untagged fig7 leg regenerates the canonical tag cleanly instead of
+silently overwriting a zero-start pool with a `ready`-start one.

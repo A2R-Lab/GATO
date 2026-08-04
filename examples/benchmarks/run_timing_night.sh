@@ -34,6 +34,7 @@
 #   QUICK=1  tiny subsets everywhere (plumbing smoke; numbers are GARBAGE)
 #   JOBS=n   leg-0 rebuild parallelism (default 4 — the quiet-box cap; use 1
 #            when smoke-testing while other agents are on the box)
+#   SKIP_FIGS=1  run the timing legs only, skip the fig5/fig4/fig7 tail
 set -uo pipefail
 REPO=/home/plancher/Desktop/GATO
 MPCGPU=/home/plancher/Desktop/MPCGPU
@@ -150,12 +151,14 @@ done
 leg r2quote "$PY" "$CEV" --run --cells "$RQ_CELLS"
 
 # ---- 7. long statistics tail (not timing-sensitive; last on purpose) ----
-if [[ "${QUICK:-0}" != "1" ]]; then
+# SKIP_FIGS=1 drops it for a time-boxed slot: every TIMING number is already in
+# by this point, so this is the safe thing to cut when the window is short.
+if [[ "${QUICK:-0}" != "1" && "${SKIP_FIGS:-0}" != "1" ]]; then
   leg fig5 "$PY" examples/paper-figures/reproduce_fig5_disturbance.py --regen
   leg fig4 "$PY" examples/paper-figures/reproduce_fig4_hparam.py --regen
   leg fig7 "$PY" examples/paper-figures/reproduce_fig7_pickplace.py --regen
 else
-  echo "[figs] SKIP (QUICK=1)" | tee -a "$SUMMARY"
+  echo "[figs] SKIP (QUICK=${QUICK:-0} SKIP_FIGS=${SKIP_FIGS:-0})" | tee -a "$SUMMARY"
 fi
 
 # ---- digest ----
