@@ -25,10 +25,30 @@ INDY7_START_CONFIGS = {
     'ready': np.array([-1.096711, -0.09903229, 0.83125766, -0.10907673, 0.49704404, 0.01499449])
 }
 
-# Standard starting configurations for IIWA14
+# Standard starting configurations for IIWA14.
+#
+# ⚠ 'zero' and 'home' are BOTH all-zeros: the arm extended straight up. That is a
+# kinematic singularity, and a consequential one — a VERTICAL end-effector force
+# produces zero joint torque there (|J^T w| = 1.4e-6 vs > 1 once bent), so a
+# hanging payload is completely UNOBSERVABLE to any wrench estimator until the arm
+# moves away. Manipulability is 0.0 and cond(J) ~ 2e10.
+#
+# They are kept as-is because they are the inputs of record for the bitwise parity
+# baseline (tools/parity_baseline.py) and the test suite. Start closed-loop
+# EXPERIMENTS from 'ready' instead.
 IIWA14_START_CONFIGS = {
     'zero': np.zeros(7),
     'home': np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    # Mid-workspace elbow pose. The signs ALTERNATE down the arm (shoulder +,
+    # elbow -, wrist +): curling joints 2/4/6 the same way stacks the bends and
+    # leaves the arm folded near the base, which is both less manipulable and
+    # further from the workspace. Measured against the all-zeros start:
+    #   |J^T w| (vertical-force observability)  0.00  -> 77.8
+    #   sigma_min(J)                            0.000 -> 0.159
+    #   cond(J)                                 2e10  -> 11.6
+    #   manipulability sqrt(det(J J^T))         0.000 -> 0.103
+    # EE lands at [0.64, 0.17, 0.64], inside joint limits with margin.
+    'ready': np.array([0.0, np.pi/6, np.pi/8, -np.pi/3, 0.0, np.pi/3, 0.0]),
 }
 
 # MPC solver parameters

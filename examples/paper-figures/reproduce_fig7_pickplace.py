@@ -51,7 +51,8 @@ N = 16
 DT = 0.01
 
 
-def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None):
+def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None,
+        start_config='ready'):
     from _pickplace_runner import ExperimentRunner
     from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS,
                          PICKPLACE_MPC_DEFAULTS, sample_pendulum_params)
@@ -76,7 +77,8 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
             batch_sizes=batch_sizes, N=N, dt=DT, sim_dt=0.001, plant_type="iiwa14",
             goal_sequences=[PICKPLACE_DEFAULT_GOALS], pendulum_config=pend,
             solver_params=PICKPLACE_SOLVER_PARAMS, mpc_defaults=PICKPLACE_MPC_DEFAULTS,
-            fc_config=fc_config, wrench_id=wrench_id, verbose=False,
+            fc_config=fc_config, wrench_id=wrench_id, start_config=start_config,
+            verbose=False,
         )
         for b in batch_sizes:
             r = res.get(b, {})
@@ -93,7 +95,8 @@ def table_I(data):
     plines = []
     if proto:
         plines = [f"protocol: mass={proto['mass']}kg L={proto['length_range']} "
-                  f"d={proto['damping_range']} |th|={proto['angle_range']}"]
+                  f"d={proto['damping_range']} |th|={proto['angle_range']} "
+                  f"start={proto.get('start_config', 'home')}"]
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
         plines.append("arm: ForceEstimator hypothesis batch (no fc slots)")
@@ -165,6 +168,10 @@ def main():
     p.add_argument("--angle-range", default="0.0,0.6", help="initial |axis-angle| range [rad]")
     p.add_argument("--tag", default="fig7_pickplace",
                    help="data/plot basename (use a distinct tag per protocol — never mix pools)")
+    p.add_argument("--start-config", default="ready",
+                   help="IIWA14_START_CONFIGS key for the initial pose. Default 'ready' is a "
+                        "mid-workspace elbow pose; 'zero'/'home' are all-zeros, where the arm "
+                        "is vertical and a hanging payload is UNOBSERVABLE (|J^T w| = 0).")
     p.add_argument("--wrench-id", action="store_true",
                    help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
                         "wrench from sensor-rate motion, injected as f_ext. B=1 only "
@@ -200,7 +207,8 @@ def main():
         rng = lambda s: tuple(float(x) for x in s.split(","))
         protocol = {"mass": args.pend_mass, "length_range": rng(args.length_range),
                     "damping_range": rng(args.damping_range),
-                    "angle_range": rng(args.angle_range), "seed": args.seed}
+                    "angle_range": rng(args.angle_range), "seed": args.seed,
+                    "start_config": args.start_config}
         wrench_id = None
         if args.wrench_id:
             wrench_id = {}
@@ -216,7 +224,8 @@ def main():
             fc_config = {"cost": args.fc_cost,
                          "pin_torque_rows": not args.fc_free_torque}
             print(f"[fc arm] solver contact-wrench slots active: {fc_config}")
-        data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id)
+        data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id,
+                   start_config=args.start_config)
         data["tag"] = args.tag
         C.save_data(data, args.tag)
 
