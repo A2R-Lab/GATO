@@ -166,7 +166,10 @@ fi
   echo; echo "---- key results ----"
   grep -E "PASS|FAIL" "$LOGDIR/fence-mpcgpu.log" 2>/dev/null | tail -6
   grep -E "RESULT" "$LOGDIR/3way.log" 2>/dev/null | head -6
-  grep -E "GATOvsBT|GATOvsMPCGPU|=== Fig-3" -m 12 "$LOGDIR/fig3.log" 2>/dev/null | head -14
+  # the tables sit at the end of the log; grep for column names only ever hit the
+  # header line (rows are numbers), so take the range and drop progress lines
+  sed -n '/=== Fig-3 (left/,$p' "$LOGDIR/fig3.log" 2>/dev/null \
+    | grep -vE '^\[(fig3-fair|paper-figures)\]' | head -32
   # solve_us lives in results.jsonl (the --run driver logs only [ok] lines);
   # last row per (cell, exact-flag) wins — exactly the harness supersede rule
   echo "-- quiet-box solve_us_median (last row per cell+arm, this run's legs) --"
