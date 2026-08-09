@@ -19,3 +19,5 @@ test/test_f_ext.py::test_fc_adapter_dq_carries_chain_term
 test/test_f_ext.py::test_fc_adapter_dq_zero_wrench_bitwise
 test/test_f_ext.py::test_fc_solve_finite_deterministic
 test/test_f_ext.py::test_fc_box_pin_zeroes_fc
+test/test_f_ext.py::test_fc_ref_zero_is_bitwise_noop
+test/test_f_ext.py::test_fc_ref_pulls_fc_toward_reference
