@@ -694,8 +694,11 @@ def test_lin_u_descriptor_roundtrip_and_telemetry(make_solver, smallest_module):
     s.add_lin_u_rows(C3, lo=np.full(3, -np.inf), hi=np.zeros(3), mech="telemetry")
     groups = s.get_row_groups()
     assert len(groups) == 5
-    np.testing.assert_allclose(groups[3]["C"], C4, rtol=1e-6)
-    np.testing.assert_allclose(groups[3]["d"], d4, rtol=1e-6)
+    # cone maps install NORMALIZED (uniform 1/||C||_2 — SOC-invariant; the rho
+    # defaults are for unit-norm maps): the round-trip returns the scaled map
+    s4 = np.linalg.norm(C4.astype(np.float64), 2)
+    np.testing.assert_allclose(groups[3]["C"], C4 / s4, rtol=1e-6)
+    np.testing.assert_allclose(groups[3]["d"], d4 / s4, rtol=1e-6)
     assert groups[3]["cone"] == 1 and groups[4]["cone"] == 0
     assert not np.isfinite(groups[3]["lo"]).any()
 
@@ -706,6 +709,27 @@ def test_lin_u_descriptor_roundtrip_and_telemetry(make_solver, smallest_module):
             vmax, vsum = _lin_u_oracle(r.xu[b], groups[gi], r.nx, r.nu)
             np.testing.assert_allclose(r.stats.row_max_violation[gi, b], vmax, rtol=1e-4, atol=1e-5)
             np.testing.assert_allclose(r.stats.row_sum_violation[gi, b], vsum, rtol=1e-4, atol=1e-5)
+
+
+def test_u_cone_normalization_is_scale_invariant(make_solver, smallest_module):
+    """Cone maps normalize to unit spectral norm regardless of input scale
+    (the rho-scale-law guard: an SOC is invariant under uniform scaling, but
+    the admm fold's rho * C^T C is not); normalize=False installs verbatim."""
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    s.enable_limit_telemetry()
+    rng = np.random.default_rng(11)
+    C = rng.normal(size=(3, s.nu)).astype(np.float32)
+    d = rng.normal(size=3).astype(np.float32)
+    s.add_lin_u_rows(C, d, cone=True, mech="telemetry")
+    s.add_lin_u_rows(100.0 * C, 100.0 * d, cone=True, mech="telemetry")
+    s.add_lin_u_rows(100.0 * C, 100.0 * d, cone=True, mech="telemetry",
+                     normalize=False)
+    g1, g100, graw = s.get_row_groups()[-3:]
+    np.testing.assert_allclose(np.linalg.norm(np.asarray(g1["C"]), 2), 1.0, rtol=1e-5)
+    np.testing.assert_allclose(np.asarray(g100["C"]), np.asarray(g1["C"]), rtol=1e-5)
+    np.testing.assert_allclose(np.asarray(g100["d"]), np.asarray(g1["d"]), rtol=1e-5)
+    np.testing.assert_allclose(np.asarray(graw["C"]), 100.0 * C, rtol=1e-6)
 
 
 def test_u_cone_soc_admm_enforced(make_solver, smallest_module):

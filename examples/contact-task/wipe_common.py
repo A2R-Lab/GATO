@@ -67,37 +67,13 @@ _TIP_DROP_CACHE = {}
 
 def tool_tip_drop(q0, ee):
     """EE-FRAME height above the tool's lowest contact point at q0 (~33 mm on
-    the iiwa14 mesh). The EE frame origin is NOT the contact tip: placing the
-    table relative to the frame starts the tool in collision, and a "surface"
-    reference is physically unreachable — a hidden press bias for every arm
-    (measured 2026-08-09: constant +13-15 N). Probed by bisecting the highest
-    table top that does NOT touch at q0 (MuJoCo collision = the world's own
-    contact geometry, so the probe is exact for the evaluation world)."""
+    the iiwa14 mesh) — see gato.worlds.probe_tip_drop for the trap this
+    guards. Cached per configuration."""
     key = tuple(np.round(q0, 6))
-    if key in _TIP_DROP_CACHE:
-        return _TIP_DROP_CACHE[key]
-    import mujoco
-    from gato.worlds import MuJoCoWorld
-
-    def touches(z):
-        w = MuJoCoWorld(URDF, plane={"z": float(z), "pos_xy": (ee[0], ee[1]),
-                                     "size_xy": (0.3, 0.3)})
-        w.data.qpos[:] = q0
-        w.data.qvel[:] = 0
-        mujoco.mj_forward(w.model, w.data)
-        return w.data.ncon > 0
-
-    lo, hi = float(ee[2]) - 0.20, float(ee[2])  # lo clear, hi touching
-    assert not touches(lo) and touches(hi)
-    for _ in range(24):
-        mid = 0.5 * (lo + hi)
-        if touches(mid):
-            hi = mid
-        else:
-            lo = mid
-    drop = float(ee[2]) - lo
-    _TIP_DROP_CACHE[key] = drop
-    return drop
+    if key not in _TIP_DROP_CACHE:
+        from gato.worlds import probe_tip_drop
+        _TIP_DROP_CACHE[key] = probe_tip_drop(URDF, q0, ee)
+    return _TIP_DROP_CACHE[key]
 
 
 def ready_press_geometry():
@@ -186,14 +162,11 @@ def frozen_pinv_cone_rows(model, q_press, n_u):
     C = np.zeros((3, n_u))
     C[:, :7] = -S @ pinvJT
     d = S @ pinvJT @ g0
-    # An SOC is invariant under uniform positive scaling, and the admm fold
-    # lands rho * C^T C on the R block (interface docstring's rho-scale law):
-    # pinv(J^T) has ||C|| ~ 1/sigma_min(J) ~ 6, so an unnormalized map at the
-    # bound-default rho massively over-regularizes the torques (measured:
-    # path RMS 53 mm vs 17 mm). Normalize the WHOLE map uniformly (the
-    # docstring's own prescription for cone rows).
-    scale = 1.0 / np.linalg.norm(C, 2)
-    return C * scale, d * scale
+    # NOTE: pinv(J^T) has ||C|| ~ 1/sigma_min(J) ~ 6 — the rho-scale trap that
+    # cost this map 2x tracking before add_lin_u_rows grew cone auto-
+    # normalization (2026-08-09). The interface now normalizes (C, d) by
+    # 1/||C||_2 at install; return the raw map.
+    return C, d
 
 
 def fc_cone_rows(n_u, n_act):

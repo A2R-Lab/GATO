@@ -55,6 +55,27 @@ def test_mujoco_is_the_same_robot():
     assert res["ok"], fp.report(res)
 
 
+def test_probe_tip_drop_finds_contact_point():
+    """The EE-frame-origin-vs-tool-tip probe (the ~33 mm hidden-press-bias
+    trap): the drop is positive, plausible, deterministic, and consistent —
+    a table just below the probed tip is clear, just above it touches."""
+    mujoco = pytest.importorskip("mujoco")
+    from gato.worlds import MuJoCoWorld, probe_tip_drop
+    model, data, q0, ee = _ready_ee()
+    drop = probe_tip_drop(URDF, q0, ee)
+    assert 0.005 < drop < 0.10, f"implausible tip drop {drop}"
+    assert drop == probe_tip_drop(URDF, q0, ee)  # deterministic
+
+    def touches(z):
+        w = MuJoCoWorld(URDF, plane={"z": z, "pos_xy": (ee[0], ee[1])})
+        w.data.qpos[:] = q0
+        mujoco.mj_forward(w.model, w.data)
+        return w.data.ncon > 0
+
+    tip_z = ee[2] - drop
+    assert not touches(tip_z - 1e-4) and touches(tip_z + 1e-4)
+
+
 def test_mujoco_no_phantom_self_contacts():
     """q=0 is the config where base/L1 meshes interpenetrate: masks must hold."""
     w = _mujoco_world(plane={"z": -0.5})

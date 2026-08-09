@@ -50,6 +50,51 @@ class PinocchioWorld:
         return rk4(m.model, m.data, q, dq, u_aug, sim_dt, m.actual_f_ext)
 
 
+def probe_tip_drop(urdf_path, q, ref_point, span=0.20, iters=24,
+                   size_xy=(0.3, 0.3)):
+    """Height of a reference point (e.g. the EE FRAME origin) above the
+    robot's lowest CONTACT point at configuration q, probed with MuJoCo's own
+    collision checker.
+
+    Why this exists: the EE frame origin is NOT the tool tip (~33 mm apart on
+    the iiwa14 mesh). Geometry placed relative to the frame starts the tool
+    in collision, and a "surface" reference is physically unreachable — a
+    hidden press bias for every controller (measured 2026-08-09: +13-15 N on
+    the wipe task). Probe once, define all contact geometry at the TIP.
+
+    Bisects the highest horizontal table top (finite box under ref_point's
+    xy) that does NOT touch the robot at q; returns ref_point[2] - that z.
+    Exact for the evaluation world, since the probe uses the same collision
+    model/masks as MuJoCoWorld. ``span``: search window below ref_point (the
+    tool must clear a table span below the reference and touch one at it).
+    """
+    import mujoco
+
+    def touches(z):
+        w = MuJoCoWorld(urdf_path, plane={"z": float(z),
+                                          "pos_xy": (float(ref_point[0]),
+                                                     float(ref_point[1])),
+                                          "size_xy": size_xy})
+        w.data.qpos[:] = q
+        w.data.qvel[:] = 0
+        mujoco.mj_forward(w.model, w.data)
+        return w.data.ncon > 0
+
+    lo, hi = float(ref_point[2]) - span, float(ref_point[2])
+    if touches(lo) or not touches(hi):
+        raise ValueError(
+            f"probe_tip_drop: bisection bracket invalid (span={span}): the "
+            f"robot must clear a table at z={lo:.3f} and touch one at "
+            f"z={hi:.3f} — widen span or check q/ref_point")
+    for _ in range(iters):
+        mid = 0.5 * (lo + hi)
+        if touches(mid):
+            hi = mid
+        else:
+            lo = mid
+    return float(ref_point[2]) - lo
+
+
 class MuJoCoWorld:
     """MuJoCo world: our URDF + an optional contact plane, MuJoCo's integrator.
 

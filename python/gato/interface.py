@@ -560,7 +560,8 @@ class BSQP:
 
     def add_lin_u_rows(self, C, d=None, lo=None, hi=None, mech=None, rho=None,
                        delta=0.05, sigma=0.0, cone=False, knot_lo=0,
-                       knot_hi=None, admm_iters=0, equilibrate=False):
+                       knot_hi=None, admm_iters=0, equilibrate=False,
+                       normalize=True):
         """Append a LIN_U row-group: m rows ``g = C @ u + d`` on the control
         block (C shape (m, nu), FROZEN at a host-chosen configuration — the
         cross-term audit's contact-frame rule for config-dependent maps).
@@ -593,7 +594,17 @@ class BSQP:
         unit-norm rows (the TinyMPC-style normalization; the manual
         rho-scale-law correction becomes automatic). Rejected for cone
         rows: an SOC couples its rows, so per-row scaling would change
-        the cone (normalize the whole map uniformly instead)."""
+        the cone — cone rows are instead normalized as a WHOLE map (below).
+
+        ``normalize=True`` (cone rows only): scale the whole (C, d) uniformly
+        by 1/||C||_2 before install. An SOC is invariant under uniform positive
+        scaling, so the feasible set is untouched — but the admm/al fold lands
+        rho * C^T C on the R block, so a large map (e.g. pinv(J^T) with
+        ||C|| ~ 1/sigma_min(J) ~ 6) silently over-regularizes the controls at
+        the bound-default rho (measured 2026-08-09: 2x tracking loss on the
+        wipe task's frozen-pinv cone). The R2 rho defaults are for unit-norm
+        maps; this makes that the installed contract. get_row_groups() returns
+        the NORMALIZED map. Pass normalize=False to install verbatim."""
         C = np.ascontiguousarray(np.asarray(C, dtype=np.float32))
         if C.ndim != 2 or C.shape[1] != self.nu:
             raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")
@@ -610,6 +621,11 @@ class BSQP:
         d = np.ascontiguousarray(np.asarray([] if d is None else d,
                                             dtype=np.float32).reshape(-1))
         if cone:
+            if normalize:
+                s = float(np.linalg.norm(C.astype(np.float64), 2))
+                if s > 0.0:
+                    C = np.ascontiguousarray((C.astype(np.float64) / s).astype(np.float32))
+                    d = np.ascontiguousarray((d.astype(np.float64) / s).astype(np.float32))
             lo_a = np.asarray([], dtype=np.float32)
             hi_a = np.asarray([], dtype=np.float32)
         else:
