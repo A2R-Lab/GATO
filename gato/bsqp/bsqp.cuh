@@ -622,6 +622,23 @@ class BSQP {
         // >= 1e-2 sane). 0 is allowed but you must bound fc another way (box rows).
         void set_fc_cost(T w) { fc_cost_ = w; }
 
+        // Contact-wrench reference for the fc regularization (GATO_CONTACT_FORCES):
+        // cost becomes 0.5*fc_cost*|fc - fc_ref|^2 per running knot. Layout matches
+        // the fc slots ([n; f] per contact frame, world-aligned, FC_SIZE entries),
+        // shared across knots and batch. nullptr resets to zeros — bitwise the
+        // historic pure regularization. This is how a force SETPOINT enters the
+        // solve: fc_ref = the desired contact wrench, fc_cost = the tracking weight.
+        void set_fc_ref(const T* h_fc_ref)
+        {
+                if (gato::constants::FC_SIZE == 0) { return; }  // inert on default builds
+                if (h_fc_ref == nullptr) {
+                        if (d_fc_ref_) { gpuErrchk(cudaFree(d_fc_ref_)); d_fc_ref_ = nullptr; }
+                        return;
+                }
+                if (!d_fc_ref_) { gpuErrchk(cudaMalloc(&d_fc_ref_, gato::constants::FC_SIZE * sizeof(T))); }
+                gpuErrchk(cudaMemcpy(d_fc_ref_, h_fc_ref, gato::constants::FC_SIZE * sizeof(T), cudaMemcpyHostToDevice));
+        }
+
         // per-knot [ee, qd, u] weight triples (KNOT_POINTS x 3, knot-major); overrides the
         // scalar q/qd/u/N weights (terminal EE weight = last knot's ee entry). Enables
         // via-points / terminal-only goals / horizon masking at runtime.
@@ -653,7 +670,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_);
+                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -736,7 +753,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 computeMeritBatched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_);
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
@@ -752,7 +769,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_);
+                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -850,10 +867,10 @@ class BSQP {
                         const bool admm_merit = admm_active_ && admm_merit_term_;
                         if (admm_merit) {
                                 computeMeritBatched<T, 1>(
-                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         }
                         computeMeritBatched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr());
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -1089,6 +1106,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_all_kkt_converged_));
                 gpuErrchk(cudaFree(d_f_ext_batch_));
                 if (d_q_nom_) { gpuErrchk(cudaFree(d_q_nom_)); d_q_nom_ = nullptr; }
+                if (d_fc_ref_) { gpuErrchk(cudaFree(d_fc_ref_)); d_fc_ref_ = nullptr; }
                 if (d_u_cost_vec_) { gpuErrchk(cudaFree(d_u_cost_vec_)); d_u_cost_vec_ = nullptr; }
                 if (d_q_pos_w_vec_) { gpuErrchk(cudaFree(d_q_pos_w_vec_)); d_q_pos_w_vec_ = nullptr; }
                 gpuErrchk(cudaFree(d_rho_penalty_batch_));
@@ -1226,6 +1244,7 @@ class BSQP {
         T           q_pos_cost_;
         T           fc_cost_;
         T*          d_q_nom_ = nullptr;  // posture target (NQ device vec; nullptr = zeros)
+        T*          d_fc_ref_ = nullptr;  // contact-wrench reference (FC_SIZE device vec; nullptr = zeros)
         T*          d_u_cost_vec_ = nullptr;   // per-joint effort weights (nullptr = scalar u_cost_)
         T*          d_q_pos_w_vec_ = nullptr;  // per-joint anchor weights (nullptr = scalar q_pos_cost_)
         T           rho_;

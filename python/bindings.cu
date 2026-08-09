@@ -497,6 +497,13 @@ class PyBSQP {
 
         void set_q_pos_cost(T w) { solver_.set_q_pos_cost(w); }
         void set_fc_cost(T w) { solver_.set_fc_cost(w); }
+        void set_fc_ref(py::array_t<T, py::array::c_style | py::array::forcecast> ref)
+        {
+                auto buf = ref.request();
+                if (buf.size == 0) { solver_.set_fc_ref(nullptr); return; }  // empty -> reset to zeros
+                if (buf.size != (py::ssize_t)gato::constants::FC_SIZE) throw std::runtime_error("fc_ref must have FC_SIZE entries (or be empty to reset)");
+                solver_.set_fc_ref(static_cast<T*>(buf.ptr));
+        }
         void set_u_cost_vec(py::array_t<T, py::array::c_style | py::array::forcecast> w)
         {
                 auto buf = w.request();
@@ -630,6 +637,7 @@ class PyBSQP {
             .def("set_cost_weights", &PyBSQP<Type>::set_cost_weights)                                                                                                                                  \
             .def("set_q_pos_cost", &PyBSQP<Type>::set_q_pos_cost)                                                                                                                                 \
             .def("set_fc_cost", &PyBSQP<Type>::set_fc_cost)                                                                                                                                            \
+            .def("set_fc_ref", &PyBSQP<Type>::set_fc_ref)                                                                                                                                              \
             .def("set_u_cost_vec", &PyBSQP<Type>::set_u_cost_vec)                                                                                                                                 \
             .def("set_q_pos_cost_vec", &PyBSQP<Type>::set_q_pos_cost_vec)                                                                                                                          \
             .def("set_q_nom", &PyBSQP<Type>::set_q_nom)                                                                                                                                                \

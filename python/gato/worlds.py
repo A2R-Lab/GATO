@@ -86,7 +86,7 @@ class MuJoCoWorld:
       features; MuJoCo experiments model disturbances as geometry.
     """
 
-    def __init__(self, urdf_path, plane=None, timestep=1e-3):
+    def __init__(self, urdf_path, plane=None, timestep=1e-3, record_contact=False):
         import mujoco  # lazy: mujoco is an optional dependency
         self._mujoco = mujoco
 
@@ -125,6 +125,10 @@ class MuJoCoWorld:
         self.nq = self.model.nq
         self.nv = self.model.nv
         self.last_contact = {"ncon": 0, "fn": 0.0, "ft": 0.0}
+        # opt-in SUBSTEP-rate contact trace (the control tick is ~30 substeps —
+        # force metrics sampled per tick would alias chatter): one (ncon, fn, ft)
+        # row per step() call. None when recording is off (zero overhead).
+        self.contact_history = [] if record_contact else None
 
     @property
     def params(self):
@@ -153,6 +157,9 @@ class MuJoCoWorld:
         d.qfrc_applied[:len(u)] = u
         mujoco.mj_step(self.model, d)
         self._read_contact()
+        if self.contact_history is not None:
+            c = self.last_contact
+            self.contact_history.append((c["ncon"], c["fn"], c["ft"]))
         return d.qpos.copy(), d.qvel.copy()
 
     def _read_contact(self):

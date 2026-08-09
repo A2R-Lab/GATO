@@ -819,6 +819,28 @@ class BSQP:
         only together with fc box rows (add_fc_box)."""
         self.solver.set_fc_cost(float(weight))
 
+    def set_fc_ref(self, ref=None):
+        """Contact-wrench reference for the fc regularization (GATO_CONTACT_FORCES
+        modules only): the fc cost becomes 0.5*fc_cost*||f_c - ref||^2 per running
+        knot. ``ref`` has n_fc entries (wrench layout [n; f] per contact frame,
+        world-aligned at the baked frame), shared across knots and batch rows.
+        None/empty resets to zeros — bitwise the historic pure regularization.
+
+        This is how a force SETPOINT enters the solve: ref = the desired contact
+        wrench (e.g. [0,0,0, 0,0,+F] for an F-newton press reaction), fc_cost =
+        the force-tracking weight. Pair with cone rows on the fc columns
+        (add_lin_u_rows / enable_u_cone with a selection C) for friction limits."""
+        if self.n_fc == 0:
+            raise RuntimeError("set_fc_ref needs a GATO_CONTACT_FORCES build "
+                               "(this module has no fc slots)")
+        if ref is None:
+            self.solver.set_fc_ref(np.empty(0, dtype=np.float32))
+            return
+        r = np.ascontiguousarray(np.asarray(ref, dtype=np.float32).ravel())
+        if r.size != self.n_fc:
+            raise ValueError(f"fc_ref must have n_fc = {self.n_fc} entries, got {r.size}")
+        self.solver.set_fc_ref(r)
+
     def set_cost_weights_per_knot(self, knot_weights):
         """Per-knot [ee, qd, u] weight triples, shape (N, 3): overrides the scalar
         q/qd/u/N weights (terminal EE weight = row N-1's ee entry). Enables

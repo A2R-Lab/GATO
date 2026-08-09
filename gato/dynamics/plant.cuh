@@ -509,7 +509,8 @@ namespace plant {
             T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal,
             T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
             T fc_cost = static_cast<T>(0),
-            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr)
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
+            const T* d_fc_ref = nullptr)
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -534,15 +535,21 @@ namespace plant {
                 __syncthreads();
                 T total = s_out[0];
 #if GATO_CONTACT_FORCES
-                // fc regularization (0.5*fc_cost*|fc|^2; terminal knot has no control slot,
-                // matching the u-reg drop). Uniform per-thread compute — no shared write.
+                // fc regularization (0.5*fc_cost*|fc - fc_ref|^2; d_fc_ref nullptr = zero
+                // reference, bitwise the historic pure regularization; terminal knot has no
+                // control slot, matching the u-reg drop). Uniform per-thread compute — no
+                // shared write.
                 if (!is_terminal) {
                         T fcreg = static_cast<T>(0);
-                        for (int j = 0; j < FC; j++) { fcreg += s_u[NU + j] * s_u[NU + j]; }
+                        for (int j = 0; j < FC; j++) {
+                                T e = s_u[NU + j] - (d_fc_ref ? d_fc_ref[j] : static_cast<T>(0));
+                                fcreg += e * e;
+                        }
                         total += static_cast<T>(0.5) * fc_cost * fcreg;
                 }
 #else
                 (void)fc_cost;
+                (void)d_fc_ref;
 #endif
                 return total;
         }
@@ -559,7 +566,8 @@ namespace plant {
             T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight,
             T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
             T fc_cost = static_cast<T>(0),
-            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr)
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
+            const T* d_fc_ref = nullptr)
         {
                 T* s_Q = s_temp;            T* s_R = s_Q + NX;          T* s_W = s_R + NU;
                 T* s_x_des = s_W + 3;       T* s_u_des = s_x_des + NX;  T* s_ee_des = s_u_des + NU;
@@ -604,7 +612,8 @@ namespace plant {
                 {
                         // Scatter the NU-wide generated R/r into the CONTROL_SIZE-wide caller
                         // buffers: actuated block verbatim, fc diag = fc_cost, cross terms 0,
-                        // fc gradient rows = fc_cost * fc (fc reference is 0).
+                        // fc gradient rows = fc_cost * (fc - fc_ref) (d_fc_ref nullptr = zero
+                        // reference — the historic pure regularization, bitwise).
                         constexpr int CS = NU + FC;
                         const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                         const int nth = blockDim.x * blockDim.y;
@@ -614,7 +623,8 @@ namespace plant {
                                           : (r == c ? fc_cost : static_cast<T>(0));
                         }
                         for (int j = tid; j < CS; j += nth) {
-                                s_rk[j] = (j < NU) ? s_r7[j] : fc_cost * s_u[j];
+                                s_rk[j] = (j < NU) ? s_r7[j]
+                                        : fc_cost * (s_u[j] - (d_fc_ref ? d_fc_ref[j - NU] : static_cast<T>(0)));
                         }
                         __syncthreads();
                 }

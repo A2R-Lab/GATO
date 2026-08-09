@@ -286,6 +286,55 @@ def test_fc_box_pin_zeroes_fc(make_solver, smallest_module):
     assert np.abs(fc).max() < 5e-2, f"pinned fc leaked: max|fc|={np.abs(fc).max()}"
 
 
+def test_fc_ref_zero_is_bitwise_noop(make_solver, smallest_module):
+    """set_fc_ref(zeros) and set_fc_ref(None) are BITWISE the historic pure
+    regularization (the contact-task wave must not perturb existing fc pools)."""
+    plant, N, _ = _fc_solver(make_solver, smallest_module)
+    X, goals = _inputs(plant, N, B=1)
+    xus = []
+    for ref in ("unset", "zeros", "reset"):
+        s = make_solver(plant, N, batch_size=1)
+        if ref == "zeros":
+            s.set_fc_ref(np.zeros(s.n_fc))
+        elif ref == "reset":
+            s.set_fc_ref(np.full(s.n_fc, 7.0))
+            s.set_fc_ref(None)
+        xus.append(np.asarray(s.solve(X, goals).xu).copy())
+    np.testing.assert_array_equal(xus[0], xus[1])
+    np.testing.assert_array_equal(xus[0], xus[2])
+
+
+def test_fc_ref_pulls_fc_toward_reference(make_solver, smallest_module):
+    """With a dominant fc_cost, the solved wrench tracks fc_ref (the force-
+    SETPOINT mechanism of the contact task): both in the trajectory and through
+    the line search — this is also the gate on the merit-tail fix (the line-
+    search merit used to silently drop the fc/posture cost terms)."""
+    plant, N, s = _fc_solver(make_solver, smallest_module)
+    ref = np.zeros(s.n_fc, dtype=np.float32)
+    ref[5] = 5.0  # [n; f] layout: slot 5 = world-z force on the first contact frame
+    s.set_fc_cost(1e2)
+    s.set_fc_ref(ref)
+    X, goals = _inputs(plant, N, B=1)
+    r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    fc = r.fc_traj(0)  # (N-1, n_fc)
+    err = np.linalg.norm(fc - ref[None, :], axis=1)
+    assert err.mean() < 0.3 * np.linalg.norm(ref), \
+        f"fc does not track fc_ref: mean|fc-ref|={err.mean():.3f} vs |ref|={np.linalg.norm(ref):.3f}"
+
+
+def test_fc_ref_validation(make_solver, smallest_module):
+    """Wrong-size fc_ref raises; on default builds set_fc_ref raises loudly."""
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    if s.n_fc == 0:
+        with pytest.raises(RuntimeError, match="fc"):
+            s.set_fc_ref(np.zeros(6))
+    else:
+        with pytest.raises(ValueError, match="fc_ref"):
+            s.set_fc_ref(np.zeros(s.n_fc + 1))
+
+
 # ---------------------------------------------------------------------------
 # MPC_GATO fc plumbing (W3). These run on DEFAULT builds — the contract under
 # test is that the driver separates the xu control STRIDE from the applied

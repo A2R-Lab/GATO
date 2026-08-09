@@ -1,0 +1,120 @@
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0496m
+Avg solve time: 0.161ms
+[pos s00 th=  0.0 L=6cm] fn_rms   5.26 N | path_rms  24.03 mm | cone_viol  1.515 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0503m
+Avg solve time: 0.162ms
+[pos s01 th= 30.0 L=6cm] fn_rms   3.67 N | path_rms  25.19 mm | cone_viol  2.469 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0491m
+Avg solve time: 0.162ms
+[pos s02 th= 60.0 L=6cm] fn_rms   4.31 N | path_rms  24.18 mm | cone_viol  1.659 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0490m
+Avg solve time: 0.163ms
+[pos s03 th= 90.0 L=6cm] fn_rms   6.29 N | path_rms  24.77 mm | cone_viol  1.141 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0505m
+Avg solve time: 0.161ms
+[pos s04 th=120.0 L=6cm] fn_rms   6.49 N | path_rms  23.98 mm | cone_viol  1.208 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0506m
+Avg solve time: 0.162ms
+[pos s05 th=150.0 L=6cm] fn_rms   8.64 N | path_rms  22.20 mm | cone_viol  0.992 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0515m
+Avg solve time: 0.160ms
+[pos s06 th=180.0 L=6cm] fn_rms   9.75 N | path_rms  19.04 mm | cone_viol  0.756 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0528m
+Avg solve time: 0.160ms
+[pos s07 th=210.0 L=6cm] fn_rms   9.88 N | path_rms  18.81 mm | cone_viol  0.511 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0532m
+Avg solve time: 0.158ms
+[pos s08 th=240.0 L=6cm] fn_rms   8.51 N | path_rms  24.16 mm | cone_viol  1.214 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0540m
+Avg solve time: 0.159ms
+[pos s09 th=270.0 L=6cm] fn_rms   9.92 N | path_rms  24.78 mm | cone_viol  0.090 N | loss   0.1% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0509m
+Avg solve time: 0.160ms
+[pos s10 th=300.0 L=6cm] fn_rms   6.97 N | path_rms  20.28 mm | cone_viol  0.017 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=5.501s
+Avg error: 0.0501m
+Avg solve time: 0.160ms
+[pos s11 th=330.0 L=6cm] fn_rms   4.76 N | path_rms  22.80 mm | cone_viol  0.720 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0546m
+Avg solve time: 0.162ms
+[pos s12 th=  0.0 L=10cm] fn_rms   8.52 N | path_rms  26.66 mm | cone_viol  3.211 N | loss   0.1% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0525m
+Avg solve time: 0.161ms
+[pos s13 th= 30.0 L=10cm] fn_rms  15.92 N | path_rms  27.04 mm | cone_viol  2.378 N | loss   1.9% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0532m
+Avg solve time: 0.164ms
+[pos s14 th= 60.0 L=10cm] fn_rms   6.47 N | path_rms  32.27 mm | cone_viol  1.313 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0593m
+Avg solve time: 0.163ms
+[pos s15 th= 90.0 L=10cm] fn_rms  10.04 N | path_rms  34.34 mm | cone_viol  2.483 N | loss   3.4% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0527m
+Avg solve time: 0.163ms
+[pos s16 th=120.0 L=10cm] fn_rms   6.74 N | path_rms  28.12 mm | cone_viol  0.832 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0522m
+Avg solve time: 0.162ms
+[pos s17 th=150.0 L=10cm] fn_rms  11.02 N | path_rms  23.65 mm | cone_viol  1.532 N | loss   1.2% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0542m
+Avg solve time: 0.161ms
+[pos s18 th=180.0 L=10cm] fn_rms  10.11 N | path_rms  21.28 mm | cone_viol  0.992 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0572m
+Avg solve time: 0.160ms
+[pos s19 th=210.0 L=10cm] fn_rms   9.79 N | path_rms  31.25 mm | cone_viol  2.892 N | loss   2.2% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0632m
+Avg solve time: 0.161ms
+[pos s20 th=240.0 L=10cm] fn_rms  15.57 N | path_rms  32.10 mm | cone_viol  2.847 N | loss   1.8% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0704m
+Avg solve time: 0.160ms
+[pos s21 th=270.0 L=10cm] fn_rms  23.13 N | path_rms  36.59 mm | cone_viol  0.939 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0616m
+Avg solve time: 0.160ms
+[pos s22 th=300.0 L=10cm] fn_rms  17.69 N | path_rms  25.27 mm | cone_viol  0.861 N | loss   0.0% | solve 0.16 ms
+
+Running MPC: N=16, batch=1, time=7.126s
+Avg error: 0.0526m
+Avg solve time: 0.159ms
+[pos s23 th=330.0 L=10cm] fn_rms   7.12 N | path_rms  21.49 mm | cone_viol  0.415 N | loss   0.0% | solve 0.16 ms

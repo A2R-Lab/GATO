@@ -1,0 +1,21 @@
+arms: ['pos', 'ucone', 'fc']   paired scenarios: 24
+metric                       pos       ucone          fc   (paired means)
+fn_rms_err                 9.440      19.856       4.538   [N]
+path_rms                  25.595      40.634      21.292   [mm]
+cone_viol_mean             1.375       0.274       0.203   [N]
+contact_loss_frac          0.443      11.346       0.459   [%]
+solve_ms_mean              0.161       0.572       0.378   [ms]
+
+paired Wilcoxon fc vs pos (n=24):
+  fn_rms_err           fc-pos median delta   -3.3108  p=1.19e-07
+  path_rms             fc-pos median delta   -0.0057  p=1.15e-02
+  cone_viol_mean       fc-pos median delta   -1.0519  p=1.19e-07
+  contact_loss_frac    fc-pos median delta   +0.0000  p=3.88e-01
+  solve_ms_mean        fc-pos median delta   +0.2132  p=1.19e-07
+
+paired Wilcoxon fc vs ucone (n=24):
+  fn_rms_err           fc-ucone median delta  -14.9651  p=1.19e-07
+  path_rms             fc-ucone median delta   -0.0163  p=1.19e-07
+  cone_viol_mean       fc-ucone median delta   -0.1474  p=2.90e-01
+  contact_loss_frac    fc-ucone median delta   -0.1157  p=1.19e-07
+  solve_ms_mean        fc-ucone median delta   -0.1939  p=1.19e-07
