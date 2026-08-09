@@ -16,8 +16,9 @@ from .controller import MPCController
 from .estimators import ForceEstimator, OneStepWrenchIdentifier
 from .hypotheses import ForceHypothesisBatch, IdentifiedWrenchBatch
 from .interface import BSQP
-from .common import rk4, world_wrench_to_joint_local
+from .common import world_wrench_to_joint_local
 from .config import DEFAULT_SOLVER_PARAMS
+from .worlds import PinocchioWorld
 
 
 class MPC_GATO:
@@ -37,6 +38,7 @@ class MPC_GATO:
         fe_seed=0,
         fc_config=None,
         wrench_id=None,
+        world=None,
     ):
         """
         Initialize MPC driver.
@@ -67,6 +69,12 @@ class MPC_GATO:
                 'damping' (lstsq Tikhonov), 'max_wrench' (clamp). Requires
                 batch_size == 1 — it replaces the hypothesis batch rather than
                 augmenting it, and silently coexisting would confound the A/B.
+            world: simulation world advancing the plant each substep
+                (``worlds.PinocchioWorld`` / ``worlds.MuJoCoWorld``). None =
+                the historical pinocchio-RK4 loop, bit-identical. A MuJoCo
+                world is an INDEPENDENT simulator (own integrator + contact);
+                it supports neither pendulum_config nor constant_f_ext —
+                disturbances there are modeled as geometry.
         """
         # Store original model for solver (without pendulum)
         self.solver_model = model
@@ -175,6 +183,18 @@ class MPC_GATO:
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
                                         warm_start="shift", reset_rho_each_step=True)
 
+        if world is None:
+            self.world = PinocchioWorld(self)
+        else:
+            if self.has_pendulum or np.any(self.constant_f_ext_world):
+                raise ValueError(
+                    "custom worlds do not support pendulum_config/constant_f_ext "
+                    "(PinocchioWorld features — model such disturbances in the "
+                    "world itself)")
+            if getattr(world, "nq", self.nq) != self.nq:
+                raise ValueError(f"world nq {world.nq} != sim model nq {self.nq}")
+            self.world = world
+
     def _configure_fc(self, cfg):
         """Program the solver's contact-wrench slots from an fc_config dict."""
         if self.solver.n_fc == 0:
@@ -263,10 +283,8 @@ class MPC_GATO:
             offset = int(i / (self.dt / sim_dt))
             u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
             u = xu_best[u_idx:u_idx + self.nu_act]
-            u_aug = self._augment_control(u, dq)
-            self._update_sim_f_ext(q)
             q_pre, dq_pre = q.copy(), dq.copy()
-            q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+            q, dq = self.world.step(q, dq, u, sim_dt)
             self._observe_substep(q_pre, dq_pre, q, dq, u, sim_dt)
             total_sim_time += sim_dt
 
@@ -278,10 +296,8 @@ class MPC_GATO:
                 offset = int(nsteps / (self.dt / sim_dt))
                 u_idx = self.nx + (self.nx + self.nu) * min(offset, self.N - 1)
                 u = xu_best[u_idx:u_idx + self.nu_act]
-                u_aug = self._augment_control(u, dq)
-                self._update_sim_f_ext(q)
                 q_pre, dq_pre = q.copy(), dq.copy()
-                q, dq = rk4(self.model, self.data, q, dq, u_aug, sim_dt, self.actual_f_ext)
+                q, dq = self.world.step(q, dq, u, sim_dt)
                 self._observe_substep(q_pre, dq_pre, q, dq, u, sim_dt)
                 total_sim_time += sim_dt
 
