@@ -299,7 +299,7 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
 // scalar EE row cost of one knot (merit seam; mirrors apply_ee_row_grad_hess
 // exactly). ALL threads call (cooperative FK); the sum itself is uniform.
 template<typename T>
-__device__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
+__device__ __noinline__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
                                int32_t knot, const T* xu_k,
                                const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
                                T* s_scratch, const grid::robotModel<T>* d_robot_model,
@@ -709,7 +709,7 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
 // unchanged). Every thread computes the same serial sum (a few dozen evals)
 // — uniform, deterministic, thread-invariant.
 template<typename T>
-__device__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
+__device__ __noinline__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,
                             int32_t n_groups, int32_t knot, const T* xu_k,
                             const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
                             bool has_control,

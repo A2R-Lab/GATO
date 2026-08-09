@@ -24,8 +24,14 @@ __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
         return 2 * STATE_SIZE + CONTROL_SIZE + constants::EE_POS_SIZE + (a > b ? a : b);
 }
 
+// __launch_bounds__ min-2-blocks: this kernel sat at 95 regs after the P4.3/P4.4
+// wave — 2 registers past the 2-blocks/SM bound at MAX_PERF_LEVEL_THREADS=352 on
+// sm_120 (65536/(2*352) = 93). The halved occupancy doubled the kernel at
+// saturated B (+62% whole-solve, the 2026-08-09 bisect's entire regression);
+// capping regs trades a ~2-slot spill for 2x occupancy.
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
-__global__ void computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
+__global__ void __launch_bounds__(grid::MAX_PERF_LEVEL_THREADS, 2)
+computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
                                           T* __restrict__       d_x_initial_batch,
