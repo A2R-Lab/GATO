@@ -54,7 +54,9 @@ def _oracle_violations(xu, groups, nx, nu):
             elif grp["kind"] == KIND_BOX_QD:
                 g = xu[base + nq:base + nx]
             else:
-                g = xu[base + nx:base + nx + nu]
+                # BOX_U rows = ACTUATED_SIZE (fc builds: nu = actuated + fc,
+                # but torque limits cover only the actuated slots)
+                g = xu[base + nx:base + nx + len(lo)]
             g = g.astype(np.float32)
             viols.append(np.maximum(0, g - hi) + np.maximum(0, lo - g))
         v = np.concatenate(viols)
@@ -269,7 +271,11 @@ def test_al_enforces_boxes(make_solver, smallest_module):
         rb = base.solve(X, goals)
 
     s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
-    s.enable_limit_al(rho=100.0)
+    # rho 1000: 100 was tuned on the N8 cell and leaves a 0.036 rad/s PHR
+    # fixed-point residual on iiwa14 N16 (both default AND fc modules — a
+    # cell-difficulty effect, not an fc one; measured 2026-08-09). 1000
+    # enforces to exactly 0 on every N16 cell.
+    s.enable_limit_al(rho=1000.0)
     _tighten_qd(s)
     for _ in range(10):
         r = s.solve(X, goals)
@@ -438,7 +444,7 @@ def test_certificate_dual_axes_with_al(make_solver, smallest_module):
     B = 2
     X, goals = _inputs(plant, N, B)
     s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
-    s.enable_limit_al(rho=100.0)
+    s.enable_limit_al(rho=1000.0)  # see test_al_enforces_boxes: 100 is marginal on iiwa14 N16
     _tighten_qd(s)
     for _ in range(6):
         res = s.solve(X, goals)

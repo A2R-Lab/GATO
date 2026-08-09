@@ -37,7 +37,10 @@ def row_values(group, xu, nx, nu, ee_fk=None):
         elif kind == KIND_BOX_QD:
             out[j] = xu[base + nq:base + nx]
         elif kind == KIND_BOX_U:
-            out[j] = xu[base + nx:base + nx + nu]
+            # rows = the group's n_rows (ACTUATED_SIZE), NOT the xu control
+            # stride: on GATO_CONTACT_FORCES builds nu = actuated + fc but the
+            # canonical torque box covers only the URDF-limited actuated slots
+            out[j] = xu[base + nx:base + nx + group["n_rows"]]
         elif kind == KIND_EE_POS:
             if ee_fk is None:
                 raise ValueError("KIND_EE_POS rows need ee_fk (q -> xyz), e.g. BSQP.ee_pos")
