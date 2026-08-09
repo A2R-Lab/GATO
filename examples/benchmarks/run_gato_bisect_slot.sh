@@ -100,9 +100,12 @@ fi
 import csv, sys, os
 out = sys.argv[1]
 order = ["dbb5ec3","ea2798f","3585fe2","d090a63","1c609c2","67f461a","HEAD"]
+# 67f461a is device-identical to unfixed 38e8260 (W2 is fc-gated, the rest is
+# python-only), so the HEAD leg — rebuilt with the zero-f_ext fast path — reads
+# as the RECOVERY row against it.
 label = {"dbb5ec3":"08-01 base","ea2798f":"merit two-pass","3585fe2":"line-search fix",
          "d090a63":"per-knot f_ext + GLASS pcg","1c609c2":"regen + posture anchor",
-         "67f461a":"Drake + per-joint vectors","HEAD":"38e8260+"}
+         "67f461a":"Drake + per-joint vecs (=old HEAD)","HEAD":"HEAD + zero-f_ext fast path"}
 data = {}
 for sha in order:
     p = os.path.join(out, f"sweep_{sha}.csv")

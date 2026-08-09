@@ -12,13 +12,18 @@ namespace gato {
 template<typename T>
 __device__ __forceinline__ T* getOffsetWrench(T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        // body-major f_ext: 6*NUM_BODIES per knot, KNOT_POINTS knots per solve
+        // body-major f_ext: 6*NUM_BODIES per knot, KNOT_POINTS knots per solve.
+        // Null propagates: the host passes nullptr when the whole band is zero
+        // (f_ext_ptr()), and the generated dynamics null-check every d_f_ext use —
+        // the skip is the zero-wrench fast path.
+        if (batch == nullptr) return nullptr;
         return batch + (solve_idx * KNOT_POINTS + knot_idx) * 6 * grid::NUM_BODIES;
 }
 
 template<typename T>
 __device__ __forceinline__ const T* getOffsetWrench(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
+        if (batch == nullptr) return nullptr;
         return batch + (solve_idx * KNOT_POINTS + knot_idx) * 6 * grid::NUM_BODIES;
 }
 
