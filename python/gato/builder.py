@@ -203,8 +203,16 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     if collision_res is not None:
         from grid_codegen.algorithms._collision import (
             collision_spec_from_urdf, normalize_collision_tiers)
-        spec = collision_spec_from_urdf(robot, str(urdf_path),
-                                        resolution=float(collision_res))
+        # FAIL LOUD on silent coverage loss: GRiD's spherizer warns + SKIPs a
+        # link whose collision mesh can't be resolved/loaded — but the sphere
+        # set IS the clearance row set, so a skipped link silently vanishes
+        # from collision checking. (A missing trimesh already raises; the
+        # conservative bounding-box degrade stays a warning.)
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.filterwarnings("error", message=r".*SKIPPING.*")
+            spec = collision_spec_from_urdf(robot, str(urdf_path),
+                                            resolution=float(collision_res))
         n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
         kwargs["collision_spec"] = spec
     if contact_frames is None:
