@@ -807,7 +807,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
         T* s_viol = reinterpret_cast<T*>(s_raw);                    // KNOT_POINTS * TELEMETRY_MAX_ROWS
         T* s_ee_scratch = s_viol + KNOT_POINTS * TELEMETRY_MAX_ROWS;  // rowgroup_eval_scratch_ct
 
-        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
+        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
 
         for (int32_t grp_idx = 0; grp_idx < n_groups; grp_idx++) {
                 const RowGroupDesc<T>& grp = d_groups[grp_idx];
@@ -817,7 +817,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                 if (grp.kind == EE_POS) {
                         // cooperative FK per active knot, then per-row violations
                         for (int32_t k = 0; k < n_knots; k++) {
-                                const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
                                 const T* s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]);
@@ -830,7 +830,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                         T* s_dist = s_ee_scratch;
                         T* s_arena = align16_ptr<T>(s_dist + gato::plant::NCC);
                         for (int32_t k = 0; k < n_knots; k++) {
-                                const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
                                 gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_dist[i], grp.lo[0], grp.hi[0]);
@@ -846,7 +846,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                                         s_viol[e] = static_cast<T>(0);
                                         continue;
                                 }
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 T g[MAX_ROWS_PER_GROUP];
                                 for (int32_t j = 0; j < grp.n_rows; j++) { g[j] = eval_row<T>(grp, xu_k, (uint32_t)j); }
                                 s_viol[e] = glass::soc_violation<T>(g, grp.n_rows);
@@ -855,7 +855,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                         for (int32_t e = rank; e < n_elems; e += size) {
                                 const int32_t knot = grp.knot_lo + e / grp.n_rows;
                                 const int32_t i = e % grp.n_rows;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 s_viol[e] = glass::interval_violation<T>(g, grp.lo[i], grp.hi[i]);
                         }
@@ -946,7 +946,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
 
         T*       d_lam_hi = d_lam_hi_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         T*       d_lam_lo = d_lam_lo_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
-        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
+        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
 
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = d_groups[gi];
@@ -961,7 +961,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                         const bool soft = grp.sigma > static_cast<T>(0);
                         for (int32_t k = 0; k < n_knots; k++) {
                                 const int32_t knot = grp.knot_lo + k;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);  // all threads
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
@@ -979,7 +979,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                         // coupled, so each KNOT is owned by one thread (deterministic)
                         for (int32_t k = rank; k < n_knots; k += size) {
                                 const int32_t knot = grp.knot_lo + k;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 T w[MAX_ROWS_PER_GROUP];
                                 for (int32_t i = 0; i < grp.n_rows; i++) {
                                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
@@ -992,7 +992,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                 }
                 for (int32_t k = 0; k < n_knots; k++) {
                         const int32_t knot = grp.knot_lo + k;
-                        const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                        const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                         const T* s_pose = nullptr;
                         if (grp.kind == EE_POS) {
                                 s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);  // all threads

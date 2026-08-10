@@ -52,7 +52,7 @@ def _update_registry(name, meta):
         f.write("\n")
 
 
-def _parse_urdf(urdf_path, ee_frame):
+def _parse_urdf(urdf_path, ee_frame, floating_base=False):
     """Parse with GRiD's URDFParser (same parse codegen uses); validate ee_frame."""
     root = repo_root()
     grid_root = root / "external" / "GRiD"
@@ -68,7 +68,7 @@ def _parse_urdf(urdf_path, ee_frame):
             sys.path.insert(0, p)
     from URDFParser import URDFParser
 
-    robot = URDFParser().parse(str(urdf_path), floating_base=False)  # fixed base
+    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
     if robot is None:
         raise ValueError(f"URDFParser could not parse {urdf_path}")
 
@@ -87,8 +87,16 @@ def _fmt(v):
 
 
 def _write_limits(robot, out_path, name, urdf_name):
-    """Emit the per-robot limits.cuh from the parsed URDF <limit> tags."""
-    joints = robot.get_joints_ordered_by_id()
+    """Emit the per-robot limits.cuh from the parsed URDF <limit> tags.
+
+    Floating base: the synthesized base free-joint carries no <limit> tags and
+    its dofs are unbounded by construction — the tables cover the ACTUATED
+    joints only (CL-3; fixed base is unchanged: every joint is actuated).
+    ⚠ do not consume grid::init_joint_limits() instead: it is misaligned /
+    uninitialized for floating robots (GRiD gen_init_joint_limits bug, ask
+    filed 2026-08-09)."""
+    joints = [j for j in robot.get_joints_ordered_by_id()
+              if getattr(j, "jtype", None) != "floating"]
     rows = {"JOINT_LIMITS_DATA": [], "VEL_LIMITS_DATA": [], "CTRL_LIMITS_DATA": []}
     for j in joints:
         lo, hi = j.joint_limits
@@ -127,7 +135,8 @@ def _write_limits(robot, out_path, name, urdf_name):
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
-            register=True, collision_res=0.15, contact_frames=None):
+            register=True, collision_res=0.15, contact_frames=None,
+            floating_base=False):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -150,6 +159,11 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     (CL-3 prep): grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
     None (default) bakes [ee_frame] — every GATO plant carries its EE contact
     map; pass [] to opt out.
+
+    floating_base: parse/generate with a quaternion free-flyer root (CL-3;
+    go2 nq=19, nv=18). The solver-side floating path is CL-3 W3.3+ — until it
+    lands, floating headers are codegen/inspection-only (bsqp modules
+    static_assert out).
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -158,14 +172,24 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     out_dir = Path(out_dir) if out_dir else root / "gato" / "dynamics" / name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    robot = _parse_urdf(urdf_path, ee_frame)
+    robot = _parse_urdf(urdf_path, ee_frame, floating_base=floating_base)
     # Limits first: it validates every joint has bounded <limit> tags (cheap),
     # so an unsupported robot fails before the expensive grid.cuh generation.
     _write_limits(robot, out_dir / "limits.cuh", name, urdf_path.name)
     from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
 
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True,
-                            FILE_NAMESPACE="grid")
+    # LAUNCH_CONFIG_ROBOT: the launch_configs dir is keyed by the URDF filename
+    # stem (go2), NOT the URDF <robot name=...> (go2_description) — without the
+    # explicit id the lookup silently misses and every algo falls back to the
+    # conservative tier/threads default. FLOATING-ONLY for now: the vendored
+    # iiwa14/indy7 grid.cuh were (accidentally) generated with that miss
+    # ("KUKAiiwa14"/"indy" ≠ stem), so wiring the id for fixed base would
+    # change their baked launch tables — a perf re-baseline, not a correctness
+    # fix; queued for a timing window (SSOT cl3_floating_base_2026-08-09.md).
+    gen_kwargs = dict(DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+    if floating_base:
+        gen_kwargs["LAUNCH_CONFIG_ROBOT"] = Path(urdf_path).stem
+    gen = GRiDCodeGenerator(robot, **gen_kwargs)
     kwargs = dict(
         include_homogenous_transforms=True,  # required for EE pose + gradient
         fixed_target_name=ee_frame,
@@ -195,7 +219,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     except ValueError:
         urdf_rel = str(urdf_path)
     meta = {"nq": robot.get_num_pos(), "nv": robot.get_num_vel(),
-            "ee_frame": ee_frame, "urdf": urdf_rel}
+            "ee_frame": ee_frame, "urdf": urdf_rel,
+            "floating_base": bool(floating_base)}
     if collision_res is not None:
         meta["collision"] = {"res": float(collision_res), "n_spheres": n_spheres}
     if contact_frames:
@@ -206,11 +231,14 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 
 
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
-          build_dir=None, collision_res=0.15, contact_frames=None):
+          build_dir=None, collision_res=0.15, contact_frames=None,
+          floating_base=False):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
-        urdf_path: robot URDF (fixed base).
+        urdf_path: robot URDF (fixed-base serial chain, or floating_base=True
+            for a quaternion free-flyer root — CL-3, headers/codegen only
+            until the solver floating path lands).
         name: plant name (module suffix, dynamics dir); default = URDF stem.
         N: iterable of horizon lengths to build.
         ee_frame: fixed-joint name of the EE target frame (codegen + metrics).
@@ -231,7 +259,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     root = repo_root()
     codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
-            contact_frames=contact_frames)
+            contact_frames=contact_frames, floating_base=floating_base)
 
     try:
         import pybind11

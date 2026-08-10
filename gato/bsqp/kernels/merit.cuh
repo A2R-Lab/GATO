@@ -82,12 +82,15 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         T*                  s_temp = s_reference_traj_k + constants::EE_POS_SIZE;
 
 
-        T* d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
-        T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx);
+        T* d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
+        T* d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, knot_idx);
         T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
         T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
         // line-search trial step: s_xux_k = d_xu_k + alpha * d_dz_k (axpby z = 1*x + alpha*y)
+        // CL-3 floating: this becomes a per-knot retract xu ⊞ α·dz (and the
+        // initial-state gap below a manifold difference); the vector-space path
+        // is guarded by the !FLOATING_BASE static_assert in dynamics/integrator.cuh.
         if (knot_idx == KNOT_POINTS - 1) {
                 glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
         } else {
@@ -144,8 +147,8 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
                 constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
         } else {
-                d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
-                d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, 0);
+                d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
+                d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
                         s_temp[i] = abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  // initial state constraint error
                 }

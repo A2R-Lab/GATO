@@ -17,11 +17,22 @@ using namespace sqp;
 namespace gato {
 namespace plant {
 
-        // Dimension aliases (the generated grid.cuh now exposes NUM_JOINTS / NUM_POS /
-        // NUM_VEL / NUM_EES instead of the old NQ / NX / NU / NEE / EE_POS_SIZE).
-        inline constexpr int NQ          = grid::NUM_JOINTS;       // joints (fixed base: NUM_POS)
-        inline constexpr int NX          = 2 * grid::NUM_JOINTS;   // state = [q; qd]
-        inline constexpr int NU          = grid::NUM_JOINTS;       // controls
+        // Dimension aliases (the generated grid.cuh exposes NUM_JOINTS / NUM_POS /
+        // NUM_VEL / NUM_EES). ⚠ grid::NUM_JOINTS == NUM_POS (= nq), NOT nv —
+        // on floating base (CL-3) nq = nv + 1 and the two must not be mixed:
+        //   NQ = configuration size (q, with quaternion) — q-vector shapes
+        //   NV = tangent/velocity size — ALL derivative shapes (dqdd, Minv,
+        //        dtau_dq, A|B columns) are NV-based, even where this file
+        //        historically wrote NQ (equal on fixed base; the floating
+        //        relabel of the interior uses is CL-3 W3.3/W3.4 work).
+        inline constexpr int NQ          = grid::NUM_POS;          // configuration size
+        inline constexpr int NV          = grid::NUM_VEL;          // tangent / velocity size
+        inline constexpr int NX          = grid::NUM_POS + grid::NUM_VEL;  // stored state [q; qd]
+        // NU = the ACTUATED torque width (cost/control code is NU-wide).
+        // Floating base: grid's plant surfaces take a full NV generalized
+        // force; GATO scatters the NU actuated slots and zeros the 6 base rows.
+        inline constexpr int NU          = (grid::NUM_POS == grid::NUM_VEL)
+                                               ? grid::NUM_JOINTS : (grid::NUM_VEL - 6);
         inline constexpr int NEE         = grid::NUM_EES;          // end-effector count
         inline constexpr int EE_POS_SIZE = 6;                      // pose size (xyz + orientation)
 
@@ -79,27 +90,30 @@ namespace plant {
 namespace gato {
 namespace plant {
 
-        static_assert(sizeof(JOINT_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
-                      "limits.cuh joint table does not match grid.cuh NUM_JOINTS");
-        static_assert(sizeof(VEL_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
-                      "limits.cuh velocity table does not match grid.cuh NUM_JOINTS");
-        static_assert(sizeof(CTRL_LIMITS_DATA<float>) == sizeof(float) * 2 * NQ,
-                      "limits.cuh effort table does not match grid.cuh NUM_JOINTS");
+        // Limit tables cover the ACTUATED joints only (NU rows): the floating
+        // base free-joint has no URDF <limit> tags and its dofs are unbounded.
+        // Fixed base: NU == NQ, tables unchanged.
+        static_assert(sizeof(JOINT_LIMITS_DATA<float>) == sizeof(float) * 2 * NU,
+                      "limits.cuh joint table does not match the actuated joint count");
+        static_assert(sizeof(VEL_LIMITS_DATA<float>) == sizeof(float) * 2 * NU,
+                      "limits.cuh velocity table does not match the actuated joint count");
+        static_assert(sizeof(CTRL_LIMITS_DATA<float>) == sizeof(float) * 2 * NU,
+                      "limits.cuh effort table does not match the actuated joint count");
 
         template<class T>
-        __host__ __device__ constexpr const T (&JOINT_LIMITS())[NQ][2]
+        __host__ __device__ constexpr const T (&JOINT_LIMITS())[NU][2]
         {
                 return JOINT_LIMITS_DATA<T>;
         }
 
         template<class T>
-        __host__ __device__ constexpr const T (&VEL_LIMITS())[NQ][2]
+        __host__ __device__ constexpr const T (&VEL_LIMITS())[NU][2]
         {
                 return VEL_LIMITS_DATA<T>;
         }
 
         template<class T>
-        __host__ __device__ constexpr const T (&CTRL_LIMITS())[NQ][2]
+        __host__ __device__ constexpr const T (&CTRL_LIMITS())[NU][2]
         {
                 return CTRL_LIMITS_DATA<T>;
         }

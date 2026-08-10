@@ -33,7 +33,7 @@ class PyBSQP {
         {
                 setL2PersistingAccess(1.0);
 
-                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
@@ -41,7 +41,7 @@ class PyBSQP {
                 gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
 
                 // pinned staging: numpy -> pinned -> device beats numpy(pageable) -> device
-                gpuErrchk(cudaMallocHost(&h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMallocHost(&h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
 
                 h_xkp1_batch_.resize(STATE_SIZE * batch_size_);
         }
@@ -72,12 +72,12 @@ class PyBSQP {
                 py::buffer_info xu_buf = xu_traj_batch.request();
                 py::buffer_info xs_buf = x_s_batch.request();
                 py::buffer_info ref_buf = reference_traj_batch.request();
-                check_size(xu_buf, (size_t)TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
                 check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
                 check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
 
-                memcpy(h_xu_staging_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T));
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
@@ -92,9 +92,9 @@ class PyBSQP {
                 // Copy trajectory back: device -> pinned -> straight into the output
                 // py::array (no intermediate std::vector + second copy)
                 const py::ssize_t Bs = static_cast<py::ssize_t>(batch_size_);
-                py::array_t<T>    xu_out({Bs, (py::ssize_t)TRAJ_SIZE});
-                gpuErrchk(cudaMemcpy(h_xu_staging_, d_xu_traj_batch_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
-                memcpy(xu_out.request().ptr, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T));
+                py::array_t<T>    xu_out({Bs, (py::ssize_t)XU_TRAJ_SIZE});
+                gpuErrchk(cudaMemcpy(h_xu_staging_, d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                memcpy(xu_out.request().ptr, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
 
                 // Copy final merits (computed at end of solve) and initial (pre-iteration) merits back to host
                 std::vector<T> h_final_merit(batch_size_);
@@ -413,11 +413,11 @@ class PyBSQP {
                 py::buffer_info xu_buf = xu_traj_batch.request();
                 py::buffer_info xs_buf = x_s_batch.request();
                 py::buffer_info ref_buf = reference_traj_batch.request();
-                check_size(xu_buf, (size_t)TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
                 check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
                 check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
-                memcpy(h_xu_staging_, xu_buf.ptr, TRAJ_SIZE * batch_size_ * sizeof(T));
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
@@ -676,6 +676,11 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
         m.attr("CONTROL_SIZE") = gato::constants::CONTROL_SIZE;
         m.attr("ACTUATED_SIZE") = gato::constants::ACTUATED_SIZE;
         m.attr("FC_SIZE") = gato::constants::FC_SIZE;
+        // state layout (CL-3): stored xu packs [q(NQ); qd(NV); u], the KKT/dz
+        // tangent state is STATE_SIZE = 2*NV. Fixed base: NQ == NV.
+        m.attr("NQ") = gato::constants::NQ;
+        m.attr("NV") = gato::constants::NV;
+        m.attr("FLOATING_BASE") = gato::constants::FLOATING_BASE;
 
 #ifdef USE_DOUBLES
         REGISTER_BSQP_CLASS(double);

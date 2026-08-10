@@ -491,7 +491,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // store to dz
-                T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx);
+                T* d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE>(static_cast<T>(-1), s_scratch, d_dz_k);
                 // store KKT residual for state row: q_k - (lambda_k - A_k^T * lambda_kp1)
                 glass::copy<T, STATE_SIZE>(s_A_k, d_q_k);
@@ -532,7 +532,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
                 __syncthreads();
 
                 // store to dz
-                T* d_dz_k = getOffsetTraj<T>(d_dz_batch, solve_idx, knot_idx) + STATE_SIZE;
+                T* d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, knot_idx) + STATE_SIZE;
                 glass::copy<T, CONTROL_SIZE>(static_cast<T>(-1), s_B_k, d_dz_k);
                 // store KKT residual for control row: r_k - ( -B_k^T * lambda_kp1 )
                 glass::copy<T, CONTROL_SIZE>(s_scratch, d_r_k);

@@ -205,7 +205,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
 
                 // Input pointers
-                T* d_xu_traj_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
+                T* d_xu_traj_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
                 T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
                 T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
@@ -288,9 +288,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                 }
                         }
 
-                        // c_0 = x_0 - x_s
+                        // c_0 = x_0 - x_s (CL-3 floating: manifold difference — see SSOT)
                         T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
-                        T* d_xu_0 = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
+                        T* d_xu_0 = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
                         glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * STATE_SIZE, d_c_0);
                         __syncthreads();
 

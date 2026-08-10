@@ -9,6 +9,14 @@ using namespace gato::constants;
 
 namespace gato::plant {
 
+// This layer is the FIXED-BASE vector-space integrator/linearization path
+// (q_next = q + dt*qd is meaningless on a quaternion). CL-3 floating base
+// consumes the grid_plant:: surfaces (plant_step / plant_step_gradient —
+// SE(3) retract, tangent A|B) instead; until that path lands (W3.3) floating
+// modules must not build against this file.
+static_assert(!gato::constants::FLOATING_BASE,
+              "hand-rolled integrator is fixed-base only; floating base uses grid_plant (CL-3 W3.3)");
+
 // angle wrap: glass::angle_wrap (true wrap to (-pi, pi]; replaces the old
 // local truncated-pi reflection — only live under ANGLE_WRAP=true, which no
 // vendored plant sets).

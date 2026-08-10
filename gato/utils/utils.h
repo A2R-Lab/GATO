@@ -52,17 +52,17 @@ std::vector<std::vector<T>> readCSVToVecVec(const std::string& filename) {
 
 template<typename T>
 bool checkIfBatchTrajsMatch(uint32_t BatchSize, T* d_xu_traj_batch) {
-    std::vector<T> h_xu_traj_batch(TRAJ_SIZE * BatchSize);
+    std::vector<T> h_xu_traj_batch(XU_TRAJ_SIZE * BatchSize);
     gpuErrchk(cudaMemcpy(h_xu_traj_batch.data(), d_xu_traj_batch, 
-        TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
+        XU_TRAJ_SIZE * BatchSize * sizeof(T), cudaMemcpyDeviceToHost));
 
     // Compare each trajectory to the first one
     for (uint32_t i = 1; i < BatchSize; i++) {
-        for (uint32_t j = 0; j < TRAJ_SIZE; j++) {
-            if (std::abs(h_xu_traj_batch[j] - h_xu_traj_batch[i * TRAJ_SIZE + j]) > 1e-10) {
+        for (uint32_t j = 0; j < XU_TRAJ_SIZE; j++) {
+            if (std::abs(h_xu_traj_batch[j] - h_xu_traj_batch[i * XU_TRAJ_SIZE + j]) > 1e-10) {
                 std::cout << "Mismatch found at trajectory " << i << ", index " << j << std::endl;
                 std::cout << "Expected: " << h_xu_traj_batch[j] 
-                         << ", Got: " << h_xu_traj_batch[i * TRAJ_SIZE + j] << std::endl;
+                         << ", Got: " << h_xu_traj_batch[i * XU_TRAJ_SIZE + j] << std::endl;
                 return false;
             }
         }

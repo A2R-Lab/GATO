@@ -117,7 +117,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
         T* s_ee_scratch = reinterpret_cast<T*>(s_raw_init);  // rowgroup_eval_scratch_ct
         T* d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         T* d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
-        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
+        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
 
         if (eq_rows_only) {
                 // z clips to the degenerate interval regardless of the primal —
@@ -153,7 +153,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                         T* s_arena = align16_ptr<T>(s_dist + gato::plant::NCC);
                         const T margin = grp.lo[0];
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         T z = s_dist[i];
@@ -167,7 +167,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                 if (grp.kind == EE_POS) {
                         // cooperative FK per knot (barriers inside — ALL threads)
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T* s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         T z = s_pose[i];
@@ -184,7 +184,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                         const int32_t n_knots = grp.knot_hi - grp.knot_lo;
                         for (int32_t k = rank; k < n_knots; k += size) {
                                 const int32_t knot = grp.knot_lo + k;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 T g[MAX_ROWS_PER_GROUP];
                                 for (int32_t i = 0; i < grp.n_rows; i++) { g[i] = eval_row<T>(grp, xu_k, (uint32_t)i); }
                                 glass::thread::soc_project<T>(g, g, grp.n_rows);
@@ -196,7 +196,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
                 for (int32_t e = rank; e < n_elems; e += size) {
                         const int32_t knot = grp.knot_lo + e / grp.n_rows;
                         const int32_t i = e % grp.n_rows;
-                        const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
+                        const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                         const T w = eval_row<T>(grp, xu_k, (uint32_t)i);
                         T z = w;
                         if (z > grp.hi[i]) z = grp.hi[i];
@@ -239,7 +239,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
         T*       d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
         const T* d_q_base_k = getOffsetState<T>(d_q_base_batch, solve_idx, knot_idx);
         const T* d_r_base_k = getOffsetControl<T>(d_r_base_batch, solve_idx, knot_idx);
-        const T* d_xu_k = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, knot_idx);
+        const T* d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
         const T* d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         const T* d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
 
@@ -364,7 +364,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
 
         T*       d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         T*       d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
-        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
+        const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
         const T* d_dz = d_dz_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
 
         T run_prim = static_cast<T>(0), run_dual = static_cast<T>(0);
@@ -383,8 +383,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                         T* s_arena = align16_ptr<T>(s_ddist + NS * NQ + 2 * NS);
                         const T margin = grp.lo[0];
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
-                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 gato::plant::collisionDistGrad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
@@ -412,8 +412,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                         T* s_grad = s_pose + 6 * gato::plant::NEE;
                         T* s_arena = align16_ptr<T>(s_grad + 6 * NQ * gato::plant::NEE + 2 * MAX_ROWS_PER_GROUP);
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
-                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 gato::plant::eePosGrad<T>(s_pose, s_grad, xu_k, s_arena, d_robot_model);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
@@ -438,8 +438,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                         const int32_t m = grp.n_rows;
                         for (int32_t k = rank; k < n_knots; k += size) {  // one owner thread per knot
                                 const int32_t knot = grp.knot_lo + k;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
-                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 T w[MAX_ROWS_PER_GROUP], v[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
                                 for (int32_t i = 0; i < m; i++) {
                                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
@@ -468,8 +468,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                         for (int32_t e = rank; e < n_elems; e += size) {
                                 const int32_t knot = grp.knot_lo + e / grp.n_rows;
                                 const int32_t i = e % grp.n_rows;
-                                const T* xu_k = d_xu + (size_t)knot * constants::STATE_S_CONTROL;
-                                const T* dz_k = d_dz + (size_t)knot * constants::STATE_S_CONTROL;
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
 
                                 const T w = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);

@@ -107,9 +107,13 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
 
         // Only proceed with trajectory update if line search was successful
         if (s_ls_success) {
+                // CL-3 floating: xu and dz stop being co-indexable (stride
+                // nq+nv+nu vs 2nv+nu) and the update becomes a per-knot
+                // retract xu ⊞ α·dz — this flat axpy is the fixed-base path.
+                static_assert(!FLOATING_BASE, "trajectory update is vector-space; floating-base retract lands in CL-3 W3.3");
                 const T step_size = s_step_size;
-                T*      d_xu_traj = getOffsetTraj<T>(d_xu_traj_batch, solve_idx, 0);
-                T*      d_dz = getOffsetTraj<T>(d_dz_batch, solve_idx, 0);
+                T*      d_xu_traj = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
+                T*      d_dz = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
 #pragma unroll
                 for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
         }

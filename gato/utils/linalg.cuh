@@ -91,17 +91,33 @@ __device__ __forceinline__ const T* getOffsetStatePControl(const T* batch, uint3
         return batch + solve_idx * STATE_P_CONTROL_P_KNOTS + knot_idx * STATE_P_CONTROL;
 }
 
-// compute offset for accessing a knot point of a batch of trajectories (BATCH_SIZE X ((STATE_SIZE + CONTROL_SIZE) X KNOT_POINTS - CONTROL_SIZE))
+// Knot offsets into the two per-solve trajectory layouts (identical on fixed
+// base, distinct on floating base — CL-3):
+//   xu (stored):  [q(NQ); qd(NV); u(NU)] per knot, stride XU_KNOT_STRIDE
+//   dz (tangent): [dq(NV); dqd(NV); du(NU)] per knot, stride DZ_KNOT_STRIDE
+// There is deliberately NO shared accessor: every call site must pick one.
 template<typename T>
-__device__ __forceinline__ T* getOffsetTraj(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+__device__ __forceinline__ T* getOffsetXU(T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * TRAJ_SIZE + knot_idx * STATE_S_CONTROL;
+        return batch + solve_idx * XU_TRAJ_SIZE + knot_idx * XU_KNOT_STRIDE;
 }
 
 template<typename T>
-__device__ __forceinline__ const T* getOffsetTraj(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+__device__ __forceinline__ const T* getOffsetXU(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {
-        return batch + solve_idx * TRAJ_SIZE + knot_idx * STATE_S_CONTROL;
+        return batch + solve_idx * XU_TRAJ_SIZE + knot_idx * XU_KNOT_STRIDE;
+}
+
+template<typename T>
+__device__ __forceinline__ T* getOffsetDz(T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * TRAJ_SIZE + knot_idx * DZ_KNOT_STRIDE;
+}
+
+template<typename T>
+__device__ __forceinline__ const T* getOffsetDz(const T* batch, uint32_t solve_idx, uint32_t knot_idx)
+{
+        return batch + solve_idx * TRAJ_SIZE + knot_idx * DZ_KNOT_STRIDE;
 }
 
 template<typename T>
