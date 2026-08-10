@@ -52,14 +52,9 @@ __device__ __forceinline__ void state_retract(T* s_x_out, const T* s_x, const T*
 }
 
 // s_out(2*NV) = x_to ⊟ x_from: the tangent with x_from ⊞ s_out == x_to
-// (pinocchio difference(model, q_from, q_to) on the free-flyer block).
-//
-// INTERIM composition: the coupled SE(3) boxminus is not a shipped GLASS
-// primitive yet (glass::pose_error is deliberately the DECOUPLED R³×SO(3)
-// error — see pose.cuh header); an upstream ask with a ready patch is filed
-// (docs/open-tasks/glass_ask_se3_difference_2026-08-09.patch). Until the
-// GLASS agent lands it, the base-pose part is composed here from SHIPPED
-// glass::thread ops only. Math locked vs pin.difference in test_manifold.py.
+// (pinocchio difference(model, q_from, q_to) on the free-flyer block; GLASS
+// se3_difference @78329b6 — NOT glass::pose_error, which is deliberately the
+// DECOUPLED R³×SO(3) error). Math locked vs pin.difference in test_manifold.py.
 template<typename T>
 __device__ __forceinline__ void state_difference(T* s_out, const T* s_x_from, const T* s_x_to)
 {
@@ -68,25 +63,8 @@ __device__ __forceinline__ void state_difference(T* s_out, const T* s_x_from, co
         const int rank = (int)threadIdx.x;
         const int nth  = (int)blockDim.x;
         if constexpr (FLOATING_BASE) {
-                if (rank == 0) {
-                        // φ = log(q_from⁻¹ ⊗ q_to)   (canonical branch |φ| ≤ π)
-                        T qc[4];   glass::thread::quat_conj<T>(s_x_from + 3, qc);
-                        T qrel[4]; glass::thread::quat_mul<T>(qc, s_x_to + 3, qrel);
-                        glass::thread::quat_log<T>(qrel, s_out + 3);
-                        // ρ = Jl(φ)⁻¹ · R(q_from)ᵀ · (p_to − p_from)
-                        const T dp[3] = {s_x_to[0] - s_x_from[0],
-                                         s_x_to[1] - s_x_from[1],
-                                         s_x_to[2] - s_x_from[2]};
-                        T R[9]; glass::thread::quat_to_rot<T>(s_x_from + 3, R);
-                        T pl[3];   // Rᵀ·dp (R column-major: row i of Rᵀ = column i of R)
-                        #pragma unroll
-                        for (int i = 0; i < 3; ++i)
-                                pl[i] = R[i*3 + 0]*dp[0] + R[i*3 + 1]*dp[1] + R[i*3 + 2]*dp[2];
-                        T Vinv[9]; glass::thread::so3_left_jacobian_inv<T>(s_out + 3, Vinv);
-                        #pragma unroll
-                        for (int i = 0; i < 3; ++i)
-                                s_out[i] = Vinv[i]*pl[0] + Vinv[3 + i]*pl[1] + Vinv[6 + i]*pl[2];
-                }
+                if (rank == 0)
+                        glass::thread::se3_difference<T>(s_x_from, s_x_to, s_out, s_out + 3);
                 for (int i = rank; i < NQi - 7; i += nth)
                         s_out[6 + i] = s_x_to[7 + i] - s_x_from[7 + i];
                 for (int i = rank; i < NVi; i += nth)
