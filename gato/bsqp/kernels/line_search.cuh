@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "constants.h"
 #include "utils/linalg.cuh"
+#include "dynamics/manifold.cuh"
 
 using namespace sqp;
 using namespace gato;
@@ -107,15 +108,26 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
 
         // Only proceed with trajectory update if line search was successful
         if (s_ls_success) {
-                // CL-3 floating: xu and dz stop being co-indexable (stride
-                // nq+nv+nu vs 2nv+nu) and the update becomes a per-knot
-                // retract xu ⊞ α·dz — this flat axpy is the fixed-base path.
-                static_assert(!FLOATING_BASE, "trajectory update is vector-space; floating-base retract lands in CL-3 W3.3");
                 const T step_size = s_step_size;
                 T*      d_xu_traj = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
                 T*      d_dz = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
+                if constexpr (!FLOATING_BASE) {
 #pragma unroll
-                for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
+                        for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
+                } else {
+                        // per-knot manifold update: state xu ⊞ α·dz (in-place
+                        // retract), plain axpy on the control tail. Knots are
+                        // disjoint slots — no barrier needed between them.
+                        for (uint32_t k = 0; k < KNOT_POINTS; k++) {
+                                T*       xu_k = d_xu_traj + k * XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + k * DZ_KNOT_STRIDE;
+                                gato::plant::state_retract<T>(xu_k, xu_k, dz_k, step_size);
+                                if (k < KNOT_POINTS - 1) {
+                                        for (uint32_t i = threadIdx.x; i < CONTROL_SIZE; i += blockDim.x)
+                                                xu_k[XU_STATE_SIZE + i] += step_size * dz_k[STATE_SIZE + i];
+                                }
+                        }
+                }
         }
 }
 

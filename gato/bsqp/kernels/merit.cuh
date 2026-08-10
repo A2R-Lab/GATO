@@ -8,6 +8,7 @@
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
+#include "dynamics/manifold.cuh"
 #include "bsqp/rowgroups.cuh"
 
 using namespace sqp;
@@ -87,14 +88,24 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
         T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
-        // line-search trial step: s_xux_k = d_xu_k + alpha * d_dz_k (axpby z = 1*x + alpha*y)
-        // CL-3 floating: this becomes a per-knot retract xu ⊞ α·dz (and the
-        // initial-state gap below a manifold difference); the vector-space path
-        // is guarded by the !FLOATING_BASE static_assert in dynamics/integrator.cuh.
-        if (knot_idx == KNOT_POINTS - 1) {
-                glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
+        // line-search trial step: s_xux_k = d_xu_k ⊞ alpha * d_dz_k
+        // (fixed base: plain axpby; floating: per-knot state retract + control
+        // axpy — s_xux_k is STORED format [q(NQ); qd(NV); u; x_next]).
+        if constexpr (!FLOATING_BASE) {
+                if (knot_idx == KNOT_POINTS - 1) {
+                        glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
+                } else {
+                        glass::axpby<T, STATE_SIZE + STATE_S_CONTROL>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
+                }
         } else {
-                glass::axpby<T, STATE_SIZE + STATE_S_CONTROL>(static_cast<T>(1), d_xu_k, alpha, d_dz_k, s_xux_k);
+                gato::plant::state_retract<T>(s_xux_k, d_xu_k, d_dz_k, alpha);
+                if (knot_idx < KNOT_POINTS - 1) {
+                        for (uint32_t i = threadIdx.x; i < CONTROL_SIZE; i += blockDim.x)
+                                s_xux_k[XU_STATE_SIZE + i] = d_xu_k[XU_STATE_SIZE + i] + alpha * d_dz_k[STATE_SIZE + i];
+                        gato::plant::state_retract<T>(s_xux_k + XU_KNOT_STRIDE,
+                                                      d_xu_k + XU_KNOT_STRIDE,
+                                                      d_dz_k + DZ_KNOT_STRIDE, alpha);
+                }
         }
 
         T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
