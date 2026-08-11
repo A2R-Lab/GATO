@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .common import initialize_warm_start
+from .common import check_floating_state, initialize_warm_start, state_difference
 from .interface import SolveResult
 
 
@@ -72,6 +72,8 @@ class MPCController:
         if linsys not in (None, "auto"):
             solver.set_linsys(linsys)
         self.nx, self.nu, self.N = solver.nx, solver.nu, solver.N
+        self.nq, self.nv = solver.nq, solver.nv
+        self.floating_base = bool(getattr(solver, "floating_base", False))
         self.batch_size = solver.batch_size
         self._XU = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu),
                             dtype=np.float32)
@@ -82,6 +84,7 @@ class MPCController:
     def reset(self, x0):
         """Reset solver state + warm start to a hold at x0."""
         x0 = np.asarray(x0, dtype=np.float32)
+        check_floating_state(x0, self.nq, self.nv, "reset x0")
         self.solver.reset_dual()
         self.solver.reset_rho()
         xu0 = initialize_warm_start(x0, self.N, self.nx, self.nu).astype(np.float32)
@@ -101,6 +104,7 @@ class MPCController:
         """
         x = np.asarray(x_measured, dtype=np.float32).reshape(self.nx)
         ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+        check_floating_state(x, self.nq, self.nv, "x_measured")
         if self.hypotheses is not None:
             self.hypotheses.apply(self.solver, x)
         self._XU[:, : self.nx] = x
@@ -123,11 +127,19 @@ class MPCController:
         """
         x = np.asarray(x_measured, dtype=np.float32).reshape(self.nx)
         ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+        check_floating_state(x, self.nq, self.nv, "x_measured")
 
         # warm-startedness signal: after last tick's shift, _XU[0,:nx] is the model's
         # one-step-ahead prediction of the current state — read it BEFORE the
-        # measured-state overwrite below
-        pred_err = float(np.linalg.norm(x - self._XU[0, : self.nx]))
+        # measured-state overwrite below. Floating base: tangent norm
+        # ‖x ⊟ x_pred‖ (a Euclidean norm on the stored layout would mix
+        # quaternion components into the metric).
+        x_pred = self._XU[0, : self.nx]
+        if self.floating_base and abs(np.linalg.norm(x_pred[3:7]) - 1.0) < 1e-3:
+            pred_err = float(np.linalg.norm(
+                state_difference(x_pred, x, self.nq, self.nv)))
+        else:
+            pred_err = float(np.linalg.norm(x - x_pred))
         if self.linsys == "auto":
             cold = pred_err > self.bdsv_threshold or self._prev_capout
             self.solver.set_linsys("bdsv_first" if cold else "pcg")
