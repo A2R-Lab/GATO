@@ -132,8 +132,23 @@ class BSQP {
         // per-group true violation of the RETURNED trajectory after each solve.
         // Never touches the solver path: with groups disabled (default) solve()
         // is byte-identical to the pre-row-group tree.
+        //
+        // ⚠ FLOATING BASE (CL-3): the row-group layer indexes the STORED xu with
+        // TANGENT offsets (BOX_Q rows would cover the base pose slots, BOX_QD/U
+        // are off by the quaternion slot, and the install loop reads NV rows
+        // from the NU-row limit tables). The stored↔tangent row mapping +
+        // actuated-only installs are a follow-up wave — fail loud until then.
+        void assert_rowgroups_supported(const char* what) const
+        {
+                if constexpr (gato::constants::FLOATING_BASE) {
+                        throw std::runtime_error(std::string(what) +
+                            ": constraint row-groups are not floating-base-aware yet "
+                            "(stored/tangent row mapping — CL-3 follow-up)");
+                }
+        }
         void enable_limit_telemetry()
         {
+                assert_rowgroups_supported("enable_limit_telemetry");
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
@@ -150,6 +165,7 @@ class BSQP {
         // Telemetry still reports each group's true violation per solve.
         void enable_limit_barrier(T mu, T delta)
         {
+                assert_rowgroups_supported("enable_limit_barrier");
                 if (!(delta > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_barrier: delta must be > 0"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
                 gpuErrchk(cudaDeviceSynchronize());
@@ -168,6 +184,7 @@ class BSQP {
         // y there is an unbounded violation integrator (kernels/admm.cuh).
         void enable_limit_admm(T rho, uint32_t iters)
         {
+                assert_rowgroups_supported("enable_limit_admm");
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
                 if (iters < 1) { throw std::invalid_argument("enable_limit_admm: iters must be >= 1"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
@@ -193,6 +210,7 @@ class BSQP {
         // the solve() dispatch comments).
         void enable_limit_al(T rho)
         {
+                assert_rowgroups_supported("enable_limit_al");
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_al: rho must be > 0"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
                 gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
@@ -256,6 +274,7 @@ class BSQP {
         // enables reinstall the canonical 3 groups, dropping appended ones).
         void enable_ee_terminal_equality(const T* h_target /* xyz */, T rho)
         {
+                assert_rowgroups_supported("enable_ee_terminal_equality");
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_ee_terminal_equality: rho must be > 0"); }
                 if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("enable_ee_terminal_equality: row-group table full"); }
                 rows::RowGroupDesc<T> h_grp;
@@ -303,6 +322,7 @@ class BSQP {
         // scale's job.
         void add_lin_u_group(int32_t mech, int32_t m, const T* h_C, const T* h_d, const T* h_lo, const T* h_hi, bool cone, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters, bool equilibrate = false)
         {
+                assert_rowgroups_supported("add_lin_u_group");
                 if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("add_lin_u_group: row-group table full"); }
                 if (m < (cone ? 2 : 1) || m > (int32_t)rows::MAX_ROWS_PER_GROUP) { throw std::invalid_argument("add_lin_u_group: n_rows out of range"); }
                 if (equilibrate && cone) { throw std::invalid_argument("add_lin_u_group: equilibrate applies to interval rows only (SOC rows cannot scale independently)"); }
@@ -418,6 +438,7 @@ class BSQP {
         // set_collision_environment.
         void enable_collision(int32_t mech, T margin, T rho, T delta, T sigma, int32_t knot_lo, uint32_t admm_iters)
         {
+                assert_rowgroups_supported("enable_collision");
                 if (has_collision_) { throw std::invalid_argument("enable_collision: collision group already registered (one max)"); }
                 if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("enable_collision: row-group table full"); }
                 if (mech != rows::MECH_TELEMETRY && !(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_collision: rho must be > 0"); }
