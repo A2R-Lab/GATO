@@ -357,6 +357,20 @@ class BSQP:
             self.solver.set_exact_hessian(on)
             self.exact_hessian = on
 
+    def _heal_floating_warm_start(self, XU_B, xcur_B):
+        """Replace warm-start knots whose base quaternion is degenerate by the
+        measured state (controls kept). The constructed XU_B is all-zero, and a
+        zero quaternion is not a point on the manifold — the device solve
+        cannot step off it (state_difference/retract are undefined there), so
+        a cold floating solve would silently return the zero tail unchanged.
+        Valid warm starts pass through untouched (bit-identical)."""
+        step = self.nx + self.nu
+        for k in range(self.N):
+            quat = XU_B[:, k * step + 3:k * step + 7]
+            bad = np.linalg.norm(quat, axis=1) < 0.5
+            if bad.any():
+                XU_B[bad, k * step:k * step + self.nx] = xcur_B[bad]
+
     def solve(self, xcur_B, eepos_goals_B, XU_B=None):
         """Solve the batch; returns a SolveResult (also stores xu as the next warm start)."""
         xcur_B = np.asarray(xcur_B, dtype=np.float32)
@@ -366,6 +380,8 @@ class BSQP:
         else:
             XU_B = np.asarray(XU_B, dtype=np.float32)
         XU_B[:, : self.nx] = xcur_B
+        if self.floating_base:
+            self._heal_floating_warm_start(XU_B, xcur_B)
 
         raw = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
 
