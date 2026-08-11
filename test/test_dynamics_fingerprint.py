@@ -20,10 +20,17 @@ JSON = os.path.join(REPO, "test", "dynamics_fingerprint.json")
 
 def test_fingerprint_table_wellformed_and_urdfs_pinned():
     tab = json.load(open(JSON))
-    assert tab["schema"] == 1
+    assert tab["schema"] == 2
     for plant, t in tab["plants"].items():
-        assert len(t["probes"]) == t["nq"] + 2  # gravity + inertia_j x nq + coriolis
+        nv, nu = t["nv"], t["nu"]
+        assert len(t["probes"]) == nu + 2  # gravity + inertia_j x nu + coriolis
         assert t["probes"][0]["name"] == "gravity"
+        for p in t["probes"]:
+            assert len(p["q"]) == t["nq"] and len(p["qd"]) == nv
+            assert len(p["u"]) == nv and len(p["qdd"]) == nv
+            # base rows carry no probe torque/velocity (convention-immunity)
+            assert not np.any(np.asarray(p["u"])[:nv - nu])
+            assert not np.any(np.asarray(p["qd"])[:nv - nu])
         urdf = os.path.join(REPO, t["urdf"])
         sha = hashlib.sha256(open(urdf, "rb").read()).hexdigest()
         assert sha == t["urdf_sha256"], (

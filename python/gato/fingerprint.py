@@ -1,11 +1,18 @@
 """Dynamics-fingerprint checker: is YOUR plant model the same robot as ours?
 
 ``test/dynamics_fingerprint.json`` pins forward-dynamics accelerations
-qdd(q, qd, u) at canonical probes per plant (fixed base, gravity -9.81,
-f_ext = 0), evaluated by the attested device dynamics. Any consumer evaluates
-its own model at the same probes and compares per joint — the two models
-disagreeing HERE will disagree in every closed loop built on them (a 2.6-3.2x
-per-joint response ratio was the entire PDDP round-5 "anchor instability").
+qdd(q, qd, u) at canonical probes per plant (gravity -9.81, f_ext = 0),
+evaluated by the attested device dynamics. Any consumer evaluates its own
+model at the same probes and compares per joint — the two models disagreeing
+HERE will disagree in every closed loop built on them (a 2.6-3.2x per-joint
+response ratio was the entire PDDP round-5 "anchor instability").
+
+Schema 2 (floating-base plants): ``q`` is the STORED configuration (nq, quat
+xyzw for a free-flyer), ``qd``/``qdd`` are nv-sized, and ``u`` is the FULL
+generalized force (nv — a consumer applies it as qfrc, zeros on the base
+rows). Probes keep the base velocity at zero and the base orientation at
+identity, so the base qdd rows are frame-convention-immune (MuJoCo's
+world-frame linear acceleration == pin's local one there).
 
 MuJoCo example (their side, one screen)::
 
@@ -41,13 +48,13 @@ def check(qdd_fn, plant, path=None, rtol=0.05):
     missing-mass mismatches). ``ok`` is True when every probe agrees within
     ``rtol`` of its scale."""
     tab = load(path)["plants"][plant]
-    nq = tab["nq"]
-    rows, ratios = [], np.full(nq, np.nan)
+    nv = tab.get("nv", tab["nq"])  # schema 1 tables are fixed base (nv == nq)
+    rows, ratios = [], np.full(nv, np.nan)
     ok = True
     for p in tab["probes"]:
         q, qd, u = (np.asarray(p[k], dtype=np.float64) for k in ("q", "qd", "u"))
         ref = np.asarray(p["qdd"], dtype=np.float64)
-        got = np.asarray(qdd_fn(q, qd, u), dtype=np.float64).reshape(nq)
+        got = np.asarray(qdd_fn(q, qd, u), dtype=np.float64).reshape(nv)
         scale = max(1.0, np.abs(ref).max())
         rel = float(np.abs(got - ref).max() / scale)
         rows.append({"name": p["name"], "ref": ref, "got": got, "rel_err": rel})
@@ -92,6 +99,9 @@ def check_solver(solver, path=None, rtol=1e-4):
         raise AssertionError(f"URDF {tab['urdf']} sha mismatch vs fingerprint "
                              f"— regenerate tools/gen_dynamics_fingerprint.py")
 
+    if getattr(solver, "floating_base", False):
+        return check(solver_qdd_fn(solver), solver.plant_type, path=path, rtol=rtol)
+
     def dev_qdd(q, qd, u):
         d = solver.solver.debug_contact_dynamics(
             np.asarray(q, np.float32), np.asarray(qd, np.float32),
@@ -99,3 +109,20 @@ def check_solver(solver, path=None, rtol=1e-4):
         return np.asarray(d["qdd"])
 
     return check(dev_qdd, solver.plant_type, path=path, rtol=rtol)
+
+
+def solver_qdd_fn(solver):
+    """Device qdd(q, qd, u_full) via one ``sim_forward`` SI-EULER step:
+    v' = v + dt * aba(q, v, tau), so (v' - v)/dt recovers aba EXACTLY (no
+    integration approximation — only f32 rounding). Used for floating plants,
+    whose debug_contact_dynamics path is fixed-base-shaped; ``u_full`` is the
+    nv generalized force and only its ACTUATED tail reaches the device."""
+    n_act, dt = solver.n_actuated, solver.dt
+
+    def dev_qdd(q, qd, u_full):
+        x = np.concatenate([q, qd]).astype(np.float32)
+        u = np.asarray(u_full, dtype=np.float32)[-n_act:]
+        out = np.asarray(solver.solver.sim_forward(x, u, dt))[0]
+        return (out[len(q):] - np.asarray(qd, dtype=np.float64)) / dt
+
+    return dev_qdd
