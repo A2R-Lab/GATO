@@ -51,6 +51,17 @@ IIWA14_START_CONFIGS = {
     'ready': np.array([0.0, np.pi/6, np.pi/8, -np.pi/3, 0.0, np.pi/3, 0.0]),
 }
 
+# Standard starting configurations for the go2 quadruped (STORED layout:
+# [p(3); quat xyzw(4); 12 actuated joints hip/thigh/calf x FL/FR/RL/RR]).
+# 'standing' is the nominal stance (base 0.35 m up, legs [0, 0.9, -1.8]);
+# it is the fingerprint rest posture and every go2 gate's start.
+GO2_START_CONFIGS = {
+    'standing': np.concatenate([
+        [0.0, 0.0, 0.35, 0.0, 0.0, 0.0, 1.0],
+        np.tile([0.0, 0.9, -1.8], 4),
+    ]),
+}
+
 # MPC solver parameters
 DEFAULT_SOLVER_PARAMS = {
     'max_sqp_iters': 1,

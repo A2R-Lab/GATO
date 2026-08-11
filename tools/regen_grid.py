@@ -32,6 +32,13 @@ ROBOTS = {
                    ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
     "indy7": dict(urdf=REPO_ROOT / "examples" / "indy7_description" / "indy7.urdf",
                   ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
+    # floating base (CL-3): EE = the trunk imu (base-position cost target),
+    # contact frames = the four feet (fc-on-feet wave); codegen detects the
+    # free-flyer from the URDF root and emits gato_abi.cuh alongside.
+    "go2": dict(urdf=REPO_ROOT / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf",
+                ee_frame="imu_joint", collision_res=0.15,
+                contact_frames=["FR_foot_joint", "FL_foot_joint",
+                                "RR_foot_joint", "RL_foot_joint"]),
 }
 
 # Explicit list covering everything GATO's plant.cuh needs + integrators + EE
