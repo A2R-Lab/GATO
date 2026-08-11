@@ -433,11 +433,19 @@ class PyBSQP {
                 py::array_t<T>    q({B, (py::ssize_t)STATE_P_KNOTS});
                 py::array_t<T>    r({B, (py::ssize_t)CONTROL_P_KNOTS});
                 solver_.copy_kkt_blocks_to_host(static_cast<T*>(Q.request().ptr), static_cast<T*>(R.request().ptr), static_cast<T*>(q.request().ptr), static_cast<T*>(r.request().ptr));
+                // dynamics linearization blocks (tangent A|B col-major per knot, defect c)
+                py::array_t<T> A({B, (py::ssize_t)STATE_SQ_P_KNOTS});
+                py::array_t<T> Bm({B, (py::ssize_t)STATE_P_CONTROL_P_KNOTS});
+                py::array_t<T> c({B, (py::ssize_t)STATE_P_KNOTS});
+                solver_.copy_kkt_dynamics_to_host(static_cast<T*>(A.request().ptr), static_cast<T*>(Bm.request().ptr), static_cast<T*>(c.request().ptr));
                 py::dict out;
                 out["Q"] = Q;
                 out["R"] = R;
                 out["q"] = q;
                 out["r"] = r;
+                out["A"] = A;
+                out["B"] = Bm;
+                out["c"] = c;
                 return out;
         }
         // debug/oracle: contact-wrench chain at one (q, qd, u, f_c) sample (CL-3 prep).

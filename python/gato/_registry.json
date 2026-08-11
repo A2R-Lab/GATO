@@ -1,4 +1,21 @@
 {
+  "go2": {
+    "collision": {
+      "n_spheres": 50,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "FR_foot_joint",
+      "FL_foot_joint",
+      "RR_foot_joint",
+      "RL_foot_joint"
+    ],
+    "ee_frame": "imu_joint",
+    "floating_base": true,
+    "nq": 19,
+    "nv": 18,
+    "urdf": "external/GRiD/config/robot_assets/go2.urdf"
+  },
   "iiwa14": {
     "collision": {
       "n_spheres": 44,

@@ -229,7 +229,20 @@ class BSQP:
             rho,  # rho
         )
         pin = _require_pin()
-        self.model = pin.buildModelFromUrdf(model_path)
+        # floating-base modules (CL-3): the stored state carries the free-flyer
+        # q [p; quat xyzw] — mirror it in the pinocchio model so nq/nv/nx and
+        # every oracle computation match the module. The module attrs are the
+        # source of truth; the registry flag only selects the pin root joint.
+        self.floating_base = bool(getattr(base, "FLOATING_BASE", False))
+        if self.floating_base:
+            self.model = pin.buildModelFromUrdf(model_path, pin.JointModelFreeFlyer())
+        else:
+            self.model = pin.buildModelFromUrdf(model_path)
+        if hasattr(base, "NQ") and (int(base.NQ), int(base.NV)) != (self.model.nq, self.model.nv):
+            raise ValueError(
+                f"module {module_name} has (nq, nv) = ({int(base.NQ)}, {int(base.NV)}) but the "
+                f"pinocchio model from {model_path!r} has ({self.model.nq}, {self.model.nv}) — "
+                f"wrong URDF or a fixed/floating mismatch")
         self.data = self.model.createData()
         # The solver/grid.cuh optimizes the EE-position cost in the frame the module
         # was codegen'd with (fixed_target_name; recorded in the registry, "EE" for

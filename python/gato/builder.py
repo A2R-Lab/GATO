@@ -349,8 +349,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     Args:
         urdf_path: robot URDF (fixed-base serial chain, or floating_base=True
-            for a quaternion free-flyer root — CL-3, headers/codegen only
-            until the solver floating path lands).
+            for a quaternion free-flyer root — CL-3: the solver runs the
+            grid_plant SE(3) step/linearization path, SI-EULER integrator).
         name: plant name (module suffix, dynamics dir); default = URDF stem.
         N: iterable of horizon lengths to build.
         ee_frame: fixed-joint name of the EE target frame (codegen + metrics).

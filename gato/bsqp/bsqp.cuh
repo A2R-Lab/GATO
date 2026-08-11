@@ -733,6 +733,14 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(h_q, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
                 gpuErrchk(cudaMemcpy(h_r, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
         }
+        // dynamics linearization blocks (tangent A|B + defect c) — the CL-3
+        // floating FD gates compare these against a pinocchio oracle
+        void copy_kkt_dynamics_to_host(T* h_A, T* h_B, T* h_c)
+        {
+                gpuErrchk(cudaMemcpy(h_A, kkt_system_batch_.d_A_batch, STATE_SQ_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_B, kkt_system_batch_.d_B_batch, STATE_P_CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_c, kkt_system_batch_.d_c_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+        }
         // padded (KNOT_POINTS + 2) * STATE_SIZE per solve (PCG layout; constraint
         // row j lives at [(j + 1) * STATE_SIZE, (j + 2) * STATE_SIZE))
         void copy_lambda_to_host(T* h_out) { gpuErrchk(cudaMemcpy(h_out, d_lambda_batch_, VEC_SIZE_PADDED * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost)); }
