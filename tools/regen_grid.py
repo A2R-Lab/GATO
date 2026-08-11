@@ -33,10 +33,12 @@ ROBOTS = {
     "indy7": dict(urdf=REPO_ROOT / "examples" / "indy7_description" / "indy7.urdf",
                   ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
     # floating base (CL-3): EE = the trunk imu (base-position cost target),
-    # contact frames = the four feet (fc-on-feet wave); codegen detects the
-    # free-flyer from the URDF root and emits gato_abi.cuh alongside.
+    # contact frames = the four feet (fc-on-feet wave); floating_base=True is
+    # REQUIRED (codegen does NOT auto-detect the free-flyer — a fixed-base
+    # parse of go2 crashes the named-target EE emitter) and also emits
+    # gato_abi.cuh alongside.
     "go2": dict(urdf=REPO_ROOT / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf",
-                ee_frame="imu_joint", collision_res=0.15,
+                ee_frame="imu_joint", collision_res=0.15, floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint",
                                 "RR_foot_joint", "RL_foot_joint"]),
 }
@@ -68,7 +70,8 @@ def main() -> None:
         meta = codegen(spec["urdf"], rid, ee_frame=spec["ee_frame"],
                        algorithm_list=ALGORITHM_LIST if args.use_list else None,
                        collision_res=spec.get("collision_res"),
-                       contact_frames=spec.get("contact_frames"))
+                       contact_frames=spec.get("contact_frames"),
+                       floating_base=spec.get("floating_base", False))
         print(f"[{rid}] wrote gato/dynamics/{rid}/{{grid.cuh, limits.cuh}}  meta={meta}")
     print("Done.")
 

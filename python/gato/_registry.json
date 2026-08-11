@@ -25,6 +25,7 @@
       "EE"
     ],
     "ee_frame": "EE",
+    "floating_base": false,
     "nq": 7,
     "nv": 7,
     "urdf": "examples/iiwa_description/iiwa14.urdf"
@@ -38,6 +39,7 @@
       "EE"
     ],
     "ee_frame": "EE",
+    "floating_base": false,
     "nq": 6,
     "nv": 6,
     "urdf": "examples/indy7_description/indy7.urdf"
