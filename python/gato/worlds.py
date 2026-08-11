@@ -26,10 +26,11 @@ MuJoCo gotchas this module encodes (found 2026-08-04):
   never collides, robot-plane does.
 """
 import os
+import re
 
 import numpy as np
 
-from .common import rk4
+from .common import rk4, _quat_to_rot
 
 
 class PinocchioWorld:
@@ -131,12 +132,38 @@ class MuJoCoWorld:
       features; MuJoCo experiments model disturbances as geometry.
     """
 
-    def __init__(self, urdf_path, plane=None, timestep=1e-3, record_contact=False):
+    def __init__(self, urdf_path, plane=None, timestep=1e-3, record_contact=False,
+                 floating=False):
         import mujoco  # lazy: mujoco is an optional dependency
         self._mujoco = mujoco
+        self.floating = bool(floating)
 
-        spec = mujoco.MjSpec.from_string(open(urdf_path).read())
+        xml = open(urdf_path).read()
+        # URDFs whose VISUAL meshes are package:// references with no vendored
+        # files (go2) fail MjSpec compile — strip the visuals (collision
+        # geometry is untouched; go2 collisions are all primitives).
+        if 'package://' in xml:
+            xml = re.sub(r"<visual\b.*?</visual>", "", xml, flags=re.DOTALL)
+        spec = mujoco.MjSpec.from_string(xml)
         spec.meshdir = os.path.dirname(os.path.abspath(urdf_path))
+        if self.floating:
+            # MuJoCo's URDF import WELDS the root body to the world; give the
+            # base back its 6 dofs (freejoint => qpos [p; quat wxyz; joints])
+            spec.worldbody.bodies[0].add_freejoint()
+        # URDF links with NO <inertial> are MASSLESS to pinocchio/GRiD, but
+        # MuJoCo synthesizes their inertia from the collision geometry
+        # (density 1000) — +0.19 kg of phantom calf mass on go2 (calflower
+        # cylinders), a 10-20% effective-inertia mismatch vs the solver's
+        # model. Pin those bodies to explicit ~zero inertia so this world is
+        # the SAME robot the solver sees (no-op on URDFs with full inertials).
+        for name in re.findall(r'<link name="([^"]+)"\s*/>', xml) + [
+                m.group(1) for m in re.finditer(r'<link name="([^"]+)"\s*>', xml)
+                if "<inertial>" not in xml[m.end():xml.find("</link>", m.end())]]:
+            body = spec.body(name)
+            if body is not None:
+                body.explicitinertial = True
+                body.mass = 1e-9
+                body.inertia = [1e-12, 1e-12, 1e-12]
 
         self.plane_cfg = dict(plane) if plane else None
         if self.plane_cfg is not None:
@@ -189,22 +216,56 @@ class MuJoCoWorld:
             "plane": self.plane_cfg,
         }
 
+    # ---- stored-state (pin) <-> MuJoCo conversions (floating base) --------
+    #
+    # Our stored state uses the pin free-flyer conventions: quat xyzw at
+    # q[3:7], base velocity [v_lin; omega] BOTH in the BODY frame. MuJoCo's
+    # freejoint uses quat wxyz and qvel = [v_lin in WORLD frame; omega in
+    # body frame; joints]. step() converts at the boundary so the world keeps
+    # the stored-state duck-type contract.
+
+    def _pin_to_mj(self, q, dq):
+        qm, vm = np.array(q, dtype=np.float64), np.array(dq, dtype=np.float64)
+        quat = np.asarray(q[3:7], dtype=np.float64)
+        qm[3] = quat[3]
+        qm[4:7] = quat[:3]
+        vm[:3] = _quat_to_rot(quat / np.linalg.norm(quat)) @ np.asarray(dq[:3])
+        return qm, vm
+
+    def _mj_to_pin(self, qm, vm):
+        q, dq = qm.copy(), vm.copy()
+        quat = np.array([qm[4], qm[5], qm[6], qm[3]])  # wxyz -> xyzw
+        q[3:6] = quat[:3]
+        q[6] = quat[3]
+        dq[:3] = _quat_to_rot(quat / np.linalg.norm(quat)).T @ vm[:3]
+        return q, dq
+
     def step(self, q, dq, u, sim_dt):
         mujoco = self._mujoco
         d = self.data
         assert abs(sim_dt - self.model.opt.timestep) < 1e-12, \
             f"sim_dt {sim_dt} != mujoco timestep {self.model.opt.timestep}"
-        d.qpos[:] = q
-        d.qvel[:] = dq
+        if self.floating:
+            qm, vm = self._pin_to_mj(q, dq)
+            d.qpos[:] = qm
+            d.qvel[:] = vm
+        else:
+            d.qpos[:] = q
+            d.qvel[:] = dq
         d.qacc_warmstart[:] = 0.0            # state-purity: no hidden carry-over
         d.ctrl[:] = 0.0
         d.qfrc_applied[:] = 0.0
-        d.qfrc_applied[:len(u)] = u
+        # actuated torques land on the trailing dofs (floating: past the 6
+        # base dofs — the same scatter as common.rk4 / the device load)
+        off = self.model.nv - len(u)
+        d.qfrc_applied[off:off + len(u)] = u
         mujoco.mj_step(self.model, d)
         self._read_contact()
         if self.contact_history is not None:
             c = self.last_contact
             self.contact_history.append((c["ncon"], c["fn"], c["ft"]))
+        if self.floating:
+            return self._mj_to_pin(d.qpos.copy(), d.qvel.copy())
         return d.qpos.copy(), d.qvel.copy()
 
     def _read_contact(self):
