@@ -9,6 +9,7 @@
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
 #include "dynamics/manifold.cuh"
+#include "dynamics/grid_plant_step.cuh"  // floating twins + GATO_FLOATING_STEP
 #include "bsqp/rowgroups.cuh"
 
 using namespace sqp;
@@ -21,8 +22,15 @@ __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
         // xux_k + reference_traj_k + s_temp (used by BOTH the kernel's carve and
         // the host sizer — the collision tail carve offsets from this)
         constexpr size_t a = gato::plant::trackingCostValue_TempMemCt<T>();
+#if GATO_FLOATING_STEP
+        // floating: the integrator-error scratch is the grid value-step arena
+        // (also covers the terminal knot's trial-x0 + tangent-gap carve:
+        // XU_STATE_SIZE + STATE_SIZE << the arena)
+        constexpr size_t b = gato::plant::stepValueFloating_TempMemCt<T>();
+#else
         constexpr size_t b = gato::plant::forwardDynamics_TempMemSize_Shared();
-        return 2 * STATE_SIZE + CONTROL_SIZE + constants::EE_POS_SIZE + (a > b ? a : b);
+#endif
+        return constants::XUX_SIZE + constants::EE_POS_SIZE + (a > b ? a : b);
 }
 
 // __launch_bounds__ min-2-blocks: this kernel sat at 95 regs after the P4.3/P4.4
@@ -30,7 +38,7 @@ __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
 // sm_120 (65536/(2*352) = 93). The halved occupancy doubled the kernel at
 // saturated B (+62% whole-solve, the 2026-08-09 bisect's entire regression);
 // capping regs trades a ~2-slot spill for 2x occupancy.
-template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
+template<typename T, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ void __launch_bounds__(grid::MAX_PERF_LEVEL_THREADS, 2)
 computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_dz_batch,
@@ -78,14 +86,14 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         T cost_k, constraint_k;  // cost function, constraint error, per-point merit
 
         extern __shared__ T s_mem[];
-        T*                  s_xux_k = s_mem;  // current state, control, and next state
-        T*                  s_reference_traj_k = s_xux_k + STATE_S_CONTROL + STATE_SIZE;
+        T*                  s_xux_k = s_mem;  // current state, control, and next state (STORED format)
+        T*                  s_reference_traj_k = s_xux_k + constants::XUX_SIZE;
         T*                  s_temp = s_reference_traj_k + constants::EE_POS_SIZE;
 
 
         T* d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
         T* d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, knot_idx);
-        T* d_x_initial_k = d_x_initial_batch + solve_idx * STATE_SIZE;
+        T* d_x_initial_k = d_x_initial_batch + solve_idx * XU_STATE_SIZE;  // STORED format
         T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
         // line-search trial step: s_xux_k = d_xu_k ⊞ alpha * d_dz_k
@@ -123,7 +131,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks
         // N_cost EE weight + drops the control reg/barrier, matching the old trackingcost).
         cost_k =
-            plant::trackingCostValue<T>(s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+            plant::trackingCostValue<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
         __syncthreads();
 
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's
@@ -156,10 +164,29 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
-                constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + STATE_SIZE + CONTROL_SIZE, s_temp, d_robot_model, timestep, d_f_ext);
+#if GATO_FLOATING_STEP
+                constraint_k = gato::plant::compute_integrator_error_floating<T, INTEGRATOR_TYPE>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
+#else
+                constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
+#endif
         } else {
                 d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
                 d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
+#if GATO_FLOATING_STEP
+                // trial x_0 = xu_0 ⊞ α·dz_0, then the TANGENT gap to the stored
+                // initial state: |x_0^trial ⊟ x_s|_1
+                T* s_x0  = s_temp;                  // stored trial state (NQ+NV)
+                T* s_gap = s_temp + XU_STATE_SIZE;  // tangent gap (2*NV)
+                gato::plant::state_retract<T>(s_x0, d_xu_k, d_dz_k, alpha);
+                __syncthreads();
+                gato::plant::state_difference<T>(s_gap, /*from=*/d_x_initial_k, /*to=*/s_x0);
+                __syncthreads();
+                for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) { s_gap[i] = abs(s_gap[i]); }
+                __syncthreads();
+                glass::reduce<T, STATE_SIZE>(s_gap);
+                __syncthreads();
+                constraint_k = s_gap[0];
+#else
                 for (uint32_t i = threadIdx.x; i < STATE_SIZE; i += blockDim.x) {
                         s_temp[i] = abs(d_xu_k[i] + alpha * d_dz_k[i] - d_x_initial_k[i]);  // initial state constraint error
                 }
@@ -170,6 +197,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                 glass::reduce<T, STATE_SIZE>(s_temp);
                 __syncthreads();
                 constraint_k = s_temp[0];
+#endif
         }
         __syncthreads();
 

@@ -6,6 +6,7 @@
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
+#include "dynamics/grid_plant_step.cuh"  // floating twins + GATO_FLOATING_STEP
 #include "bsqp/rowgroups.cuh"
 
 using namespace sqp;
@@ -22,10 +23,16 @@ using namespace gato::constants;
 template<typename T>
 __host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
 {
-        constexpr uint32_t temp_ct = gato::plant::trackingCostGradHess_TempMemCt<T>() > gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared()
+#if GATO_FLOATING_STEP
+        // floating: the linearization scratch is the grid step-gradient arena
+        constexpr uint32_t dyn_ct = gato::plant::stepGradFloating_TempMemCt<T>();
+#else
+        constexpr uint32_t dyn_ct = gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared();
+#endif
+        constexpr uint32_t temp_ct = gato::plant::trackingCostGradHess_TempMemCt<T>() > dyn_ct
                                          ? gato::plant::trackingCostGradHess_TempMemCt<T>()
-                                         : gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared();
-        return STATE_S_CONTROL + STATE_SIZE +  // xux_k
+                                         : dyn_ct;
+        return constants::XUX_SIZE +           // xux_k (stored format)
                2 * constants::EE_POS_SIZE +    // reference_traj_k
                STATE_SIZE_SQ +                 // Q_k
                CONTROL_SIZE_SQ +               // R_k
@@ -130,7 +137,7 @@ __device__ __noinline__ void projectTerminalBlockExact(T* s_Q_last, T* s_eh)
 }
 #endif  // USE_EXACT_HESSIAN
 
-template<typename T, uint32_t INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
+template<typename T, uint32_t INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*    d_Q_batch,
                                             T*    d_R_batch,
                                             T*    d_q_batch,
@@ -181,8 +188,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         const T admm_rho_scale = d_admm_rho_scale_batch ? d_admm_rho_scale_batch[solve_idx] : static_cast<T>(1);
 
         extern __shared__ T s_mem[];
-        T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1
-        T*                  s_reference_traj_k = s_xux_k + 2 * STATE_SIZE + CONTROL_SIZE;
+        T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1 (STORED format)
+        T*                  s_reference_traj_k = s_xux_k + constants::XUX_SIZE;
         T*                  s_Q_k = s_reference_traj_k + 2 * constants::EE_POS_SIZE;
         T*                  s_R_k = s_Q_k + STATE_SIZE_SQ;
         T*                  s_q_k = s_R_k + CONTROL_SIZE_SQ;
@@ -224,11 +231,16 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 const T u_w_k   = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 2] : u_cost;
                 const T ee_w_kp1 = d_knot_cost_weights ? d_knot_cost_weights[(knot_idx + 1) * 3 + 0] : N_cost;
 
-                glass::copy<T, STATE_S_CONTROL + STATE_SIZE>(d_xu_traj_k, s_xux_k);
+                glass::copy<T, constants::XUX_SIZE>(d_xu_traj_k, s_xux_k);
                 glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
                 __syncthreads();
 
+#if GATO_FLOATING_STEP
+                // tangent A|B over grid_plant (SE(3) dIntegrate blocks); c = traj ⊟ pred
+                gato::plant::compute_linearized_dynamics_floating<T, INTEGRATOR_TYPE>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+#else
                 gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+#endif
                 __syncthreads();
 
                 glass::copy<T, STATE_SIZE_SQ>(s_A_k, d_A_k);
@@ -240,7 +252,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
                         // running knot k: EE weight q_cost, at state x_k = s_xux_k.
                         gato::plant::trackingCostGradHess<T>(
-                            s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
+                            s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
 
@@ -254,7 +266,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
                         // running knot k: EE weight q_cost, at state x_k.
                         gato::plant::trackingCostGradHess<T>(
-                            s_xux_k, s_xux_k + STATE_SIZE, s_reference_traj_k,
+                            s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
                         __syncthreads();
@@ -262,7 +274,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
                         // the OLD _lastblock used x_k + q_cost here, so N_cost had no effect).
                         // R block discarded (the terminal state has no control).
-                        T* s_xkp1 = s_xux_k + STATE_SIZE + CONTROL_SIZE;
+                        T* s_xkp1 = s_xux_k + XU_KNOT_STRIDE;  // stored-format x_{k+1}
                         gato::plant::trackingCostGradHess<T>(
                             s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
@@ -288,10 +300,15 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                 }
                         }
 
-                        // c_0 = x_0 - x_s (CL-3 floating: manifold difference — see SSOT)
+                        // c_0 = x_0 ⊖ x_s (d_x_s is STORED format, XU_STATE_SIZE stride;
+                        // fixed base: plain subtract, floating: manifold difference)
                         T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
                         T* d_xu_0 = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
-                        glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * STATE_SIZE, d_c_0);
+#if GATO_FLOATING_STEP
+                        gato::plant::state_difference<T>(d_c_0, /*from=*/d_x_s_batch + solve_idx * XU_STATE_SIZE, /*to=*/d_xu_0);
+#else
+                        glass::axpby<T, STATE_SIZE>(static_cast<T>(1), d_xu_0, static_cast<T>(-1), d_x_s_batch + solve_idx * XU_STATE_SIZE, d_c_0);
+#endif
                         __syncthreads();
 
 #if USE_EXACT_HESSIAN

@@ -34,16 +34,16 @@ class PyBSQP {
                 setL2PersistingAccess(1.0);
 
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_x_s_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_x_s_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xkp1_batch_, STATE_SIZE * batch_size_ * sizeof(T)));
-                gpuErrchk(cudaMalloc(&d_xk_, STATE_SIZE * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xkp1_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xk_, XU_STATE_SIZE * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
 
                 // pinned staging: numpy -> pinned -> device beats numpy(pageable) -> device
                 gpuErrchk(cudaMallocHost(&h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
 
-                h_xkp1_batch_.resize(STATE_SIZE * batch_size_);
+                h_xkp1_batch_.resize(XU_STATE_SIZE * batch_size_);
         }
 
         ~PyBSQP()
@@ -73,12 +73,12 @@ class PyBSQP {
                 py::buffer_info xs_buf = x_s_batch.request();
                 py::buffer_info ref_buf = reference_traj_batch.request();
                 check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
-                check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
+                check_size(xs_buf, (size_t)XU_STATE_SIZE * batch_size_, "x_s_batch");
                 check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
 
                 memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
                 gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
                 ProblemInputs<T> inputs;
@@ -233,18 +233,18 @@ class PyBSQP {
         {
                 py::buffer_info xk_buf = xk.request();
                 py::buffer_info uk_buf = uk.request();
-                if (static_cast<size_t>(xk_buf.size) != STATE_SIZE) { throw py::value_error("xk: expected " + std::to_string(STATE_SIZE) + " elements, got " + std::to_string(xk_buf.size)); }
+                if (static_cast<size_t>(xk_buf.size) != XU_STATE_SIZE) { throw py::value_error("xk: expected " + std::to_string(XU_STATE_SIZE) + " elements, got " + std::to_string(xk_buf.size)); }
                 if (static_cast<size_t>(uk_buf.size) != CONTROL_SIZE) { throw py::value_error("uk: expected " + std::to_string(CONTROL_SIZE) + " elements, got " + std::to_string(uk_buf.size)); }
 
-                gpuErrchk(cudaMemcpy(d_xk_, xk_buf.ptr, STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_xk_, xk_buf.ptr, XU_STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_uk_, uk_buf.ptr, CONTROL_SIZE * sizeof(T), cudaMemcpyHostToDevice));
 
                 solver_.sim_forward(d_xkp1_batch_, d_xk_, d_uk_, dt);
                 gpuErrchk(cudaDeviceSynchronize());
 
-                gpuErrchk(cudaMemcpy(h_xkp1_batch_.data(), d_xkp1_batch_, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                gpuErrchk(cudaMemcpy(h_xkp1_batch_.data(), d_xkp1_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
 
-                return py::array_t<T>({static_cast<py::ssize_t>(batch_size_), (py::ssize_t)STATE_SIZE}, h_xkp1_batch_.data());
+                return py::array_t<T>({static_cast<py::ssize_t>(batch_size_), (py::ssize_t)XU_STATE_SIZE}, h_xkp1_batch_.data());
         }
 
         void enable_limit_telemetry() { solver_.enable_limit_telemetry(); }
@@ -414,11 +414,11 @@ class PyBSQP {
                 py::buffer_info xs_buf = x_s_batch.request();
                 py::buffer_info ref_buf = reference_traj_batch.request();
                 check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
-                check_size(xs_buf, (size_t)STATE_SIZE * batch_size_, "x_s_batch");
+                check_size(xs_buf, (size_t)XU_STATE_SIZE * batch_size_, "x_s_batch");
                 check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
                 memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
                 gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
 
                 ProblemInputs<T> inputs;

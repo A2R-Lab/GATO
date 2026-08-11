@@ -6,6 +6,17 @@
 #include "settings.h"
 #include "utils/linalg.cuh"
 
+// Per-robot ABI aliases (generated for FLOATING robots only — see
+// builder._write_gato_abi). The fixed-target EE-pose inners are suffixed with
+// the EE frame name; the vendored arms all use "EE", which the fallback keeps.
+#if __has_include("gato_abi.cuh")
+#include "gato_abi.cuh"
+#endif
+#ifndef GATO_GRID_EE_POSE_INNER
+#define GATO_GRID_EE_POSE_INNER end_effector_pose_inner_EE
+#define GATO_GRID_EE_POSE_GRAD_INNER end_effector_pose_gradient_inner_EE
+#endif
+
 using namespace sqp;
 
 // Generic plant adapter: everything robot-specific comes from the generated
@@ -37,13 +48,20 @@ namespace plant {
         inline constexpr int EE_POS_SIZE = 6;                      // pose size (xyz + orientation)
 
         // Shared-memory extents of the grid:: inner buffers this adapter carves by hand.
-        inline constexpr int XIMATS_COUNT = 72 * grid::NUM_JOINTS; // X + I (6x6 each) per joint
-        inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES; // v, a, f (6 each) per body
+        // XImats is per-BODY (72*NUM_BODIES == 72*NUM_JOINTS on fixed base, where the
+        // hand-carved paths live; floating NUM_JOINTS is nq and must not size it) —
+        // use the emitted count.
+        inline constexpr int XIMATS_COUNT = grid::DYNAMICS_XI_T_COUNT;  // X + I (6x6 each) per body
+        inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES;      // v, a, f (6 each) per body
 
 #if GATO_CONTACT_FORCES
     #if USE_EXACT_HESSIAN
         #error "GATO_CONTACT_FORCES x USE_EXACT_HESSIAN unsupported (fdsva_so is not fc-aware; W2+ item)"
     #endif
+        // fc controls on floating base: not wired (the fc scratch below is NQ-sized
+        // generalized-dims math and the step twins scatter actuated torques only)
+        static_assert(grid::NUM_POS == grid::NUM_VEL,
+                      "GATO_CONTACT_FORCES is fixed-base only for now (CL-3 later wave)");
         // CL-3a: NU stays the ACTUATED width (the generated grid_plant cost code is
         // NU-wide); gato::constants::CONTROL_SIZE = NU + FC is the solver-facing width.
         inline constexpr int FC         = 6 * grid::NUM_CONTACT_FRAMES; // wrench slots appended to u
@@ -455,6 +473,9 @@ namespace plant {
         // All buffers are carved from a caller scratch slab and built cooperatively.
         // ===================================================================
 
+#ifdef GRID_PLANT_HAS_TRACKING_COST
+        // ─── FIXED BASE: the generated grid_plant::tracking_cost* preset ─────
+
         // Worst-case scratch (T elements) for the value / grad+hess adapters.
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
@@ -645,6 +666,197 @@ namespace plant {
 #endif
         }
 
+#else  // !GRID_PLANT_HAS_TRACKING_COST — FLOATING BASE (CL-3 W3.4)
+        // ─── FLOATING BASE: composed tracking cost ───────────────────────────
+        //
+        // The generated tracking preset is fixed-base gated upstream (its
+        // per-term inners disagree on frame: quadratic_state_cost differences
+        // the quaternion componentwise while ee_pos_cost is tangent — GRiD
+        // ASK 3 requests the upstream floating preset; this composition is the
+        // GATO-side interim and the convention reference). Terms, all TANGENT
+        // (gradient 2·NV, Hessian 2·NV × 2·NV col-major, R/r actuated NU):
+        //   - EE position tracking: grid_plant::ee_pos_cost[_gradient] (already
+        //     tangent; on go2 the "EE" is the torso imu frame, so this doubles
+        //     as the base-position cost) + a Gauss-Newton JᵀWJ q-block composed
+        //     from the Jacobian the gradient call produces (PSD by construction,
+        //     matching the GN-SQP pairing; exact-Hessian is fixed-base only).
+        //   - velocity reg qd_cost on ALL NV tangent velocities (base damping
+        //     included — the floating analog of the historic full-qd reg).
+        //   - control reg + posture anchor + barriers on the ACTUATED slots
+        //     only (tangent q slots 6..NV, stored q slots 7..NQ; the NU-row
+        //     limit tables align with the actuated joints by construction).
+        //     d_q_nom / d_q_pos_w_vec are STORED-q indexed (base slots unread).
+        //   - fc terms: none (fc builds are fixed-base only, asserted above).
+        static_assert(NQ == NV + 1, "floating tracking composition expects the free-flyer layout");
+
+        template<typename T>
+        __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
+        {
+                // W(3) + eePos(6*NEE) + max(EE value arena incl. topology ints,
+                // the per-slot partial buffer NV + 4*NU reused from the arena)
+                constexpr unsigned arena =
+                    (unsigned)grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
+                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
+                    + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                constexpr unsigned partials = (unsigned)(NV + 4 * NU);
+                return 3 + 6 * NEE + (arena > partials ? arena : partials);
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
+        {
+                // W(3) + eePos(6*NEE) + J(6*NV*NEE) + EE gradient arena
+                constexpr unsigned arena =
+                    (unsigned)grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
+                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
+                    + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                return 3 + 6 * NEE + 6 * NV * NEE + arena;
+        }
+
+        // VALUE (same signature as the fixed adapter). s_x is the STORED state
+        // [q(NQ); qd(NV)]; s_u the actuated control.
+        template<typename T>
+        __device__ T trackingCostValue(
+            const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
+            const grid::robotModel<T>* d_robotModel,
+            T q_cost, T qd_cost, T u_cost, T N_cost,
+            T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal,
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
+            T fc_cost = static_cast<T>(0),
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
+            const T* d_fc_ref = nullptr)
+        {
+                (void)fc_cost; (void)d_fc_ref;
+                T* s_W = s_temp;
+                T* s_eePos = s_W + 3;
+                T* s_arena = s_eePos + 6 * NEE;  // EE value arena; reused as the partial buffer after
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                const T ee_w = is_terminal ? N_cost : q_cost;
+                const T u_w  = is_terminal ? static_cast<T>(0) : u_cost;
+                const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost;
+                for (int r = tid; r < 3; r += nth) { s_W[r] = ee_w; }
+                __syncthreads();
+                __shared__ T s_out[1];
+                grid_plant::ee_pos_cost<T, 0, /*ACCUMULATE=*/false>(s_out, s_x, s_eePos_traj, s_W, s_eePos, s_arena, d_robotModel);
+                __syncthreads();
+                // per-slot partials in a FIXED layout (deterministic serial sum below):
+                // [0,NV) qd reg | [NV,NV+NU) u reg+barrier | +NU anchor | +NU q barrier | +NU qd barrier
+                T* s_part = s_arena;
+                constexpr int NP = NV + 4 * NU;
+                for (int i = tid; i < NP; i += nth) {
+                        T v;
+                        if (i < NV) {
+                                const T qd = s_x[NQ + i];
+                                v = static_cast<T>(0.5) * qd_cost * qd * qd;
+                        } else if (i < NV + NU) {
+                                const int j = i - NV;
+                                const T uw = (d_u_cost_vec != nullptr && !is_terminal) ? d_u_cost_vec[j] : u_w;
+                                const T uj = s_u[j];
+                                v = static_cast<T>(0.5) * uw * uj * uj
+                                    + grid_plant::grid_plant_log_barrier<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], mu_u);
+                        } else if (i < NV + 2 * NU) {
+                                const int j = i - NV - NU;
+                                const T w = (d_q_pos_w_vec != nullptr) ? d_q_pos_w_vec[7 + j] : q_pos_cost;
+                                const T e = s_x[7 + j] - (d_q_nom != nullptr ? d_q_nom[7 + j] : static_cast<T>(0));
+                                v = static_cast<T>(0.5) * w * e * e;
+                        } else if (i < NV + 3 * NU) {
+                                const int j = i - NV - 2 * NU;
+                                v = grid_plant::grid_plant_log_barrier<T>(s_x[7 + j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
+                        } else {
+                                const int j = i - NV - 3 * NU;
+                                v = grid_plant::grid_plant_log_barrier<T>(s_x[NQ + 6 + j], VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
+                        }
+                        s_part[i] = v;
+                }
+                __syncthreads();
+                if (tid == 0) {
+                        T acc = s_out[0];
+                        for (int i = 0; i < NP; i++) { acc += s_part[i]; }
+                        s_out[0] = acc;
+                }
+                __syncthreads();
+                return s_out[0];
+        }
+
+        // GRAD+HESS (same signature as the fixed adapter). Outputs TANGENT
+        // blocks: s_Qk 2NV×2NV col-major, s_qk 2NV, s_Rk NU×NU, s_rk NU.
+        template<typename T>
+        __device__ void trackingCostGradHess(
+            const T* s_x, const T* s_u, const T* s_eePos_traj,
+            T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp,
+            const grid::robotModel<T>* d_robotModel,
+            T qd_cost, T u_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T ee_weight,
+            T q_pos_cost = static_cast<T>(0), const T* d_q_nom = nullptr,
+            T fc_cost = static_cast<T>(0),
+            const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
+            const T* d_fc_ref = nullptr)
+        {
+                (void)fc_cost; (void)d_fc_ref;
+                constexpr int TS = NV * 2;  // tangent state size
+                T* s_W = s_temp;
+                T* s_eePos = s_W + 3;
+                T* s_J = s_eePos + 6 * NEE;     // 6*NV*NEE, layout [6*vi + row]
+                T* s_arena = s_J + 6 * NV * NEE;
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                for (int i = tid; i < TS * TS; i += nth) { s_Qk[i] = static_cast<T>(0); }
+                for (int i = tid; i < TS; i += nth) { s_qk[i] = static_cast<T>(0); }
+                for (int i = tid; i < NU * NU; i += nth) { s_Rk[i] = static_cast<T>(0); }
+                for (int i = tid; i < NU; i += nth) { s_rk[i] = static_cast<T>(0); }
+                for (int r = tid; r < 3; r += nth) { s_W[r] = ee_weight; }
+                __syncthreads();
+                // tangent EE gradient adds into the zeroed dq block (ACCUMULATE:
+                // the non-accumulate variant zeroes an NX-long tail past our
+                // TS-long buffer). Ends on a barrier; s_J holds J afterwards.
+                grid_plant::ee_pos_cost_gradient<T, 0, /*ACCUMULATE=*/true>(s_qk, s_x, s_eePos_traj, s_W, s_eePos, s_J, s_arena, d_robotModel);
+                // Gauss-Newton EE q-block from the SAME Jacobian: Q[vi,vj] +=
+                // sum_r W[r]·J[6vi+r]·J[6vj+r] (position rows 0..2; PSD).
+                for (int i = tid; i < NV * NV; i += nth) {
+                        const int vi = i % NV, vj = i / NV;
+                        T acc = static_cast<T>(0);
+#pragma unroll
+                        for (int r = 0; r < 3; r++) { acc += s_W[r] * s_J[6 * vi + r] * s_J[6 * vj + r]; }
+                        s_Qk[vj * TS + vi] = acc;
+                }
+                __syncthreads();
+                // diagonal terms + gradients (anchor/barriers actuated-only)
+                for (int i = tid; i < TS; i += nth) {
+                        T g = static_cast<T>(0), h = static_cast<T>(0);
+                        if (i < NV) {
+                                if (i >= 6) {
+                                        const int j = i - 6;
+                                        const T w = (d_q_pos_w_vec != nullptr) ? d_q_pos_w_vec[7 + j] : q_pos_cost;
+                                        const T qj = s_x[7 + j];
+                                        g += w * (qj - (d_q_nom != nullptr ? d_q_nom[7 + j] : static_cast<T>(0)));
+                                        h += w;
+                                        g += grid_plant::grid_plant_log_barrier_grad<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
+                                        h += grid_plant::grid_plant_log_barrier_hess<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
+                                }
+                        } else {
+                                const T qd = s_x[NQ + (i - NV)];
+                                g += qd_cost * qd;
+                                h += qd_cost;
+                                if (i >= NV + 6) {
+                                        const int j = i - NV - 6;
+                                        g += grid_plant::grid_plant_log_barrier_grad<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
+                                        h += grid_plant::grid_plant_log_barrier_hess<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
+                                }
+                        }
+                        s_qk[i] += g;
+                        s_Qk[i * TS + i] += h;
+                }
+                for (int j = tid; j < NU; j += nth) {
+                        const T uw = (d_u_cost_vec != nullptr) ? d_u_cost_vec[j] : u_cost;
+                        const T uj = s_u[j];
+                        s_rk[j] = uw * uj
+                                  + grid_plant::grid_plant_log_barrier_grad<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
+                        s_Rk[j * NU + j] = uw
+                                  + grid_plant::grid_plant_log_barrier_hess<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
+                }
+                __syncthreads();
+        }
+#endif  // GRID_PLANT_HAS_TRACKING_COST
+
         // ===================================================================
         // RAW EE-pose evaluators (constraint row-group layer)
         //
@@ -658,36 +870,53 @@ namespace plant {
         // Upstream ask logged: first-class raw evaluators in grid_plant.
         // ===================================================================
 
+        // Counts include the topology-helper int region (0 on fixed serial
+        // chains — identical values there) and the constexpr linalg bytes pad.
         template<typename T>
         __host__ __device__ constexpr unsigned eePos_TempMemCt()
         {
-                return grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT;
+                return grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
+                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
         }
         template<typename T>
         __host__ __device__ constexpr unsigned eePosGrad_TempMemCt()
         {
-                return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
+                return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
+                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+        }
+
+        // Carve helper for the two raw evaluators: XmatsHom at 0 (emitted
+        // count — 144 on the vendored arms, per-body on branched/floating
+        // robots), temp after it, topology ints past the T region (nullptr on
+        // fixed serial chains, count 0 — pointer values identical there).
+        template<typename T, unsigned TOTAL_T_CT>
+        __device__ __forceinline__ void eeCarve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers, unsigned char** s_linalg_smem)
+        {
+                using namespace grid;
+                *s_XmatsHom = s_scratch;
+                *s_temp = s_scratch + XHOM_T_COUNT;
+                *s_topology_helpers = (TOPOLOGY_HELPERS_COUNT > 0)
+                                          ? reinterpret_cast<int*>(s_scratch + TOTAL_T_CT) : nullptr;
+                *s_linalg_smem = nullptr;
+                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                        size_t off = grid_align_up((TOTAL_T_CT * sizeof(T)) + TOPOLOGY_HELPERS_COUNT * sizeof(int),
+                                                   static_cast<size_t>(16));
+                        *s_linalg_smem = reinterpret_cast<unsigned char*>(s_scratch) + off;
+                }
         }
 
         template<typename T>
         __device__ void eePos(T* s_pose, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
                 using namespace grid;
-                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
-                size_t         off = grid_align_up(0, alignof(T));
-                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(144);   // XmatsHom incl. the fixed EE + world slots
-                off = grid_align_up(off, alignof(T));
-                T* s_temp = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(32);
-                int*           s_topology_helpers = nullptr;
-                unsigned char* s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                        off = grid_align_up(off, static_cast<size_t>(16));
-                        s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
-                }
+                T *s_XmatsHom, *s_temp;
+                int* s_topology_helpers;
+                unsigned char* s_linalg_smem;
+                eeCarve<T, (unsigned)END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_inner_EE<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                GATO_GRID_EE_POSE_INNER<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
         }
 
@@ -695,23 +924,14 @@ namespace plant {
         __device__ void eePosGrad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
                 using namespace grid;
-                unsigned char* s_arena = reinterpret_cast<unsigned char*>(s_scratch);
-                size_t         off = grid_align_up(0, alignof(T));
-                T*             s_XmatsHom = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(144);   // XmatsHom incl. the fixed EE + world slots
-                off = grid_align_up(off, alignof(T));
-                T* s_temp = grid_arena_ptr<T>(s_arena, off);
-                off += sizeof(T) * static_cast<size_t>(168);
-                int*           s_topology_helpers = nullptr;
-                unsigned char* s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                        off = grid_align_up(off, static_cast<size_t>(16));
-                        s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, off);
-                }
+                T *s_XmatsHom, *s_temp;
+                int* s_topology_helpers;
+                unsigned char* s_linalg_smem;
+                eeCarve<T, (unsigned)END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_inner_EE<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                GATO_GRID_EE_POSE_INNER<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
-                end_effector_pose_gradient_inner_EE<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                GATO_GRID_EE_POSE_GRAD_INNER<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
         }
 

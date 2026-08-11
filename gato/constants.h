@@ -29,6 +29,10 @@ namespace constants {
     // 6 base dofs (grid's plant surfaces take a full NV-sized generalized
     // force; GATO scatters the actuated slots and zeros the base rows).
     constexpr uint32_t ACTUATED_SIZE = FLOATING_BASE ? (NV - 6) : grid::NUM_JOINTS;
+    // Integrator selection (kernel template default): fixed base keeps the
+    // historic trapezoidal (2); floating base uses semi-implicit Euler (1) —
+    // the grid floating gradient path supports EULER/SI-EULER only.
+    constexpr uint32_t INTEGRATOR_TYPE_DEFAULT = FLOATING_BASE ? 1u : 2u;
 #if GATO_CONTACT_FORCES
     #ifndef GRID_HAS_CONTACT_FRAMES
         #error "GATO_CONTACT_FORCES=1 needs a grid.cuh generated with contact_frames (2b.1+)"
@@ -52,6 +56,9 @@ namespace constants {
     // the KKT step dz packs tangent [dq(NV); dqd(NV); du(NU)]. Fixed base:
     // XU_KNOT_STRIDE == DZ_KNOT_STRIDE and XU_TRAJ_SIZE == TRAJ_SIZE.
     constexpr uint32_t XU_KNOT_STRIDE = XU_STATE_SIZE + CONTROL_SIZE;
+    // shared-memory xux slice [x_k; u_k; x_{k+1}] in STORED format (the
+    // setup_kkt/merit carve; == 2*STATE_SIZE + CONTROL_SIZE on fixed base)
+    constexpr uint32_t XUX_SIZE = 2 * XU_STATE_SIZE + CONTROL_SIZE;
     constexpr uint32_t DZ_KNOT_STRIDE = STATE_SIZE + CONTROL_SIZE;
     constexpr uint32_t TRAJ_SIZE = (STATE_SIZE + CONTROL_SIZE) * KNOT_POINTS - CONTROL_SIZE; // dz (tangent)
     constexpr uint32_t XU_TRAJ_SIZE = XU_KNOT_STRIDE * KNOT_POINTS - CONTROL_SIZE; // xu (stored)

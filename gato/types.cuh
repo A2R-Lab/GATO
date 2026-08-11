@@ -13,7 +13,7 @@ using namespace gato::constants;
 template<typename T>
 struct ProblemInputs {
         T     timestep;
-        T*    d_x_s_batch;             // STATE_SIZE * batch_size
+        T*    d_x_s_batch;             // XU_STATE_SIZE * batch_size (STORED format; == STATE_SIZE fixed base)
         T*    d_reference_traj_batch;  // grid::EE_POS_SIZE * KNOT_POINTS * batch_size
         void* d_GRiD_mem;
 };

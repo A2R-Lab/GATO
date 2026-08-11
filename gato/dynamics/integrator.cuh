@@ -11,11 +11,13 @@ namespace gato::plant {
 
 // This layer is the FIXED-BASE vector-space integrator/linearization path
 // (q_next = q + dt*qd is meaningless on a quaternion). CL-3 floating base
-// consumes the grid_plant:: surfaces (plant_step / plant_step_gradient —
-// SE(3) retract, tangent A|B) instead; until that path lands (W3.3) floating
-// modules must not build against this file.
-static_assert(!gato::constants::FLOATING_BASE,
-              "hand-rolled integrator is fixed-base only; floating base uses grid_plant (CL-3 W3.3)");
+// consumes the grid_plant:: surfaces instead (dynamics/grid_plant_step.cuh —
+// SE(3) retract step, tangent A|B). Floating TUs still PARSE this header
+// (the kernels' fixed branches are #if'd on GATO_FLOATING_STEP), so the
+// guard is per-entry-point and instantiation-dependent, not file-scope.
+#define GATO_FIXED_BASE_ONLY(T)                                              \
+        static_assert(sizeof(T) == 0 || !gato::constants::FLOATING_BASE,     \
+                      "hand-rolled integrator is fixed-base only; floating uses grid_plant_step.cuh")
 
 // angle wrap: glass::angle_wrap (true wrap to (-pi, pi]; replaces the old
 // local truncated-pi reflection — only live under ANGLE_WRAP=true, which no
@@ -194,7 +196,7 @@ __device__ void integrator_gradient_inner(T* s_Ak, T* s_Bk, T* s_dqdd, T dt)
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __device__ void sim_step(T* s_xkp1, T* s_xk, T* s_uk, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
-
+        GATO_FIXED_BASE_ONLY(T);
         T* s_q = s_xk;
         T* s_qd = s_q + STATE_SIZE / 2;
         T* s_u = s_uk;
@@ -215,6 +217,7 @@ __device__ void sim_step(T* s_xkp1, T* s_xk, T* s_uk, T* s_temp, void* d_dynMem_
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __device__ T compute_integrator_error(T* s_xuk, T* s_xkp1, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
+        GATO_FIXED_BASE_ONLY(T);
         T* s_q = s_xuk;
         T* s_qd = s_q + STATE_SIZE / 2;
         T* s_u = s_qd + STATE_SIZE / 2;
@@ -239,6 +242,7 @@ __device__ T compute_integrator_error(T* s_xuk, T* s_xkp1, T* s_temp, void* d_dy
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
 __device__ __forceinline__ void compute_linearized_dynamics(T* s_xux, T* s_Ak, T* s_Bk, T* s_out, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
+        GATO_FIXED_BASE_ONLY(T);
         T* s_q = s_xux;
         T* s_qd = s_q + STATE_SIZE / 2;
         T* s_u = s_qd + STATE_SIZE / 2;
