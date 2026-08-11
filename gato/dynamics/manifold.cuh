@@ -20,6 +20,17 @@
 // serial on rank 0 (glass::thread tier), everything else strided. No trailing
 // sync — callers own the barrier (matching the kernel style around them).
 
+// grid_difference_floating_q (GRiD ASK 4, @61a83fb) is EMITTED ONLY in
+// floating-base headers, so fixed-base TUs have no such symbol — and a
+// qualified name inside `if constexpr` is still looked up at definition time.
+// Forward-declare the exact emitted signature: the discarded fixed-base branch
+// never instantiates it (no definition needed), and on floating TUs grid.cuh's
+// definition matches — any upstream signature drift fails loud at go2 compile.
+namespace grid {
+template <typename T, int NUM_POS>
+__device__ inline void grid_difference_floating_q(const T* q_from, const T* q_to, T* dv);
+}
+
 namespace gato::plant {
 
 using gato::constants::FLOATING_BASE;
@@ -52,9 +63,11 @@ __device__ __forceinline__ void state_retract(T* s_x_out, const T* s_x, const T*
 }
 
 // s_out(2*NV) = x_to ⊟ x_from: the tangent with x_from ⊞ s_out == x_to
-// (pinocchio difference(model, q_from, q_to) on the free-flyer block; GLASS
-// se3_difference @78329b6 — NOT glass::pose_error, which is deliberately the
-// DECOUPLED R³×SO(3) error). Math locked vs pin.difference in test_manifold.py.
+// (pinocchio difference(model, q_from, q_to) on the free-flyer block). The q
+// block goes through grid::grid_difference_floating_q — GRiD's emitted boxminus
+// twin of the retract (ASK 4, GRiD @61a83fb; same glass se3_difference math,
+// upstream-gated vs pin.difference at 1e-10 — NOT glass::pose_error, which is
+// deliberately the DECOUPLED R³×SO(3) error). Also locked in test_manifold.py.
 template<typename T>
 __device__ __forceinline__ void state_difference(T* s_out, const T* s_x_from, const T* s_x_to)
 {
@@ -64,9 +77,7 @@ __device__ __forceinline__ void state_difference(T* s_out, const T* s_x_from, co
         const int nth  = (int)blockDim.x;
         if constexpr (FLOATING_BASE) {
                 if (rank == 0)
-                        glass::thread::se3_difference<T>(s_x_from, s_x_to, s_out, s_out + 3);
-                for (int i = rank; i < NQi - 7; i += nth)
-                        s_out[6 + i] = s_x_to[7 + i] - s_x_from[7 + i];
+                        grid::grid_difference_floating_q<T, NQi>(s_x_from, s_x_to, s_out);
                 for (int i = rank; i < NVi; i += nth)
                         s_out[NVi + i] = s_x_to[NQi + i] - s_x_from[NQi + i];
         } else {
