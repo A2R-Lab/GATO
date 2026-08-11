@@ -163,6 +163,84 @@ def test_device_dynamics_match_go2_fingerprint():
     assert res["ok"], fingerprint.report(res)
 
 
+def _mpc_standing_run(model, steps=150):
+    """MPC (go2 N16) in the loop on MuJoCo with ground contact — the CLOSED-LOOP
+    PLUMBING smoke (controller + solver + world + conversions), fixed pacing
+    (one solve per 10 ms of sim), torques saturated at the URDF effort limit.
+
+    Scope note (2026-08-11): the solver has NO contact model, and a contactless
+    free-flyer is WEIGHTLESS in its own frame (joint-space gravity terms vanish
+    in free fall), so at the posture anchor the optimal torque is ~0 and the
+    robot can only resist gravity through feedback stiffness — it settles in a
+    deep crouch, not at the standing height. Holding a base-height band is
+    physically out of reach for this model; the standing-at-height gate lands
+    with the fc-on-feet wave (contact forces in the model). Known related
+    behavior: a warm start with a knot0 discontinuity (measured state vs a
+    stale tail) is a merit local minimum at mu=1 — the line search rejects
+    every step (raising mu helps but does not cure; see the SSOT)."""
+    import gato
+    from gato.controller import MPCController
+    N, DT = 16, 0.01
+    s = gato.BSQP(model_path=URDF, batch_size=1, N=N, dt=DT, plant_type="go2",
+                  q_cost=5.0, qd_cost=1e-1, u_cost=1e-4, N_cost=25.0,
+                  q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
+    x = _standing_x().astype(np.float32)
+    s.set_q_nom(x[:NQ])
+    s.set_q_pos_cost(50.0)
+    # imu EE goal pinned at the STANDING pose's FK height (the BUG 7 unblock:
+    # this cost only acts through a world-frame EE + nonzero base Jacobian)
+    data = model.createData()
+    pin.framesForwardKinematics(model, data, np.asarray(x[:NQ], dtype=np.float64))
+    p = data.oMf[model.getFrameId("imu_joint")].translation
+    goals = np.zeros(N * 6, dtype=np.float32)
+    goals[0::6], goals[1::6], goals[2::6] = p[0], p[1], p[2]
+
+    w = _mujoco_world(plane={"z": 0.0, "pos_xy": (0.0, 0.0), "size_xy": (1.0, 1.0)})
+    ctrl = MPCController(s)
+    ctrl.reset(x)
+    q, dq = np.asarray(x[:NQ], np.float64).copy(), np.asarray(x[NQ:], np.float64).copy()
+    q[2] = 0.36  # slight drop onto the feet, as the PD gate
+    umax = 0.0
+    for _ in range(steps):
+        r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
+        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)  # go2 effort limit
+        umax = max(umax, float(np.abs(u).max()))
+        for _ in range(10):
+            q, dq = w.step(q, dq, u, 1e-3)
+    return w, q, dq, umax
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_mpc_closed_loop_settles_upright(model):
+    if importlib.util.find_spec("gato.bsqpN16_go2") is None:
+        pytest.skip("bsqpN16_go2 module not built")
+    w, q, dq, umax = _mpc_standing_run(model)  # 1.5 s of sim
+    mg = sum(i.mass for i in model.inertias) * 9.81
+    c = w.last_contact
+    assert np.isfinite(q).all() and np.isfinite(dq).all()
+    assert c["ncon"] >= 4, c                 # resting on its legs, not tipped
+    assert 0.5 * mg < c["fn"] < 1.5 * mg, (c, mg)
+    assert 0.05 < q[2] < 0.45, q[2]          # settled (crouched: contactless model)
+    assert np.linalg.norm(dq) < 1.0, dq      # at rest, not thrashing
+    # upright: base rotation stays near identity (quat w component, xyzw)
+    assert abs(q[6]) > 0.95, q[3:7]
+    assert abs(np.linalg.norm(q[3:7]) - 1.0) < 1e-6
+    # the anchor feedback path is LIVE (deflection produced restoring torque)
+    assert umax > 1.0, umax
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_mpc_closed_loop_deterministic(model):
+    if importlib.util.find_spec("gato.bsqpN16_go2") is None:
+        pytest.skip("bsqpN16_go2 module not built")
+    _, q1, dq1, _ = _mpc_standing_run(model, steps=60)
+    _, q2, dq2, _ = _mpc_standing_run(model, steps=60)
+    np.testing.assert_array_equal(q1, q2)
+    np.testing.assert_array_equal(dq1, dq2)
+
+
 @pytest.mark.gpu
 def test_controller_floating_state_checks_and_pred_err(model):
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:

@@ -214,12 +214,10 @@ def test_mechanisms_reduce_violation(model):
     assert al < ref
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "GRiD BUG 7 (asks_from_gato_2026-08-09.md): the generated EE pose inner's "
-    "ping-pong parity drops the base transform on chains that reach the root "
-    "early — go2 imu returns the BASE-RELATIVE offset (and J == 0). strict: "
-    "this flips to a hard error when the regen lands, re-activating the gate."))
 def test_ee_terminal_telemetry_matches_pin_fk(model):
+    # Re-activated 2026-08-11: GRiD BUG 7 (EE pose inner ping-pong parity
+    # dropped the base transform on early-root chains) fixed upstream
+    # @2adda1e, vendored at the a580308 pin.
     B = 2
     x = _standing_x()
     X = np.tile(x, (B, 1)).astype(np.float32)
