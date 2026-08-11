@@ -136,39 +136,73 @@ struct RowGroupDesc {
         T       dvec[MAX_ROWS_PER_GROUP];                            // constant offset
 };
 
+// ---- stored/tangent slot maps (CL-3 floating base) -----------------------
+//
+// Selection rows are ACTUATED-ONLY (n_rows = ACTUATED_SIZE): the floating
+// base pose/velocity/twist slots have no limit-table rows and are never
+// boxed. Each row has TWO indices — where it READS in the STORED xu
+// (quaternion layout, [q(NQ); qd(NV); u]) and where it FOLDS in the TANGENT
+// blocks (dz / q-gradient / Q-diagonal, [dq(NV); dqd(NV); du]). The base
+// offsets are (NQ - ACTUATED_SIZE) stored / (NV - ACTUATED_SIZE) tangent —
+// 7 and 6 on a free-flyer, BOTH ZERO on fixed base, so every map below
+// collapses to the historic value and fixed-base modules are unchanged.
+
+__host__ __device__ __forceinline__ constexpr int32_t stored_q_index(int32_t i)
+{
+        return (int32_t)(constants::NQ - constants::ACTUATED_SIZE) + i;
+}
+__host__ __device__ __forceinline__ constexpr int32_t stored_qd_index(int32_t i)
+{
+        return (int32_t)(constants::NQ + constants::NV - constants::ACTUATED_SIZE) + i;
+}
+__host__ __device__ __forceinline__ constexpr int32_t tangent_q_index(int32_t i)
+{
+        return (int32_t)(constants::NV - constants::ACTUATED_SIZE) + i;
+}
+__host__ __device__ __forceinline__ constexpr int32_t tangent_qd_index(int32_t i)
+{
+        return (int32_t)(2 * constants::NV - constants::ACTUATED_SIZE) + i;
+}
+
 // ---- evaluators --------------------------------------------------------
 
-// g for row i of a group at one knot, from that knot's (x, u) slice of the
-// trajectory. Boxes are selection rows; LIN_U is the dense-map row (CL-2);
+// g for row i of a group at one knot, from that knot's STORED (x, u) slice of
+// the trajectory. Boxes are selection rows; LIN_U is the dense-map row (CL-2);
 // EE/collision kinds stay at their cooperative sites.
 template<typename T>
 __device__ __forceinline__ T eval_row(const RowGroupDesc<T>& grp, const T* xu_k, uint32_t i)
 {
         switch (grp.kind) {
-                case BOX_Q: return xu_k[i];
-                case BOX_QD: return xu_k[constants::STATE_SIZE / 2 + i];
-                case BOX_U: return xu_k[constants::STATE_SIZE + i];
+                case BOX_Q: return xu_k[stored_q_index((int32_t)i)];
+                case BOX_QD: return xu_k[stored_qd_index((int32_t)i)];
+                case BOX_U: return xu_k[constants::XU_STATE_SIZE + i];
                 case LIN_U: {
                         T acc = grp.dvec[i];
-                        for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * xu_k[constants::STATE_SIZE + j]; }
+                        for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * xu_k[constants::XU_STATE_SIZE + j]; }
                         return acc;
                 }
         }
         return static_cast<T>(0);
 }
 
-// DIRECTIONAL row value (no constant offset): g(x + dz) = eval_row(x) +
-// eval_row_dir(dz). Identical to eval_row for selection rows; LIN_U must
-// drop dvec or the offset double-counts on stepped evals.
+// DIRECTIONAL row value (no constant offset): g(x ⊞ dz) = eval_row(x) +
+// eval_row_dir(dz). dz is TANGENT-laid-out, so selection rows read the
+// tangent slots (actuated retraction is additive — exact); LIN_U must drop
+// dvec or the offset double-counts on stepped evals.
 template<typename T>
 __device__ __forceinline__ T eval_row_dir(const RowGroupDesc<T>& grp, const T* dz_k, uint32_t i)
 {
-        if (grp.kind == LIN_U) {
-                T acc = static_cast<T>(0);
-                for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * dz_k[constants::STATE_SIZE + j]; }
-                return acc;
+        switch (grp.kind) {
+                case BOX_Q: return dz_k[tangent_q_index((int32_t)i)];
+                case BOX_QD: return dz_k[tangent_qd_index((int32_t)i)];
+                case BOX_U: return dz_k[constants::STATE_SIZE + i];
+                case LIN_U: {
+                        T acc = static_cast<T>(0);
+                        for (int32_t j = 0; j < (int32_t)constants::CONTROL_SIZE; j++) { acc += grp.Cmat[i * constants::CONTROL_SIZE + j] * dz_k[constants::STATE_SIZE + j]; }
+                        return acc;
+                }
         }
-        return eval_row<T>(grp, dz_k, i);
+        return static_cast<T>(0);
 }
 
 // ---- constraint scalars: promoted to GLASS (2026-07-28 robotics ops) -------
@@ -479,10 +513,11 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
 // cross-thread writes to the same slot; the caller owns the following barrier.
 // `has_control` gates U-groups off the terminal knot.
 
+// TANGENT index of a BLOCK_X selection row (the q/Q/dz fold target)
 template<typename T>
 __device__ __forceinline__ int32_t x_index_of_row(const RowGroupDesc<T>& grp, int32_t i)
 {
-        return (grp.kind == BOX_QD) ? constants::STATE_SIZE / 2 + i : i;
+        return (grp.kind == BOX_QD) ? tangent_qd_index(i) : tangent_q_index(i);
 }
 
 // ---- LIN_U dense-fold helpers (one per mechanism x cone case) -------------
@@ -1042,16 +1077,17 @@ __host__ void alDualUpdateBatched(uint32_t batch_size, T* d_lam_hi_batch, T* d_l
 // The vendored {JOINT,VEL,CTRL}_LIMITS tables are __device__ constexpr, so the
 // canonical limit groups are built ON DEVICE (single block; rank 0 writes the
 // scalar fields, all ranks stride the bound arrays). BOX_U's knot mask stops
-// at KNOT_POINTS-1 (the terminal knot has no control).
+// at KNOT_POINTS-1 (the terminal knot has no control). ALL three boxes are
+// ACTUATED-ONLY (n_rows = ACTUATED_SIZE, matching the NU-row tables): the
+// floating base dofs have no URDF <limit> tags; on contact-force builds
+// (CONTROL_SIZE > ACTUATED_SIZE) the fc slots likewise have no table row.
+// Fixed base: ACTUATED_SIZE == NQ, identical to the historic install.
 
 template<typename T>
 __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech, T mu, T delta)
 {
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
-        constexpr int32_t NQ = constants::STATE_SIZE / 2;
-        // CTRL_LIMITS has ACTUATED_SIZE rows — on contact-force builds
-        // (CONTROL_SIZE > ACTUATED_SIZE) the fc slots have no limit table row.
         constexpr int32_t NA = constants::ACTUATED_SIZE;
 
         if (rank == 0) {
@@ -1064,13 +1100,13 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
                 // cascade). Same class as the ADMM equality-row reinit.
                 d_groups[0].kind = BOX_Q;
                 d_groups[0].block = BLOCK_X;
-                d_groups[0].n_rows = NQ;
+                d_groups[0].n_rows = NA;
                 d_groups[0].knot_lo = 1;
                 d_groups[0].knot_hi = KNOT_POINTS;
 
                 d_groups[1].kind = BOX_QD;
                 d_groups[1].block = BLOCK_X;
-                d_groups[1].n_rows = NQ;
+                d_groups[1].n_rows = NA;
                 d_groups[1].knot_lo = 1;
                 d_groups[1].knot_hi = KNOT_POINTS;
 
@@ -1088,13 +1124,11 @@ __global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech
                         d_groups[g].cone = 0;
                 }
         }
-        for (int32_t i = rank; i < NQ; i += size) {
+        for (int32_t i = rank; i < NA; i += size) {
                 d_groups[0].lo[i] = gato::plant::JOINT_LIMITS<T>()[i][0];
                 d_groups[0].hi[i] = gato::plant::JOINT_LIMITS<T>()[i][1];
                 d_groups[1].lo[i] = gato::plant::VEL_LIMITS<T>()[i][0];
                 d_groups[1].hi[i] = gato::plant::VEL_LIMITS<T>()[i][1];
-        }
-        for (int32_t i = rank; i < NA; i += size) {
                 d_groups[2].lo[i] = gato::plant::CTRL_LIMITS<T>()[i][0];
                 d_groups[2].hi[i] = gato::plant::CTRL_LIMITS<T>()[i][1];
         }
