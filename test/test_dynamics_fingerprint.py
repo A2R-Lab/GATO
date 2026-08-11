@@ -32,10 +32,16 @@ def test_fingerprint_table_wellformed_and_urdfs_pinned():
             assert not np.any(np.asarray(p["u"])[:nv - nu])
             assert not np.any(np.asarray(p["qd"])[:nv - nu])
         urdf = os.path.join(REPO, t["urdf"])
-        sha = hashlib.sha256(open(urdf, "rb").read()).hexdigest()
-        assert sha == t["urdf_sha256"], (
-            f"{plant} URDF changed vs the committed fingerprint — regenerate "
-            f"tools/gen_dynamics_fingerprint.py and notify consumers")
+        if not os.path.exists(urdf):
+            # submodule-vendored URDF (go2 lives in external/GRiD) on a
+            # submodule-less checkout (the CI cpu-lane): the sha pin is still
+            # enforced by the local gpu-proof receipt run + check_solver
+            assert t["urdf"].startswith("external/"), t["urdf"]
+        else:
+            sha = hashlib.sha256(open(urdf, "rb").read()).hexdigest()
+            assert sha == t["urdf_sha256"], (
+                f"{plant} URDF changed vs the committed fingerprint — regenerate "
+                f"tools/gen_dynamics_fingerprint.py and notify consumers")
         for p in t["probes"]:
             assert np.isfinite(np.asarray(p["qdd"])).all()
 
