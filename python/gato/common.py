@@ -78,8 +78,15 @@ def rk4(model, data, q, dq, u, dt, fext=None):
     Returns:
         q_next: Joint positions at next timestep
         dq_next: Joint velocities at next timestep
+
+    Floating base: ``u`` may be the ACTUATED torques only (len < model.nv);
+    it is scattered into the full generalized-force vector with zeros on the
+    leading base dofs (the mirror of the device ``loadStateAndFullControl``).
     """
     pin = _require_pin()
+    u = np.asarray(u, dtype=np.float64)
+    if u.shape[0] < model.nv:  # actuated-only torques: zero base wrench
+        u = np.concatenate([np.zeros(model.nv - u.shape[0]), u])
     if fext is None:
         fext = pin.StdVec_Force()
         for _ in range(model.njoints):
@@ -133,3 +140,84 @@ def initialize_warm_start(x_start, N, nx, nu):
         start_idx = i * (nx + nu)
         XU[start_idx:start_idx+nx] = x_start
     return XU
+
+
+# ---- floating-base manifold helpers (pure numpy; no pinocchio/scipy) --------
+#
+# Numpy mirrors of the device manifold ops (gato/dynamics/manifold.cuh over
+# glass::se3_difference), locked against pinocchio in test/test_manifold.py.
+# Stored state = [p(3); quat xyzw(4); q_act; qd(nv)]; tangent = [v_lin; omega;
+# joints] in the pin integrate/difference convention.
+
+def _quat_to_rot(q):
+    """3x3 rotation from a UNIT quaternion [x, y, z, w]."""
+    x, y, z, w = q
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def _so3_left_jacobian(phi):
+    """SO(3) left Jacobian (the SE(3) V matrix)."""
+    th = np.linalg.norm(phi)
+    S = np.array([[0, -phi[2], phi[1]],
+                  [phi[2], 0, -phi[0]],
+                  [-phi[1], phi[0], 0.0]])
+    if th < 1e-9:
+        return np.eye(3) + 0.5 * S + S @ S / 6.0
+    return (np.eye(3) + (1 - np.cos(th)) / th**2 * S
+            + (th - np.sin(th)) / th**3 * S @ S)
+
+
+def state_difference(x_from, x_to, nq, nv):
+    """Tangent x_to ⊟ x_from (2*nv,) for the stored state layout.
+
+    Fixed base (nq == nv): plain subtraction. Floating base: SE(3) log on the
+    base pose block ([v_lin; omega], pin convention), subtraction on the
+    actuated joints and all velocities. Mirrors pin.difference (locked in
+    test/test_manifold.py) without requiring pinocchio at runtime.
+    """
+    x_from = np.asarray(x_from, dtype=np.float64)
+    x_to = np.asarray(x_to, dtype=np.float64)
+    if nq == nv:
+        return x_to - x_from
+    qf, qt = x_from[3:7], x_to[3:7]
+    qf = qf / np.linalg.norm(qf)
+    qt = qt / np.linalg.norm(qt)
+    # relative quaternion r = qf^-1 * qt (xyzw), then the SO(3) log
+    xf, yf, zf, wf = -qf[0], -qf[1], -qf[2], qf[3]  # conjugate
+    xt, yt, zt, wt = qt
+    r = np.array([
+        wf * xt + xf * wt + yf * zt - zf * yt,
+        wf * yt - xf * zt + yf * wt + zf * xt,
+        wf * zt + xf * yt - yf * xt + zf * wt,
+        wf * wt - xf * xt - yf * yt - zf * zt,
+    ])
+    if r[3] < 0:
+        r = -r
+    sin_half = np.linalg.norm(r[:3])
+    if sin_half < 1e-12:
+        phi = 2.0 * r[:3]
+    else:
+        phi = (2.0 * np.arctan2(sin_half, r[3]) / sin_half) * r[:3]
+    Rf = _quat_to_rot(qf)
+    p_local = Rf.T @ (x_to[:3] - x_from[:3])
+    rho = np.linalg.solve(_so3_left_jacobian(phi), p_local)
+    return np.concatenate([rho, phi,
+                           x_to[7:nq] - x_from[7:nq],
+                           x_to[nq:] - x_from[nq:]])
+
+
+def check_floating_state(x, nq, nv, what="x"):
+    """Fail loud on a degenerate base quaternion (a zero quat tiled into a
+    warm start is a silent NaN factory — the device manifold ops are
+    undefined off the unit sphere). No-op on fixed base."""
+    if nq == nv:
+        return
+    n = float(np.linalg.norm(np.asarray(x, dtype=np.float64)[3:7]))
+    if abs(n - 1.0) > 1e-3:
+        raise ValueError(
+            f"{what}: base quaternion norm {n:.6f} != 1 (stored layout is "
+            f"[p(3); quat xyzw(4); q_act; qd]) — not a valid floating state")

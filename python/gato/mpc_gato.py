@@ -304,12 +304,18 @@ class MPC_GATO:
         return q, dq, total_sim_time, accumulated_time
 
     def _augment_control(self, u, dq):
-        """Robot torques + passive pendulum damping when the payload is attached."""
+        """Robot torques + passive pendulum damping when the payload is attached.
+
+        The actuated torques land at the tail of the ROBOT's dof block
+        (offset nv_robot - nu_act: zero on fixed base, past the 6 base dofs
+        on floating — common.rk4 applies the same scatter for the plain
+        actuated-only case)."""
         if not self.has_pendulum:
             return u
         damping = self.pendulum_config.get('damping', 0.4)
         u_aug = np.zeros(self.nv)
-        u_aug[:self.nu_act] = u
+        off = self.nv_robot - self.nu_act
+        u_aug[off:off + self.nu_act] = u
         u_aug[self.nv_robot:] = -damping * dq[self.nv_robot:]
         return u_aug
 
