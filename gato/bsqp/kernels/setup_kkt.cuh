@@ -16,12 +16,12 @@ using namespace gato::constants;
 // other kernel header sharing this TU (caused a gato::plant::EE_POS_SIZE vs constants:: clash
 // in merit.cuh). Qualify plant calls explicitly instead.
 
-// shared-memory element count of the flag-independent kernel layout (the
-// terminal-branch chain is the superset of the running-knot one): everything
-// through r_dummy plus the larger of the two s_temp consumers. The exact-
-// Hessian carve (below) starts at exactly this offset.
+// element count of the base layout's s_temp tail (the larger of the two
+// consumers: the dynamics-linearization arena and the cost grad/hess carve).
+// The COLLISION fold carve overlays this region when it fits — every s_temp
+// consumer is DEAD by the time the row-group folds run (both branches).
 template<typename T>
-__host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
+__host__ __device__ constexpr uint32_t setupKKTTempMemCt()
 {
 #if GATO_FLOATING_STEP
         // floating: the linearization scratch is the grid step-gradient arena
@@ -29,9 +29,19 @@ __host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
 #else
         constexpr uint32_t dyn_ct = gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared();
 #endif
-        constexpr uint32_t temp_ct = gato::plant::trackingCostGradHess_TempMemCt<T>() > dyn_ct
-                                         ? gato::plant::trackingCostGradHess_TempMemCt<T>()
-                                         : dyn_ct;
+        return gato::plant::trackingCostGradHess_TempMemCt<T>() > dyn_ct
+                   ? gato::plant::trackingCostGradHess_TempMemCt<T>()
+                   : dyn_ct;
+}
+
+// shared-memory element count of the flag-independent kernel layout (the
+// terminal-branch chain is the superset of the running-knot one): everything
+// through r_dummy plus the s_temp tail above. The exact-Hessian carve (below)
+// starts at exactly this offset.
+template<typename T>
+__host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
+{
+        constexpr uint32_t temp_ct = setupKKTTempMemCt<T>();
         return constants::XUX_SIZE +           // xux_k (stored format)
                2 * constants::EE_POS_SIZE +    // reference_traj_k
                STATE_SIZE_SQ +                 // Q_k
@@ -201,12 +211,25 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 #if USE_EXACT_HESSIAN
         // past BOTH branch layouts (running s_temp AND the terminal Q_last..r_dummy+s_temp chain)
         T* s_eh = s_mem + setupKKTBaseSMemCt<T>();
-        // collision carve sits past the exact carve when that is live; only
-        // dereferenced when a COLLISION group is active (host sized it then)
-        T* s_cc = s_eh + (exact_hessian ? setupKKTExactHessSMemCt<T>() : 0);
-#else
-        T* s_cc = s_mem + setupKKTBaseSMemCt<T>();
 #endif
+        // COLLISION fold carve: every s_temp consumer is DEAD by fold time, so
+        // the carve OVERLAYS the temp tail when it fits (floating: the step-
+        // gradient arena dwarfs it — a dedicated tail carve pushed the launch
+        // past the device smem ceiling and it FAILED SILENTLY, 2026-08-11).
+        // Only when it exceeds the tail (small fixed-base arenas) does it sit
+        // past the base (+ the exact carve when that is live); only
+        // dereferenced when a COLLISION group is active (host sized it then).
+        constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
+        T* s_cc;
+        if constexpr (cc_ct <= setupKKTTempMemCt<T>()) {
+                s_cc = s_mem + (setupKKTBaseSMemCt<T>() - setupKKTTempMemCt<T>());
+        } else {
+#if USE_EXACT_HESSIAN
+                s_cc = s_mem + setupKKTBaseSMemCt<T>() + (exact_hessian ? setupKKTExactHessSMemCt<T>() : 0);
+#else
+                s_cc = s_mem + setupKKTBaseSMemCt<T>();
+#endif
+        }
 
 
         for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
@@ -356,8 +379,13 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_
         (void)exact_hessian;
 #endif
         // runtime-sized like the exact carve: only when a COLLISION group is
-        // registered (host-known); the default path keeps the small launch
-        if (has_collision) { size += sizeof(T) * gato::rows::collision_rows_grad_scratch_ct<T>(); }
+        // registered (host-known) AND its carve exceeds the dead s_temp tail it
+        // overlays (see the kernel's s_cc placement) does the launch grow
+        if (has_collision) {
+                constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
+                constexpr uint32_t tail_ct = setupKKTTempMemCt<T>();
+                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : 0u);
+        }
         return size;
 }
 
@@ -372,11 +400,14 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
         dim3   block(KKT_THREADS);
         size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian, has_collision);  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
         // the exact / collision carves can exceed the 48KB default dynamic-smem
-        // ceiling — opt the kernel in once (harmless when already under)
+        // ceiling — opt the kernel in once (harmless when already under).
+        // FAIL LOUD on both the attribute set and the launch: an over-ceiling
+        // request here used to fail SILENTLY, leaving every KKT buffer
+        // unwritten while the solve "ran" (2026-08-11 collision-carve bug).
         if (s_mem_size > 48 * 1024) {
                 static bool attr_set = false;
                 if (!attr_set) {
-                        cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size);
+                        gpuErrchk(cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
                         attr_set = true;
                 }
         }
@@ -421,4 +452,5 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
                                                                                d_lambda_batch
 #endif
         );
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

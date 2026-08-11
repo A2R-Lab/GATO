@@ -16,11 +16,12 @@ using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
 
+// element count of the merit kernel's s_temp tail (the larger consumer of the
+// cost-value and integrator-error scratch). The COLLISION value carve overlays
+// this region when it fits — s_temp is dead between those two consumers.
 template<typename T>
-__host__ __device__ constexpr size_t computeMeritBaseSMemCt()
+__host__ __device__ constexpr size_t computeMeritTempMemCt()
 {
-        // xux_k + reference_traj_k + s_temp (used by BOTH the kernel's carve and
-        // the host sizer — the collision tail carve offsets from this)
         constexpr size_t a = gato::plant::trackingCostValue_TempMemCt<T>();
 #if GATO_FLOATING_STEP
         // floating: the integrator-error scratch is the grid value-step arena
@@ -30,7 +31,15 @@ __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
 #else
         constexpr size_t b = gato::plant::forwardDynamics_TempMemSize_Shared();
 #endif
-        return constants::XUX_SIZE + constants::EE_POS_SIZE + (a > b ? a : b);
+        return a > b ? a : b;
+}
+
+template<typename T>
+__host__ __device__ constexpr size_t computeMeritBaseSMemCt()
+{
+        // xux_k + reference_traj_k + s_temp (used by BOTH the kernel's carve and
+        // the host sizer — the collision tail carve offsets from this)
+        return constants::XUX_SIZE + constants::EE_POS_SIZE + computeMeritTempMemCt<T>();
 }
 
 // __launch_bounds__ min-2-blocks: this kernel sat at 95 regs after the P4.3/P4.4
@@ -152,13 +161,18 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                         cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);
                 }
                 // COLLISION rows: true nonlinear clearance value at the CANDIDATE
-                // state (same mirroring requirement). The collision value carve
-                // exceeds s_temp — it lives in the dedicated tail carve (host
-                // sized it iff a collision group is registered).
+                // state (same mirroring requirement). s_temp is dead here (like
+                // the EE carve above), so the collision carve OVERLAYS it when it
+                // fits — the constraint-error section below re-uses s_temp, hence
+                // the trailing barrier; only the excess over the temp tail (small
+                // fixed-base arenas) extends the host-sized launch.
                 if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
-                        T* s_cc = s_mem + computeMeritBaseSMemCt<T>();
+                        constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
+                        constexpr size_t tail_ct = computeMeritTempMemCt<T>();
+                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + computeMeritBaseSMemCt<T>();
                         __syncthreads();
                         cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm, admm_rho_scale);
+                        __syncthreads();
                 }
         }
 
@@ -237,7 +251,12 @@ __host__ size_t getComputeMeritBatchedSMemSize(int has_collision = 0)
 {
         size_t size = sizeof(T) * computeMeritBaseSMemCt<T>();
         // runtime-sized: only when a COLLISION group is registered (host-known)
-        if (has_collision) { size += sizeof(T) * gato::rows::collision_rows_scratch_ct<T>(); }
+        // AND its carve exceeds the dead s_temp tail it overlays in the kernel
+        if (has_collision) {
+                constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
+                constexpr size_t tail_ct = computeMeritTempMemCt<T>();
+                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : (size_t)0);
+        }
         return size;
 }
 
@@ -279,6 +298,16 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
         size_t s_mem_size = getComputeMeritBatchedSMemSize<T>(has_collision);
+        // mirror setup_kkt: opt in past the 48KB default once, FAIL LOUD on both
+        // the attribute set and the launch (silent launch failures leave the
+        // merit buffers unwritten while the line search "runs")
+        if (s_mem_size > 48 * 1024) {
+                static bool attr_set = false;
+                if (!attr_set) {
+                        gpuErrchk(cudaFuncSetAttribute(computeMeritBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
+                        attr_set = true;
+                }
+        }
 
         computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
                                                                                     d_dz_batch,
@@ -312,6 +341,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_y_admm_batch,
                                                                                     env,
                                                                                     d_admm_rho_scale_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
         const uint32_t n_slots = batch_size * NumAlphas;
         reduceMeritPartialsKernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch);
 }
