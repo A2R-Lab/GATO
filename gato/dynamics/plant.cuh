@@ -489,9 +489,10 @@ namespace plant {
         __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
         {
                 // + s_end_effector_pose_gradient (6*NUM_VEL*NEE) + the larger gradient arena
-                // (+ the NU-wide generated-R/r redirect scratch under GATO_CONTACT_FORCES).
+                // (+ the NU*NU tracking_cost_hessian_fc base-composition scratch under
+                // GATO_CONTACT_FORCES — GRiD ASK 1).
                 return (2 * NX + 2 * NU + 6) + (4 * NQ + 2 * NU) + 6 * NEE + 6 * NQ * NEE
-                       + (FC > 0 ? (unsigned)(NU * NU + NU) : 0u)
+                       + (FC > 0 ? (unsigned)(NU * NU) : 0u)
                        + grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
         }
 
@@ -563,30 +564,28 @@ namespace plant {
                                             is_terminal ? nullptr : d_u_cost_vec, d_q_pos_w_vec);
                 __syncthreads();
                 __shared__ T s_out[1];
+#if GATO_CONTACT_FORCES
+                // Generated fc-aware preset (GRiD ASK 1, @27267bc): base tracking cost
+                // + 0.5*fc_cost*|fc - fc_ref|^2 over the fc tail of the CONTROL_SIZE-wide
+                // s_u, single-sourced with the gradient/hessian overloads below. Terminal
+                // knot passes fc_cost = 0 (the emitted weight-selection contract, matching
+                // the u-reg drop); d_fc_ref nullptr = zero reference (pure regularization,
+                // bitwise the historic hand-rolled scatter).
+                grid_plant::tracking_cost_fc<T, 0>(s_out, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+                                                   s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                   s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, mu_u,
+                                                   is_terminal ? static_cast<T>(0) : fc_cost, d_fc_ref,
+                                                   s_eePos, s_scratch, d_robotModel);
+#else
+                (void)fc_cost;
+                (void)d_fc_ref;
                 grid_plant::tracking_cost<T, 0>(s_out, s_x, s_u, s_x_des, s_u_des, s_ee_des,
                                                 s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
                                                 s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, mu_u,
                                                 s_eePos, s_scratch, d_robotModel);
-                __syncthreads();
-                T total = s_out[0];
-#if GATO_CONTACT_FORCES
-                // fc regularization (0.5*fc_cost*|fc - fc_ref|^2; d_fc_ref nullptr = zero
-                // reference, bitwise the historic pure regularization; terminal knot has no
-                // control slot, matching the u-reg drop). Uniform per-thread compute — no
-                // shared write.
-                if (!is_terminal) {
-                        T fcreg = static_cast<T>(0);
-                        for (int j = 0; j < FC; j++) {
-                                T e = s_u[NU + j] - (d_fc_ref ? d_fc_ref[j] : static_cast<T>(0));
-                                fcreg += e * e;
-                        }
-                        total += static_cast<T>(0.5) * fc_cost * fcreg;
-                }
-#else
-                (void)fc_cost;
-                (void)d_fc_ref;
 #endif
-                return total;
+                __syncthreads();
+                return s_out[0];
         }
 
         // GRAD+HESS adapter (replaces trackingCostGradientAndHessian). Writes s_qk/s_Qk
@@ -611,18 +610,13 @@ namespace plant {
                 T* s_u_lo = s_qd_hi + NQ;   T* s_u_hi = s_u_lo + NU;
                 T* s_eePos = s_u_hi + NU;   T* s_eePosGrad = s_eePos + 6 * NEE;
 #if GATO_CONTACT_FORCES
-                // The generated grid_plant cost is NU(=actuated)-wide with R layout [r + NU*c];
-                // the caller's s_Rk/s_rk are CONTROL_SIZE-wide. Redirect the generated writes
-                // to NU-wide scratch, then scatter + fill the fc block below.
-                T* s_R7 = s_eePosGrad + 6 * NQ * NEE;
-                T* s_r7 = s_R7 + NU * NU;
-                T* s_scratch = s_r7 + NU;
-                T* s_Rk_gen = s_R7;
-                T* s_rk_gen = s_r7;
+                // NU*NU scratch for tracking_cost_hessian_fc's base input-hessian
+                // composition (the generated overload scatters it to CONTROL_SIZE
+                // strides itself — GRiD ASK 1).
+                T* s_R_nu = s_eePosGrad + 6 * NQ * NEE;
+                T* s_scratch = s_R_nu + NU * NU;
 #else
                 T* s_scratch = s_eePosGrad + 6 * NQ * NEE;
-                T* s_Rk_gen = s_Rk;
-                T* s_rk_gen = s_rk;
 #endif
 
                 buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
@@ -633,36 +627,34 @@ namespace plant {
                 // Block layout note: grid_plant writes s_Qk/s_Rk COLUMN-major; GATO's old code
                 // wrote row-major (i*NX+j). The tracking Hessian (diag(qd,barrier) + JᵀWJ) is
                 // SYMMETRIC, so the two layouts are bit-identical — do NOT "transpose-fix" this.
-                grid_plant::tracking_cost_gradient<T, 0>(s_qk, s_rk_gen, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+#if GATO_CONTACT_FORCES
+                // Generated fc-aware overloads (GRiD ASK 1): CONTROL_SIZE-wide s_rk/s_Rk
+                // written directly — actuated block exactly the base preset, fc gradient
+                // rows = fc_cost*(fc - fc_ref), fc Hessian diag = fc_cost, cross terms 0
+                // (bitwise the historic hand-rolled scatter).
+                grid_plant::tracking_cost_gradient_fc<T, 0>(s_qk, s_rk, s_x, s_u, s_x_des, s_u_des, s_ee_des,
+                                                            s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                            s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
+                                                            fc_cost, d_fc_ref,
+                                                            s_eePos, s_eePosGrad, s_scratch, d_robotModel);
+                __syncthreads();
+                grid_plant::tracking_cost_hessian_fc<T, 0>(s_Qk, s_Rk, s_x, s_u,
+                                                           s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
+                                                           s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
+                                                           fc_cost, s_R_nu,
+                                                           s_eePosGrad, s_scratch, d_robotModel);
+                __syncthreads();
+#else
+                grid_plant::tracking_cost_gradient<T, 0>(s_qk, s_rk, s_x, s_u, s_x_des, s_u_des, s_ee_des,
                                                          s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
                                                          s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
                                                          s_eePos, s_eePosGrad, s_scratch, d_robotModel);
                 __syncthreads();
-                grid_plant::tracking_cost_hessian<T, 0>(s_Qk, s_Rk_gen, s_x, s_u,
+                grid_plant::tracking_cost_hessian<T, 0>(s_Qk, s_Rk, s_x, s_u,
                                                         s_Q, s_R, s_W, s_q_lo, s_q_hi, q_lim_cost,
                                                         s_qd_lo, s_qd_hi, vel_lim_cost, s_u_lo, s_u_hi, ctrl_lim_cost,
                                                         s_eePosGrad, s_scratch, d_robotModel);
                 __syncthreads();
-#if GATO_CONTACT_FORCES
-                {
-                        // Scatter the NU-wide generated R/r into the CONTROL_SIZE-wide caller
-                        // buffers: actuated block verbatim, fc diag = fc_cost, cross terms 0,
-                        // fc gradient rows = fc_cost * (fc - fc_ref) (d_fc_ref nullptr = zero
-                        // reference — the historic pure regularization, bitwise).
-                        constexpr int CS = NU + FC;
-                        const int tid = threadIdx.x + threadIdx.y * blockDim.x;
-                        const int nth = blockDim.x * blockDim.y;
-                        for (int ind = tid; ind < CS * CS; ind += nth) {
-                                int r = ind % CS; int c = ind / CS;
-                                s_Rk[ind] = (r < NU && c < NU) ? s_R7[r + NU * c]
-                                          : (r == c ? fc_cost : static_cast<T>(0));
-                        }
-                        for (int j = tid; j < CS; j += nth) {
-                                s_rk[j] = (j < NU) ? s_r7[j]
-                                        : fc_cost * (s_u[j] - (d_fc_ref ? d_fc_ref[j - NU] : static_cast<T>(0)));
-                        }
-                        __syncthreads();
-                }
 #endif
         }
 
