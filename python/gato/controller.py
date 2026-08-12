@@ -38,16 +38,25 @@ class MPCController:
             "hold" re-seeds every batch entry with the winning trajectory as-is.
         reset_rho_each_step: restore the rho penalty to its configured default
             before each solve (line-search adaptation is per-solve state).
-        linsys: None (default) leaves the solver's configured S·λ = γ path
-            untouched; "pcg"/"bdsv"/"bdsv_first" pin it; "auto" picks per step
-            from warm-startedness: pred_err = ‖x_measured − x_predicted‖ (the
-            shifted warm start IS the model's one-step prediction) — above
-            bdsv_threshold, or after a PCG cap-out, the step is treated as cold
-            and solved with "bdsv_first" (exact solve on the fresh
-            linearization, PCG warm-started after); otherwise "pcg".
-        bdsv_threshold: pred_err threshold for linsys="auto" (required then;
-            calibrate from StepResult.pred_err on the nominal task — no
-            principled prior).
+        linsys: S·λ = γ path policy. "pcg"/"bdsv"/"bdsv_first" pin the solver's
+            path; "auto" picks per step from warm-startedness: pred_err =
+            ‖x_measured − x_predicted‖ (the shifted warm start IS the model's
+            one-step prediction) — above bdsv_threshold, or after a PCG
+            cap-out, the step is treated as cold and solved with "bdsv_first"
+            (exact solve on the fresh linearization, PCG warm-started after);
+            otherwise "pcg".
+            None (default) resolves to the wired per-base default: "auto" for
+            fixed-base solvers (the 08-12 CDF study: auto captures warm pcg's
+            fast body AND clips the cold tail at bdsv's flat cost — matches or
+            beats pure pcg at every percentile on indy7/iiwa14), "bdsv" for
+            floating-base solvers (w36 sweep: wins every batch size, no
+            crossover). BREAK vs pre-08-12: None used to leave the solver's
+            configured path untouched — pass the solver's mode explicitly to
+            pin it.
+        bdsv_threshold: pred_err threshold for linsys="auto"; defaults to 0.1
+            under auto (the CDF study's [0.08, 0.17] deadline band — low τ
+            trades a tighter max for a fatter p90). Calibrate per task from
+            StepResult.pred_err (see tools/autotune_linsys.py).
     """
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
@@ -56,8 +65,6 @@ class MPCController:
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
             raise ValueError(f"linsys must be None, 'pcg', 'bdsv', 'bdsv_first' or 'auto', got {linsys!r}")
-        if linsys == "auto" and bdsv_threshold is None:
-            raise ValueError("linsys='auto' requires bdsv_threshold")
         if hypotheses is not None and hypotheses.batch_size != solver.batch_size:
             raise ValueError(
                 f"hypotheses.batch_size ({hypotheses.batch_size}) != "
@@ -67,13 +74,17 @@ class MPCController:
         self.hypotheses = hypotheses
         self.warm_start = warm_start
         self.reset_rho_each_step = reset_rho_each_step
+        self.floating_base = bool(getattr(solver, "floating_base", False))
+        if linsys is None:
+            linsys = "bdsv" if self.floating_base else "auto"
+        if linsys == "auto" and bdsv_threshold is None:
+            bdsv_threshold = 0.1
         self.linsys = linsys
         self.bdsv_threshold = bdsv_threshold
-        if linsys not in (None, "auto"):
+        if linsys != "auto":
             solver.set_linsys(linsys)
         self.nx, self.nu, self.N = solver.nx, solver.nu, solver.N
         self.nq, self.nv = solver.nq, solver.nv
-        self.floating_base = bool(getattr(solver, "floating_base", False))
         self.batch_size = solver.batch_size
         self._XU = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu),
                             dtype=np.float32)

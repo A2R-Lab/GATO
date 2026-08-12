@@ -124,7 +124,10 @@ class ExperimentRunner:
                         batch_size=batch_size,
                         plant_type=plant_type,
                         pendulum_config=pendulum_config,
-                        solver_params=solver_params,
+                        # paper numbers were measured under the pcg path
+                        # (controller default is "auto" since 08-12); an
+                        # explicit caller linsys still wins
+                        solver_params={"linsys": "pcg", **(solver_params or {})},
                         track_full_stats=True,
                         fc_config=fc_config,
                         wrench_id=wrench_id,

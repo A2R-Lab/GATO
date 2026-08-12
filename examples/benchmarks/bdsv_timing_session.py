@@ -204,7 +204,9 @@ def child_mpc(mode, tau, perturb_every):
     N, DT = 64, 0.01
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type=PLANT)
-    kw = {"linsys": mode} if mode != "pcg" else {}   # pcg == solver default path
+    # always pass linsys explicitly: since 08-12 the controller DEFAULT is auto
+    # (fixed-base), so an omitted arg would not give the pure-pcg arm
+    kw = {"linsys": mode}
     if mode == "auto":
         kw["bdsv_threshold"] = tau
     mpc.controller = MPCController(mpc.solver, hypotheses=mpc.controller.hypotheses,

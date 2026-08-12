@@ -154,7 +154,9 @@ class BSQP:
         mu_batch=None,
         pcg_tol_batch=None,
         adapt_rho=True,
-        linsys="pcg",  # "pcg" | "bdsv" | "bdsv_first" (see LINSYS_MODES)
+        # None -> wired per-base default: "pcg" fixed-base, "bdsv" floating.
+        # Explicit "pcg" | "bdsv" | "bdsv_first" always wins (see LINSYS_MODES).
+        linsys=None,
         plant_type='indy7',  # 'indy7' or 'iiwa14'
         exact_hessian=False,  # SO-SQP stage-Hessian PSD projection (needs -DGATO_EXACT_HESSIAN=ON build)
     ):
@@ -290,6 +292,14 @@ class BSQP:
             self.solver.set_pcg_tol_batch(pcg_tol_batch)
         self.max_pcg_iters = int(max_pcg_iters)
         self.linsys = "pcg"  # the C++ default; set_linsys only calls into the module on change
+        if linsys is None:
+            # Wired defaults (2026-08-12): fixed-base keeps pcg (bit-identical to
+            # the historic default); floating-base modules default to the direct
+            # bdsv solve — the w36 timing sweep had bdsv winning EVERY batch size
+            # on go2 with no crossover, and pcg's iteration-count spread is the
+            # entire solve-time tail there. Revisit per-task via the linsys
+            # autotune once a warm gait workload exists.
+            linsys = "bdsv" if self.floating_base else "pcg"
         self.set_linsys(linsys)
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
         self.exact_hessian = False  # the C++ default

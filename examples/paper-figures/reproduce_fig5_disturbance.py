@@ -35,7 +35,10 @@ def _run_one(model, urdf, M, force_N, sim_time):
     from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
     f_ext = np.array([0.0, 0.0, -float(force_N), 0.0, 0.0, 0.0])
     mpc = MPC_GATO(model, model_path=urdf, N=N, dt=DT, batch_size=M, plant_type="indy7",
-                   constant_f_ext=f_ext, track_full_stats=False)
+                   constant_f_ext=f_ext, track_full_stats=False,
+                   # paper numbers were measured under the pcg path (controller
+                   # default is "auto" since 08-12)
+                   solver_params={"linsys": "pcg"})
     fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
     x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(model.nv)))
     _, st = mpc.run_mpc_fig8(x0, fig8, sim_dt=0.001, sim_time=sim_time, pace_by_solve_time=False)

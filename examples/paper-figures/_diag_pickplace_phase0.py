@@ -107,7 +107,8 @@ def _make_mpc(model, urdf, batch_size, pendulum_config, fe_override=None, solver
     mpc = MPC_GATO(
         model, model_path=urdf, N=N, dt=DT, batch_size=batch_size,
         plant_type="iiwa14", pendulum_config=pendulum_config,
-        solver_params=sp, track_full_stats=True,
+        # paper-era pcg path (controller default is "auto" since 08-12)
+        solver_params={"linsys": "pcg", **(sp or {})}, track_full_stats=True,
     )
     if mpc.controller.hypotheses is not None:
         est = mpc.controller.hypotheses.estimator

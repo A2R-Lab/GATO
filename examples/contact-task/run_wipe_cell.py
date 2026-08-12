@@ -31,7 +31,10 @@ def build_mpc(arm, scenario, depth):
     world = MuJoCoWorld(W.URDF, plane=W.plane_cfg(center, scenario["stroke"]),
                         timestep=W.SIM_DT, record_contact=True)
     mpc = MPC_GATO(pin.buildModelFromUrdf(W.URDF), W.URDF, N=W.N_KNOTS,
-                   dt=W.DT, batch_size=1, world=world)
+                   dt=W.DT, batch_size=1, world=world,
+                   # pin pcg: the committed n=24 pool + quiet quotes were
+                   # measured under it (controller default is "auto" since 08-12)
+                   solver_params={"linsys": "pcg"})
     s = mpc.solver
 
     if arm == "fc":

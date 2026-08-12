@@ -54,7 +54,10 @@ class MPC_GATO:
             plant_type: Plant identifier selecting the CUDA module (e.g., 'indy7',
                 'iiwa14'). None auto-detects from model_path.
             pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
-            solver_params: overrides merged onto config.DEFAULT_SOLVER_PARAMS
+            solver_params: overrides merged onto config.DEFAULT_SOLVER_PARAMS.
+                Extra keys 'linsys' and 'bdsv_threshold' pin the linear-system
+                policy for BOTH the solver and the controller (absent -> the
+                wired per-base defaults; see MPCController)
             fe_seed: seed for the force-estimator hypothesis sampling
             fc_config: GATO_CONTACT_FORCES modules only — program the solver's
                 contact-wrench slots so the SOLVER explains an unmodeled wrench
@@ -121,6 +124,7 @@ class MPC_GATO:
             vel_lim_cost=solver_cfg['vel_lim_cost'],
             ctrl_lim_cost=solver_cfg['ctrl_lim_cost'],
             rho=solver_cfg['rho'],
+            linsys=solver_cfg.get('linsys'),
         )
 
         self.solver_params = solver_cfg
@@ -180,8 +184,13 @@ class MPC_GATO:
             hypotheses = ForceHypothesisBatch(estimator, self.solver_model,
                                               ee_frame=self.solver.ee_frame)
 
+        # 'linsys'/'bdsv_threshold' in solver_params pin the controller's
+        # per-step policy too; None -> the controller's wired per-base default
+        # (fixed-base "auto"@0.1, floating "bdsv" — see MPCController)
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
-                                        warm_start="shift", reset_rho_each_step=True)
+                                        warm_start="shift", reset_rho_each_step=True,
+                                        linsys=solver_cfg.get('linsys'),
+                                        bdsv_threshold=solver_cfg.get('bdsv_threshold'))
 
         if world is None:
             self.world = PinocchioWorld(self)
