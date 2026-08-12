@@ -16,6 +16,7 @@ Per-step traces saved (solve ms, pred_err, pcg iters, auto's cold picks), CDF
 plot + stats table emitted. A matched-step min(pcg, bdsv) "oracle" curve shows
 the selection headroom. QUIET BOX ONLY.
 """
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -24,23 +25,39 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python"))
-URDF = str(ROOT / "examples" / "indy7_description" / "indy7.urdf")
+sys.path.insert(0, str(ROOT / "examples" / "benchmarks"))
+URDFS = {
+    "indy7": str(ROOT / "examples" / "indy7_description" / "indy7.urdf"),
+    # canonical iiwa14 (fig3-fair harness URDF, md5 eeb7d4ff — NOT GRiD/robot_assets)
+    "iiwa14": str(ROOT / "examples" / "iiwa_description" / "iiwa14.urdf"),
+}
 OUT = ROOT / "examples" / "benchmarks" / "data" / "linsys_auto_cdf"
 N, DT, SIM_TIME = 64, 0.01, 6.0
 KICK_EVERY = 25
 TAUS = [0.08, 0.17, 0.35]
+PLANT = "indy7"
+
+
+def start_and_ref():
+    """(q0, fig8_flat) for PLANT — iiwa14 uses the shared fig3-fair harness."""
+    from gato.common import figure8
+    if PLANT == "indy7":
+        from gato.config import INDY7_START_CONFIGS, FIG8_DEFAULT_PARAMS
+        return INDY7_START_CONFIGS["ready"], figure8(DT, **FIG8_DEFAULT_PARAMS)
+    import iiwa_fig8_shared as S
+    n_steps = int(round(S.FIG8_PERIOD * 5 / DT))
+    return S.Q0_READYC, S.figure8_goal(n_steps)
 
 
 def run_arm(mode, tau=0.0):
     import pinocchio as pin
     from gato.mpc_gato import MPC_GATO
     from gato.controller import MPCController
-    from gato.common import figure8
-    from gato.config import INDY7_START_CONFIGS, FIG8_DEFAULT_PARAMS
 
+    URDF = URDFS[PLANT]
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1,
-                   plant_type="indy7")
+                   plant_type=PLANT)
     kw = {"linsys": mode} if mode != "pcg" else {}
     if mode == "auto":
         kw["bdsv_threshold"] = tau
@@ -75,8 +92,8 @@ def run_arm(mode, tau=0.0):
         return r
 
     mpc.controller.step = step
-    xs = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(nx - nq)))
-    fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
+    q0, fig8 = start_and_ref()
+    xs = np.hstack((q0, np.zeros(nx - nq)))
     _, stats = mpc.run_mpc_fig8(xs, fig8, sim_dt=0.001, sim_time=SIM_TIME,
                                 pace_by_solve_time=False)
     st = np.asarray(stats["solve_times"], dtype=float)
@@ -99,12 +116,22 @@ def stats_line(name, t):
 
 
 def main():
+    global PLANT
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--plant", default="indy7", choices=list(URDFS))
+    ap.add_argument("--allow-busy", action="store_true",
+                    help="run even if other GPU compute pids exist (results noted noisy)")
+    args = ap.parse_args()
+    PLANT = args.plant
+
     import subprocess
     busy = subprocess.run(["nvidia-smi", "--query-compute-apps=pid",
                            "--format=csv,noheader"], capture_output=True,
                           text=True).stdout.strip()
-    if busy:
+    if busy and not args.allow_busy:
         sys.exit(f"REFUSING to time: GPU busy ({busy})")
+    if busy:
+        print(f"WARNING: timing under contention (pids: {busy}) — noisy numbers")
     OUT.mkdir(parents=True, exist_ok=True)
 
     arms = [("pcg", 0.0), ("bdsv", 0.0), ("bdsv_first", 0.0)] + \
@@ -120,7 +147,8 @@ def main():
         print(stats_line(tag, r["solve_ms"]) +
               f"  track {r['track_mean']:.4f}{extra}", flush=True)
 
-    (OUT / "cdf_traces.json").write_text(json.dumps(rows))
+    suffix = "" if PLANT == "indy7" else f"_{PLANT}"
+    (OUT / f"cdf_traces{suffix}.json").write_text(json.dumps(rows))
 
     # matched-step oracle: min(pcg, bdsv) at each step index (same kick schedule;
     # trajectories diverge slightly after kicks, so this is an approximation)
@@ -142,11 +170,11 @@ def main():
             label="oracle min(pcg,bdsv)")
     ax.set_xscale("log")
     ax.set_xlabel("solve time [ms]"); ax.set_ylabel("CDF")
-    ax.set_title(f"indy7 fig8 MPC N={N} B=1, mixed kicks every {KICK_EVERY} steps")
+    ax.set_title(f"{PLANT} fig8 MPC N={N} B=1, mixed kicks every {KICK_EVERY} steps")
     ax.grid(alpha=0.3); ax.legend()
     fig.tight_layout()
-    fig.savefig(OUT / "linsys_auto_cdf.png", dpi=140)
-    print(f"wrote {OUT / 'cdf_traces.json'} + linsys_auto_cdf.png")
+    fig.savefig(OUT / f"linsys_auto_cdf{suffix}.png", dpi=140)
+    print(f"wrote cdf_traces{suffix}.json + linsys_auto_cdf{suffix}.png")
 
 
 if __name__ == "__main__":
