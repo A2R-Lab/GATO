@@ -40,7 +40,25 @@ leg() {  # leg <name> <cmd...>
 
 leg slot bash examples/benchmarks/run_gato_timing_slot.sh
 leg w36  $PY examples/benchmarks/w36_go2_linsys_sweep.py --out "$OUT/w36_go2_linsys.json"
-leg wipe_fc  $PY examples/contact-task/run_wipe_cell.py --arm fc  --scenarios 0 --out "$OUT/wipe_quote"
+# fc arm needs the build_fc modules swapped onto the package path (PyInit name
+# collision — fc and default cannot co-load; see run_wipe_pool.sh). The 08-12
+# night's wipe_fc leg died on exactly this (rc=1, 2s): route through the swap.
+wipe_fc_swapped() {
+    local PKG=$REPO/python/gato FCMOD=$REPO/build_fc/modules
+    local SUF=cpython-312-x86_64-linux-gnu.so BK; BK=$(mktemp -d)
+    local f base rc
+    for f in "$FCMOD"/*.$SUF; do
+        base=$(basename "$f")
+        [[ -f $PKG/$base ]] && cp -f "$PKG/$base" "$BK/"
+        cp -f "$f" "$PKG/"
+    done
+    $PY examples/contact-task/run_wipe_cell.py --arm fc --scenarios 0 --out "$OUT/wipe_quote"
+    rc=$?
+    for f in "$BK"/*.$SUF; do [[ -e $f ]] && cp -f "$f" "$PKG/"; done
+    rm -rf "$BK"
+    return $rc
+}
+leg wipe_fc  wipe_fc_swapped
 leg wipe_pos $PY examples/contact-task/run_wipe_cell.py --arm pos --scenarios 0 --out "$OUT/wipe_quote"
 
 echo "=== NIGHT SUMMARY ===" | tee -a "$OUT/night.log"
