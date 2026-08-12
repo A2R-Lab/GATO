@@ -258,3 +258,67 @@ def test_collision_telemetry(model):
     assert near.min() > 0.1
     near2 = run([(0.0, 0.0, 0.35, 0.4)])
     np.testing.assert_array_equal(near, near2)
+
+
+# ---------------------------------------------------------------------------
+# Hardening gates (2026-08-11, post collision-carve silent-launch-failure):
+# every "the mechanism did X" gate above can be satisfied by a DEAD solver
+# whose launches fail silently (xu stays = warm start; telemetry at the
+# untouched warm start matches the oracle). These two assert the solve LIVES:
+# it must move the trajectory and fold collision rows on the floating carve.
+# ---------------------------------------------------------------------------
+
+def test_solve_moves_toward_displaced_anchor(model):
+    """THE dead-solver tripwire: a displaced (actuated, reachable) posture
+    anchor must strictly reduce merit and move the tail joints off the warm
+    start. Would have caught the 2026-08-11 silent launch failure directly."""
+    B = 2
+    x = _standing_x()
+    X = np.tile(x, (B, 1)).astype(np.float32)
+    goals = _goals_at(model, x, B)
+    s = _solver(B)
+    q_nom = x[:NQ].copy()
+    q_nom[7:] += 0.3  # displaced actuated posture (well inside limits)
+    s.set_q_nom(q_nom.astype(np.float32))
+    s.set_q_pos_cost(50.0)
+    r = s.solve(X, goals)
+    assert np.isfinite(r.xu).all()
+    fm = np.asarray(r.stats.final_merit, dtype=np.float64).ravel()
+    im = np.asarray(r.stats.initial_merit, dtype=np.float64).ravel()
+    assert (fm < im).all(), (fm, im)  # at least one accepted step per solve
+    for b in range(B):
+        q_tail = r.xu[b, (N - 1) * XU_STRIDE + 7:(N - 1) * XU_STRIDE + NQ]
+        assert np.abs(q_tail - x[7:NQ]).max() > 0.05  # tail moved off the hold
+
+
+def _collision_mech_violation(model, B=2, **mech_kw):
+    """Bubble near the FR lower leg: escapable by joint motion (a trunk bubble
+    rides the unactuated base — the contactless model cannot move that)."""
+    x = _standing_x()
+    X = np.tile(x, (B, 1)).astype(np.float32)
+    goals = _goals_at(model, x, B)
+    s = _solver(B)
+    s.set_collision_environment(spheres=[(0.22, -0.16, 0.05, 0.12)])
+    s.enable_collision(margin=0.02, **mech_kw)
+    r1 = s.solve(X, goals)
+    assert np.isfinite(r1.xu).all()
+    qN = r1.xu[0, (N - 1) * XU_STRIDE:(N - 1) * XU_STRIDE + NQ]
+    assert abs(np.linalg.norm(qN[3:7]) - 1.0) < 1e-4
+    s2 = _solver(B)
+    s2.set_collision_environment(spheres=[(0.22, -0.16, 0.05, 0.12)])
+    s2.enable_collision(margin=0.02, **mech_kw)
+    r2 = s2.solve(X, goals)
+    np.testing.assert_array_equal(r1.xu, r2.xu)
+    return r1.stats.row_max_violation[0].max()
+
+
+def test_collision_fold_mechanisms_reduce_violation(model):
+    """The collision FOLD path (apply_collision_row_grad_hess in setup_kkt +
+    the merit value mirror) on the FLOATING carve — the exact code the
+    2026-08-11 overlay fix touches. Telemetry-only is the do-nothing ref."""
+    ref = _collision_mech_violation(model, mech="telemetry")
+    assert ref > 0.02, ref
+    bar = _collision_mech_violation(model, mech="barrier", rho=1e-1)
+    al = _collision_mech_violation(model, mech="al", rho=100.0)
+    assert bar < ref, (bar, ref)
+    assert al < ref, (al, ref)
