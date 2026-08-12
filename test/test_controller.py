@@ -95,6 +95,23 @@ def test_linsys_defaults_floating():
     assert ctrl.linsys == "bdsv"
 
 
+def test_linsys_tuned_entry_pickup(make_solver, smallest_module, tmp_path, monkeypatch):
+    """MPCController(task_tag=...) resolves a tuned table entry (via
+    $GATO_LINSYS_TUNING); an explicit linsys arg still wins."""
+    from gato.linsys_autotune import save_tuning
+    plant, N = smallest_module
+    p = tmp_path / "tuning.json"
+    save_tuning(plant, N, "unittest", {"policy": "bdsv_first", "tau": None}, path=p)
+    monkeypatch.setenv("GATO_LINSYS_TUNING", str(p))
+    solver = make_solver(plant, N, batch_size=1)
+    ctrl = MPCController(solver, task_tag="unittest")
+    assert ctrl.linsys == "bdsv_first"
+    assert solver.linsys == "bdsv_first"
+    pinned = MPCController(make_solver(plant, N, batch_size=1),
+                           linsys="pcg", task_tag="unittest")
+    assert pinned.linsys == "pcg"
+
+
 def test_linsys_auto_switches_on_pred_err(make_solver, smallest_module):
     """auto: warm step -> pcg; a kicked state past tau -> bdsv_first."""
     plant, N = smallest_module

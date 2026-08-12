@@ -12,6 +12,7 @@ import numpy as np
 
 from .common import check_floating_state, initialize_warm_start, state_difference
 from .interface import SolveResult
+from .linsys_autotune import resolve_linsys
 
 
 @dataclass(frozen=True)
@@ -57,10 +58,16 @@ class MPCController:
             under auto (the CDF study's [0.08, 0.17] deadline band — low τ
             trades a tighter max for a fatter p90). Calibrate per task from
             StepResult.pred_err (see tools/autotune_linsys.py).
+        task_tag: optional workload tag into the autotuned linsys table
+            (python/gato/linsys_tuning.json, written by
+            tools/autotune_linsys.py; $GATO_LINSYS_TUNING overrides the
+            location). With linsys=None, a tuned (plant, N, task_tag) entry
+            overrides the wired default; an explicit linsys arg always wins.
     """
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
-                 reset_rho_each_step=True, linsys=None, bdsv_threshold=None):
+                 reset_rho_each_step=True, linsys=None, bdsv_threshold=None,
+                 task_tag=None):
         if warm_start not in ("shift", "hold"):
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
@@ -75,10 +82,10 @@ class MPCController:
         self.warm_start = warm_start
         self.reset_rho_each_step = reset_rho_each_step
         self.floating_base = bool(getattr(solver, "floating_base", False))
-        if linsys is None:
-            linsys = "bdsv" if self.floating_base else "auto"
-        if linsys == "auto" and bdsv_threshold is None:
-            bdsv_threshold = 0.1
+        linsys, bdsv_threshold = resolve_linsys(
+            self.floating_base, linsys, bdsv_threshold,
+            plant=getattr(solver, "plant_type", None), N=solver.N,
+            task_tag=task_tag)
         self.linsys = linsys
         self.bdsv_threshold = bdsv_threshold
         if linsys != "auto":
