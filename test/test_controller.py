@@ -131,6 +131,89 @@ def test_linsys_auto_switches_on_pred_err(make_solver, smallest_module):
     assert solver.linsys == "bdsv_first"
 
 
+def test_reseed_off_by_default(make_solver, smallest_module):
+    """Without reseed_threshold, a kicked step never re-seeds (shift math
+    untouched — the pre-08-12 behavior)."""
+    plant, N = smallest_module
+    solver = make_solver(plant, N, batch_size=1)
+    ctrl = MPCController(solver)
+    x0 = np.zeros(solver.nx, dtype=np.float32)
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+    ctrl.reset(x0)
+    ctrl.warmup(x0, ref)
+    x_kick = x0.copy()
+    x_kick[: solver.nq] += 0.5
+    r = ctrl.step(x_kick, ref)
+    assert r.reseeded is False
+
+
+def test_reseed_triggers_hold_seed_and_forces_cold(make_solver, smallest_module):
+    """Above reseed_threshold: the solver receives a hold-at-x warm start,
+    StepResult.reseeded is set, and linsys='auto' treats the step as cold
+    even when pred_err is below bdsv_threshold."""
+    from gato.common import initialize_warm_start
+    plant, N = smallest_module
+    solver = make_solver(plant, N, batch_size=1)
+    # bdsv_threshold huge: only the reseed flag can make the step cold
+    ctrl = MPCController(solver, linsys="auto", bdsv_threshold=1e9,
+                         reseed_threshold=0.1)
+    x0 = np.zeros(solver.nx, dtype=np.float32)
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+    ctrl.reset(x0)
+    ctrl.warmup(x0, ref)
+
+    seen = {}
+    orig_solve = solver.solve
+
+    def spy(xcur_B, goals_B, XU_B=None):
+        seen["xu"] = np.array(XU_B, copy=True)
+        return orig_solve(xcur_B, goals_B, XU_B)
+
+    solver.solve = spy
+    r = ctrl.step(x0, ref)               # warm: no reseed, warm path
+    assert r.reseeded is False
+    assert solver.linsys == "pcg"
+
+    x_kick = x0.copy()
+    x_kick[: solver.nq] += 0.5           # pred_err ~1.2 > 0.1
+    r = ctrl.step(x_kick, ref)
+    assert r.reseeded is True
+    assert solver.linsys == "bdsv_first"  # forced cold by the reseed alone
+    expected = initialize_warm_start(x_kick, solver.N, solver.nx,
+                                     solver.nu).astype(np.float32)
+    expected[: solver.nx] = x_kick        # step() re-writes knot 0 (no-op here)
+    np.testing.assert_array_equal(seen["xu"][0], expected)
+
+
+def test_reseed_deterministic(make_solver, smallest_module):
+    """Run-twice bitwise determinism of a kicked loop with re-seeding on."""
+    plant, N = smallest_module
+
+    def run():
+        solver = make_solver(plant, N, batch_size=1)
+        ctrl = MPCController(solver, reseed_threshold=0.2)
+        x = np.zeros(solver.nx, dtype=np.float32)
+        ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+        ctrl.reset(x)
+        ctrl.warmup(x, ref)
+        out, flags = [], []
+        for k in range(6):
+            if k == 3:
+                x = x.copy()
+                x[: solver.nq] += 0.4     # over reseed_threshold
+            r = ctrl.step(x, ref)
+            out.append(r.xu_best.copy())
+            flags.append(r.reseeded)
+            x = np.asarray(solver.sim_forward(x, r.u, solver.dt),
+                           dtype=np.float32).reshape(solver.nx)
+        return np.stack(out), flags
+
+    a, fa = run()
+    b, fb = run()
+    assert fa == fb and any(fa)          # the kick actually re-seeded
+    np.testing.assert_array_equal(a, b)
+
+
 def test_linsys_auto_default_deterministic(make_solver, smallest_module):
     """Run-twice bitwise determinism of a short closed loop under the wired
     auto default (pred_err is deterministic, so the pcg/bdsv_first schedule

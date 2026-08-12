@@ -24,6 +24,7 @@ class StepResult:
     solve: SolveResult       # solver result/stats pass-through
     hypo_stats: dict | None  # hypotheses.get_stats() snapshot, or None
     pred_err: float = 0.0    # ‖x_measured − x_predicted‖ (warm-startedness; drives linsys="auto")
+    reseeded: bool = False   # this step's warm start was re-seeded to hold-at-x
 
 
 class MPCController:
@@ -63,11 +64,21 @@ class MPCController:
             tools/autotune_linsys.py; $GATO_LINSYS_TUNING overrides the
             location). With linsys=None, a tuned (plant, N, task_tag) entry
             overrides the wired default; an explicit linsys arg always wins.
+        reseed_threshold: optional pred_err threshold above which the warm
+            start is RE-SEEDED to a hold at the measured state (and the
+            solver duals reset) before solving. None (default) = off. A warm
+            start whose tail is inconsistent with the measured state can be a
+            merit LOCAL MINIMUM — the line search rejects every step and the
+            gap ratchets (measured on floating-base MPC, 2026-08-11); the
+            hold seed is always consistent, if conservative. Uses the same
+            pred_err signal as linsys="auto"; a re-seeded step is treated as
+            cold there. Floating tasks should set this; set it above
+            bdsv_threshold (re-seeding is the bigger hammer).
     """
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
                  reset_rho_each_step=True, linsys=None, bdsv_threshold=None,
-                 task_tag=None):
+                 task_tag=None, reseed_threshold=None):
         if warm_start not in ("shift", "hold"):
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
@@ -88,6 +99,7 @@ class MPCController:
             task_tag=task_tag)
         self.linsys = linsys
         self.bdsv_threshold = bdsv_threshold
+        self.reseed_threshold = reseed_threshold
         if linsys != "auto":
             solver.set_linsys(linsys)
         self.nx, self.nu, self.N = solver.nx, solver.nu, solver.N
@@ -158,8 +170,16 @@ class MPCController:
                 state_difference(x_pred, x, self.nq, self.nv)))
         else:
             pred_err = float(np.linalg.norm(x - x_pred))
+        # stale-tail recovery: hold-at-x is always a consistent seed; the duals
+        # rode the same staleness, so they reset with it (see reseed_threshold)
+        reseeded = (self.reseed_threshold is not None
+                    and pred_err > self.reseed_threshold)
+        if reseeded:
+            xu0 = initialize_warm_start(x, self.N, self.nx, self.nu).astype(np.float32)
+            self._XU[:, :] = xu0[None, :]
+            self.solver.reset_dual()
         if self.linsys == "auto":
-            cold = pred_err > self.bdsv_threshold or self._prev_capout
+            cold = pred_err > self.bdsv_threshold or self._prev_capout or reseeded
             self.solver.set_linsys("bdsv_first" if cold else "pcg")
 
         # program the hypothesis batch, then solve from the measured state
@@ -200,5 +220,5 @@ class MPCController:
         return StepResult(
             u=u, best_id=best_id, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
-            pred_err=pred_err,
+            pred_err=pred_err, reseeded=reseeded,
         )

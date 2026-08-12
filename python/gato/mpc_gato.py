@@ -186,11 +186,13 @@ class MPC_GATO:
 
         # 'linsys'/'bdsv_threshold' in solver_params pin the controller's
         # per-step policy too; None -> the controller's wired per-base default
-        # (fixed-base "auto"@0.1, floating "bdsv" — see MPCController)
+        # (fixed-base "auto"@0.1, floating "bdsv" — see MPCController).
+        # 'reseed_threshold' enables the stale-warm-start re-seed.
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
                                         warm_start="shift", reset_rho_each_step=True,
                                         linsys=solver_cfg.get('linsys'),
-                                        bdsv_threshold=solver_cfg.get('bdsv_threshold'))
+                                        bdsv_threshold=solver_cfg.get('bdsv_threshold'),
+                                        reseed_threshold=solver_cfg.get('reseed_threshold'))
 
         if world is None:
             self.world = PinocchioWorld(self)
