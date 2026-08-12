@@ -85,3 +85,4 @@ examples/benchmarks/data/bdsv_timing/so_*/
 examples/benchmarks/data/constraint_eval/
 examples/benchmarks/data/bdsv_timing/session_run_*.log
 examples/benchmarks/data/bdsv_timing/so_orig/
+night_logs/
