@@ -26812,6 +26812,7 @@ namespace grid {
     // NAMED target_imu_joint -> TRUE ee_frame (== pinocchio oMf[target]); NUM_EE = 1.
     // 
     const int NUM_TARGET_EES = 1;
+    #define GRID_EE_FIXED_TARGET_NAME "imu_joint"
     
     template <typename T, bool TEMP_IN_SMEM = true, typename... Args>
     __device__ __forceinline__
@@ -41196,6 +41197,63 @@ namespace grid {
     }
 
     /**
+     * integrator_arena: carve struct mirroring the integrator kernel's TIER_SHARED shared-arena layout; allocate INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes (e.g. an external solver's own smem block) and call carve(base).
+     *
+     */
+    template <typename T>
+    struct integrator_arena {
+        T *s_q_qd_u;
+        T *s_qdd;
+        T *s_stage_qdd;
+        T *s_stage_point;
+        T *s_x_kp1;
+        T *s_XImats;
+        T *s_temp;
+        int *s_topology_helpers;
+        unsigned char *s_linalg_smem;
+        static __device__ integrator_arena<T> carve(void *base) {
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+            size_t s_arena_offset = 0;
+            integrator_arena<T> a;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(54);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_point = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(111);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_x_kp1 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(3398);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
+            a.s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
+            a.s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset <= INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            #endif
+            (void)s_arena_offset;
+            return a;
+        }
+    };
+
+    /**
      * integrator gradient orchestration as a single inner-owns-placement device function
      *
      * Notes:
@@ -44336,6 +44394,99 @@ namespace grid {
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
     }
+
+    /**
+     * integrator_du_arena: carve struct mirroring the integrator_with_gradient kernel's TIER_SHARED shared-arena layout (with-x_kp1 shape, at this robot's TIER_SHARED spill rung); allocate INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes and call carve(base). Buffers spilled at this rung are ABSENT from the struct — pass workspace-band pointers for those (see the du kernel's slicing).
+     *
+     */
+    template <typename T>
+    struct integrator_du_arena {
+        T *s_q_qd_u;
+        T *s_dAB;
+        T *s_df_du;
+        T *s_dc_du;
+        T *s_vaf;
+        T *s_Minv;
+        T *s_qdd;
+        T *s_q_orig;
+        T *s_qd_orig;
+        T *s_stage_grad_qdd;
+        T *s_D_qdd_stage;
+        T *s_dInt_q_6x6;
+        T *s_dInt_v_6x6;
+        T *s_x_kp1;
+        T *s_XImats;
+        T *s_temp;
+        int *s_topology_helpers;
+        unsigned char *s_linalg_smem;
+        static __device__ integrator_du_arena<T> carve(void *base) {
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+            size_t s_arena_offset = 0;
+            integrator_du_arena<T> a;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dAB = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(1944);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_df_du = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(648);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dc_du = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(648);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_Minv = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_orig = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(19);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qd_orig = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_grad_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(72);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_D_qdd_stage = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(3888);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_q_6x6 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_v_6x6 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_x_kp1 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(9612);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
+            a.s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
+            a.s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset <= INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            #endif
+            (void)s_arena_offset;
+            return a;
+        }
+    };
 
     /**
      * Computes floating-base second-order inverse dynamics diagnostics
@@ -54167,7 +54318,7 @@ namespace grid {
         gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
         for(int i=0; i<3; i++){
             int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-            gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamNonBlocking,priority));
+            gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
         }
         return streams;
     }
@@ -54188,7 +54339,7 @@ namespace grid {
         gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
         for(int i=0; i<3; i++){
             int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-            gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamNonBlocking,priority));
+            gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
         }
         return streams;
     }
@@ -54251,6 +54402,7 @@ namespace grid_plant {
      *   Block-cooperative: each thread accumulates its strided terms into s_scratch, then a serial reduction writes s_out[0].
      *   ACCUMULATE=false overwrites s_out[0]; ACCUMULATE=true ADDS into it (for summing cost terms into one scalar).
      *   s_scratch must hold at least 37 elements.
+     *   FLOATING BASE WARNING: r = x - x_des subtracts raw quaternion components — NOT a tangent-space error. For manifold-correct tracking derivatives use quadratic_state_cost_tangent (log-map error, exact J_diff, tangent-sized outputs).
      *
      * @param s_out is the scalar cost output (s_out[0])
      * @param s_x is the current value (size NUM_POS + NUM_VEL = 37)
@@ -54464,6 +54616,176 @@ namespace grid_plant {
         quadratic_input_cost_hessian<T, ACCUMULATE>(s_hess, s_R);
     }
 
+    /**
+     * quadratic_state_cost_tangent_setup: serial helper — fills s_scratch with [eq (NV) | J6 (36, row-major) | Jinv6 (36, row-major)] and syncs
+     *
+     * Notes:
+     *   eq = difference(q_des, q) (SE(3) boxminus prefix + Euler joints); J6 = the dIntegrate ARG_v 6x6 at eq; Jinv6 = its exact block-triangular inverse.
+     *   Serial (thread 0) + one sync; callers read the buffers afterwards.
+     *
+     * @param s_x / s_x_des are [q (NUM_POS); qd (NUM_VEL)] states
+     * @param s_scratch holds >= 90 elements of T
+     */
+    template <typename T>
+    __device__
+    void quadratic_state_cost_tangent_setup(const T *s_x, const T *s_x_des, T *s_scratch) {
+        T *s_eq = s_scratch; T *s_J = &s_scratch[18]; T *s_Ji = &s_scratch[18 + 36];
+        if(threadIdx.x == 0 && threadIdx.y == 0){
+            grid::grid_difference_floating_q<T, 19>(s_x_des, s_x, s_eq);
+            grid::grid_dIntegrate_v_block<T>(s_eq, s_J);
+            // invert J6 = [[A, B], [0, A]] (row-major): Jinv = [[Ai, -Ai B Ai], [0, Ai]]
+            T a00=s_J[0], a01=s_J[1], a02=s_J[2], a10=s_J[6], a11=s_J[7], a12=s_J[8], a20=s_J[12], a21=s_J[13], a22=s_J[14];
+            T det = a00*(a11*a22 - a12*a21) - a01*(a10*a22 - a12*a20) + a02*(a10*a21 - a11*a20);
+            T idet = static_cast<T>(1) / det;
+            T Ai[9];
+            Ai[0] = (a11*a22 - a12*a21)*idet; Ai[1] = (a02*a21 - a01*a22)*idet; Ai[2] = (a01*a12 - a02*a11)*idet;
+            Ai[3] = (a12*a20 - a10*a22)*idet; Ai[4] = (a00*a22 - a02*a20)*idet; Ai[5] = (a02*a10 - a00*a12)*idet;
+            Ai[6] = (a10*a21 - a11*a20)*idet; Ai[7] = (a01*a20 - a00*a21)*idet; Ai[8] = (a00*a11 - a01*a10)*idet;
+            T B[9], AiB[9], C[9];
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) { B[3*i] = s_J[6*i + 3]; B[3*i+1] = s_J[6*i + 4]; B[3*i+2] = s_J[6*i + 5]; }
+            #pragma unroll
+            for (int i = 0; i < 9; ++i) { int r = i / 3, cc = i % 3; T acc = static_cast<T>(0);
+                for (int k = 0; k < 3; ++k) acc += Ai[3*r+k]*B[3*k+cc]; AiB[i] = acc; }
+            #pragma unroll
+            for (int i = 0; i < 9; ++i) { int r = i / 3, cc = i % 3; T acc = static_cast<T>(0);
+                for (int k = 0; k < 3; ++k) acc += AiB[3*r+k]*Ai[3*k+cc]; C[i] = acc; }
+            #pragma unroll
+            for (int i = 0; i < 9; ++i) { int r = i / 3, cc = i % 3;
+                s_Ji[6*r + cc] = Ai[i]; s_Ji[6*r + 3 + cc] = -C[i];
+                s_Ji[6*(3+r) + cc] = static_cast<T>(0); s_Ji[6*(3+r) + 3 + cc] = Ai[i]; }
+        }
+        __syncthreads();
+    }
+
+    /**
+     * quadratic_state_cost_tangent: value = 1/2 * (eq^T diag(Qq) eq + ev^T diag(Qv) ev), eq = difference(q_des, q) (log-map), ev = qd - qd_des
+     *
+     * Notes:
+     *   TANGENT error (2*NV wide); s_Q is the DIAGONAL weight vector of size 2*NV (NOT NUM_POS+NUM_VEL).
+     *   ACCUMULATE=false overwrites s_out[0]; true adds.
+     *   s_scratch must hold >= 54 elements of T.
+     *
+     * @param s_out is the scalar cost output (s_out[0])
+     * @param s_x / s_x_des are [q (NUM_POS); qd (NUM_VEL)] states
+     * @param s_Q is the diagonal tangent weight vector (size 2*NV = 36)
+     * @param s_scratch is shared scratch
+     */
+    template <typename T, bool ACCUMULATE = false>
+    __device__
+    void quadratic_state_cost_tangent(T *s_out, const T *s_x, const T *s_x_des, const T *s_Q, T *s_scratch) {
+        if(threadIdx.x == 0 && threadIdx.y == 0){
+            grid::grid_difference_floating_q<T, 19>(s_x_des, s_x, s_scratch);
+        }
+        __syncthreads();
+        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 36; i += blockDim.x*blockDim.y){
+            T e = (i < 18) ? s_scratch[i] : (s_x[19 + i - 18] - s_x_des[19 + i - 18]);
+            s_scratch[18 + i] = static_cast<T>(0.5) * s_Q[i] * e * e;
+        }
+        __syncthreads();
+        if(threadIdx.x == 0 && threadIdx.y == 0){
+            T acc = static_cast<T>(0);
+            for (int i = 0; i < 36; ++i) acc += s_scratch[18 + i];
+            if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+        }
+    }
+
+    /**
+     * quadratic_state_cost_tangent_gradient: g = [Jq^T (Qq .* eq) ; Qv .* ev] (TANGENT-sized, 2*NV)
+     *
+     * Notes:
+     *   EXACT J_diff: the top-left 6x6 of Jq is inv(dIntegrate(q_des, eq, 'v')); joints are identity.
+     *   ACCUMULATE=false overwrites s_grad; true adds.
+     *   s_scratch must hold >= 90 elements of T.
+     *
+     * @param s_grad is the tangent gradient output (size 2*NV = 36)
+     * @param s_x / s_x_des / s_Q / s_scratch as in quadratic_state_cost_tangent
+     */
+    template <typename T, bool ACCUMULATE = false>
+    __device__
+    void quadratic_state_cost_tangent_gradient(T *s_grad, const T *s_x, const T *s_x_des, const T *s_Q, T *s_scratch) {
+        quadratic_state_cost_tangent_setup<T>(s_x, s_x_des, s_scratch);
+        const T *s_eq = s_scratch; const T *s_Ji = &s_scratch[18 + 36];
+        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 36; i += blockDim.x*blockDim.y){
+            T g;
+            if (i < 6) { g = static_cast<T>(0);
+                for (int r = 0; r < 6; ++r) g += s_Ji[6*r + i] * s_Q[r] * s_eq[r]; }
+            else if (i < 18) { g = s_Q[i] * s_eq[i]; }
+            else { g = s_Q[i] * (s_x[19 + i - 18] - s_x_des[19 + i - 18]); }
+            if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
+        }
+        __syncthreads();
+    }
+
+    /**
+     * quadratic_state_cost_tangent_hessian: H = [[Jq^T diag(Qq) Jq, 0], [0, diag(Qv)]] (+ exact curvature when GAUSS_NEWTON=false); TANGENT-sized 2*NV x 2*NV, column-major
+     *
+     * Notes:
+     *   GAUSS_NEWTON default TRUE (the ratified PSD preset choice). GAUSS_NEWTON=false adds the EXACT curvature — TWO terms (guide §7.z2): -J(dM)J via d2Integrate(q_des, eq) contracted with grad_q, PLUS the chart-slope grad_q . d2Integrate(q, 0). Both live in the top-left 6x6 (joint charts are linear). Not necessarily PSD away from the solution.
+     *   ACCUMULATE=false overwrites the whole 2*NV x 2*NV block; true adds.
+     *   s_scratch must hold >= 90 (GN) / 312 (Newton) elements of T.
+     *
+     * @param s_hess is the tangent hessian output (size 36*36, column-major)
+     * @param s_x / s_x_des / s_Q / s_scratch as in quadratic_state_cost_tangent
+     */
+    template <typename T, bool ACCUMULATE = false, bool GAUSS_NEWTON = true>
+    __device__
+    void quadratic_state_cost_tangent_hessian(T *s_hess, const T *s_x, const T *s_x_des, const T *s_Q, T *s_scratch) {
+        quadratic_state_cost_tangent_setup<T>(s_x, s_x_des, s_scratch);
+        const T *s_eq = s_scratch; const T *s_Ji = &s_scratch[18 + 36];
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1296; ind += blockDim.x*blockDim.y){
+            int row = ind % 36;
+            int col = ind / 36;
+            T h = static_cast<T>(0);
+            if (row < 6 && col < 6) {
+                for (int b = 0; b < 6; ++b) h += s_Ji[6*b + row] * s_Q[b] * s_Ji[6*b + col]; }
+            else if (row == col) { h = s_Q[row]; }
+            if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+        }
+        __syncthreads();
+        if constexpr (!GAUSS_NEWTON) {
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T *s_g6 = &s_scratch[18 + 72]; T *s_T2 = &s_scratch[18 + 78];
+                #pragma unroll
+                for (int b = 0; b < 6; ++b) { T acc = static_cast<T>(0);
+                    for (int r = 0; r < 6; ++r) acc += s_Ji[6*r + b] * s_Q[r] * s_eq[r]; s_g6[b] = acc; }
+                // term 1: -J (dM) J through e — d2Integrate at (q_des, eq), contracted with grad_q.
+                grid::grid_d2Integrate_block<T, false>(s_eq, s_T2);
+                for (int i = 0; i < 6; ++i) { for (int k = 0; k < 6; ++k) {
+                    T acc = static_cast<T>(0);
+                    for (int b = 0; b < 6; ++b) for (int c = 0; c < 6; ++c) for (int m = 0; m < 6; ++m)
+                        acc += s_g6[b] * s_T2[36*b + 6*c + m] * s_Ji[6*c + i] * s_Ji[6*m + k];
+                    s_hess[k*36 + i] -= acc; } }
+                // term 2 (guide §7.z2 chart slope): + grad_q . d2Integrate(q, 0) — N(0)=I but dN(0)!=0.
+                T zero6[6] = {static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0)};
+                grid::grid_d2Integrate_block<T, false>(zero6, s_T2);
+                for (int i = 0; i < 6; ++i) { for (int k = 0; k < 6; ++k) {
+                    T acc = static_cast<T>(0);
+                    for (int b = 0; b < 6; ++b) acc += s_g6[b] * s_T2[36*b + 6*i + k];
+                    s_hess[k*36 + i] += acc; } }
+            }
+            __syncthreads();
+        }
+    }
+
+    /**
+     * quadratic_state_cost_tangent_value_grad_hess: fused value + gradient + hessian
+     *
+     * Notes:
+     *   Convenience fusion; same conventions and ACCUMULATE/GAUSS_NEWTON semantics as the three functions above.
+     *
+     * @param s_out / s_grad / s_hess are the three outputs
+     * @param s_x / s_x_des / s_Q / s_scratch as above (scratch sized for the hessian path)
+     */
+    template <typename T, bool ACCUMULATE = false, bool GAUSS_NEWTON = true>
+    __device__
+    void quadratic_state_cost_tangent_value_grad_hess(T *s_out, T *s_grad, T *s_hess, const T *s_x, const T *s_x_des, const T *s_Q, T *s_scratch) {
+        quadratic_state_cost_tangent<T, ACCUMULATE>(s_out, s_x, s_x_des, s_Q, s_scratch);
+        quadratic_state_cost_tangent_gradient<T, ACCUMULATE>(s_grad, s_x, s_x_des, s_Q, s_scratch);
+        quadratic_state_cost_tangent_hessian<T, ACCUMULATE, GAUSS_NEWTON>(s_hess, s_x, s_x_des, s_Q, s_scratch);
+    }
+
+    #define GRID_PLANT_HAS_TANGENT_STATE_COST 1
     /**
      * Scalar log-barrier helpers: b = -mu*(log(x-lo)+log(hi-x)); isfinite-guarded so an inf bound contributes zero
      *
@@ -54786,6 +55108,105 @@ namespace grid_plant {
         const T *s_q  = s_x;
         const T *s_qd = &s_x[19];
         grid::integrator_hessian_device<T, IT, SCRATCH_IN_SMEM, FD_GRAD_USE_SPILL, CONTRACT_IN_SMEM, MUJOCO_OUTPUT>(s_d2AB, s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, d_workspace, d_fd_grad_spill, s_fdsva_temp, d_mjx_ws, d_robotModel, gravity, dt);
+    }
+
+    /**
+     * ee_pos: RAW end-effector pose evaluator (no cost coupling; GATO ASK2)
+     *
+     * Notes:
+     *   Caller-scratch INNER: lays out the EE-pose scratch from s_scratch and calls grid::end_effector_pose_inner directly, so it is callable from another kernel's block without aliasing that kernel's dynamic-smem arena.
+     *   Fills ALL 1 EE block(s); position is rows 0..2 of each 6-row block.
+     *   s_scratch must hold >= END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+     *
+     * @param s_end_effector_pose is the 6*NUM_EE pose output
+     * @param s_q is the joint position vector (size NUM_POS)
+     * @param s_scratch is caller shared scratch
+     * @param d_robotModel is the GPU model helpers
+     */
+    template <typename T>
+    __device__
+    void ee_pos(T *s_end_effector_pose, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+        using namespace grid;
+        // GRID shared arena layout
+        //   T s_XmatsHom[672]
+        //   T s_temp[32]
+        //   int s_topology_helpers[115]
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(32);
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
+        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(704, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        end_effector_pose_inner_imu_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        __syncthreads();
+    }
+
+    /**
+     * ee_pos_gradient: RAW end-effector pose + Jacobian evaluator (no cost coupling; GATO ASK2)
+     *
+     * Notes:
+     *   Caller-scratch INNER: ONE XmatsHom load feeds BOTH end_effector_pose_inner and end_effector_pose_gradient_inner (const s_Xhom shared; geometric-Jacobian path, s_dXhom = nullptr) — same single-load structure as ee_pos_cost_gradient.
+     *   Jacobian layout: s_end_effector_pose_gradient[6*18*ee + 6*vi + row] (position rows 0..2, orientation rows 3..5; tangent d/dv convention).
+     *   s_scratch must hold >= END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+     *
+     * @param s_end_effector_pose is the 6*NUM_EE pose output
+     * @param s_end_effector_pose_gradient is the 6*NUM_VEL*NUM_EE Jacobian output
+     * @param s_q is the joint position vector (size NUM_POS)
+     * @param s_scratch is caller shared scratch
+     * @param d_robotModel is the GPU model helpers
+     */
+    template <typename T>
+    __device__
+    void ee_pos_gradient(T *s_end_effector_pose, T *s_end_effector_pose_gradient, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+        using namespace grid;
+        // GRID shared arena layout
+        //   T s_XmatsHom[672]
+        //   T s_temp[784]
+        //   int s_topology_helpers[115]
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(784);
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
+        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(1456, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        end_effector_pose_inner_imu_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        __syncthreads();
+        end_effector_pose_gradient_inner_imu_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        __syncthreads();
     }
 
     /**
@@ -55906,6 +56327,99 @@ namespace grid_plant {
             __syncthreads();
         }
     }
+
+    /**
+     * plant_step_gradient_arena: carve struct mirroring plant_step_gradient_kernel's full-smem scratch layout; members map 1:1 onto plant_step_gradient's caller-placed buffer arguments. Allocate INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes and call carve(base).
+     *
+     */
+    template <typename T>
+    struct plant_step_gradient_arena {
+        T *s_x;
+        T *s_u;
+        T *s_dAB;
+        T *s_df_du;
+        T *s_dc_du;
+        T *s_vaf;
+        T *s_Minv;
+        T *s_qdd;
+        T *s_q_orig;
+        T *s_qd_orig;
+        T *s_stage_grad_qdd;
+        T *s_D_qdd_stage;
+        T *s_dInt_q_6x6;
+        T *s_dInt_v_6x6;
+        T *s_XImats;
+        T *s_temp;
+        int *s_topology_helpers;
+        unsigned char *s_linalg_smem;
+        static __device__ plant_step_gradient_arena<T> carve(void *base) {
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+            size_t s_arena_offset = 0;
+            plant_step_gradient_arena<T> a;
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_x = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_u = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_dAB = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(1944);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_df_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(648);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_dc_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(648);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_vaf = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_Minv = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(19);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_qd_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_grad_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(72);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_D_qdd_stage = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(3888);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_q_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_v_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_XImats = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+            a.s_temp = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(9612);
+            s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(int));
+            a.s_topology_helpers = grid::grid_arena_ptr<int>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
+            a.s_linalg_smem = nullptr;
+            if (static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid::grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                a.s_linalg_smem = grid::grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset <= grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_SHARED>());
+            #endif
+            (void)s_arena_offset;
+            return a;
+        }
+    };
 
     #define GRID_PLANT_HAS_STEP_GRADIENT 1
     template <typename T> __host__ __device__ inline size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(281916); }

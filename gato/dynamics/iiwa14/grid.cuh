@@ -16847,6 +16847,7 @@ namespace grid {
     // NAMED target_EE -> TRUE ee_frame (== pinocchio oMf[target]); NUM_EE = 1.
     // 
     const int NUM_TARGET_EES = 1;
+    #define GRID_EE_FIXED_TARGET_NAME "EE"
     
     template <typename T, bool TEMP_IN_SMEM = true, typename... Args>
     __device__ __forceinline__
@@ -29559,6 +29560,61 @@ namespace grid {
     }
 
     /**
+     * integrator_arena: carve struct mirroring the integrator kernel's TIER_SHARED shared-arena layout; allocate INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes (e.g. an external solver's own smem block) and call carve(base).
+     *
+     */
+    template <typename T>
+    struct integrator_arena {
+        T *s_q_qd_u;
+        T *s_qdd;
+        T *s_stage_qdd;
+        T *s_stage_point;
+        T *s_x_kp1;
+        T *s_XImats;
+        T *s_temp;
+        int *s_topology_helpers;
+        unsigned char *s_linalg_smem;
+        static __device__ integrator_arena<T> carve(void *base) {
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+            size_t s_arena_offset = 0;
+            integrator_arena<T> a;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(21);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(21);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_point = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(42);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_x_kp1 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(14);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(504);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(716);
+            a.s_topology_helpers = nullptr;
+            a.s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset <= INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            #endif
+            (void)s_arena_offset;
+            return a;
+        }
+    };
+
+    /**
      * integrator gradient orchestration as a single inner-owns-placement device function
      *
      * Notes:
@@ -31989,6 +32045,97 @@ namespace grid {
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
     }
+
+    /**
+     * integrator_du_arena: carve struct mirroring the integrator_with_gradient kernel's TIER_SHARED shared-arena layout (with-x_kp1 shape, at this robot's TIER_SHARED spill rung); allocate INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes and call carve(base). Buffers spilled at this rung are ABSENT from the struct — pass workspace-band pointers for those (see the du kernel's slicing).
+     *
+     */
+    template <typename T>
+    struct integrator_du_arena {
+        T *s_q_qd_u;
+        T *s_dAB;
+        T *s_df_du;
+        T *s_dc_du;
+        T *s_vaf;
+        T *s_Minv;
+        T *s_qdd;
+        T *s_q_orig;
+        T *s_qd_orig;
+        T *s_stage_grad_qdd;
+        T *s_D_qdd_stage;
+        T *s_dInt_q_6x6;
+        T *s_dInt_v_6x6;
+        T *s_x_kp1;
+        T *s_XImats;
+        T *s_temp;
+        int *s_topology_helpers;
+        unsigned char *s_linalg_smem;
+        static __device__ integrator_du_arena<T> carve(void *base) {
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+            size_t s_arena_offset = 0;
+            integrator_du_arena<T> a;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(21);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dAB = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(294);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_df_du = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(98);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dc_du = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(98);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(126);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_Minv = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(49);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_q_orig = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_qd_orig = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_stage_grad_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(28);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_D_qdd_stage = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(588);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_q_6x6 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_dInt_v_6x6 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_x_kp1 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(14);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(504);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(1722);
+            a.s_topology_helpers = nullptr;
+            a.s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset <= INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            #endif
+            (void)s_arena_offset;
+            return a;
+        }
+    };
 
     /**
      * Computes the second order derivatives of inverse dynamics
@@ -38531,7 +38678,7 @@ namespace grid {
             gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
             for(int i=0; i<3; i++){
                 int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamNonBlocking,priority));
+                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
             }
             return streams;
         }
@@ -38552,7 +38699,7 @@ namespace grid {
             gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
             for(int i=0; i<3; i++){
                 int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamNonBlocking,priority));
+                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
             }
             return streams;
         }
@@ -39084,6 +39231,99 @@ namespace grid {
             const T *s_q  = s_x;
             const T *s_qd = &s_x[7];
             grid::integrator_hessian_device<T, IT, SCRATCH_IN_SMEM, FD_GRAD_USE_SPILL, CONTRACT_IN_SMEM>(s_d2AB, s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, d_workspace, d_fd_grad_spill, s_fdsva_temp, d_robotModel, gravity, dt);
+        }
+
+        /**
+         * ee_pos: RAW end-effector pose evaluator (no cost coupling; GATO ASK2)
+         *
+         * Notes:
+         *   Caller-scratch INNER: lays out the EE-pose scratch from s_scratch and calls grid::end_effector_pose_inner directly, so it is callable from another kernel's block without aliasing that kernel's dynamic-smem arena.
+         *   Fills ALL 1 EE block(s); position is rows 0..2 of each 6-row block.
+         *   s_scratch must hold >= END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+         *
+         * @param s_end_effector_pose is the 6*NUM_EE pose output
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch
+         * @param d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void ee_pos(T *s_end_effector_pose, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            using namespace grid;
+            // GRID shared arena layout
+            //   T s_XmatsHom[144]
+            //   T s_temp[32]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(144);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(32);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(176, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            end_effector_pose_inner_EE<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
+        }
+
+        /**
+         * ee_pos_gradient: RAW end-effector pose + Jacobian evaluator (no cost coupling; GATO ASK2)
+         *
+         * Notes:
+         *   Caller-scratch INNER: ONE XmatsHom load feeds BOTH end_effector_pose_inner and end_effector_pose_gradient_inner (const s_Xhom shared; geometric-Jacobian path, s_dXhom = nullptr) — same single-load structure as ee_pos_cost_gradient.
+         *   Jacobian layout: s_end_effector_pose_gradient[6*7*ee + 6*vi + row] (position rows 0..2, orientation rows 3..5; tangent d/dv convention).
+         *   s_scratch must hold >= END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+         *
+         * @param s_end_effector_pose is the 6*NUM_EE pose output
+         * @param s_end_effector_pose_gradient is the 6*NUM_VEL*NUM_EE Jacobian output
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch
+         * @param d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void ee_pos_gradient(T *s_end_effector_pose, T *s_end_effector_pose_gradient, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            using namespace grid;
+            // GRID shared arena layout
+            //   T s_XmatsHom[144]
+            //   T s_temp[190]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(144);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(190);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(334, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            end_effector_pose_inner_EE<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
+            end_effector_pose_gradient_inner_EE<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
         }
 
         /**
@@ -40166,6 +40406,97 @@ namespace grid {
                 __syncthreads();
             }
         }
+
+        /**
+         * plant_step_gradient_arena: carve struct mirroring plant_step_gradient_kernel's full-smem scratch layout; members map 1:1 onto plant_step_gradient's caller-placed buffer arguments. Allocate INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes and call carve(base).
+         *
+         */
+        template <typename T>
+        struct plant_step_gradient_arena {
+            T *s_x;
+            T *s_u;
+            T *s_dAB;
+            T *s_df_du;
+            T *s_dc_du;
+            T *s_vaf;
+            T *s_Minv;
+            T *s_qdd;
+            T *s_q_orig;
+            T *s_qd_orig;
+            T *s_stage_grad_qdd;
+            T *s_D_qdd_stage;
+            T *s_dInt_q_6x6;
+            T *s_dInt_v_6x6;
+            T *s_XImats;
+            T *s_temp;
+            int *s_topology_helpers;
+            unsigned char *s_linalg_smem;
+            static __device__ plant_step_gradient_arena<T> carve(void *base) {
+                unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
+                size_t s_arena_offset = 0;
+                plant_step_gradient_arena<T> a;
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_x = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(14);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_u = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_dAB = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(294);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_df_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(98);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_dc_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(98);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_vaf = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(126);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_Minv = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(49);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_q_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_qd_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_stage_grad_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(28);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_D_qdd_stage = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(588);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_dInt_q_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_dInt_v_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_XImats = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(504);
+                s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
+                a.s_temp = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(1722);
+                a.s_topology_helpers = nullptr;
+                a.s_linalg_smem = nullptr;
+                if (static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                    s_arena_offset = grid::grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                    a.s_linalg_smem = grid::grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                    s_arena_offset += static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+                }
+                #ifdef GRID_CUDA_DEBUG_LAYOUT
+                assert(s_arena_offset <= grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_SHARED>());
+                #endif
+                (void)s_arena_offset;
+                return a;
+            }
+        };
 
         #define GRID_PLANT_HAS_STEP_GRADIENT 1
         template <typename T> __host__ __device__ inline size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(12662); }

@@ -35,8 +35,7 @@ ROBOTS = {
     # floating base (CL-3): EE = the trunk imu (base-position cost target),
     # contact frames = the four feet (fc-on-feet wave); floating_base=True is
     # REQUIRED (codegen does NOT auto-detect the free-flyer — a fixed-base
-    # parse of go2 crashes the named-target EE emitter) and also emits
-    # gato_abi.cuh alongside.
+    # parse of go2 crashes the named-target EE emitter).
     "go2": dict(urdf=REPO_ROOT / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf",
                 ee_frame="imu_joint", collision_res=0.15, floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint",

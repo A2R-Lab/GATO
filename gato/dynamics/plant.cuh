@@ -6,17 +6,6 @@
 #include "settings.h"
 #include "utils/linalg.cuh"
 
-// Per-robot ABI aliases (generated for FLOATING robots only — see
-// builder._write_gato_abi). The fixed-target EE-pose inners are suffixed with
-// the EE frame name; the vendored arms all use "EE", which the fallback keeps.
-#if __has_include("gato_abi.cuh")
-#include "gato_abi.cuh"
-#endif
-#ifndef GATO_GRID_EE_POSE_INNER
-#define GATO_GRID_EE_POSE_INNER end_effector_pose_inner_EE
-#define GATO_GRID_EE_POSE_GRAD_INNER end_effector_pose_gradient_inner_EE
-#endif
-
 using namespace sqp;
 
 // Generic plant adapter: everything robot-specific comes from the generated
@@ -661,47 +650,82 @@ namespace plant {
 #else  // !GRID_PLANT_HAS_TRACKING_COST — FLOATING BASE (CL-3 W3.4)
         // ─── FLOATING BASE: composed tracking cost ───────────────────────────
         //
-        // The generated tracking preset is fixed-base gated upstream (its
-        // per-term inners disagree on frame: quadratic_state_cost differences
-        // the quaternion componentwise while ee_pos_cost is tangent — GRiD
-        // ASK 3 requests the upstream floating preset; this composition is the
-        // GATO-side interim and the convention reference). Terms, all TANGENT
-        // (gradient 2·NV, Hessian 2·NV × 2·NV col-major, R/r actuated NU):
+        // The full tracking preset is fixed-base gated upstream; the floating
+        // composition lives here, built from generated per-term surfaces.
+        // Since 2026-08-13 the quadratic state part goes through the GRiD
+        // ASK 3 log-map preset (grid_plant::quadratic_state_cost_tangent*,
+        // oracle-gated vs RBDReference.quadratic_state_cost_tangent). Terms,
+        // all TANGENT (gradient 2·NV, Hessian 2·NV × 2·NV col-major, R/r
+        // actuated NU):
         //   - EE position tracking: grid_plant::ee_pos_cost[_gradient] (already
         //     tangent; on go2 the "EE" is the torso imu frame, so this doubles
         //     as the base-position cost) + a Gauss-Newton JᵀWJ q-block composed
         //     from the Jacobian the gradient call produces (PSD by construction,
         //     matching the GN-SQP pairing; exact-Hessian is fixed-base only).
-        //   - velocity reg qd_cost on ALL NV tangent velocities (base damping
-        //     included — the floating analog of the historic full-qd reg).
-        //   - control reg + posture anchor + barriers on the ACTUATED slots
-        //     only (tangent q slots 6..NV, stored q slots 7..NQ; the NU-row
-        //     limit tables align with the actuated joints by construction).
-        //     d_q_nom / d_q_pos_w_vec are STORED-q indexed (base slots unread).
+        //   - quadratic state cost via the tangent preset: velocity reg qd_cost
+        //     on ALL NV tangent velocities + posture anchor on the actuated q
+        //     slots; base pose rows carry weight 0 today (base-pose tracking =
+        //     weight the 6 base slots + a real x_des — no new code).
+        //   - control reg + barriers on the ACTUATED slots only (tangent q
+        //     slots 6..NV, stored q slots 7..NQ; the NU-row limit tables align
+        //     with the actuated joints by construction). d_q_nom /
+        //     d_q_pos_w_vec are STORED-q indexed (base slots unread).
         //   - fc terms: none (fc builds are fixed-base only, asserted above).
         static_assert(NQ == NV + 1, "floating tracking composition expects the free-flyer layout");
 
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
         {
-                // W(3) + eePos(6*NEE) + max(EE value arena incl. topology ints,
-                // the per-slot partial buffer NV + 4*NU reused from the arena)
+                // W(3) + eePos(6*NEE) + Q_diag(2*NV) + x_des(NX) + max(EE value
+                // arena incl. topology ints, the tangent state-cost value
+                // scratch (54), the per-slot partial buffer 3*NU)
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
                     + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
                     + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
-                constexpr unsigned partials = (unsigned)(NV + 4 * NU);
-                return 3 + 6 * NEE + (arena > partials ? arena : partials);
+                constexpr unsigned partials = (unsigned)(3 * NU);
+                constexpr unsigned tsc = 54u;
+                constexpr unsigned mx0 = arena > partials ? arena : partials;
+                return 3 + 6 * NEE + 2 * NV + NX + (mx0 > tsc ? mx0 : tsc);
         }
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
         {
-                // W(3) + eePos(6*NEE) + J(6*NV*NEE) + EE gradient arena
+                // W(3) + eePos(6*NEE) + J(6*NV*NEE) + Q_diag(2*NV) + x_des(NX)
+                // + max(EE gradient arena, tangent state-cost GN scratch (90))
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
                     + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
                     + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
-                return 3 + 6 * NEE + 6 * NV * NEE + arena;
+                constexpr unsigned tsc = 90u;
+                return 3 + 6 * NEE + 6 * NV * NEE + 2 * NV + NX + (arena > tsc ? arena : tsc);
+        }
+
+        // Shared builder for the tangent state-cost inputs (GRiD ASK 3,
+        // landed 2026-08-13): diagonal tangent weights s_Q (2*NV) and the
+        // stored anchor state s_x_des (NX). Base rows carry weight 0 today —
+        // base-pose tracking becomes a WEIGHT change (slots 0..5 + a real
+        // base pose in s_x_des), not new code. x_des base = identity pose
+        // (quat xyzw ⇒ slot 6 = 1): the log-map must stay finite even at
+        // zero weight (0 * NaN = NaN). Strided, no trailing sync.
+        template<typename T>
+        __device__ __forceinline__ void buildTangentStateCostInputs(
+            T* s_Q, T* s_x_des, T qd_cost, T q_pos_cost,
+            const T* d_q_nom, const T* d_q_pos_w_vec, int tid, int nth)
+        {
+                for (int i = tid; i < 2 * NV + NX; i += nth) {
+                        if (i < 2 * NV) {
+                                s_Q[i] = (i < 6) ? static_cast<T>(0)
+                                         : (i < NV ? ((d_q_pos_w_vec != nullptr) ? d_q_pos_w_vec[7 + i - 6] : q_pos_cost)
+                                                   : qd_cost);
+                        } else {
+                                const int j = i - 2 * NV;
+                                T v = static_cast<T>(0);
+                                if (j == 6) v = static_cast<T>(1);
+                                else if (j >= 7 && j < NQ) v = (d_q_nom != nullptr) ? d_q_nom[j] : static_cast<T>(0);
+                                s_x_des[j] = v;
+                        }
+                }
         }
 
         // VALUE (same signature as the fixed adapter). s_x is the STORED state
@@ -720,42 +744,43 @@ namespace plant {
                 (void)fc_cost; (void)d_fc_ref;
                 T* s_W = s_temp;
                 T* s_eePos = s_W + 3;
-                T* s_arena = s_eePos + 6 * NEE;  // EE value arena; reused as the partial buffer after
+                T* s_Q = s_eePos + 6 * NEE;      // tangent diag weights (2*NV)
+                T* s_x_des = s_Q + 2 * NV;       // stored anchor state (NX)
+                T* s_arena = s_x_des + NX;       // EE value arena; preset scratch + partial buffer after
                 const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                 const int nth = blockDim.x * blockDim.y;
                 const T ee_w = is_terminal ? N_cost : q_cost;
                 const T u_w  = is_terminal ? static_cast<T>(0) : u_cost;
                 const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost;
                 for (int r = tid; r < 3; r += nth) { s_W[r] = ee_w; }
+                buildTangentStateCostInputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
+                                               d_q_nom, d_q_pos_w_vec, tid, nth);
                 __syncthreads();
                 __shared__ T s_out[1];
                 grid_plant::ee_pos_cost<T, 0, /*ACCUMULATE=*/false>(s_out, s_x, s_eePos_traj, s_W, s_eePos, s_arena, d_robotModel);
                 __syncthreads();
-                // per-slot partials in a FIXED layout (deterministic serial sum below):
-                // [0,NV) qd reg | [NV,NV+NU) u reg+barrier | +NU anchor | +NU q barrier | +NU qd barrier
+                // posture anchor (actuated q) + qd reg via the generated log-map
+                // tangent preset (GRiD ASK 3; serial fixed-order sum inside —
+                // the merit stays deterministic). Base rows weight 0 today.
+                grid_plant::quadratic_state_cost_tangent<T, /*ACCUMULATE=*/true>(s_out, s_x, s_x_des, s_Q, s_arena);
+                __syncthreads();
+                // remaining per-slot partials in a FIXED layout (deterministic
+                // serial sum below): [0,NU) u reg+barrier | +NU q barrier | +NU qd barrier
                 T* s_part = s_arena;
-                constexpr int NP = NV + 4 * NU;
+                constexpr int NP = 3 * NU;
                 for (int i = tid; i < NP; i += nth) {
                         T v;
-                        if (i < NV) {
-                                const T qd = s_x[NQ + i];
-                                v = static_cast<T>(0.5) * qd_cost * qd * qd;
-                        } else if (i < NV + NU) {
-                                const int j = i - NV;
+                        if (i < NU) {
+                                const int j = i;
                                 const T uw = (d_u_cost_vec != nullptr && !is_terminal) ? d_u_cost_vec[j] : u_w;
                                 const T uj = s_u[j];
                                 v = static_cast<T>(0.5) * uw * uj * uj
                                     + grid_plant::grid_plant_log_barrier<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], mu_u);
-                        } else if (i < NV + 2 * NU) {
-                                const int j = i - NV - NU;
-                                const T w = (d_q_pos_w_vec != nullptr) ? d_q_pos_w_vec[7 + j] : q_pos_cost;
-                                const T e = s_x[7 + j] - (d_q_nom != nullptr ? d_q_nom[7 + j] : static_cast<T>(0));
-                                v = static_cast<T>(0.5) * w * e * e;
-                        } else if (i < NV + 3 * NU) {
-                                const int j = i - NV - 2 * NU;
+                        } else if (i < 2 * NU) {
+                                const int j = i - NU;
                                 v = grid_plant::grid_plant_log_barrier<T>(s_x[7 + j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
                         } else {
-                                const int j = i - NV - 3 * NU;
+                                const int j = i - 2 * NU;
                                 v = grid_plant::grid_plant_log_barrier<T>(s_x[NQ + 6 + j], VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
                         }
                         s_part[i] = v;
@@ -788,7 +813,9 @@ namespace plant {
                 T* s_W = s_temp;
                 T* s_eePos = s_W + 3;
                 T* s_J = s_eePos + 6 * NEE;     // 6*NV*NEE, layout [6*vi + row]
-                T* s_arena = s_J + 6 * NV * NEE;
+                T* s_Q = s_J + 6 * NV * NEE;    // tangent diag weights (2*NV)
+                T* s_x_des = s_Q + 2 * NV;      // stored anchor state (NX)
+                T* s_arena = s_x_des + NX;
                 const int tid = threadIdx.x + threadIdx.y * blockDim.x;
                 const int nth = blockDim.x * blockDim.y;
                 for (int i = tid; i < TS * TS; i += nth) { s_Qk[i] = static_cast<T>(0); }
@@ -796,6 +823,8 @@ namespace plant {
                 for (int i = tid; i < NU * NU; i += nth) { s_Rk[i] = static_cast<T>(0); }
                 for (int i = tid; i < NU; i += nth) { s_rk[i] = static_cast<T>(0); }
                 for (int r = tid; r < 3; r += nth) { s_W[r] = ee_weight; }
+                buildTangentStateCostInputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
+                                               d_q_nom, d_q_pos_w_vec, tid, nth);
                 __syncthreads();
                 // tangent EE gradient adds into the zeroed dq block (ACCUMULATE:
                 // the non-accumulate variant zeroes an NX-long tail past our
@@ -811,28 +840,26 @@ namespace plant {
                         s_Qk[vj * TS + vi] = acc;
                 }
                 __syncthreads();
-                // diagonal terms + gradients (anchor/barriers actuated-only)
+                // posture anchor (actuated q) + qd reg via the generated log-map
+                // tangent preset (GRiD ASK 3): exact-J_diff gradient + GN hessian
+                // ACCUMULATEd onto the zeroed/EE-GN blocks. Base rows weight 0
+                // today — base-pose tracking is a weight change (see
+                // buildTangentStateCostInputs). Both calls end on a barrier.
+                grid_plant::quadratic_state_cost_tangent_gradient<T, /*ACCUMULATE=*/true>(s_qk, s_x, s_x_des, s_Q, s_arena);
+                grid_plant::quadratic_state_cost_tangent_hessian<T, /*ACCUMULATE=*/true, /*GAUSS_NEWTON=*/true>(s_Qk, s_x, s_x_des, s_Q, s_arena);
+                // barrier terms (actuated-only) + u reg
                 for (int i = tid; i < TS; i += nth) {
                         T g = static_cast<T>(0), h = static_cast<T>(0);
-                        if (i < NV) {
-                                if (i >= 6) {
-                                        const int j = i - 6;
-                                        const T w = (d_q_pos_w_vec != nullptr) ? d_q_pos_w_vec[7 + j] : q_pos_cost;
-                                        const T qj = s_x[7 + j];
-                                        g += w * (qj - (d_q_nom != nullptr ? d_q_nom[7 + j] : static_cast<T>(0)));
-                                        h += w;
-                                        g += grid_plant::grid_plant_log_barrier_grad<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
-                                        h += grid_plant::grid_plant_log_barrier_hess<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
-                                }
-                        } else {
-                                const T qd = s_x[NQ + (i - NV)];
-                                g += qd_cost * qd;
-                                h += qd_cost;
-                                if (i >= NV + 6) {
-                                        const int j = i - NV - 6;
-                                        g += grid_plant::grid_plant_log_barrier_grad<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
-                                        h += grid_plant::grid_plant_log_barrier_hess<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
-                                }
+                        if (i >= 6 && i < NV) {
+                                const int j = i - 6;
+                                const T qj = s_x[7 + j];
+                                g = grid_plant::grid_plant_log_barrier_grad<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
+                                h = grid_plant::grid_plant_log_barrier_hess<T>(qj, JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
+                        } else if (i >= NV + 6) {
+                                const int j = i - NV - 6;
+                                const T qd = s_x[NQ + 6 + j];
+                                g = grid_plant::grid_plant_log_barrier_grad<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
+                                h = grid_plant::grid_plant_log_barrier_hess<T>(qd, VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
                         }
                         s_qk[i] += g;
                         s_Qk[i * TS + i] += h;
@@ -852,14 +879,13 @@ namespace plant {
         // ===================================================================
         // RAW EE-pose evaluators (constraint row-group layer)
         //
-        // Caller-scratch mirrors of grid_plant::ee_pos_cost[_gradient] minus the
-        // cost math: carve the GRiD EE arena from s_scratch and call the
-        // composable _inner entry points (NOT the auto-allocating _device
-        // variants, which claim the kernel's dynamic-smem arena at offset 0).
-        // s_scratch must be 16B-aligned and hold >= eePos[Grad]_TempMemCt()
-        // elements. Outputs: s_pose = 6*NEE (position = rows 0..2 per EE);
-        // s_grad = 6*NQ*NEE, layout [6*NQ*ee + 6*vi + row] (J_p = rows 0..2).
-        // Upstream ask logged: first-class raw evaluators in grid_plant.
+        // Thin forwards to the generated grid_plant::ee_pos[_gradient]
+        // (GRiD ASK 2, landed 2026-08-13): caller-scratch, no cost coupling,
+        // arena carved by the emitted code itself. s_scratch must be
+        // 16B-aligned and hold >= eePos[Grad]_TempMemCt() elements.
+        // Outputs: s_pose = 6*NEE (position = rows 0..2 per EE);
+        // s_grad = 6*NV*NEE, layout [6*NV*ee + 6*vi + row] (J_p = rows 0..2;
+        // tangent d/dv convention — NV == NQ on fixed base).
         // ===================================================================
 
         // Counts include the topology-helper int region (0 on fixed serial
@@ -879,10 +905,12 @@ namespace plant {
                        + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
         }
 
-        // Carve helper for the two raw evaluators: XmatsHom at 0 (emitted
-        // count — 144 on the vendored arms, per-body on branched/floating
-        // robots), temp after it, topology ints past the T region (nullptr on
-        // fixed serial chains, count 0 — pointer values identical there).
+        // Carve helper for the remaining hand-carved inner compositions (the
+        // collision multi-target FK below — no upstream raw multi-target
+        // evaluator exists; the EE pair moved to grid_plant::ee_pos*):
+        // XmatsHom at 0, temp after it, topology ints past the T region
+        // (nullptr on fixed serial chains, count 0 — pointer values identical
+        // there).
         template<typename T, unsigned TOTAL_T_CT>
         __device__ __forceinline__ void eeCarve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers, unsigned char** s_linalg_smem)
         {
@@ -902,29 +930,13 @@ namespace plant {
         template<typename T>
         __device__ void eePos(T* s_pose, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
-                using namespace grid;
-                T *s_XmatsHom, *s_temp;
-                int* s_topology_helpers;
-                unsigned char* s_linalg_smem;
-                eeCarve<T, (unsigned)END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                GATO_GRID_EE_POSE_INNER<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
-                __syncthreads();
+                grid_plant::ee_pos<T>(s_pose, s_q, s_scratch, d_robotModel);
         }
 
         template<typename T>
         __device__ void eePosGrad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
-                using namespace grid;
-                T *s_XmatsHom, *s_temp;
-                int* s_topology_helpers;
-                unsigned char* s_linalg_smem;
-                eeCarve<T, (unsigned)END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                GATO_GRID_EE_POSE_INNER<T, true>(s_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
-                __syncthreads();
-                GATO_GRID_EE_POSE_GRAD_INNER<T, true>(s_grad, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
-                __syncthreads();
+                grid_plant::ee_pos_gradient<T>(s_pose, s_grad, s_q, s_scratch, d_robotModel);
         }
 
         // ===================================================================
