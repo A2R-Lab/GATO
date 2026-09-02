@@ -89,3 +89,5 @@ See [batch_sqp.cu](examples/bsqp.cu) for a minimal example of a batched trajecto
       url={https://arxiv.org/abs/2510.07625}, 
 }
 ```
+## Funding Acknowledgement
+This material is based upon work supported by the National Science Foundation (under Awards [2411369](https://www.nsf.gov/awardsearch/show-award/?AWD_ID=2411369) and [2246022](https://www.nsf.gov/awardsearch/show-award?AWD_ID=2246022)). Any opinions, findings, conclusions, or recommendations expressed in this material are those of the authors and do not necessarily reflect those of the funding organizations.
