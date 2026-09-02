@@ -77,17 +77,15 @@ See [batch_sqp.cu](examples/bsqp.cu) for a minimal example of a batched trajecto
 - [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for computing rigid body dynamics with analytical gradients
 
 ## Cite
-
 ```bibtex
-@misc{du2025gatogpuacceleratedbatchedtrajectory,
-      title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
-      author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
-      year={2025},
-      eprint={2510.07625},
-      archivePrefix={arXiv},
-      primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2510.07625}, 
+@inproceedings{du2026gato,
+    title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
+    author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
+    booktitle={IEEE International Conference on Robotics and Automation (ICRA)}, 
+    year={2026},
+    month={June}
 }
 ```
+
 ## Funding Acknowledgement
 This material is based upon work supported by the National Science Foundation (under Awards [2411369](https://www.nsf.gov/awardsearch/show-award/?AWD_ID=2411369) and [2246022](https://www.nsf.gov/awardsearch/show-award?AWD_ID=2246022)). Any opinions, findings, conclusions, or recommendations expressed in this material are those of the authors and do not necessarily reflect those of the funding organizations.
