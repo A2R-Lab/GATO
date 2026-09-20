@@ -19,6 +19,8 @@ on:
   push:
     branches: [main, cleanup-modernization]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly: surface receipt decay (max_age_days) without waiting for a push
 
 jobs:
   verify-receipt:
@@ -27,8 +29,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0        # commit-SHA ancestry check needs history
-          # NOT submodules: true — external/GRiD + external/GLASS use SSH URLs;
-          # the verifier installs pytest-gpu-proof from PyPI, no submodules needed.
+          # no submodules here: the verifier installs pytest-gpu-proof from PyPI
+          # and fingerprints the parent tree only (gitlinks pin the submodules).
 
       - name: Check for a receipt
         id: receipt
@@ -47,7 +49,7 @@ jobs:
 
       - name: Install pytest-gpu-proof (PyPI)
         if: steps.receipt.outputs.present == 'true'
-        run: pip install "pytest-gpu-proof>=0.1" pyyaml  # pyyaml: the .yaml policy file needs it
+        run: pip install "pytest-gpu-proof==0.4.0" pyyaml  # pinned: schema/policy/verifier move together
 
       - name: Verify receipt
         if: steps.receipt.outputs.present == 'true'
@@ -62,16 +64,30 @@ jobs:
   cpu-lane:
     runs-on: ubuntu-latest
     steps:
+      # submodules: recursive on a credential-less runner IS the fresh-clone gate:
+      # the public install path (README) must work without a GitHub SSH key.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install GATO (python package only, no CUDA build)
-        run: |
-          pip install -e .
-          pip install pytest
+      - name: Install GATO (python package + full host-tier test deps, no CUDA build)
+        run: pip install -e ".[test,dev]"   # pin/mujoco/scipy/gymnasium: no host test may skip for a missing dep
 
-      - name: Host-only test tier
-        run: python -m pytest -m "not gpu and not slow" -q
+      - name: Host-only test tier (no silent skips)
+        run: |
+          python -m pytest -m "not gpu and not slow" -q -rs --junitxml=host-tier.xml
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("host-tier.xml").getroot()
+          skipped = [(tc.get("classname"), tc.get("name"), tc.find("skipped").get("message"))
+                     for tc in root.iter("testcase") if tc.find("skipped") is not None]
+          for s in skipped:
+              print("SKIPPED:", *s)
+          if skipped:
+              sys.exit("cpu-lane: %d host-tier test(s) skipped — a skip proves nothing; fix the dependency or the gate" % len(skipped))
+          print("cpu-lane: 0 skips")
+          PY

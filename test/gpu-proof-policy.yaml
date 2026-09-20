@@ -1,4 +1,5 @@
-# pytest-gpu-proof verification policy for GATO.
+# pytest-gpu-proof verification policy for GATO (schema 3, plugin 0.4.0 —
+# pinned in pyproject [dev]; bump plugin + this file + the receipt together).
 #
 # allow_dirty:false is load-bearing, not cosmetic. The fingerprint hashes the
 # tracked sources (gato/, python/gato, test/, CMakeLists.txt) but cannot descend
@@ -9,3 +10,21 @@
 # deps — does not count as dirty: the gitlink pin is unchanged.)
 allow_dirty: false
 max_age_days: 30
+
+# Legacy schema-1/2 receipts (pre-0.4.0) did not sign the signer identity, the
+# exact test collection or the session outcome — refuse them.
+min_schema: 3
+
+# Only the keyholder signs. Org remotes (A2R-Lab) carry no SSH keys; the
+# signer identity is part of the signed payload since schema 3.
+signer_mode: restricted
+allowed_signers: [plancherb1]
+
+# Pin the fingerprint scope so a receipt cannot quietly attest a narrower tree
+# (compared as sets; must equal pyproject [tool.gpu_proof] fingerprint_paths).
+required_fingerprint_paths: [CMakeLists.txt, gato, python/gato, test]
+required_fingerprint_excluded_paths: [gpu-proof.json]
+
+# GATO's whole receipt run is ~minutes — no shard carry-forward (GRiD/GLASS use
+# it for hours-long suites). Every receipt is a fresh full pass.
+allow_carried: false

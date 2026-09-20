@@ -8,13 +8,16 @@
 # Commit the receipt together with (or right after) the change it attests.
 #
 # Prerequisites:
-#   - built solver modules for BOTH vendored robots (the smoke tests iterate
-#     every built (plant, N) combo; test_build additionally dogfoods gato.build)
-#   - a python WITH pinocchio (the [examples] extra, or GRiD's .venv) — without
-#     it the solver-construction tests SKIP, and a receipt with unexpected
-#     skips fails CI verification (skips prove nothing).
-#   - the pytest-gpu-proof plugin (PyPI; installed below) and an SSH signing
-#     key (~/.ssh/id_*) whose public half is on the keyholder's GitHub.
+#   - the receipt module set built into python/gato/ (test/receipt_modules.txt;
+#     `./tools/build.sh --profile receipt`) — the script REFUSES to sign when
+#     one is missing (its tests would skip; skips prove nothing)
+#   - a python WITH pinocchio + mujoco + scipy (the [test] extra:
+#     `./tools/install.sh --test`, or `pip install -e ".[test,dev]"`) — the
+#     script REFUSES to run without them: missing deps turn tests into skips,
+#     and a receipt with unexpected skips fails CI verification (skips prove
+#     nothing). The project .venv is the canonical signer python.
+#   - the pytest-gpu-proof plugin (PyPI, pinned 0.4.0 — schema 3) and an SSH
+#     signing key (~/.ssh/id_*) whose public half is on the keyholder's GitHub.
 #
 # Usage:
 #   ./test/run_gpu_proof.sh                      # full receipt -> gpu-proof.json
@@ -34,7 +37,30 @@ fi
 
 PYTHON="${PYTHON:-.venv/bin/python}"
 
-"$PYTHON" -m pip install -q "pytest-gpu-proof>=0.1" pyyaml
+# Refuse a python that would sign a skip-laden receipt (see Prerequisites).
+if ! "$PYTHON" - <<'PY'
+import importlib.util, sys
+missing = [m for m in ("pinocchio", "mujoco", "scipy", "gymnasium") if importlib.util.find_spec(m) is None]
+if missing:
+    print("ERROR: %s lacks %s — install the [test] extra: pip install -e '.[test,dev]'"
+          % (sys.executable, ", ".join(missing)), file=sys.stderr)
+    sys.exit(1)
+PY
+then exit 1; fi
+
+"$PYTHON" -m pip install -q "pytest-gpu-proof==0.4.0" pyyaml
+
+# Refuse to sign with a partial module set (test/receipt_modules.txt = D12 profile).
+missing=()
+while read -r plant knot; do
+    [[ -z "${plant}" || "${plant}" == \#* ]] && continue
+    compgen -G "python/gato/bsqpN${knot}_${plant}.*.so" > /dev/null || missing+=("bsqpN${knot}_${plant}")
+done < test/receipt_modules.txt
+if (( ${#missing[@]} )); then
+    echo "ERROR: receipt module set incomplete — missing: ${missing[*]}" >&2
+    echo "       build it with: ./tools/build.sh --profile receipt" >&2
+    exit 1
+fi
 
 # --gpu-proof-github-user: the signer must be the human KEYHOLDER — the
 # plugin's remote-derived default would guess the org (A2R-Lab), and orgs have

@@ -1,0 +1,24 @@
+# The EXACT solver-module set the signed gpu-proof receipt attests (plan D12).
+# One "plant N" per line. Arms carry the full paper horizon ladder; go2 is
+# N16-ONLY (floating-base TUs at longer horizons are compile blowups — never
+# put go2 through the generic PLANT x KNOTS cross-product).
+#
+#   cmake -S . -B build -DGATO_RECEIPT_PROFILE=ON   (or ./tools/build.sh --profile receipt)
+#   test/run_gpu_proof.sh refuses to sign when any of these is missing from
+#   python/gato/ — a missing module turns its tests into skips, which prove nothing.
+#
+# Contact-force (fc) arm modules live in build_fc/modules until variant naming
+# lands (plan Wave 2.A); they are gated by expected_skips.txt, not listed here.
+indy7 8
+indy7 16
+indy7 32
+indy7 46
+indy7 64
+indy7 128
+iiwa14 8
+iiwa14 16
+iiwa14 32
+iiwa14 46
+iiwa14 64
+iiwa14 128
+go2 16

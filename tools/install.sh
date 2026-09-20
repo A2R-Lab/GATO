@@ -5,9 +5,10 @@
 # installs into it.
 #
 #   ./tools/install.sh              # lean: codegen + build deps + submodules + regen grid.cuh
-#   ./tools/install.sh --examples   #   + heavy runtime to run MPC/benchmark examples (torch, pin, viz)
-#   ./tools/install.sh --dev        #   + test tooling (pytest)
-#   ./tools/install.sh --all        #   + examples + dev
+#   ./tools/install.sh --examples   #   + heavy runtime to run MPC/benchmark examples (torch, pin, mujoco, viz)
+#   ./tools/install.sh --test       #   + full test-suite deps (pin, mujoco, scipy, gymnasium) — what run_gpu_proof.sh needs
+#   ./tools/install.sh --dev        #   + test tooling (pytest, pytest-gpu-proof)
+#   ./tools/install.sh --all        #   + examples + test + dev
 #   ./tools/install.sh --no-regen   # skip the regen_grid.py codegen step
 #
 # After install:  source .venv/bin/activate  &&  ./tools/build.sh
@@ -18,14 +19,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VENV_DIR="${REPO_ROOT}/.venv"
 
 WANT_EXAMPLES=0
+WANT_TEST=0
 WANT_DEV=0
 DO_REGEN=1
 
 for arg in "$@"; do
   case "${arg}" in
     --examples) WANT_EXAMPLES=1 ;;
+    --test)     WANT_TEST=1 ;;
     --dev)      WANT_DEV=1 ;;
-    --all)      WANT_EXAMPLES=1; WANT_DEV=1 ;;
+    --all)      WANT_EXAMPLES=1; WANT_TEST=1; WANT_DEV=1 ;;
     --no-regen) DO_REGEN=0 ;;
     -h|--help)
       sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^#\{0,1\} \{0,1\}//'
@@ -36,9 +39,10 @@ done
 
 # Build the pip extras suffix, e.g. "" or "[examples,dev]".
 EXTRAS=""
-if (( WANT_EXAMPLES || WANT_DEV )); then
+if (( WANT_EXAMPLES || WANT_TEST || WANT_DEV )); then
   parts=()
   (( WANT_EXAMPLES )) && parts+=("examples")
+  (( WANT_TEST ))     && parts+=("test")
   (( WANT_DEV ))      && parts+=("dev")
   EXTRAS="[$(IFS=,; echo "${parts[*]}")]"
 fi
@@ -103,6 +107,7 @@ echo "Setup complete."
 echo " - activate:  source .venv/bin/activate"
 echo " - build:     ./tools/build.sh   (or: cmake -DPLANT=... -DKNOTS=... && cmake --build)"
 (( WANT_EXAMPLES )) || echo " - to run the examples you also need the runtime stack: ./tools/install.sh --examples"
+(( WANT_TEST ))     || echo " - to run the FULL test suite / sign a receipt: ./tools/install.sh --test --dev"
 echo " - paper Fig-3 CPU baseline (optional): ./examples/benchmarks/baselines/build_cpu_baseline.sh"
 echo "     builds the threaded BatchThneed (pysqpcpu) — osqp+osqp-eigen into a LOCAL prefix, reusing"
 echo "     the venv's cmeel pinocchio (NO ROS). Then: source examples/benchmarks/baselines/sqpcpu_env.sh"

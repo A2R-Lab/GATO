@@ -32,6 +32,7 @@ dependencies = [
 examples = [
     "torch>=2.6.0",
     "pin>=3.4.0",
+    "mujoco>=3.2",              # gato.worlds MuJoCoWorld + test_worlds/test_floating_worlds
     "scipy>=1.15.2",
     "matplotlib>=3.10.1",
     "seaborn>=0.13.2",
@@ -43,12 +44,23 @@ examples = [
     "jupyter>=1.1.1",
     "ipykernel>=6.29.5",
 ]
-# Test / lint tooling.
+# Test / lint tooling. Pinned plugin: the receipt schema, the verifier and the
+# policy file must agree (schema 3 since 0.4.0) — bump all three together.
 dev = [
     "pytest",
     "pytest-xdist",
-    "pytest-gpu-proof>=0.1",   # signed GPU-CI receipts (was a test/ submodule pre-2026-07-07)
+    "pytest-gpu-proof==0.4.0", # signed GPU-CI receipts (schema 3; pinned, see test/gpu-proof-policy.yaml)
     "pyyaml",                  # test/gpu-proof-policy.yaml
+]
+# Everything the FULL test suite needs beyond dev, without the heavy example
+# runtime (torch, Qt/meshcat, jupyter): the pinocchio/mujoco worlds, the scipy
+# mechanism oracles, the gym policy. cpu-lane CI installs this so no host-tier
+# test can skip silently; run_gpu_proof.sh refuses a python that lacks it.
+test = [
+    "pin>=3.4.0",
+    "mujoco>=3.2",
+    "scipy>=1.15.2",
+    "gymnasium>=0.29",
 ]
 
 [tool.setuptools]
@@ -58,10 +70,16 @@ package-dir = {"" = "python"}
 where = ["python"]
 include = ["gato*"]
 
-# Ship prebuilt solver modules with the package when they exist (built by CMake
-# into python/gato/).
+# DISTRIBUTION CONTRACT (plan D10, 2026-09-20): the wheel carries the PYTHON
+# layer only. Solver modules (bsqpN{N}_{plant}.so) are arch/CUDA/ABI-specific
+# CMake products and are NEVER packaged — a "py3-none-any" wheel with native
+# modules inside is a lie (observed 18 MiB, checkout-state dependent). They are
+# built from a source tree (checkout or sdist) with tools/build.sh; gato.BSQP
+# raises with the build command when none is present. The sdist ships the full
+# CMake source tree (see MANIFEST.in) so it IS buildable. Gate:
+# test/test_distribution_artifacts.py.
 [tool.setuptools.package-data]
-gato = ["*.so", "_registry.json"]
+gato = ["_registry.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
@@ -86,5 +104,6 @@ github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys —
 # submodule gitlinks, pinned by the receipt's commit SHA (the fingerprinter
 # hashes tracked files only, so built .so files never leak in).
 fingerprint_paths = ["gato", "python/gato", "test", "CMakeLists.txt"]
+fingerprint_excluded_paths = ["gpu-proof.json"]   # never self-reference the receipt
 max_age_days = 30
 require_gpu = true
