@@ -32,29 +32,16 @@ def mod():
     except ImportError as e:
         pytest.fail(f"bsqpN16_go2 not built (./tools/build.sh --profile receipt): {e}")
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf"
+from conftest import (GO2_URDF as URDF, GO2_N as N, GO2_DT as DT, GO2_NQ as NQ, GO2_NV as NV,  # noqa: E402
+                      GO2_NU as NU, GO2_NX as NX, GO2_XU_STRIDE as XU_STRIDE, go2_standing_q as _standing_q,
+                      go2_solver)
 
-N = 16
-DT = 0.01
-NQ, NV = 19, 18
-NX = NQ + NV          # stored state
 TS = 2 * NV           # tangent state
-NU = 12
-XU_STRIDE = NX + NU
 
 
 @pytest.fixture(scope="module")
-def model():
-    return pin.buildModelFromUrdf(str(URDF), pin.JointModelFreeFlyer())
-
-
-def _standing_q():
-    q = np.zeros(NQ)
-    q[2] = 0.35          # base height
-    q[6] = 1.0           # quat w (xyzw)
-    q[7:] = np.tile([0.0, 0.9, -1.8], 4)   # hip/thigh/calf per leg
-    return q
+def model(go2_model):
+    return go2_model
 
 
 def _rand_state(rng, scale_q=0.05, scale_v=0.2):
@@ -88,8 +75,7 @@ def _retract(model, x, dx):
 
 
 def _solver(B):
-    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT, params=TEST_PARAMS.replace(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0),
-                     plant_type="go2")
+    return go2_solver(B, q_lim_cost=1e-3)   # this file keeps the plant q barrier on
 
 
 def test_module_dims(mod):

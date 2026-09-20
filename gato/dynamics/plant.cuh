@@ -126,14 +126,14 @@ namespace plant {
         }
 
         template<typename T>
-        void* initializeDynamicsConstMem()
+        void* initialize_dynamics_const_mem()
         {
                 grid::robotModel<T>* d_robotModel = grid::init_robotModel<T>();
                 return (void*)d_robotModel;
         }
 
         template<typename T>
-        void freeDynamicsConstMem(void* d_dynMem_const)
+        void free_dynamics_const_mem(void* d_dynMem_const)
         {
                 // grid::free_robotModel was removed (folded into close_grid); free the model directly.
                 cudaFree((grid::robotModel<T>*)d_dynMem_const);

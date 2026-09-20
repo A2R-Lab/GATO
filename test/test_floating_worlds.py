@@ -28,18 +28,15 @@ pin = pytest.importorskip("pinocchio")
 from gato.common import rk4, state_difference, check_floating_state
 from gato.config import GO2_START_CONFIGS
 
-URDF = "external/GRiD/config/robot_assets/go2.urdf"
-NQ, NV, NU = 19, 18, 12
+from conftest import GO2_URDF, GO2_NQ as NQ, GO2_NV as NV, GO2_NU as NU, go2_standing_x as _standing_x, mujoco_world  # noqa: E402
+
+URDF = str(GO2_URDF)
 RNG = np.random.default_rng(3)
 
 
 @pytest.fixture(scope="module")
-def model():
-    return pin.buildModelFromUrdf(URDF, pin.JointModelFreeFlyer())
-
-
-def _standing_x():
-    return np.concatenate([GO2_START_CONFIGS["standing"], np.zeros(NV)])
+def model(go2_model):
+    return go2_model
 
 
 def _rand_x(model):
@@ -52,9 +49,7 @@ def _rand_x(model):
 
 
 def _mujoco_world(**kw):
-    pytest.importorskip("mujoco")
-    from gato.worlds import MuJoCoWorld
-    return MuJoCoWorld(URDF, floating=True, **kw)
+    return mujoco_world(URDF, floating=True, **kw)
 
 
 def test_state_difference_matches_pinocchio(model):

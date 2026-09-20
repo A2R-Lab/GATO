@@ -44,7 +44,7 @@ __device__ __forceinline__ void bdsv_seed_and_solve(const T* d_S_matrix, const T
 }
 
 // Direct linear solve for S·λ = γ via glass::bdsv (block-Cholesky), the exact
-// alternative to solvePCGBatchedKernel on the SAME buffers. GATO stores the
+// alternative to solve_pcg_batched_kernel on the SAME buffers. GATO stores the
 // NEGATED Schur complement (−S is SPD), so this kernel solves (−S)λ = (−γ):
 // it negates the [L|D|R] strips in place (the factor destroys S anyway — the
 // next SQP iteration's formSchur rewrites every touched slot) and seeds λ with
@@ -58,7 +58,7 @@ __device__ __forceinline__ void bdsv_seed_and_solve(const T* d_S_matrix, const T
 //   - successful direct solve → iterations = 1.
 //   - non-PD pivot → iterations = 2, λ UNTOUCHED (see below).
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void solveBDSVBatchedKernel(uint32_t* __restrict__      d_iterations,
+__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_batched_kernel(uint32_t* __restrict__      d_iterations,
                                                                        T* __restrict__             d_x_batch,
                                                                        T* __restrict__             d_A_batch,
                                                                        const T* __restrict__       d_M_inv_batch,
@@ -142,7 +142,7 @@ __host__ void solve_bdsv_batched(uint32_t batch_size, T* d_lambda_batch, SchurSy
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_solve_bdsv_batched_smem_size<T>();
 
-        solveBDSVBatchedKernel<T>
+        solve_bdsv_batched_kernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
@@ -177,7 +177,7 @@ constexpr int32_t SKIPPED = 2;  // solve was converged: strips still hold UN-fac
 }  // namespace bdsv_status
 
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void factorBDSVBatchedKernel(int32_t* __restrict__       d_factor_status,
+__global__ __launch_bounds__(BDSV_THREADS) void factor_bdsv_batched_kernel(int32_t* __restrict__       d_factor_status,
                                                                         T* __restrict__             d_A_batch,
                                                                         const int32_t* __restrict__ d_kkt_converged_batch)
 {
@@ -209,7 +209,7 @@ __global__ __launch_bounds__(BDSV_THREADS) void factorBDSVBatchedKernel(int32_t*
 }
 
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void solveBDSVFactoredBatchedKernel(uint32_t* __restrict__      d_iterations,
+__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_factored_batched_kernel(uint32_t* __restrict__      d_iterations,
                                                                                T* __restrict__             d_x_batch,
                                                                                const T* __restrict__       d_A_batch,  // factored strips (read-only)
                                                                                const T* __restrict__       d_rhs_batch,
@@ -260,7 +260,7 @@ __host__ void factor_bdsv_batched(uint32_t batch_size, SchurSystem<T> schur, int
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_factor_bdsv_batched_smem_size<T>();
 
-        factorBDSVBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch);
+        factor_bdsv_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -274,6 +274,6 @@ __host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, Sch
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_solve_bdsv_factored_batched_smem_size<T>();
 
-        solveBDSVFactoredBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status);
+        solve_bdsv_factored_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

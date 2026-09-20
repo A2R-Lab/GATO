@@ -42,8 +42,8 @@ class BSQP {
               q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)),
               rho_(1e-3), adapt_rho_(true)
         {
-                allocateMemory();
-                initBatchedHyperparams();
+                allocate_memory();
+                init_batched_hyperparams();
         }
 
         // dt is a per-solve input (ProblemInputs::timestep); there is no KKT
@@ -52,11 +52,11 @@ class BSQP {
             : batch_size_(batch_size), max_sqp_iters_(max_sqp_iters), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
               u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)), rho_(rho), adapt_rho_(true)
         {
-                allocateMemory();
-                initBatchedHyperparams();
+                allocate_memory();
+                init_batched_hyperparams();
         }
 
-        ~BSQP() { freeMemory(); }
+        ~BSQP() { free_memory(); }
 
         uint32_t batch_size() const { return batch_size_; }
 
@@ -669,7 +669,7 @@ class BSQP {
         }
         void clear_cost_weights_per_knot() { use_knot_cost_weights_ = false; }
 
-        void sim_forward(T* d_xkp1_batch, T* d_xk, T* d_uk, T dt) { simForwardBatched<T>(batch_size_, d_xkp1_batch, d_xk, d_uk, d_GRiD_mem_, f_ext_ptr(), dt); }
+        void sim_forward(T* d_xkp1_batch, T* d_xk, T* d_uk, T dt) { sim_forward_batched<T>(batch_size_, d_xkp1_batch, d_xk, d_uk, d_GRiD_mem_, f_ext_ptr(), dt); }
 
         void copy_final_merit_to_host(T* h_out)
         {
@@ -980,7 +980,7 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(d_al_prev_viol_, h_inf.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
         }
 
-        void initBatchedHyperparams()
+        void init_batched_hyperparams()
         {
                 h_rho_penalty_batch_init_.assign(batch_size_, static_cast<T>(rho_));
                 h_drho_batch_init_.assign(batch_size_, static_cast<T>(1.0));
@@ -993,12 +993,12 @@ class BSQP {
                 gpuErrchk(cudaDeviceSynchronize());
         }
 
-        void allocateMemory()
+        void allocate_memory()
         {
                 size_t BT = batch_size_ * sizeof(T);
                 size_t BI = batch_size_ * sizeof(uint32_t);
 
-                d_GRiD_mem_ = gato::plant::initializeDynamicsConstMem<T>();
+                d_GRiD_mem_ = gato::plant::initialize_dynamics_const_mem<T>();
 
                 gpuErrchk(cudaEventCreate(&pcg_start_event_));
                 gpuErrchk(cudaEventCreate(&pcg_stop_event_));
@@ -1096,9 +1096,9 @@ class BSQP {
                 memset(h_sqp_iters_B_, 0, BI);
         }
 
-        void freeMemory()
+        void free_memory()
         {
-                gato::plant::freeDynamicsConstMem<T>(d_GRiD_mem_);
+                gato::plant::free_dynamics_const_mem<T>(d_GRiD_mem_);
                 free_collision_environment();
 
                 gpuErrchk(cudaEventDestroy(pcg_start_event_));

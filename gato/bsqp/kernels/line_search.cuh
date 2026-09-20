@@ -15,7 +15,7 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T, uint32_t NumAlphas>
-__global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatchedKernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch)
+__global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_batched_kernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with batch_size blocks
         const uint32_t solve_idx = blockIdx.x;
@@ -142,7 +142,7 @@ __host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_b
         dim3 thread_block(LINE_SEARCH_THREADS);
         // the kernel's s_merit/s_step_idx arrays are static __shared__ — no dynamic smem needed
 
-        lineSearchAndUpdateBatchedKernel<T, NumAlphas>
+        line_search_and_update_batched_kernel<T, NumAlphas>
             <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

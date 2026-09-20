@@ -159,7 +159,7 @@ __device__ __noinline__ void project_terminal_block_exact(T* s_Q_last, T* s_eh)
 #endif  // USE_EXACT_HESSIAN
 
 template<typename T, uint32_t INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
-__global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*    d_Q_batch,
+__global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T*    d_Q_batch,
                                             T*    d_R_batch,
                                             T*    d_q_batch,
                                             T*    d_r_batch,
@@ -422,12 +422,12 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
         if (s_mem_size > 48 * 1024) {
                 static size_t attr_bytes = 0;
                 if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
+                        gpuErrchk(cudaFuncSetAttribute(setup_kkt_system_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
                         attr_bytes = s_mem_size;
                 }
         }
 
-        setupKKTSystemBatchedKernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
+        setup_kkt_system_batched_kernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
                                                                                kkt.d_R_batch,
                                                                                kkt.d_q_batch,
                                                                                kkt.d_r_batch,

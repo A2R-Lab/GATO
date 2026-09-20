@@ -115,7 +115,7 @@ __device__ __forceinline__ void schur_gamma_0(const T* s_Q_0_inv, const T* s_q_0
 }
 
 template<typename T>
-__global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T* __restrict__       d_S_batch,
+__global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kernel1(T* __restrict__       d_S_batch,
                                                                               T* __restrict__       d_P_inv_batch,
                                                                               T* __restrict__       d_gamma_batch,
                                                                               T* __restrict__       d_Q_batch,
@@ -285,7 +285,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
 }
 
 template<typename T>
-__global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T* __restrict__ d_S_batch, T* __restrict__ d_P_inv_batch, const int32_t* __restrict__ d_kkt_converged_batch)
+__global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kernel2(T* __restrict__ d_S_batch, T* __restrict__ d_P_inv_batch, const int32_t* __restrict__ d_kkt_converged_batch)
 {
         // launched with grid of (KNOT_POINTS - 1, solve_idx)
         uint32_t knot_idx = blockIdx.x;
@@ -339,11 +339,11 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
         const uint32_t s_mem_size1 = get_form_schur_system_batched1_smem_size<T>();
         const uint32_t s_mem_size2 = get_form_schur_system_batched2_smem_size<T>();
 
-        formSchurSystemBatchedKernel1<T><<<grid1, thread_block, s_mem_size1>>>(
+        form_schur_system_batched_kernel1<T><<<grid1, thread_block, s_mem_size1>>>(
             schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 
-        formSchurSystemBatchedKernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch, d_kkt_converged_batch);
+        form_schur_system_batched_kernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -352,7 +352,7 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
 // re-solves the SAME factored Schur system with a new RHS each iteration —
 // only q/r change (dual/projection terms), so S, Pinv, and the stored
 // Q^-1/R^-1 blocks are all still valid. This kernel rebuilds ONLY gamma from
-// the inverses formSchurSystemBatchedKernel1 left in d_Q_batch/d_R_batch,
+// the inverses form_schur_system_batched_kernel1 left in d_Q_batch/d_R_batch,
 // mirroring its gamma op sequence exactly (same glass calls, same order) so
 // the parity gate is BITWISE (test/cuda/gamma_parity.cu). knot 0's gamma uses
 // the STORED (Q_0 + rho)^-1 — formSchur's last-knot block re-inverts fresh via
@@ -360,7 +360,7 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
 // not bitwise (the harness gates it at 1e-6 rel).
 
 template<typename T>
-__global__ __launch_bounds__(SCHUR_THREADS) void computeGammaBatchedKernel(T* __restrict__       d_gamma_batch,
+__global__ __launch_bounds__(SCHUR_THREADS) void compute_gamma_batched_kernel(T* __restrict__       d_gamma_batch,
                                                                            const T* __restrict__ d_Q_inv_batch,
                                                                            const T* __restrict__ d_R_inv_batch,
                                                                            const T* __restrict__ d_q_batch,
@@ -443,7 +443,7 @@ __host__ void compute_gamma_batched(uint32_t batch_size, SchurSystem<T> schur, K
 {
         dim3 grid(KNOT_POINTS, batch_size);
         dim3 thread_block(SCHUR_THREADS);
-        computeGammaBatchedKernel<T><<<grid, thread_block, get_compute_gamma_batched_smem_size<T>()>>>(
+        compute_gamma_batched_kernel<T><<<grid, thread_block, get_compute_gamma_batched_smem_size<T>()>>>(
             schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
@@ -454,7 +454,7 @@ __host__ void compute_gamma_batched(uint32_t batch_size, SchurSystem<T> schur, K
 // dz_state_k = Q_k_inv * (q_k - (A_k^T * lambda_kp1 + lambda_k))
 // dz_control_k = R_k_inv * (r_k - (B_k^T * lambda_kp1))
 template<typename T>
-__global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restrict__       d_dz_batch,
+__global__ __launch_bounds__(DZ_THREADS) void compute_dz_batched_kernel(T* __restrict__       d_dz_batch,
                                                                     const T* __restrict__ d_lambda_batch,
                                                                     const T* __restrict__ d_Q_inv_batch,
                                                                     const T* __restrict__ d_R_inv_batch,
@@ -565,6 +565,6 @@ __host__ void compute_dz_batched(uint32_t batch_size, T* d_dz_batch, T* d_lambda
         dim3           thread_block(DZ_THREADS);
         const uint32_t s_mem_size = get_compute_dz_batched_smem_size<T>();
 
-        computeDzBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
+        compute_dz_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

@@ -57,7 +57,7 @@ __host__ __device__ constexpr size_t compute_merit_base_smem_ct()
 // capping regs trades a ~2-slot spill for 2x occupancy.
 template<typename T, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ void __launch_bounds__(grid::MAX_PERF_LEVEL_THREADS, 2)
-computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
+compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
                                           T* __restrict__       d_x_initial_batch,
@@ -312,12 +312,12 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
         if (s_mem_size > 48 * 1024) {
                 static size_t attr_bytes = 0;   // re-attribute whenever the request grows (runtime flags size the carve)
                 if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(computeMeritBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
+                        gpuErrchk(cudaFuncSetAttribute(compute_merit_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
                         attr_bytes = s_mem_size;
                 }
         }
 
-        computeMeritBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
+        compute_merit_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
                                                                                     d_dz_batch,
                                                                                     d_xu_traj_batch,
                                                                                     inputs.d_x_s_batch,

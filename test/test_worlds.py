@@ -21,10 +21,11 @@ from gato.config import IIWA14_START_CONFIGS
 URDF = "examples/iiwa_description/iiwa14.urdf"
 
 
+from conftest import mujoco_world  # noqa: E402
+
+
 def _mujoco_world(**kw):
-    pytest.importorskip("mujoco")
-    from gato.worlds import MuJoCoWorld
-    return MuJoCoWorld(URDF, **kw)
+    return mujoco_world(URDF, **kw)
 
 
 def _ready_ee():

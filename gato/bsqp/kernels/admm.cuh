@@ -16,12 +16,12 @@
 //   per SQP iteration (fixed rho = grp.mu):
 //     setup_kkt folds rho*G^T*G into Q/R (rowgroups.cuh) -> formSchur once ->
 //     bdsv factor ONCE, then K ADMM iterations of
-//       q/r  <- base + G^T(y - rho*(z - sel(x)))      [admmGradientBatchedKernel]
+//       q/r  <- base + G^T(y - rho*(z - sel(x)))      [admm_gradient_batched_kernel]
 //       gamma <- rebuild from stored Q^-1/R^-1          [compute_gamma_batched]
 //       lambda <- factored re-solve                     [solve_bdsv_factored_batched]
 //       dz    <- recover                                [compute_dz_batched]
 //       w = sel(x + dz); z <- clip(w + y/rho, lo, hi); y += rho*(w - z)
-//                                                       [admmProjectDualBatchedKernel]
+//                                                       [admm_project_dual_batched_kernel]
 //
 // z/y live in ABSOLUTE row space (z tracks sel(x+dz), bounds are the
 // descriptor's lo/hi directly); the numpy oracle for these exact updates is
@@ -116,7 +116,7 @@ __device__ __forceinline__ void admm_commit_row(T w, T z, uint32_t idx, T rho, T
 // eq_rows_only: touch ONLY equality rows (lo == hi; z = lo, y = 0), leaving
 // interval rows' warm-started state intact — fired every solve (see header).
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __restrict__ d_z_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T* __restrict__ d_z_batch,
                                                                            T* __restrict__ d_y_batch,
                                                                            const T* __restrict__ d_xu_traj_batch,
                                                                            const RowGroupDesc<T>* __restrict__ d_groups,
@@ -225,7 +225,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmInitStateBatchedKernel(T* __
 // q/r <- base + scatter of (y - rho*(z - sel(x))) onto the row targets.
 // (z - sel(x)) is the RELATIVE auxiliary the OSQP form penalizes; see header.
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __restrict__ d_q_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* __restrict__ d_q_batch,
                                                                           T* __restrict__ d_r_batch,
                                                                           const T* __restrict__ d_q_base_batch,
                                                                           const T* __restrict__ d_r_base_batch,
@@ -352,7 +352,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmGradientBatchedKernel(T* __r
 // r_dual = rho * max|z - z_prev| — deterministic (scratch + rank-0 fold, same
 // pattern as the telemetry kernel). Output d_resid[solve*2 + {0,1}].
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* __restrict__ d_z_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel(T* __restrict__ d_z_batch,
                                                                              T* __restrict__ d_y_batch,
                                                                              T* __restrict__ d_resid_batch,
                                                                              const T* __restrict__ d_xu_traj_batch,
@@ -489,7 +489,7 @@ template<typename T>
 __host__ void admm_init_state_batched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, const T* d_xu_traj_batch, const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem, bool eq_rows_only = false,
                                    const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
-        admmInitStateBatchedKernel<T><<<batch_size, ADMM_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env, eq_rows_only);
+        admm_init_state_batched_kernel<T><<<batch_size, ADMM_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env, eq_rows_only);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -499,7 +499,7 @@ __host__ void admm_gradient_batched(uint32_t batch_size, T* d_q_batch, T* d_r_ba
                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_rho_scale_batch = nullptr)
 {
         dim3 grid(KNOT_POINTS, batch_size);
-        admmGradientBatchedKernel<T><<<grid, ADMM_THREADS, sizeof(T) * rowgroup_eval_grad_scratch_ct<T>()>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
+        admm_gradient_batched_kernel<T><<<grid, ADMM_THREADS, sizeof(T) * rowgroup_eval_grad_scratch_ct<T>()>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -520,11 +520,11 @@ __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_
         if (s_mem_size > 48 * 1024) {
                 static size_t attr_bytes = 0;   // re-attribute whenever the request grows; FAIL LOUD like setup_kkt/merit
                 if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(admmProjectDualBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
+                        gpuErrchk(cudaFuncSetAttribute(admm_project_dual_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
                         attr_bytes = s_mem_size;
                 }
         }
-        admmProjectDualBatchedKernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
+        admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 

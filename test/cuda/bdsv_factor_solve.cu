@@ -1,12 +1,12 @@
 // Gates for the bdsv factor/solve SPLIT path (gato/bsqp/kernels/bdsv.cuh:
-// factorBDSVBatchedKernel + solveBDSVFactoredBatchedKernel) — compiled against
+// factor_bdsv_batched_kernel + solve_bdsv_factored_batched_kernel) — compiled against
 // the REAL kernel header via test/cuda/plant_shim.cuh (no grid.cuh), so there
 // is no mirror to drift. CL-0 gate of
 // docs/open-tasks/constraint_layer_locomotion_arc_plan_2026-07-10.md.
 //
 // Gates:
 //   1. factor(γ-system) + solve(γ) is BITWISE identical to the monolithic
-//      solveBDSVBatchedKernel result (same ops, same order).
+//      solve_bdsv_batched_kernel result (same ops, same order).
 //   2. factor REUSE: a second solve on the SAME factored strips with a fresh
 //      rhs matches a CPU dense double reference (<1e-4 rel) — the property the
 //      CL-1 ADMM inner loop depends on.
@@ -16,7 +16,7 @@
 //      leaves x untouched and reports iterations = 2; the other problems in
 //      the batch are unaffected.
 //   5. converged skip: status = SKIPPED, solve reports iterations = 0, x
-//      untouched. mask = 0: nothing written at all (sentinels intact).
+//      untouched.
 //
 // Build-on-demand (not part of pytest):
 //
@@ -210,7 +210,7 @@ int main()
 
     float *dS, *dP, *db, *dx, *drhs2;
     uint32_t* dit;
-    int32_t *dconv, *dstat, *dmask;
+    int32_t *dconv, *dstat;
     CHECK_CUDA(cudaMalloc(&dS, hS_all.size() * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&dP, hP_all.size() * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&db, hb_all.size() * sizeof(float)));
@@ -219,7 +219,6 @@ int main()
     CHECK_CUDA(cudaMalloc(&dit, B * sizeof(uint32_t)));
     CHECK_CUDA(cudaMalloc(&dconv, B * sizeof(int32_t)));
     CHECK_CUDA(cudaMalloc(&dstat, B * sizeof(int32_t)));
-    CHECK_CUDA(cudaMalloc(&dmask, B * sizeof(int32_t)));
     CHECK_CUDA(cudaMemcpy(dP, hP_all.data(), hP_all.size() * sizeof(float), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(db, hb_all.data(), hb_all.size() * sizeof(float), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemset(dconv, 0, B * sizeof(int32_t)));
@@ -259,9 +258,9 @@ int main()
     for (uint32_t threads : {32u, 64u, 128u, 256u}) {
         CHECK_CUDA(cudaMemcpy(dS, hS_all.data(), hS_all.size() * sizeof(float), cudaMemcpyHostToDevice));
         CHECK_CUDA(cudaMemset(dx, 0, (size_t)B * NPAD * sizeof(float)));
-        factorBDSVBatchedKernel<float><<<B, threads, smem_factor>>>(dstat, dS, dconv, nullptr);
+        factor_bdsv_batched_kernel<float><<<B, threads, smem_factor>>>(dstat, dS, dconv);
         CHECK_CUDA(cudaGetLastError());
-        solveBDSVFactoredBatchedKernel<float><<<B, threads, smem_fsolve>>>(dit, dx, dS, db, dstat, nullptr);
+        solve_bdsv_factored_batched_kernel<float><<<B, threads, smem_fsolve>>>(dit, dx, dS, db, dstat);
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
         CHECK_CUDA(cudaMemcpy(x_split.data(), dx, x_split.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -300,7 +299,7 @@ int main()
         }
         CHECK_CUDA(cudaMemcpy(drhs2, hrhs2_all.data(), hrhs2_all.size() * sizeof(float), cudaMemcpyHostToDevice));
         CHECK_CUDA(cudaMemset(dx, 0, (size_t)B * NPAD * sizeof(float)));
-        solveBDSVFactoredBatchedKernel<float><<<B, 256, smem_fsolve>>>(dit, dx, dS, drhs2, dstat, nullptr);
+        solve_bdsv_factored_batched_kernel<float><<<B, 256, smem_fsolve>>>(dit, dx, dS, drhs2, dstat);
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
         CHECK_CUDA(cudaMemcpy(x_split.data(), dx, x_split.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -314,13 +313,11 @@ int main()
         }
     }
 
-    // ---------- gate 4+5: skip semantics (converged, mask) ----------
+    // ---------- gate 4+5: skip semantics (converged, non-PD) ----------
     {
-        std::vector<int32_t> hconv(B, 0), hmask(B, 1);
+        std::vector<int32_t> hconv(B, 0);
         hconv[1] = 1;   // converged solve
-        hmask[2] = 0;   // masked-out solve (PCG owns it)
         CHECK_CUDA(cudaMemcpy(dconv, hconv.data(), B * sizeof(int32_t), cudaMemcpyHostToDevice));
-        CHECK_CUDA(cudaMemcpy(dmask, hmask.data(), B * sizeof(int32_t), cudaMemcpyHostToDevice));
 
         // sentinels: status = −7, iterations = 99, x = 0.5 everywhere
         std::vector<int32_t> hstat_init(B, -7);
@@ -331,9 +328,9 @@ int main()
         CHECK_CUDA(cudaMemcpy(dx, hx_init.data(), hx_init.size() * sizeof(float), cudaMemcpyHostToDevice));
         CHECK_CUDA(cudaMemcpy(dS, hS_all.data(), hS_all.size() * sizeof(float), cudaMemcpyHostToDevice));
 
-        factorBDSVBatchedKernel<float><<<B, 256, smem_factor>>>(dstat, dS, dconv, dmask);
+        factor_bdsv_batched_kernel<float><<<B, 256, smem_factor>>>(dstat, dS, dconv);
         CHECK_CUDA(cudaGetLastError());
-        solveBDSVFactoredBatchedKernel<float><<<B, 256, smem_fsolve>>>(dit, dx, dS, db, dstat, dmask);
+        solve_bdsv_factored_batched_kernel<float><<<B, 256, smem_fsolve>>>(dit, dx, dS, db, dstat);
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -352,19 +349,17 @@ int main()
         bool ok = true;
         // b=1 converged: SKIPPED + iterations 0 + x untouched
         if (hstat[1] != bdsv_status::SKIPPED || hit[1] != 0 || !x_untouched(1)) ok = false;
-        // b=2 masked: sentinels fully intact
-        if (hstat[2] != -7 || hit[2] != 99 || !x_untouched(2)) ok = false;
         // b=NONPD: NON_PD + iterations 2 + x untouched
         if (hstat[NONPD_IDX] != bdsv_status::NON_PD || hit[NONPD_IDX] != 2 || !x_untouched(NONPD_IDX)) ok = false;
         // a normal problem still solves
         if (hstat[0] != bdsv_status::OK || hit[0] != 1 || x_untouched(0)) ok = false;
-        printf("skip semantics (converged/mask/non-PD)  %s\n", ok ? "PASS" : "FAIL");
+        printf("skip semantics (converged/non-PD)  %s\n", ok ? "PASS" : "FAIL");
         fails += !ok;
     }
 
     CHECK_CUDA(cudaFree(dS)); CHECK_CUDA(cudaFree(dP)); CHECK_CUDA(cudaFree(db));
     CHECK_CUDA(cudaFree(dx)); CHECK_CUDA(cudaFree(drhs2)); CHECK_CUDA(cudaFree(dit));
-    CHECK_CUDA(cudaFree(dconv)); CHECK_CUDA(cudaFree(dstat)); CHECK_CUDA(cudaFree(dmask));
+    CHECK_CUDA(cudaFree(dconv)); CHECK_CUDA(cudaFree(dstat));
     printf(fails ? "FAILURES: %d\n" : "ALL PASS\n", fails);
     return fails ? 1 : 0;
 }

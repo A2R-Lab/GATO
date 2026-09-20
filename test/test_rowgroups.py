@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import gato
+from conftest import oracle_box_violations
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
 
 pytestmark = pytest.mark.gpu
@@ -28,7 +29,7 @@ START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["
 # |margin| (lo - margin, hi + margin with margin = -0.1)
 JOINT_LIMIT_MARGIN = -0.1
 
-KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U = 0, 1, 2
+from conftest import KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U  # noqa: E402
 BLOCK_X, BLOCK_U = 0, 1
 
 
@@ -44,30 +45,7 @@ def _inputs(plant, N, B):
 
 
 def _oracle_violations(xu, groups, nx, nu):
-    """numpy recompute of {max, sum} true violation per group from the flat
-    trajectory row and the group's own bounds (f32 throughout, like the kernel)."""
-    nq = nx // 2
-    step = nx + nu
-    out = []
-    for grp in groups:
-        lo = np.asarray(grp["lo"], dtype=np.float32)
-        hi = np.asarray(grp["hi"], dtype=np.float32)
-        viols = []
-        for k in range(grp["knot_lo"], grp["knot_hi"]):
-            base = k * step
-            if grp["kind"] == KIND_BOX_Q:
-                g = xu[base:base + nq]
-            elif grp["kind"] == KIND_BOX_QD:
-                g = xu[base + nq:base + nx]
-            else:
-                # BOX_U rows = ACTUATED_SIZE (fc builds: nu = actuated + fc,
-                # but torque limits cover only the actuated slots)
-                g = xu[base + nx:base + nx + len(lo)]
-            g = g.astype(np.float32)
-            viols.append(np.maximum(0, g - hi) + np.maximum(0, lo - g))
-        v = np.concatenate(viols)
-        out.append((v.max(), v.sum(dtype=np.float64)))
-    return out
+    return oracle_box_violations(xu, groups, nx // 2, nx // 2, nu)
 
 
 def test_telemetry_off_the_solver_path(make_solver, smallest_module):

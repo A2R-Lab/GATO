@@ -51,7 +51,7 @@ __global__ void pcg_kernel(float* x, float* S, float* Pinv, float* b,
     glass::pcg<float, d, k>(x, S, Pinv, b, smem, max_it, rel_tol, abs_tol, iters);
 }
 
-// Mirror of solveBDSVBatchedKernel (gato/bsqp/kernels/bdsv.cuh) for one
+// Mirror of solve_bdsv_batched_kernel (gato/bsqp/kernels/bdsv.cuh) for one
 // problem: eta0 converged-start guard on the UN-negated stored system → negate
 // strips → CHECKED factor → (success only) x ← −b + solve. iters: 0 = guard
 // fired, 1 = solved, 2 = non-PD pivot → update skipped, x untouched (matches

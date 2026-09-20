@@ -16,7 +16,7 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T>
-__global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* __restrict__       d_iterations,
+__global__ __launch_bounds__(PCG_THREADS) void solve_pcg_batched_kernel(uint32_t* __restrict__       d_iterations,
                                                                     T* __restrict__              d_x_batch,
                                                                     const T* __restrict__        d_A_batch,
                                                                     const T* __restrict__        d_M_inv_batch,
@@ -73,7 +73,7 @@ __host__ void solve_pcg_batched(uint32_t batch_size, T* d_lambda_batch, SchurSys
         dim3           thread_block(PCG_THREADS);
         const uint32_t s_mem_size = get_solve_pcg_batched_smem_size<T>();
 
-        solvePCGBatchedKernel<T>
+        solve_pcg_batched_kernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_epsilon_batch, max_pcg_iters, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

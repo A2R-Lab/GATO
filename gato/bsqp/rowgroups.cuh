@@ -26,7 +26,7 @@
 //                          loop on the reused bdsv factor (kernels/admm.cuh).
 //   MECH_AL              — PHR augmented Lagrangian: grad/GN-Hessian + merit value
 //                          folds here, outer dual update once per SOLVE
-//                          (alDualUpdateBatchedKernel; the solve is the inner
+//                          (al_dual_update_batched_kernel; the solve is the inner
 //                          minimization); equality rows (lo == hi) always
 //                          active. Default bindings decided by round R1.
 
@@ -827,7 +827,7 @@ __host__ __device__ constexpr uint32_t rowgroup_eval_grad_scratch_ct()
 }
 
 template<typename T>
-__global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKernel(T* __restrict__                      d_telemetry,
+__global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_kernel(T* __restrict__                      d_telemetry,
                                                                                    const RowGroupDesc<T>* __restrict__ d_groups,
                                                                                    int32_t                              n_groups,
                                                                                    const T* __restrict__                d_xu_traj_batch,
@@ -921,7 +921,7 @@ __host__ void row_group_telemetry_batched(uint32_t batch_size, T* d_telemetry, c
                                        const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
         if (n_groups <= 0) return;
-        rowGroupTelemetryBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, get_row_group_telemetry_smem_size<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
+        row_group_telemetry_batched_kernel<T><<<batch_size, ROWGROUP_THREADS, get_row_group_telemetry_smem_size<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
                                                                                                                (const grid::robotModel<T>*)d_GRiD_mem, env);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
@@ -948,7 +948,7 @@ constexpr float AL_ACCEPT_FACTOR = 0.99f;  // required relative improvement
 constexpr float AL_FEAS_TOL = 1e-5f;       // feasible -> always accept
 
 template<typename T>
-__global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T* __restrict__ d_lam_hi_batch,
+__global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kernel(T* __restrict__ d_lam_hi_batch,
                                                                               T* __restrict__ d_lam_lo_batch,
                                                                               T* __restrict__ d_prev_viol_batch,
                                                                               const T* __restrict__ d_telemetry,
@@ -1069,7 +1069,7 @@ __host__ void al_dual_update_batched(uint32_t batch_size, T* d_lam_hi_batch, T* 
                                   const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem,
                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
-        alDualUpdateBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_lam_hi_batch, d_lam_lo_batch, d_prev_viol_batch, d_telemetry, d_xu_traj_batch, d_groups,
+        al_dual_update_batched_kernel<T><<<batch_size, ROWGROUP_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_lam_hi_batch, d_lam_lo_batch, d_prev_viol_batch, d_telemetry, d_xu_traj_batch, d_groups,
                                                                                                                   n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

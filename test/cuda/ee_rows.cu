@@ -27,7 +27,7 @@
 using namespace gato;
 using T = float;
 
-constexpr int NQ = constants::STATE_SIZE / 2;
+constexpr int NQ_ = constants::STATE_SIZE / 2;   // (NQ itself is gato::constants::NQ_ since CL-3)
 constexpr int NROWS = 3;
 
 // one block: pose + J at q, plus fold increments on zeroed (Q, q) blocks
@@ -48,10 +48,10 @@ __global__ void eeProbeKernel(T* d_pose, T* d_J, T* d_Qinc, T* d_qinc,
         // pose + J dump (the same carve apply_ee_row_grad_hess uses)
         T* s_pose = s_scratch;
         T* s_grad = s_pose + 6 * gato::plant::NEE;
-        T* s_arena = rows::align16_ptr<T>(s_grad + 6 * NQ * gato::plant::NEE + 2 * rows::MAX_ROWS_PER_GROUP);
+        T* s_arena = rows::align16_ptr<T>(s_grad + 6 * NQ_ * gato::plant::NEE + 2 * rows::MAX_ROWS_PER_GROUP);
         gato::plant::ee_pos_grad<T>(s_pose, s_grad, d_xu, s_arena, drm);
         for (uint32_t i = threadIdx.x; i < 6 * gato::plant::NEE; i += blockDim.x) d_pose[i] = s_pose[i];
-        for (uint32_t i = threadIdx.x; i < 6u * NQ; i += blockDim.x) d_J[i] = s_grad[i];
+        for (uint32_t i = threadIdx.x; i < 6u * NQ_; i += blockDim.x) d_J[i] = s_grad[i];
         __syncthreads();
 
         rows::apply_ee_row_grad_hess<T>(d_groups, 1, KNOT_POINTS - 1, d_xu, d_lam_hi, d_lam_lo, s_Q, s_q, s_scratch, drm);
@@ -80,7 +80,7 @@ int main()
 {
         grid::robotModel<T>* drm = grid::init_robotModel<T>();
 
-        std::vector<T> q = {0.3f, -0.5f, 0.8f, -0.2f, 0.6f, 0.1f, 0.4f};  // first NQ used
+        std::vector<T> q = {0.3f, -0.5f, 0.8f, -0.2f, 0.6f, 0.1f, 0.4f};  // first NQ_ used
         q.resize(constants::STATE_S_CONTROL, 0.0f);
 
         // one MECH_AL EE_POS equality group with nonzero duals
@@ -102,7 +102,7 @@ int main()
         rows::RowGroupDesc<T>* d_groups;
         cudaMalloc(&d_xu, constants::STATE_S_CONTROL * sizeof(T));
         cudaMalloc(&d_pose, 6 * gato::plant::NEE * sizeof(T));
-        cudaMalloc(&d_J, 6 * NQ * sizeof(T));
+        cudaMalloc(&d_J, 6 * NQ_ * sizeof(T));
         cudaMalloc(&d_Qinc, constants::STATE_SIZE_SQ * sizeof(T));
         cudaMalloc(&d_qinc, constants::STATE_SIZE * sizeof(T));
         cudaMalloc(&d_groups, sizeof(h_grp));
@@ -119,9 +119,9 @@ int main()
         if (err != cudaSuccess) { printf("FAIL kernel: %s\n", cudaGetErrorString(err)); return 1; }
 
         T h_pose[6 * gato::plant::NEE];
-        std::vector<T> h_J(6 * NQ), h_Qinc(constants::STATE_SIZE_SQ), h_qinc(constants::STATE_SIZE);
+        std::vector<T> h_J(6 * NQ_), h_Qinc(constants::STATE_SIZE_SQ), h_qinc(constants::STATE_SIZE);
         cudaMemcpy(h_pose, d_pose, sizeof(h_pose), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_J.data(), d_J, 6 * NQ * sizeof(T), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_J.data(), d_J, 6 * NQ_ * sizeof(T), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_Qinc.data(), d_Qinc, constants::STATE_SIZE_SQ * sizeof(T), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_qinc.data(), d_qinc, constants::STATE_SIZE * sizeof(T), cudaMemcpyDeviceToHost);
 
@@ -130,7 +130,7 @@ int main()
         // gate 1: J-read vs central FD of the device pose (rows 0..2)
         const T eps = 1e-3f;
         T max_rel = 0;
-        for (int j = 0; j < NQ; j++) {
+        for (int j = 0; j < NQ_; j++) {
                 for (int i = 0; i < NROWS; i++) {
                         std::vector<T> qp = q, qm = q;
                         qp[j] += eps;
@@ -156,11 +156,11 @@ int main()
                 hh[i] = h_grp.mu;
         }
         T worst = 0;
-        for (int qi = 0; qi < NQ; qi++) {
+        for (int qi = 0; qi < NQ_; qi++) {
                 T acc = 0;
                 for (int i = 0; i < NROWS; i++) acc += gr[i] * h_J[6 * qi + i];
                 worst = fmaxf(worst, fabsf(acc - h_qinc[qi]));
-                for (int qj = 0; qj < NQ; qj++) {
+                for (int qj = 0; qj < NQ_; qj++) {
                         T accQ = 0;
                         for (int i = 0; i < NROWS; i++) accQ += hh[i] * h_J[6 * qi + i] * h_J[6 * qj + i];
                         worst = fmaxf(worst, fabsf(accQ - h_Qinc[qi * constants::STATE_SIZE + qj]));
@@ -168,9 +168,9 @@ int main()
         }
         // untouched slots (qd block, off-q rows) must be exactly zero
         for (int r = 0; r < (int)constants::STATE_SIZE; r++) {
-                if (r >= NQ && h_qinc[r] != 0) { printf("FAIL qinc[%d] nonzero\n", r); fails++; }
+                if (r >= NQ_ && h_qinc[r] != 0) { printf("FAIL qinc[%d] nonzero\n", r); fails++; }
                 for (int cidx = 0; cidx < (int)constants::STATE_SIZE; cidx++) {
-                        if ((r >= NQ || cidx >= NQ) && h_Qinc[r * constants::STATE_SIZE + cidx] != 0) {
+                        if ((r >= NQ_ || cidx >= NQ_) && h_Qinc[r * constants::STATE_SIZE + cidx] != 0) {
                                 printf("FAIL Qinc[%d][%d] nonzero\n", r, cidx);
                                 fails++;
                         }

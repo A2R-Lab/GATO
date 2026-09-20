@@ -30,14 +30,10 @@ from conftest import TEST_PARAMS
 # failure we want (no per-robot gating, no module-level skip).
 pytestmark = pytest.mark.gpu
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf"
-
-N = 16
-DT = 0.01
-NQ, NV, NU = 19, 18, 12
-NX = NQ + NV
-XU_STRIDE = NX + NU
+from conftest import (GO2_URDF as URDF, GO2_N as N, GO2_DT as DT, GO2_NQ as NQ, GO2_NV as NV,  # noqa: E402
+                      GO2_NU as NU, GO2_NX as NX, GO2_XU_STRIDE as XU_STRIDE, go2_standing_q as _standing_q,
+                      go2_standing_x as _standing_x, go2_solver as _solver, go2_goals_at as _goals_at,
+                      oracle_box_violations)
 
 JOINT_LIMIT_MARGIN = -0.1  # plant.cuh: limits TIGHTENED by |margin|
 KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U = 0, 1, 2
@@ -45,67 +41,12 @@ BLOCK_X, BLOCK_U = 0, 1
 
 
 @pytest.fixture(scope="module")
-def model():
-    return pin.buildModelFromUrdf(str(URDF), pin.JointModelFreeFlyer())
-
-
-def _standing_q():
-    q = np.zeros(NQ)
-    q[2] = 0.35
-    q[6] = 1.0  # quat w (xyzw)
-    q[7:] = np.tile([0.0, 0.9, -1.8], 4)
-    return q
-
-
-def _standing_x(**base):
-    x = np.zeros(NX)
-    x[:NQ] = _standing_q()
-    for k, v in base.items():
-        x[{"px": 0, "py": 1, "pz": 2}[k]] = v
-    return x
-
-
-def _solver(B, **kw):
-    # plant barrier costs ZERO: the row-group mechanisms are the only limit
-    # terms, so violation deltas are attributable
-    params = dict(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0,
-                  q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
-    params.update(kw)
-    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT, params=TEST_PARAMS.replace(**params),
-                     plant_type="go2")
-
-
-def _goals_at(model, x, B):
-    """EE (imu) goal pinned at the CURRENT pose so the solve stays quiet."""
-    data = model.createData()
-    pin.framesForwardKinematics(model, data, x[:NQ])
-    p = data.oMf[model.getFrameId("imu_joint")].translation
-    goals = np.zeros((B, N * 6), dtype=np.float32)
-    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = p[0], p[1], p[2]
-    return goals
+def model(go2_model):
+    return go2_model
 
 
 def _oracle_violations(xu, groups):
-    """numpy {max, sum} true violation per BOX group from the STORED
-    trajectory's ACTUATED slots (f32 like the kernel)."""
-    out = []
-    for grp in groups:
-        lo = np.asarray(grp["lo"], dtype=np.float32)
-        hi = np.asarray(grp["hi"], dtype=np.float32)
-        viols = []
-        for k in range(grp["knot_lo"], grp["knot_hi"]):
-            base = k * XU_STRIDE
-            if grp["kind"] == KIND_BOX_Q:
-                g = xu[base + 7:base + 7 + NU]
-            elif grp["kind"] == KIND_BOX_QD:
-                g = xu[base + NQ + 6:base + NQ + 6 + NU]
-            else:
-                g = xu[base + NX:base + NX + NU]
-            g = g.astype(np.float32)
-            viols.append(np.maximum(0, g - hi) + np.maximum(0, lo - g))
-        v = np.concatenate(viols)
-        out.append((v.max(), v.sum(dtype=np.float64)))
-    return out
+    return oracle_box_violations(xu, groups, NQ, NV, NU, floating=True)
 
 
 def _infeasible_x():

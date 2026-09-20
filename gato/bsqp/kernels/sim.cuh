@@ -35,7 +35,7 @@ struct SimSmem {
 
 template <typename T, uint32_t INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ __launch_bounds__(SIM_FORWARD_THREADS)
-void simForwardBatchedKernel(
+void sim_forward_batched_kernel(
     T *d_xkp1_batch,
     T *d_xk,
     T *d_uk,
@@ -79,13 +79,13 @@ void simForwardBatchedKernel(
 
 template <typename T>
 __host__
-size_t getSimForwardBatchedKernelSMemSize() {
+size_t get_sim_forward_batched_kernel_smem_size() {
     return SimSmem<T>::bytes();
 }
 
 template <typename T>
 __host__
-void simForwardBatched(
+void sim_forward_batched(
     uint32_t batch_size,
     T *d_xkp1_batch,
     T *d_xk,
@@ -96,9 +96,9 @@ void simForwardBatched(
 ) {
     dim3 grid(1, batch_size);
     dim3 block(SIM_FORWARD_THREADS);
-    size_t s_mem_size = getSimForwardBatchedKernelSMemSize<T>();
+    size_t s_mem_size = get_sim_forward_batched_kernel_smem_size<T>();
 
-    simForwardBatchedKernel<T><<<grid, block, s_mem_size>>>(
+    sim_forward_batched_kernel<T><<<grid, block, s_mem_size>>>(
         d_xkp1_batch,
         d_xk,
         d_uk,

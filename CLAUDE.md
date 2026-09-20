@@ -32,7 +32,7 @@ kernels (all in `gato/bsqp/kernels/`):
 1. **`setup_kkt.cuh`** — per knot: linearize dynamics (`grid_plant::compute_linearized_dynamics`
    → A,B,c) + build the cost gradient/Hessian blocks (`grid_plant::tracking_cost_grad_hess` →
    Q,q,R,r). Terminal block uses `x_{k+1}` + `N_cost` (PR #17 fix).
-2. **`schur_linsys.cuh`** — form the Schur complement system (`formSchurSystemBatchedKernel1/2`):
+2. **`schur_linsys.cuh`** — form the Schur complement system (`form_schur_system_batched_kernel1/2`):
    invert Q_k/Q_kp1/R_k (`glass::invertMatrix` fused), build S (block-tridiagonal) + Pinv + gamma.
 3. **`pcg.cuh`** — solve `S·λ = γ` with `glass::pcg<T, STATE_SIZE, KNOT_POINTS>` (block-tridiagonal
    preconditioned conjugate gradient; row-major `[L|D|R]` strips + padded `(KP+2)·STATE_SIZE` vecs).
@@ -48,7 +48,7 @@ kernels (all in `gato/bsqp/kernels/`):
    PSD-projects it (`glass::psd_project`, eps = 1e-5·(1+max|diag|)). Default builds are
    preprocessor-identical (bitwise). Forces bdsv; needs rho ≥ 1e-4 (f32). Verdict + traps:
    `docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md`.
-4. **`schur_linsys.cuh::computeDzBatchedKernel`** — recover the primal step `dz` from λ.
+4. **`schur_linsys.cuh::compute_dz_batched_kernel`** — recover the primal step `dz` from λ.
 5. **`merit.cuh` / `line_search.cuh`** — evaluate the merit (`grid_plant::tracking_cost_value` +
    `compute_integrator_error`), pick a step.
 6. **`sim.cuh`** — roll the chosen control forward (`grid_plant::sim_step`).
