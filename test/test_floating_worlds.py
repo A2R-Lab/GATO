@@ -424,3 +424,80 @@ def test_fc_mpc_standing_deterministic(model):
     _, _, q2, dq2, _, _, _ = _mpc_standing_run_fc(model, steps=60)
     np.testing.assert_array_equal(q1, q2)
     np.testing.assert_array_equal(dq1, dq2)
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_stands_through_gait_programmer(model):
+    """CL-4 plumbing in the loop: a 'stand' GaitSchedule programmed EVERY tick
+    through GaitProgrammer (all-slot pin group masked per knot, per-knot fn
+    reference, mask + reference re-uploads each tick) holds the same stance as
+    the hand-programmed S1 recipe: stance height, Σfn = mg, mg/4 per foot."""
+    from gato.controller import MPCController
+    from gato.gait import GaitSchedule, GaitProgrammer
+    s = _go2_solver(1, variant="fc", **_STAND_PARAMS)
+    x = _stance_x(model).astype(np.float32)
+    s.set_q_nom(x[:NQ])
+    s.set_q_pos_cost(50.0)
+    goals = _imu_goals(model, x)
+    mg = _mg(model)
+    prog = GaitProgrammer(s, GaitSchedule(gait="stand", period=1.0, dt=s.dt, N=s.N), mg)
+    w = _mujoco_world(plane={"z": 0.0, "pos_xy": (0.0, 0.0), "size_xy": (1.0, 1.0)})
+    ctrl = MPCController(s)
+    ctrl.reset(x)
+    q, dq = np.asarray(x[:NQ], np.float64).copy(), np.asarray(x[NQ:], np.float64).copy()
+    q[2] += 0.01
+    z, r = [], None
+    for k in range(150):
+        assert prog.apply(k * s.dt).all()
+        r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
+        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        for _ in range(10):
+            q, dq = w.step(q, dq, u, 1e-3)
+        z.append(q[2])
+    z = np.asarray(z)
+    c = w.last_contact
+    assert abs(q[2] - x[2]) < 0.015 and np.ptp(z[-50:]) < 0.01, (q[2], x[2])
+    assert 0.9 * mg < c["fn"] < 1.1 * mg, (c["fn"], mg)
+    per_foot = [c["fn_by_body"].get(FOOT_BODY[f], 0.0) for f in GO2_FEET]
+    assert min(per_foot) > 0.6 * mg / 4 and max(per_foot) < 1.4 * mg / 4, per_foot
+    fz = np.asarray(r.fc, np.float64)[5::6]
+    assert np.all(fz > 0.5 * mg / 4) and 0.85 * mg < fz.sum() < 1.15 * mg, fz
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_stands_with_friction_cones(model):
+    """S1 + per-foot friction cones (AL conic PHR, mu 0.6, stance-masked by the
+    programmer): the stance holds and the solver's foot forces sit inside the
+    cone (|f_xy| <= mu f_z) at every knot."""
+    from gato.controller import MPCController
+    from gato.gait import GaitSchedule, GaitProgrammer
+    s = _go2_solver(1, variant="fc", **_STAND_PARAMS)
+    x = _stance_x(model).astype(np.float32)
+    s.set_q_nom(x[:NQ])
+    s.set_q_pos_cost(50.0)
+    goals = _imu_goals(model, x)
+    mg = _mg(model)
+    prog = GaitProgrammer(s, GaitSchedule(gait="stand", period=1.0, dt=s.dt, N=s.N), mg)
+    prog.install_cones(mu=0.6)
+    w = _mujoco_world(plane={"z": 0.0, "pos_xy": (0.0, 0.0), "size_xy": (1.0, 1.0)})
+    ctrl = MPCController(s)
+    ctrl.reset(x)
+    q, dq = np.asarray(x[:NQ], np.float64).copy(), np.asarray(x[NQ:], np.float64).copy()
+    q[2] += 0.01
+    r = None
+    for k in range(120):
+        prog.apply(k * s.dt)
+        r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
+        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        for _ in range(10):
+            q, dq = w.step(q, dq, u, 1e-3)
+    c = w.last_contact
+    assert abs(q[2] - x[2]) < 0.015, (q[2], x[2])
+    assert c["ncon"] >= 4 and 0.9 * mg < c["fn"] < 1.1 * mg, c
+    fc = np.asarray(r.solve.fc_traj(0), np.float64)          # (N-1, 24)
+    for f in range(4):
+        fx, fy, fz = (fc[:, s.fc_slots(f, "f")[i]] for i in range(3))
+        assert np.all(fz > 0.5 * mg / 4), fz
+        assert np.all(np.hypot(fx, fy) <= 0.6 * fz + 1e-3), (f, np.hypot(fx, fy).max(), fz.min())

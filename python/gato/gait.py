@@ -170,9 +170,13 @@ class GaitProgrammer:
         self.cone_groups = []
         self.t = None
 
-    def install_cones(self, mu, mech="admm", **kw):
-        """One SOC friction cone per foot on the fc force slots (stance-masked per tick)."""
-        self.cone_groups = [self.solver.add_fc_cone(f, mu, mech=mech, **kw)
+    def install_cones(self, mu, mech="al", rho=10.0, **kw):
+        """One SOC friction cone per foot on the fc force slots (stance-masked per
+        tick). Default = AL conic PHR at rho 10: on the go2 standing loop it holds
+        the stance (0.286 m, 3.8 ms/solve); the relaxed barrier also holds (8.5 ms);
+        per-foot ADMM SOC cones SAG the stance (0.08-0.22 m) at 16-57 ms/solve —
+        an open item in the CL-4 plan, do not default to them."""
+        self.cone_groups = [self.solver.add_fc_cone(f, mu, mech=mech, rho=rho, **kw)
                             for f in range(self.schedule.n_feet)]
         return self.cone_groups
 
