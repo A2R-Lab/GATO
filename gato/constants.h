@@ -1,4 +1,7 @@
 #pragma once
+// Problem dimensions derived from the generated plant (grid:: constants) and
+// KNOT_POINTS: state/control sizes, stored vs tangent layouts (floating base),
+// per-solve buffer extents, padded PCG vector and [L|D|R] strip sizes.
 
 #include <cstdint>
 #include "settings.h"

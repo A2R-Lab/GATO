@@ -1,4 +1,7 @@
 #pragma once
+// Batch-layout accessors: pointer arithmetic into the per-solve / per-knot device
+// buffers (KKT blocks, trajectories, padded PCG vectors, [L|D|R] strips). GATO's
+// only hand-written "linalg"; every numeric kernel is glass::.
 
 #include <cstdint>
 #include "settings.h"

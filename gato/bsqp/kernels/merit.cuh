@@ -34,12 +34,20 @@ __host__ __device__ constexpr size_t computeMeritTempMemCt()
         return a > b ? a : b;
 }
 
+// merit kernel shared layout: ONE table for the kernel carve and the host sizer
+// (the collision tail carve offsets from `total`)
+template<typename T>
+struct MeritSmem {
+        static constexpr size_t xux_k = 0;
+        static constexpr size_t reference_traj_k = xux_k + constants::XUX_SIZE;
+        static constexpr size_t temp = reference_traj_k + constants::EE_POS_SIZE;
+        static constexpr size_t total = temp + computeMeritTempMemCt<T>();
+};
+
 template<typename T>
 __host__ __device__ constexpr size_t computeMeritBaseSMemCt()
 {
-        // xux_k + reference_traj_k + s_temp (used by BOTH the kernel's carve and
-        // the host sizer — the collision tail carve offsets from this)
-        return constants::XUX_SIZE + constants::EE_POS_SIZE + computeMeritTempMemCt<T>();
+        return MeritSmem<T>::total;
 }
 
 // __launch_bounds__ min-2-blocks: this kernel sat at 95 regs after the P4.3/P4.4
@@ -95,9 +103,9 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         T cost_k, constraint_k;  // cost function, constraint error, per-point merit
 
         extern __shared__ T s_mem[];
-        T*                  s_xux_k = s_mem;  // current state, control, and next state (STORED format)
-        T*                  s_reference_traj_k = s_xux_k + constants::XUX_SIZE;
-        T*                  s_temp = s_reference_traj_k + constants::EE_POS_SIZE;
+        T*                  s_xux_k = s_mem + MeritSmem<T>::xux_k;  // current state, control, and next state (STORED format)
+        T*                  s_reference_traj_k = s_mem + MeritSmem<T>::reference_traj_k;
+        T*                  s_temp = s_mem + MeritSmem<T>::temp;
 
 
         T* d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);

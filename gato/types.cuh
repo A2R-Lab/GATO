@@ -1,4 +1,7 @@
 #pragma once
+// Host-side POD bundles passed to the kernels: the per-solve problem inputs, the
+// batched KKT blocks (Q, R, q, r, A, B, c) and the batched Schur system (S, P_inv,
+// gamma).
 
 #include <cstdint>
 #include "settings.h"

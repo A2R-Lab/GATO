@@ -1,4 +1,13 @@
 #pragma once
+// Schur-complement assembly for the batched SQP step (one block per (knot, solve)):
+//   kernel 1  invert Q_k / Q_{k+1} / R_k (augmented [A|I], glass::inv), form
+//             theta_k / phi_k / gamma_k, scatter them into the block-tridiagonal
+//             [L|D|R] strips S and P_inv (glass::store_block) — S is stored NEGATED;
+//   kernel 2  finish the block-Jacobi preconditioner's off-diagonals;
+//   gamma     rebuild gamma alone (ADMM inner loop: S is constant, q/r move);
+//   dz        recover the primal step from the multipliers lambda.
+// Every kernel's shared-memory layout is ONE table (the *Smem structs below) that
+// the host sizer and the device carve both read — they cannot drift.
 
 #include <cstdint>
 #include "settings.h"
@@ -10,6 +19,73 @@
 using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
+
+// ---- shared-memory layouts (element offsets; host sizer = kernel carve) ----
+template<typename T>
+struct Schur1Smem {
+        static constexpr uint32_t Q_k = 0;
+        static constexpr uint32_t Q_k_inv = Q_k + STATE_SIZE_SQ;
+        static constexpr uint32_t Q_kp1 = Q_k_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t Q_kp1_inv = Q_kp1 + STATE_SIZE_SQ;
+        static constexpr uint32_t R_k = Q_kp1_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t R_k_inv = R_k + CONTROL_SIZE_SQ;
+        static constexpr uint32_t q_k = R_k_inv + CONTROL_SIZE_SQ;
+        static constexpr uint32_t q_kp1 = q_k + STATE_SIZE;
+        static constexpr uint32_t r_k = q_kp1 + STATE_SIZE;
+        static constexpr uint32_t A_k = r_k + CONTROL_SIZE;
+        static constexpr uint32_t B_k = A_k + STATE_SIZE_SQ;
+        static constexpr uint32_t A_Q_inv = B_k + STATE_P_CONTROL;
+        static constexpr uint32_t B_R_inv = A_Q_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t theta_k = B_R_inv + STATE_P_CONTROL;
+        static constexpr uint32_t theta_k_inv = theta_k + STATE_SIZE_SQ;
+        static constexpr uint32_t gamma_k = theta_k_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t scratch = gamma_k + STATE_SIZE;
+        static constexpr uint32_t scratch_ct = (2 * (2 * STATE_SIZE + 1)) + (2 * CONTROL_SIZE + 1);  // max glass::inv scratch
+        static constexpr uint32_t total = scratch + scratch_ct;
+        static constexpr size_t   bytes() { return total * sizeof(T); }
+};
+
+template<typename T>
+struct Schur2Smem {
+        static constexpr uint32_t theta_k_inv = 0;
+        static constexpr uint32_t theta_km1_inv = theta_k_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t phi_k = theta_km1_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t scratch = phi_k + STATE_SIZE_SQ;
+        static constexpr uint32_t total = scratch + STATE_SIZE_SQ;
+        static constexpr size_t   bytes() { return total * sizeof(T); }
+};
+
+template<typename T>
+struct GammaSmem {
+        static constexpr uint32_t Q_k_inv = 0;
+        static constexpr uint32_t Q_kp1_inv = Q_k_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t R_k_inv = Q_kp1_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t q_k = R_k_inv + CONTROL_SIZE_SQ;
+        static constexpr uint32_t q_kp1 = q_k + STATE_SIZE;
+        static constexpr uint32_t r_k = q_kp1 + STATE_SIZE;
+        static constexpr uint32_t A_k = r_k + CONTROL_SIZE;
+        static constexpr uint32_t B_k = A_k + STATE_SIZE_SQ;
+        static constexpr uint32_t A_Q_inv = B_k + STATE_P_CONTROL;
+        static constexpr uint32_t B_R_inv = A_Q_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t gamma_k = B_R_inv + STATE_P_CONTROL;
+        static constexpr uint32_t total = gamma_k + STATE_SIZE;
+        static constexpr size_t   bytes() { return total * sizeof(T); }
+};
+
+// dz has two block roles (state rows / control rows) sharing one launch size
+template<typename T>
+struct DzSmem {
+        static constexpr uint32_t x_Q_k_inv = 0;
+        static constexpr uint32_t x_A_k = x_Q_k_inv + STATE_SIZE_SQ;
+        static constexpr uint32_t x_scratch = x_A_k + STATE_SIZE_SQ;
+        static constexpr uint32_t x_total = x_scratch + STATE_SIZE;
+        static constexpr uint32_t u_R_k_inv = 0;
+        static constexpr uint32_t u_B_k = u_R_k_inv + CONTROL_SIZE_SQ;
+        static constexpr uint32_t u_scratch = u_B_k + STATE_P_CONTROL;
+        static constexpr uint32_t u_total = u_scratch + CONTROL_SIZE;
+        static constexpr uint32_t total = x_total > u_total ? x_total : u_total;
+        static constexpr size_t   bytes() { return total * sizeof(T); }
+};
 
 // gamma_k for knot k >= 0 (k < K-1), the SAME op order in both producers
 // (formSchur kernel 1 and the ADMM-loop computeGamma) so they stay bitwise:
@@ -58,28 +134,24 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel1(T
         if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: skip
 
         extern __shared__ T s_mem[];
-
-        T* s_Q_k = s_mem;
-        T* s_Q_k_inv = s_Q_k + STATE_SIZE_SQ;
-        T* s_Q_kp1 = s_Q_k_inv + STATE_SIZE_SQ;
-        T* s_Q_kp1_inv = s_Q_kp1 + STATE_SIZE_SQ;
-        T* s_R_k = s_Q_kp1_inv + STATE_SIZE_SQ;
-        T* s_R_k_inv = s_R_k + CONTROL_SIZE_SQ;
-
-        T* s_q_k = s_R_k_inv + CONTROL_SIZE_SQ;
-        T* s_q_kp1 = s_q_k + STATE_SIZE;
-        T* s_r_k = s_q_kp1 + STATE_SIZE;
-
-        T* s_A_k = s_r_k + CONTROL_SIZE;
-        T* s_B_k = s_A_k + STATE_SIZE_SQ;
-
-        T* s_A_Q_inv = s_B_k + STATE_P_CONTROL;
-        T* s_B_R_inv = s_A_Q_inv + STATE_SIZE_SQ;
-
-        T* s_theta_k = s_B_R_inv + STATE_P_CONTROL;
-        T* s_theta_k_inv = s_theta_k + STATE_SIZE_SQ;
-        T* s_gamma_k = s_theta_k_inv + STATE_SIZE_SQ;
-        T* s_scratch = s_gamma_k + STATE_SIZE;
+        using L = Schur1Smem<T>;
+        T* s_Q_k = s_mem + L::Q_k;
+        T* s_Q_k_inv = s_mem + L::Q_k_inv;
+        T* s_Q_kp1 = s_mem + L::Q_kp1;
+        T* s_Q_kp1_inv = s_mem + L::Q_kp1_inv;
+        T* s_R_k = s_mem + L::R_k;
+        T* s_R_k_inv = s_mem + L::R_k_inv;
+        T* s_q_k = s_mem + L::q_k;
+        T* s_q_kp1 = s_mem + L::q_kp1;
+        T* s_r_k = s_mem + L::r_k;
+        T* s_A_k = s_mem + L::A_k;
+        T* s_B_k = s_mem + L::B_k;
+        T* s_A_Q_inv = s_mem + L::A_Q_inv;
+        T* s_B_R_inv = s_mem + L::B_R_inv;
+        T* s_theta_k = s_mem + L::theta_k;
+        T* s_theta_k_inv = s_mem + L::theta_k_inv;
+        T* s_gamma_k = s_mem + L::gamma_k;
+        T* s_scratch = s_mem + L::scratch;
 
         if (knot_idx < KNOT_POINTS - 1) {  // all except last knot
 
@@ -221,11 +293,11 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T
         if (d_kkt_converged_batch[solve_idx]) return;  // converged solve: skip
 
         extern __shared__ T s_mem[];
-
-        T* s_theta_k_inv = s_mem;
-        T* s_theta_km1_inv = s_theta_k_inv + STATE_SIZE_SQ;
-        T* s_phi_k = s_theta_km1_inv + STATE_SIZE_SQ;
-        T* s_scratch = s_phi_k + STATE_SIZE_SQ;
+        using L = Schur2Smem<T>;
+        T* s_theta_k_inv = s_mem + L::theta_k_inv;
+        T* s_theta_km1_inv = s_mem + L::theta_km1_inv;
+        T* s_phi_k = s_mem + L::phi_k;
+        T* s_scratch = s_mem + L::scratch;
 
         // load theta_k_inv, theta_km1_inv from P_inv, phi_k from S
         T* d_P_inv_row_kp1 = getOffsetBlockRowPadded<T>(d_P_inv_batch, solve_idx, knot_idx + 1);
@@ -249,34 +321,13 @@ __global__ __launch_bounds__(SCHUR_THREADS) void formSchurSystemBatchedKernel2(T
 template<typename T>
 __host__ size_t getFormSchurSystemBatched1SMemSize()
 {
-        size_t size = sizeof(T)
-                      * (STATE_SIZE_SQ +                                      // Q_k
-                         STATE_SIZE_SQ +                                      // Q_k_inv
-                         STATE_SIZE_SQ +                                      // Q_kp1
-                         STATE_SIZE_SQ +                                      // Q_kp1_inv
-                         CONTROL_SIZE_SQ +                                    // R_k
-                         CONTROL_SIZE_SQ +                                    // R_k_inv
-                         STATE_SIZE +                                         // q_k
-                         STATE_SIZE +                                         // q_kp1
-                         CONTROL_SIZE +                                       // r_k
-                         STATE_SIZE_SQ +                                      // A_k
-                         STATE_P_CONTROL +                                    // B_k
-                         STATE_SIZE_SQ +                                      // A_Q_inv
-                         STATE_P_CONTROL +                                    // B_R_inv
-                         STATE_SIZE_SQ +                                      // theta_k
-                         STATE_SIZE_SQ +                                      // theta_k_inv
-                         STATE_SIZE +                                         // gamma_k
-                         (2 * (2 * STATE_SIZE + 1)) + (2 * CONTROL_SIZE + 1)  // max scratch needed for inv
-                      );
-
-        return size;
+        return Schur1Smem<T>::bytes();
 }
 
 template<typename T>
 __host__ size_t getFormSchurSystemBatched2SMemSize()
 {
-        size_t size = sizeof(T) * (4 * STATE_SIZE_SQ);
-        return size;
+        return Schur2Smem<T>::bytes();
 }
 
 template<typename T>
@@ -325,17 +376,18 @@ __global__ __launch_bounds__(SCHUR_THREADS) void computeGammaBatchedKernel(T* __
         if (d_kkt_converged_batch && d_kkt_converged_batch[solve_idx]) return;
 
         extern __shared__ T s_mem[];
-        T* s_Q_k_inv = s_mem;
-        T* s_Q_kp1_inv = s_Q_k_inv + STATE_SIZE_SQ;
-        T* s_R_k_inv = s_Q_kp1_inv + STATE_SIZE_SQ;
-        T* s_q_k = s_R_k_inv + CONTROL_SIZE_SQ;
-        T* s_q_kp1 = s_q_k + STATE_SIZE;
-        T* s_r_k = s_q_kp1 + STATE_SIZE;
-        T* s_A_k = s_r_k + CONTROL_SIZE;
-        T* s_B_k = s_A_k + STATE_SIZE_SQ;
-        T* s_A_Q_inv = s_B_k + STATE_P_CONTROL;
-        T* s_B_R_inv = s_A_Q_inv + STATE_SIZE_SQ;
-        T* s_gamma_k = s_B_R_inv + STATE_P_CONTROL;
+        using L = GammaSmem<T>;
+        T* s_Q_k_inv = s_mem + L::Q_k_inv;
+        T* s_Q_kp1_inv = s_mem + L::Q_kp1_inv;
+        T* s_R_k_inv = s_mem + L::R_k_inv;
+        T* s_q_k = s_mem + L::q_k;
+        T* s_q_kp1 = s_mem + L::q_kp1;
+        T* s_r_k = s_mem + L::r_k;
+        T* s_A_k = s_mem + L::A_k;
+        T* s_B_k = s_mem + L::B_k;
+        T* s_A_Q_inv = s_mem + L::A_Q_inv;
+        T* s_B_R_inv = s_mem + L::B_R_inv;
+        T* s_gamma_k = s_mem + L::gamma_k;
 
         if (knot_idx < KNOT_POINTS - 1) {
                 const T* d_Q_k_inv = getOffsetStateSq<T>(d_Q_inv_batch, solve_idx, knot_idx);
@@ -383,12 +435,7 @@ __global__ __launch_bounds__(SCHUR_THREADS) void computeGammaBatchedKernel(T* __
 template<typename T>
 __host__ size_t getComputeGammaBatchedSMemSize()
 {
-        return sizeof(T)
-               * (2 * STATE_SIZE_SQ + CONTROL_SIZE_SQ            // Q_k_inv, Q_kp1_inv, R_k_inv
-                  + 2 * STATE_SIZE + CONTROL_SIZE                // q_k, q_kp1, r_k
-                  + STATE_SIZE_SQ + STATE_P_CONTROL              // A_k, B_k
-                  + STATE_SIZE_SQ + STATE_P_CONTROL              // A_Q_inv, B_R_inv
-                  + STATE_SIZE);                                 // gamma
+        return GammaSmem<T>::bytes();
 }
 
 template<typename T>
@@ -426,9 +473,9 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 
         if (blockIdx.z == 0) {  // state row (Q_inv_k, A_k, q_k)
 
-                T* s_Q_k_inv = s_mem;
-                T* s_A_k = s_Q_k_inv + STATE_SIZE_SQ;
-                T* s_scratch = s_A_k + STATE_SIZE_SQ;
+                T* s_Q_k_inv = s_mem + DzSmem<T>::x_Q_k_inv;
+                T* s_A_k = s_mem + DzSmem<T>::x_A_k;
+                T* s_scratch = s_mem + DzSmem<T>::x_scratch;
 
                 const T* d_Q_k_inv = getOffsetStateSq<T>(d_Q_inv_batch, solve_idx, knot_idx);
                 glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_Q_k_inv), s_Q_k_inv);
@@ -474,9 +521,9 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 
                 if (knot_idx == KNOT_POINTS - 1) { return; }  // no control at the terminal knot
 
-                T* s_R_k_inv = s_mem;
-                T* s_B_k = s_R_k_inv + CONTROL_SIZE_SQ;
-                T* s_scratch = s_B_k + STATE_P_CONTROL;
+                T* s_R_k_inv = s_mem + DzSmem<T>::u_R_k_inv;
+                T* s_B_k = s_mem + DzSmem<T>::u_B_k;
+                T* s_scratch = s_mem + DzSmem<T>::u_scratch;
 
                 const T* d_R_k_inv = getOffsetControlSq<T>(d_R_inv_batch, solve_idx, knot_idx);
                 const T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
@@ -508,13 +555,7 @@ __global__ __launch_bounds__(DZ_THREADS) void computeDzBatchedKernel(T* __restri
 template<typename T>
 __host__ size_t getComputeDzBatchedSMemSize()
 {
-        size_t size = sizeof(T)
-                      * (STATE_SIZE_SQ +  // Q_k_inv or R_k_inv
-                         STATE_SIZE_SQ +  // A_k or B_k
-                         STATE_SIZE       // scratch
-                      );
-
-        return size;
+        return DzSmem<T>::bytes();
 }
 
 template<typename T>

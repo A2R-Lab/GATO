@@ -1,4 +1,8 @@
 #pragma once
+// Iterative Schur solve S*lambda = gamma with glass::pcg (block-Jacobi
+// preconditioned conjugate gradient on the [L|D|R] strips), one block per solve;
+// warm-started from the previous lambda. iterations == 0 (converged start) is the
+// SQP convergence signal read by bsqp.cuh. The direct alternative is bdsv.cuh.
 
 #include <cstdint>
 #include "settings.h"

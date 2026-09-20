@@ -38,24 +38,35 @@ __host__ __device__ constexpr uint32_t setupKKTTempMemCt()
 // terminal-branch chain is the superset of the running-knot one): everything
 // through r_dummy plus the s_temp tail above. The exact-Hessian carve (below)
 // starts at exactly this offset.
+// setup_kkt shared layout: ONE table for the kernel carve and the host sizer.
+// The running-knot chain ends at `temp`; the TERMINAL block (last knot) carves
+// Q_last..r_dummy after c_k and its temp starts past them (`temp_terminal`).
+// `total` covers both roles.
+template<typename T>
+struct SetupKktSmem {
+        static constexpr uint32_t xux_k = 0;
+        static constexpr uint32_t reference_traj_k = xux_k + constants::XUX_SIZE;
+        static constexpr uint32_t Q_k = reference_traj_k + 2 * constants::EE_POS_SIZE;
+        static constexpr uint32_t R_k = Q_k + STATE_SIZE_SQ;
+        static constexpr uint32_t q_k = R_k + CONTROL_SIZE_SQ;
+        static constexpr uint32_t r_k = q_k + STATE_SIZE;
+        static constexpr uint32_t A_k = r_k + CONTROL_SIZE;
+        static constexpr uint32_t B_k = A_k + STATE_SIZE_SQ;
+        static constexpr uint32_t c_k = B_k + STATE_P_CONTROL;
+        static constexpr uint32_t temp = c_k + STATE_SIZE;                  // running knots
+        static constexpr uint32_t Q_last = c_k + STATE_SIZE;                // terminal block chain
+        static constexpr uint32_t q_last = Q_last + STATE_SIZE_SQ;
+        static constexpr uint32_t R_dummy = q_last + STATE_SIZE;            // throwaway terminal R
+        static constexpr uint32_t r_dummy = R_dummy + CONTROL_SIZE_SQ;
+        static constexpr uint32_t temp_terminal = r_dummy + CONTROL_SIZE;
+        static constexpr uint32_t temp_ct = setupKKTTempMemCt<T>();
+        static constexpr uint32_t total = temp_terminal + temp_ct;         // >= temp + temp_ct
+};
+
 template<typename T>
 __host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
 {
-        constexpr uint32_t temp_ct = setupKKTTempMemCt<T>();
-        return constants::XUX_SIZE +           // xux_k (stored format)
-               2 * constants::EE_POS_SIZE +    // reference_traj_k
-               STATE_SIZE_SQ +                 // Q_k
-               CONTROL_SIZE_SQ +               // R_k
-               STATE_SIZE +                    // q_k
-               CONTROL_SIZE +                  // r_k
-               STATE_SIZE_SQ +                 // A_k
-               STATE_P_CONTROL +               // B_k
-               STATE_SIZE +                    // c_k
-               STATE_SIZE_SQ +                 // Q_last
-               STATE_SIZE +                    // q_last
-               CONTROL_SIZE_SQ +               // R_dummy (throwaway terminal R)
-               CONTROL_SIZE +                  // r_dummy
-               temp_ct;
+        return SetupKktSmem<T>::total;
 }
 
 #if USE_EXACT_HESSIAN
@@ -198,16 +209,17 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         const T admm_rho_scale = d_admm_rho_scale_batch ? d_admm_rho_scale_batch[solve_idx] : static_cast<T>(1);
 
         extern __shared__ T s_mem[];
-        T*                  s_xux_k = s_mem;  // x_k, u_k, x_k+1 (STORED format)
-        T*                  s_reference_traj_k = s_xux_k + constants::XUX_SIZE;
-        T*                  s_Q_k = s_reference_traj_k + 2 * constants::EE_POS_SIZE;
-        T*                  s_R_k = s_Q_k + STATE_SIZE_SQ;
-        T*                  s_q_k = s_R_k + CONTROL_SIZE_SQ;
-        T*                  s_r_k = s_q_k + STATE_SIZE;
-        T*                  s_A_k = s_r_k + CONTROL_SIZE;
-        T*                  s_B_k = s_A_k + STATE_SIZE_SQ;
-        T*                  s_c_k = s_B_k + STATE_P_CONTROL;  // integrator error
-        T*                  s_temp = s_c_k + STATE_SIZE;
+        using L = SetupKktSmem<T>;
+        T*                  s_xux_k = s_mem + L::xux_k;  // x_k, u_k, x_k+1 (STORED format)
+        T*                  s_reference_traj_k = s_mem + L::reference_traj_k;
+        T*                  s_Q_k = s_mem + L::Q_k;
+        T*                  s_R_k = s_mem + L::R_k;
+        T*                  s_q_k = s_mem + L::q_k;
+        T*                  s_r_k = s_mem + L::r_k;
+        T*                  s_A_k = s_mem + L::A_k;
+        T*                  s_B_k = s_mem + L::B_k;
+        T*                  s_c_k = s_mem + L::c_k;  // integrator error
+        T*                  s_temp = s_mem + L::temp;
 #if USE_EXACT_HESSIAN
         // past BOTH branch layouts (running s_temp AND the terminal Q_last..r_dummy+s_temp chain)
         T* s_eh = s_mem + setupKKTBaseSMemCt<T>();
@@ -281,11 +293,11 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
-                        T* s_Q_last  = s_c_k + STATE_SIZE;
-                        T* s_q_last  = s_Q_last + STATE_SIZE_SQ;
-                        T* s_R_dummy = s_q_last + STATE_SIZE;          // throwaway terminal R (no control at x_{k+1})
-                        T* s_r_dummy = s_R_dummy + CONTROL_SIZE_SQ;
-                        s_temp       = s_r_dummy + CONTROL_SIZE;
+                        T* s_Q_last  = s_mem + L::Q_last;
+                        T* s_q_last  = s_mem + L::q_last;
+                        T* s_R_dummy = s_mem + L::R_dummy;          // throwaway terminal R (no control at x_{k+1})
+                        T* s_r_dummy = s_mem + L::r_dummy;
+                        s_temp       = s_mem + L::temp_terminal;
 
                         // running knot k: EE weight q_cost, at state x_k.
                         gato::plant::trackingCostGradHess<T>(

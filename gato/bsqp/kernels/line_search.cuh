@@ -1,4 +1,8 @@
 #pragma once
+// Backtracking line search over NUM_ALPHAS candidate steps (one block per solve):
+// pick the largest alpha whose merit (merit.cuh partials) beats the current
+// trajectory's, apply x += alpha*dz, and adapt the trust-region rho on
+// accept/reject (rho_penalty * drho, clamped to [RHO_MIN, RHO_MAX]).
 
 #include <cstdint>
 #include "settings.h"

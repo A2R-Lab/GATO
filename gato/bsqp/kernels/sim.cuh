@@ -1,4 +1,7 @@
 #pragma once
+// Batched plant step on the DEVICE integrator (sim_forward): x_{k+1} = f(x_k, u_k)
+// under knot 0's external wrench — the same integrator the KKT linearization uses,
+// so a simulated step and the solver's model agree bitwise.
 
 #include <cstdint>
 #include "settings.h"
@@ -13,6 +16,22 @@ using namespace gato;
 using namespace gato::constants;
 // no file-scope `using namespace gato::plant` (it leaks across kernel headers in the shared
 // TU); qualify plant:: calls explicitly.
+
+// shared layout (kernel carve == host sizer)
+template <typename T>
+struct SimSmem {
+    static constexpr size_t xkp1 = 0;
+    static constexpr size_t xk = xkp1 + XU_STATE_SIZE;
+    static constexpr size_t uk = xk + XU_STATE_SIZE;
+    static constexpr size_t temp = uk + CONTROL_SIZE;
+#if GATO_FLOATING_STEP
+    static constexpr size_t temp_ct = gato::plant::stepValueFloating_TempMemCt<T>();
+#else
+    static constexpr size_t temp_ct = 2 * STATE_SIZE + gato::plant::forwardDynamics_TempMemSize_Shared();
+#endif
+    static constexpr size_t total = temp + temp_ct;
+    static constexpr size_t bytes() { return total * sizeof(T); }
+};
 
 template <typename T, uint32_t INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ __launch_bounds__(SIM_FORWARD_THREADS)
@@ -31,10 +50,10 @@ void simForwardBatchedKernel(
     T *d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, 0);
 
     extern __shared__ T s_mem[];
-    T *s_xkp1 = s_mem;
-    T *s_xk = s_xkp1 + XU_STATE_SIZE;
-    T *s_uk = s_xk + XU_STATE_SIZE;
-    T *s_temp = s_uk + CONTROL_SIZE;
+    T *s_xkp1 = s_mem + SimSmem<T>::xkp1;
+    T *s_xk = s_mem + SimSmem<T>::xk;
+    T *s_uk = s_mem + SimSmem<T>::uk;
+    T *s_temp = s_mem + SimSmem<T>::temp;
 
     glass::copy<T, XU_STATE_SIZE>(d_xk, s_xk);
     glass::copy<T, CONTROL_SIZE>(d_uk, s_uk);
@@ -61,18 +80,7 @@ void simForwardBatchedKernel(
 template <typename T>
 __host__
 size_t getSimForwardBatchedKernelSMemSize() {
-#if GATO_FLOATING_STEP
-    size_t temp_ct = gato::plant::stepValueFloating_TempMemCt<T>();
-#else
-    size_t temp_ct = 2 * STATE_SIZE + gato::plant::forwardDynamics_TempMemSize_Shared();
-#endif
-    size_t size = sizeof(T) * (
-        XU_STATE_SIZE + // xkp1
-        XU_STATE_SIZE + // xk
-        CONTROL_SIZE + // uk
-        temp_ct
-    );
-    return size;
+    return SimSmem<T>::bytes();
 }
 
 template <typename T>

@@ -1,4 +1,7 @@
 #pragma once
+// Compile-time solver settings: precision (T), line-search alphas, rho bounds,
+// per-kernel thread counts, and the plant header include (GATO_PLANT_HEADER —
+// the robot-specific generated grid.cuh + limits.cuh + the generic adapter).
 
 #include <cstdint>
 

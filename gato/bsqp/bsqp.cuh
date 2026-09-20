@@ -1,4 +1,9 @@
 #pragma once
+// BSQP: the host orchestrator of the batched SQP solve. Owns every device buffer
+// for B parallel problems and runs the iteration
+//   setup_kkt -> schur (1,2) -> [pcg | bdsv | admm inner loop] -> dz -> merit -> line search
+// plus the constraint row-group layer (rowgroups.cuh, kernels/admm.cuh) and the
+// stats/telemetry read-back. One CUDA block per problem instance everywhere.
 
 #include <iostream>
 #include <cstdint>
