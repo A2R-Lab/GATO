@@ -348,6 +348,14 @@ class PyBSQP {
                 return out;
         }
 
+        // per-knot row-activity mask: (KNOT_POINTS,) uint64, bit i = row i live at that knot
+        void set_row_group_mask(int32_t g, py::array_t<uint64_t, py::array::c_style | py::array::forcecast> active)
+        {
+                py::buffer_info b = active.request();
+                if (b.size != (py::ssize_t)KNOT_POINTS) { throw py::value_error("set_row_group_mask: expected " + std::to_string(KNOT_POINTS) + " knot words"); }
+                solver_.set_row_group_mask(g, static_cast<uint64_t*>(b.ptr));
+        }
+
         void set_row_group_bounds(int32_t g, py::array_t<T, py::array::c_style | py::array::forcecast> lo, py::array_t<T, py::array::c_style | py::array::forcecast> hi)
         {
                 py::buffer_info blo = lo.request(), bhi = hi.request();
@@ -381,6 +389,9 @@ class PyBSQP {
                         d["cone"] = grp.cone;
                         d["lo"] = lo;
                         d["hi"] = hi;
+                        py::array_t<uint64_t> act({(py::ssize_t)KNOT_POINTS});
+                        memcpy(act.request().ptr, grp.active, KNOT_POINTS * sizeof(uint64_t));
+                        d["active"] = act;
                         if (grp.kind == gato::rows::LIN_U) {
                                 py::array_t<T> Cm({(py::ssize_t)grp.n_rows, (py::ssize_t)CONTROL_SIZE});
                                 py::array_t<T> dv({(py::ssize_t)grp.n_rows});
@@ -505,8 +516,10 @@ class PyBSQP {
         {
                 auto buf = ref.request();
                 if (buf.size == 0) { solver_.set_fc_ref(nullptr); return; }  // empty -> reset to zeros
-                if (buf.size != (py::ssize_t)gato::constants::FC_SIZE) throw std::runtime_error("fc_ref must have FC_SIZE entries (or be empty to reset)");
-                solver_.set_fc_ref(static_cast<T*>(buf.ptr));
+                constexpr py::ssize_t FC = (py::ssize_t)gato::constants::FC_SIZE;
+                if (buf.size == FC) { solver_.set_fc_ref(static_cast<T*>(buf.ptr), /*per_knot=*/false); return; }
+                if (buf.size == (py::ssize_t)KNOT_POINTS * FC) { solver_.set_fc_ref(static_cast<T*>(buf.ptr), /*per_knot=*/true); return; }
+                throw std::runtime_error("fc_ref must have FC_SIZE or KNOT_POINTS*FC_SIZE entries (or be empty to reset)");
         }
         void set_u_cost_vec(py::array_t<T, py::array::c_style | py::array::forcecast> w)
         {
@@ -661,6 +674,7 @@ class PyBSQP {
             .def("get_row_groups", &PyBSQP<Type>::get_row_groups)                                                                                                                                      \
             .def("get_row_duals", &PyBSQP<Type>::get_row_duals)                                                                                                                                        \
             .def("get_admm_state", &PyBSQP<Type>::get_admm_state)                                                                                                                                      \
+            .def("set_row_group_mask", &PyBSQP<Type>::set_row_group_mask)                                                                                                                                \
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
             .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \

@@ -86,6 +86,7 @@ int main()
         // one MECH_AL EE_POS equality group with nonzero duals
         rows::RowGroupDesc<T> h_grp;
         memset(&h_grp, 0, sizeof(h_grp));
+        rows::set_mask_all(h_grp.active);   // every row live (the zeroed mask would disable them all)
         h_grp.kind = rows::EE_POS;
         h_grp.block = rows::BLOCK_X;
         h_grp.mech = rows::MECH_AL;

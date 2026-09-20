@@ -148,7 +148,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks
         // N_cost EE weight + drops the control reg/barrier, matching the old trackingcost).
         cost_k =
-            plant::tracking_cost_value<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+            plant::tracking_cost_value<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec,
+                                          /*per-knot wrench reference*/ d_fc_ref ? d_fc_ref + (size_t)knot_idx * constants::FC_SIZE : nullptr);
         __syncthreads();
 
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's

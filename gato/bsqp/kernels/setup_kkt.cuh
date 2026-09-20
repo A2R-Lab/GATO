@@ -274,6 +274,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                 const T qd_w_k  = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 1] : qd_cost;
                 const T u_w_k   = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 2] : u_cost;
                 const T ee_w_kp1 = d_knot_cost_weights ? d_knot_cost_weights[(knot_idx + 1) * 3 + 0] : N_cost;
+                // per-knot contact-wrench reference (KNOT_POINTS x FC_SIZE; nullptr = zeros)
+                const T* d_fc_ref_k   = d_fc_ref ? d_fc_ref + (size_t)knot_idx * constants::FC_SIZE : nullptr;
+                const T* d_fc_ref_kp1 = d_fc_ref ? d_fc_ref + (size_t)(knot_idx + 1) * constants::FC_SIZE : nullptr;
 
                 glass::copy<T, constants::XUX_SIZE>(d_xu_traj_k, s_xux_k);
                 glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
@@ -298,7 +301,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         gato::plant::tracking_cost_grad_hess<T>(
                             s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref_k);
 
                 } else {  // compute Q_last, q_last, and c_0 as well for the last knot point
 
@@ -312,7 +315,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         gato::plant::tracking_cost_grad_hess<T>(
                             s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref_k);
                         __syncthreads();
 
                         // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
@@ -322,7 +325,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         gato::plant::tracking_cost_grad_hess<T>(
                             s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
-                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+                            qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref_kp1);
 
                         // constraint row-groups on the TERMINAL knot's state block
                         // (no control there; the c_0 __syncthreads below covers the writes)

@@ -288,6 +288,7 @@ class BSQP {
                 h_grp.knot_hi = KNOT_POINTS;
                 h_grp.mu = rho;
                 h_grp.delta = static_cast<T>(0);
+                rows::set_mask_all(h_grp.active);
                 for (int i = 0; i < 3; i++) { h_grp.lo[i] = h_target[i]; h_grp.hi[i] = h_target[i]; }
                 gpuErrchk(cudaMemcpy(d_row_groups_ + n_row_groups_, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
                 n_row_groups_ += 1;
@@ -345,6 +346,7 @@ class BSQP {
                 h_grp.delta = delta;
                 h_grp.sigma = sigma;
                 h_grp.cone = cone ? 1 : 0;
+                rows::set_mask_all(h_grp.active);
                 memcpy(h_grp.Cmat, h_C, (size_t)m * constants::CONTROL_SIZE * sizeof(T));
                 if (h_d != nullptr) { memcpy(h_grp.dvec, h_d, (size_t)m * sizeof(T)); }
                 for (int32_t i = 0; i < m; i++) {
@@ -455,6 +457,7 @@ class BSQP {
                 h_grp.mu = rho;
                 h_grp.delta = delta;
                 h_grp.sigma = sigma;
+                rows::set_mask_all(h_grp.active);
                 h_grp.lo[0] = margin;  // uniform one-sided bounds: only slot 0 is read
                 h_grp.hi[0] = std::numeric_limits<T>::infinity();
                 gpuErrchk(cudaMemcpy(d_row_groups_ + n_row_groups_, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
@@ -479,6 +482,18 @@ class BSQP {
                 }
         }
         bool collision_active() const { return has_collision_; }
+
+        // Per-knot row-activity mask (CL-4): KNOT_POINTS words, bit i = row i live
+        // at that knot (see rows::RowGroupDesc::active). ADMM z/y reinitialize on
+        // the next solve (rows re-entering the mask start fresh); AL duals of
+        // masked-off rows are reset by the outer update.
+        void set_row_group_mask(int32_t g, const uint64_t* h_active)
+        {
+                if (g < 0 || g >= n_row_groups_) { throw std::invalid_argument("set_row_group_mask: group index out of range"); }
+                gpuErrchk(cudaMemcpy(reinterpret_cast<char*>(d_row_groups_ + g) + offsetof(rows::RowGroupDesc<T>, active), h_active,
+                                     KNOT_POINTS * sizeof(uint64_t), cudaMemcpyHostToDevice));
+                if (admm_active_) { admm_needs_init_ = true; }
+        }
 
         // Override one group's interval bounds in place (n_rows each; lo == hi
         // rows become always-active equalities under MECH_AL). ADMM z must
@@ -648,15 +663,25 @@ class BSQP {
         // shared across knots and batch. nullptr resets to zeros — bitwise the
         // historic pure regularization. This is how a force SETPOINT enters the
         // solve: fc_ref = the desired contact wrench, fc_cost = the tracking weight.
-        void set_fc_ref(const T* h_fc_ref)
+        // The device buffer is PER KNOT (KNOT_POINTS x FC_SIZE, knot-major — the S4
+        // gait API, 2026-09-20): per_knot = false tiles one wrench over the knots
+        // (bitwise the historic shared reference); true uploads the N rows as given.
+        void set_fc_ref(const T* h_fc_ref, bool per_knot = false)
         {
                 if (gato::constants::FC_SIZE == 0) { return; }  // inert on default builds
                 if (h_fc_ref == nullptr) {
                         if (d_fc_ref_) { gpuErrchk(cudaFree(d_fc_ref_)); d_fc_ref_ = nullptr; }
                         return;
                 }
-                if (!d_fc_ref_) { gpuErrchk(cudaMalloc(&d_fc_ref_, gato::constants::FC_SIZE * sizeof(T))); }
-                gpuErrchk(cudaMemcpy(d_fc_ref_, h_fc_ref, gato::constants::FC_SIZE * sizeof(T), cudaMemcpyHostToDevice));
+                constexpr size_t FC = gato::constants::FC_SIZE;
+                if (!d_fc_ref_) { gpuErrchk(cudaMalloc(&d_fc_ref_, KNOT_POINTS * FC * sizeof(T))); }
+                if (per_knot) {
+                        gpuErrchk(cudaMemcpy(d_fc_ref_, h_fc_ref, KNOT_POINTS * FC * sizeof(T), cudaMemcpyHostToDevice));
+                } else {
+                        std::vector<T> tiled(KNOT_POINTS * FC);
+                        for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(tiled.data() + k * FC, h_fc_ref, FC * sizeof(T)); }
+                        gpuErrchk(cudaMemcpy(d_fc_ref_, tiled.data(), KNOT_POINTS * FC * sizeof(T), cudaMemcpyHostToDevice));
+                }
         }
 
         // per-knot [ee, qd, u] weight triples (KNOT_POINTS x 3, knot-major); overrides the

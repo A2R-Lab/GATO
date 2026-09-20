@@ -586,6 +586,38 @@ class BSQP:
                                          np.asarray(lo, dtype=np.float32),
                                          np.asarray(hi, dtype=np.float32))
 
+    def set_row_group_mask(self, g, mask):
+        """Per-knot row-activity mask for row group ``g`` (CL-4 gait scheduling).
+
+        ``mask`` is an (N, n_rows) boolean array (row i live at knot k), or (N,)
+        for vector kinds (SOC cones, collision groups — gated per knot). The
+        group's knot window still applies first. All-True is the default
+        behaviour, bitwise. An inactive (knot, row) is treated exactly like a
+        knot below the group's ``knot_lo``: ADMM keeps its proximal fold but no
+        z/y update, gradient, merit or residual; AL/barrier/telemetry contribute
+        nothing and the AL dual of that slot is reset. ADMM re-inits z/y on the
+        next solve after every call. ``None`` restores all-True."""
+        groups = self.solver.get_row_groups()
+        if g < 0 or g >= len(groups):
+            raise ValueError(f"row group {g} out of range (have {len(groups)})")
+        grp = groups[g]
+        n_rows = int(grp["n_rows"])
+        vector_kind = bool(grp["cone"]) or int(grp["kind"]) == 5   # SOC cone / COLLISION: bit 0 gates the knot
+        if mask is None:
+            words = np.full(self.N, np.uint64(2**64 - 1), dtype=np.uint64)
+        else:
+            m = np.asarray(mask, dtype=bool)
+            if vector_kind:
+                m = m.reshape(self.N, -1)[:, 0] if m.ndim == 2 else m.reshape(self.N)
+                words = np.where(m, np.uint64(1), np.uint64(0)).astype(np.uint64)
+            else:
+                if m.shape != (self.N, n_rows):
+                    raise ValueError(f"mask must be (N, n_rows) = ({self.N}, {n_rows}); got {m.shape}")
+                words = np.zeros(self.N, dtype=np.uint64)
+                for i in range(n_rows):
+                    words |= (m[:, i].astype(np.uint64) << np.uint64(i))
+        self.solver.set_row_group_mask(int(g), words)
+
     def set_row_group_soft(self, g, sigma):
         """Soft/slack toggle (TurboMPC delta_xi) for group ``g``: sigma > 0
         makes its rows ELASTIC — transient violation is traded against the
@@ -673,6 +705,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
                                     float(sigma), int(knot_lo), int(knot_hi),
                                     int(admm_iters), bool(equilibrate))
         self._n_appended_groups += 1
+        return len(self.get_row_groups()) - 1   # the new group's index (set_row_group_mask/bounds/soft)
 
     def fc_slots(self, frame, part=None):
         """fc slot indices of one contact frame (index or baked frame name):
@@ -713,6 +746,23 @@ cross-term audit's contact-frame rule for config-dependent maps).
         lo_a = np.full(m, lo, dtype=np.float32) if np.ndim(lo) == 0 else np.asarray(lo, dtype=np.float32)
         hi_a = np.full(m, hi, dtype=np.float32) if np.ndim(hi) == 0 else np.asarray(hi, dtype=np.float32)
         return self.add_lin_u_rows(C, lo=lo_a, hi=hi_a, **kw)
+
+    def add_fc_cone(self, frame, mu, mech=None, rho=None, form="soc", **kw):
+        """Friction cone on one contact frame's fc FORCE slots (fc builds):
+        rows [mu*f_z; f_x; f_y] on ``fc_slots(frame, "f")`` — the wrench is
+        world-aligned, so the map is CONSTANT (no freezing at q, unlike the arm
+        EE cone) and holds at every knot. Mask it to stance knots with
+        ``set_row_group_mask``. Returns the group index."""
+        if self.n_fc == 0:
+            raise RuntimeError("add_fc_cone needs a GATO_CONTACT_FORCES build (this module has no fc slots)")
+        if not mu > 0:
+            raise ValueError("mu must be > 0")
+        fx, fy, fz = self.fc_slots(frame, "f")
+        C = np.zeros((3, self.nu), dtype=np.float64)
+        C[0, self.n_actuated + fz] = float(mu)
+        C[1, self.n_actuated + fx] = 1.0
+        C[2, self.n_actuated + fy] = 1.0
+        return self.enable_u_cone(C, mech=mech, rho=rho, form=form, **kw)
 
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):
@@ -870,9 +920,14 @@ spherizer), so margin is extra safety on top.
         if ref is None:
             self.solver.set_fc_ref(np.empty(0, dtype=np.float32))
             return
-        r = np.ascontiguousarray(np.asarray(ref, dtype=np.float32).ravel())
+        r = np.asarray(ref, dtype=np.float32)
+        if r.ndim == 2 and r.shape == (self.N, self.n_fc):      # per-knot reference (gait scheduling)
+            self.solver.set_fc_ref(np.ascontiguousarray(r).ravel())
+            return
+        r = np.ascontiguousarray(r.ravel())
         if r.size != self.n_fc:
-            raise ValueError(f"fc_ref must have n_fc = {self.n_fc} entries, got {r.size}")
+            raise ValueError(f"fc_ref must have n_fc = {self.n_fc} entries or shape (N, n_fc) = "
+                             f"({self.N}, {self.n_fc}); got {np.asarray(ref).shape}")
         self.solver.set_fc_ref(r)
 
     def set_cost_weights_per_knot(self, knot_weights):

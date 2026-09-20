@@ -280,9 +280,10 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                         T* s_mod = s_ddist + NS * NQ;
                         T* s_arena = align16_ptr<T>(s_mod + 2 * NS);
                         gato::plant::collision_dist_grad<T>(s_dist, s_ddist, d_xu_k, s_arena, d_robot_model, env);
+                        const bool on = knot_on<T>(grp, (int32_t)knot_idx);
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
                                 const uint32_t idx = collision_row_state_index(knot_idx, (uint32_t)i);
-                                s_mod[i] = d_y[idx] - rho * (d_z[idx] - s_dist[i]);
+                                s_mod[i] = on ? d_y[idx] - rho * (d_z[idx] - s_dist[i]) : static_cast<T>(0);
                         }
                         __syncthreads();
                         for (int32_t qi = rank; qi < NQ; qi += size) {
@@ -304,7 +305,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                         gato::plant::ee_pos_grad<T>(s_pose, s_grad, d_xu_k, s_arena, d_robot_model);
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
                                 const uint32_t idx = row_state_index(gi, knot_idx, i);
-                                s_mod[i] = d_y[idx] - rho * (d_z[idx] - s_pose[i]);
+                                s_mod[i] = row_on<T>(grp, (int32_t)knot_idx, i) ? d_y[idx] - rho * (d_z[idx] - s_pose[i]) : static_cast<T>(0);
                         }
                         __syncthreads();
                         for (int32_t qi = rank; qi < NQ; qi += size) {
@@ -323,6 +324,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                         for (int32_t a = rank; a < (int32_t)CONTROL_SIZE; a += size) {
                                 T acc = static_cast<T>(0);
                                 for (int32_t i = 0; i < grp.n_rows; i++) {
+                                        if (!row_on<T>(grp, (int32_t)knot_idx, i)) continue;   // masked-off: proximal only
                                         const uint32_t idx = row_state_index(gi, knot_idx, (uint32_t)i);
                                         const T mod = d_y[idx] - rho * (d_z[idx] - eval_row<T>(grp, d_xu_k, (uint32_t)i));
                                         acc += grp.Cmat[i * CONTROL_SIZE + a] * mod;
@@ -333,6 +335,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                         continue;
                 }
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
+                        if (!row_on<T>(grp, (int32_t)knot_idx, i)) continue;   // masked-off: proximal only
                         const uint32_t idx = row_state_index(gi, knot_idx, i);
                         const T z_rel = d_z[idx] - eval_row<T>(grp, d_xu_k, (uint32_t)i);
                         const T mod = d_y[idx] - rho * z_rel;
@@ -401,9 +404,11 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 gato::plant::collision_dist_grad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
+                                const bool on = knot_on<T>(grp, knot);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
                                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
+                                        if (!on) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
                                         T w = s_dist[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_ddist[i * NQ + qi] * dz_k[qi]; }
                                         const T z = admm_z_update<T>(w + d_y[idx] / rho, margin, grp.hi[0], rho, grp.sigma);
@@ -425,6 +430,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
                                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                        if (!row_on<T>(grp, knot, i)) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
                                         T w = s_pose[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_grad[6 * qi + i] * dz_k[qi]; }
                                         const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
@@ -440,6 +446,10 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 T w[MAX_ROWS_PER_GROUP], v[MAX_ROWS_PER_GROUP], p[MAX_ROWS_PER_GROUP];
+                                if (!knot_on<T>(grp, knot)) {
+                                        for (int32_t i = 0; i < m; i++) { s_prim[k * m + i] = static_cast<T>(0); s_dual[k * m + i] = static_cast<T>(0); }
+                                        continue;
+                                }
                                 for (int32_t i = 0; i < m; i++) {
                                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                         w[i] = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
@@ -462,6 +472,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                if (!row_on<T>(grp, knot, i)) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
 
                                 const T w = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
                                 const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);

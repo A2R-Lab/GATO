@@ -134,7 +134,38 @@ struct RowGroupDesc {
         int32_t cone;   // 0 = interval rows; 1 = SOC on the row vector
         T       Cmat[MAX_ROWS_PER_GROUP * constants::CONTROL_SIZE];  // row-major map
         T       dvec[MAX_ROWS_PER_GROUP];                            // constant offset
+        // Per-knot ROW-ACTIVITY MASK (CL-4, 2026-09-20): bit i of active[k] = row i
+        // is live at knot k (inside [knot_lo, knot_hi) — the window still gates
+        // first). All-ones = the historic behaviour, bitwise. An inactive
+        // (knot, row) gets exactly the treatment the group already gives knots
+        // below knot_lo: ADMM keeps its gradient-free proximal fold (strip
+        // rho-homogeneity, the R1 y-windup lesson) but skips the z/y update,
+        // the gradient term, the merit term and the residuals; AL / barrier /
+        // telemetry contribute nothing; the AL dual is RESET to 0 there (a foot
+        // entering swing starts its next stance fresh). Vector kinds (SOC cones)
+        // and COLLISION groups are gated per KNOT by bit 0. Written per MPC
+        // tick by the gait schedule (set_row_group_mask); ADMM re-inits z/y on
+        // every mask write.
+        uint64_t active[KNOT_POINTS];
 };
+static_assert(MAX_ROWS_PER_GROUP <= 64, "row-activity mask packs one row per bit");
+
+// row i of `grp` live at `knot`? (window-independent — callers gate the window)
+template<typename T>
+__host__ __device__ __forceinline__ bool row_on(const RowGroupDesc<T>& grp, int32_t knot, int32_t i)
+{
+        const int32_t bit = (grp.cone || grp.kind == COLLISION) ? 0 : i;   // vector kinds: bit 0 gates the knot
+        return ((grp.active[knot] >> bit) & 1ull) != 0ull;
+}
+template<typename T>
+__host__ __device__ __forceinline__ bool knot_on(const RowGroupDesc<T>& grp, int32_t knot)
+{
+        return (grp.active[knot] & 1ull) != 0ull;
+}
+__host__ __device__ __forceinline__ void set_mask_all(uint64_t* active)
+{
+        for (uint32_t k = 0; k < KNOT_POINTS; k++) { active[k] = ~0ull; }
+}
 
 // ---- stored/tangent slot maps (CL-3 floating base) -----------------------
 //
@@ -302,8 +333,12 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
                         const T g = s_pose[i];
                         if (grp.mech == MECH_ADMM) {
                                 // constant rho*J^T*J fold; gradient half per-ADMM-iteration
+                                // (kept for masked-off rows too: the proximal treatment)
                                 s_gr[i] = static_cast<T>(0);
                                 s_h[i] = grp.mu * admm_rho_scale;  // mu = ADMM rho (x per-solve adaptation scale)
+                        } else if (!row_on<T>(grp, knot, i)) {
+                                s_gr[i] = static_cast<T>(0);
+                                s_h[i] = static_cast<T>(0);
                         } else if (grp.mech == MECH_AL) {
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                 glass::al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
@@ -350,6 +385,7 @@ __device__ __noinline__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ 
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 const T* s_pose = ee_eval_pose<T>(xu_k, s_scratch, d_robot_model);
                 for (int32_t i = 0; i < grp.n_rows; i++) {
+                        if (!row_on<T>(grp, knot, i)) continue;
                         if (admm_term) {
                                 // true-nonlinear pose against the CURRENT (z, y) row
                                 // state (set_admm_merit; see row_cost_value)
@@ -632,7 +668,10 @@ __device__ __noinline__ void fold_lin_u_interval(const RowGroupDesc<T>& grp, int
         for (int32_t i = 0; i < m; i++) {
                 if (grp.mech == MECH_ADMM) {
                         grs[i] = static_cast<T>(0);
-                        hs[i] = grp.mu * admm_rho_scale;
+                        hs[i] = grp.mu * admm_rho_scale;   // masked-off rows keep the proximal fold
+                } else if (!row_on<T>(grp, knot, i)) {
+                        grs[i] = static_cast<T>(0);
+                        hs[i] = static_cast<T>(0);
                 } else if (grp.mech == MECH_AL) {
                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                         glass::al_interval_grad_hess<T>(g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, grs[i], hs[i]);
@@ -687,10 +726,12 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                         // write-write race (all guards above are block-uniform, so
                         // the barrier is uniformly reached).
                         __syncthreads();
+                        // cone vectors are gated per knot (bit 0); ADMM keeps its proximal fold
+                        const bool cone_off = grp.cone && !knot_on<T>(grp, (int32_t)knot);
                         if (grp.cone && grp.mech == MECH_AL) {
-                                fold_lin_u_conic_al<T>(grp, gi, (int32_t)knot, xu_k, d_lam_hi, s_R, s_r, rank, size);
+                                if (!cone_off) fold_lin_u_conic_al<T>(grp, gi, (int32_t)knot, xu_k, d_lam_hi, s_R, s_r, rank, size);
                         } else if (grp.cone && grp.mech == MECH_BARRIER_RELAXED) {
-                                fold_lin_u_rb_cone<T>(grp, xu_k, s_R, s_r, rank, size);
+                                if (!cone_off) fold_lin_u_rb_cone<T>(grp, xu_k, s_R, s_r, rank, size);
                         } else if (grp.cone && grp.mech == MECH_ADMM) {
                                 fold_lin_u_admm_cone<T>(grp, s_R, rank, size, admm_rho_scale);
                         } else {
@@ -714,9 +755,12 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
                         T gr, h;
                         if (grp.mech == MECH_ADMM) {
                                 // constant rho*G^T G diagonal fold — the gradient half is
-                                // per-ADMM-iteration (kernels/admm.cuh), NOT here
+                                // per-ADMM-iteration (kernels/admm.cuh), NOT here; kept for
+                                // masked-off rows (proximal treatment, like knots below knot_lo)
                                 gr = static_cast<T>(0);
                                 h = grp.mu * admm_rho_scale;  // mu = ADMM rho (x per-solve adaptation scale)
+                        } else if (!row_on<T>(grp, knot, i)) {
+                                continue;
                         } else if (grp.mech == MECH_AL) {
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
@@ -760,6 +804,7 @@ __device__ __noinline__ T row_cost_value(const RowGroupDesc<T>* __restrict__ gro
                 if (grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_AL && !admm_term) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
+                if (grp.cone && !knot_on<T>(grp, knot)) continue;
                 if (grp.kind == LIN_U && grp.cone && !admm_term) {
                         // vector value terms (the admm merit term below is per-row
                         // summable and needs no special case)
@@ -776,6 +821,7 @@ __device__ __noinline__ T row_cost_value(const RowGroupDesc<T>* __restrict__ gro
                         continue;
                 }
                 for (int32_t i = 0; i < grp.n_rows; i++) {
+                        if (!row_on<T>(grp, knot, i)) continue;
                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                         if (admm_term) {
                                 // AL-form value on the CURRENT (z, y) row state — the
@@ -855,7 +901,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_
                                 const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
                                 const T* s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]);
+                                        s_viol[k * grp.n_rows + i] = row_on<T>(grp, grp.knot_lo + k, i) ? glass::interval_violation<T>(s_pose[i], grp.lo[i], grp.hi[i]) : static_cast<T>(0);
                                 }
                                 __syncthreads();
                         }
@@ -868,7 +914,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_
                                 const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
                                 gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_dist[i], grp.lo[0], grp.hi[0]);
+                                        s_viol[k * grp.n_rows + i] = knot_on<T>(grp, grp.knot_lo + k) ? glass::interval_violation<T>(s_dist[i], grp.lo[0], grp.hi[0]) : static_cast<T>(0);
                                 }
                                 __syncthreads();
                         }
@@ -877,7 +923,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_
                         for (int32_t e = rank; e < n_elems; e += size) {
                                 const int32_t knot = grp.knot_lo + e / grp.n_rows;
                                 const int32_t i = e % grp.n_rows;
-                                if (i != 0) {
+                                if (i != 0 || !knot_on<T>(grp, knot)) {
                                         s_viol[e] = static_cast<T>(0);
                                         continue;
                                 }
@@ -892,7 +938,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_
                                 const int32_t i = e % grp.n_rows;
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
-                                s_viol[e] = glass::interval_violation<T>(g, grp.lo[i], grp.hi[i]);
+                                s_viol[e] = row_on<T>(grp, knot, i) ? glass::interval_violation<T>(g, grp.lo[i], grp.hi[i]) : static_cast<T>(0);
                         }
                 }
                 __syncthreads();
@@ -999,8 +1045,10 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                                 const int32_t knot = grp.knot_lo + k;
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);  // all threads
+                                const bool on = knot_on<T>(grp, knot);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
+                                        if (!on) { d_lam_lo[idx] = static_cast<T>(0); continue; }   // masked-off knot: dual reset
                                         T a = d_lam_lo[idx] + grp.mu * (margin - s_dist[i]);
                                         if (a < static_cast<T>(0)) a = static_cast<T>(0);
                                         if (soft && a > grp.sigma) a = grp.sigma;
@@ -1017,6 +1065,10 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                                 const int32_t knot = grp.knot_lo + k;
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
                                 T w[MAX_ROWS_PER_GROUP];
+                                if (!knot_on<T>(grp, knot)) {   // masked-off knot: dual reset
+                                        for (int32_t i = 0; i < grp.n_rows; i++) { d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] = static_cast<T>(0); }
+                                        continue;
+                                }
                                 for (int32_t i = 0; i < grp.n_rows; i++) {
                                         const T g = eval_row<T>(grp, xu_k, (uint32_t)i);
                                         w[i] = d_lam_hi[row_state_index(gi, (uint32_t)knot, (uint32_t)i)] - grp.mu * g;
@@ -1035,8 +1087,13 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                         }
                         const bool soft = grp.sigma > static_cast<T>(0);
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                const T g = (grp.kind == EE_POS) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                if (!row_on<T>(grp, knot, i)) {   // masked-off row: dual reset
+                                        d_lam_hi[idx] = static_cast<T>(0);
+                                        d_lam_lo[idx] = static_cast<T>(0);
+                                        continue;
+                                }
+                                const T g = (grp.kind == EE_POS) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
                                 if (glass::al_is_eq_row<T>(grp.lo[i], grp.hi[i])) {
                                         T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
                                         if (soft) {  // elastic multiplier bound |lam| <= sigma
@@ -1126,6 +1183,7 @@ __global__ void init_limit_row_groups_kernel(RowGroupDesc<T>* d_groups, int32_t 
                         d_groups[g].cone = 0;
                 }
         }
+        for (uint32_t e = rank; e < 3 * KNOT_POINTS; e += size) { d_groups[e / KNOT_POINTS].active[e % KNOT_POINTS] = ~0ull; }
         for (int32_t i = rank; i < NA; i += size) {
                 d_groups[0].lo[i] = gato::plant::JOINT_LIMITS<T>()[i][0];
                 d_groups[0].hi[i] = gato::plant::JOINT_LIMITS<T>()[i][1];

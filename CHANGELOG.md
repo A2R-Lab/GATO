@@ -2,6 +2,18 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-20 — CL-4 groundwork: gait oracle, per-knot row masks, per-knot fc reference
+
+- `gato.gait.GaitSchedule`: the fixed-gait ORACLE (trot/bound/pace/walk/stand; period,
+  duty, phase offsets) → rolling per-knot stance masks, fc pin masks, per-knot fn
+  references, Raibert-lite footholds, swing curves, base references. Pure numpy.
+- Row groups carry a per-knot row-activity mask (`BSQP.set_row_group_mask(g, mask)`,
+  `get_row_groups()[g]["active"]`): an inactive (knot, row) is treated like a knot
+  below the group's window (ADMM keeps its proximal fold, everything else contributes
+  nothing) and its AL dual is reset. All-True is bitwise the previous behaviour.
+- `set_fc_ref` accepts an (N, n_fc) per-knot table (a 1-D wrench still broadcasts,
+  bitwise); the device buffer is per knot.
+
 ## 2026-09-20 — Wave F: contact forces on the floating base (go2 fc-on-feet)
 
 - `bsqpN16_go2_fc`: the fc variant now builds on the floating base (was a
