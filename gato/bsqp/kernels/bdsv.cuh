@@ -146,6 +146,7 @@ __host__ void solveBDSVBatched(uint32_t batch_size, T* d_lambda_batch, SchurSyst
 
         solveBDSVBatchedKernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_kkt_converged_batch, d_use_bdsv_mask);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // --------------------------------------------------
@@ -276,6 +277,7 @@ __host__ void factorBDSVBatched(uint32_t batch_size, SchurSystem<T> schur, int32
         const uint32_t s_mem_size = getFactorBDSVBatchedSMemSize<T>();
 
         factorBDSVBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch, d_use_bdsv_mask);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // d_rhs_batch uses gamma's padded layout + stored-γ sign convention; pass
@@ -289,4 +291,5 @@ __host__ void solveBDSVFactoredBatched(uint32_t batch_size, T* d_x_batch, SchurS
         const uint32_t s_mem_size = getSolveBDSVFactoredBatchedSMemSize<T>();
 
         solveBDSVFactoredBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status, d_use_bdsv_mask);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

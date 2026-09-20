@@ -71,4 +71,5 @@ __host__ void solvePCGBatched(uint32_t batch_size, T* d_lambda_batch, SchurSyste
 
         solvePCGBatchedKernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_epsilon_batch, max_pcg_iters, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

@@ -302,10 +302,10 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
         // the attribute set and the launch (silent launch failures leave the
         // merit buffers unwritten while the line search "runs")
         if (s_mem_size > 48 * 1024) {
-                static bool attr_set = false;
-                if (!attr_set) {
+                static size_t attr_bytes = 0;   // re-attribute whenever the request grows (runtime flags size the carve)
+                if (s_mem_size > attr_bytes) {
                         gpuErrchk(cudaFuncSetAttribute(computeMeritBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
-                        attr_set = true;
+                        attr_bytes = s_mem_size;
                 }
         }
 

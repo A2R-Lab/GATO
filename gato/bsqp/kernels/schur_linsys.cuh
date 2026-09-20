@@ -308,8 +308,10 @@ __host__ void formSchurSystemBatched(uint32_t batch_size, SchurSystem<T> schur, 
 
         formSchurSystemBatchedKernel1<T><<<grid1, thread_block, s_mem_size1>>>(
             schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 
         formSchurSystemBatchedKernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // --------------------------------------------------
@@ -423,6 +425,7 @@ __host__ void computeGammaBatched(uint32_t batch_size, SchurSystem<T> schur, KKT
         dim3 thread_block(SCHUR_THREADS);
         computeGammaBatchedKernel<T><<<grid, thread_block, getComputeGammaBatchedSMemSize<T>()>>>(
             schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // --------------------------------------------------
@@ -559,4 +562,5 @@ __host__ void computeDzBatched(uint32_t batch_size, T* d_dz_batch, T* d_lambda_b
         const uint32_t s_mem_size = getComputeDzBatchedSMemSize<T>();
 
         computeDzBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

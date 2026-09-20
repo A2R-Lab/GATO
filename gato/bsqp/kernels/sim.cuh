@@ -98,6 +98,7 @@ void simForwardBatched(
         d_f_ext_batch,
         dt
     );
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 

@@ -140,4 +140,5 @@ __host__ void lineSearchAndUpdateBatched(uint32_t batch_size, T* d_xu_traj_batch
 
         lineSearchAndUpdateBatchedKernel<T, NumAlphas>
             <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

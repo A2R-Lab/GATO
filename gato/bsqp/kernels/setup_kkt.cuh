@@ -404,11 +404,14 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
         // FAIL LOUD on both the attribute set and the launch: an over-ceiling
         // request here used to fail SILENTLY, leaving every KKT buffer
         // unwritten while the solve "ran" (2026-08-11 collision-carve bug).
+        // The size is a function of RUNTIME flags (exact_hessian, has_collision),
+        // so a later, larger request in the same process must re-attribute: a
+        // once-only latch would launch the bigger carve over the old ceiling.
         if (s_mem_size > 48 * 1024) {
-                static bool attr_set = false;
-                if (!attr_set) {
+                static size_t attr_bytes = 0;
+                if (s_mem_size > attr_bytes) {
                         gpuErrchk(cudaFuncSetAttribute(setupKKTSystemBatchedKernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
-                        attr_set = true;
+                        attr_bytes = s_mem_size;
                 }
         }
 

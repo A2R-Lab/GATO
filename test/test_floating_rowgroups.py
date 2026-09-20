@@ -322,3 +322,25 @@ def test_collision_fold_mechanisms_reduce_violation(model):
     al = _collision_mech_violation(model, mech="al", rho=100.0)
     assert bar < ref, (bar, ref)
     assert al < ref, (al, ref)
+
+
+def test_smem_attribute_regrows_after_collision_enable(model):
+    """2026-09-20 latch fix: the max-dynamic-smem attribute used to be set ONCE
+    with the first >48KB request; enabling collision afterwards in the same
+    process asks for a LARGER carve (setup_kkt/merit overlay grows) that was
+    never attributed — the launch then fails (loud since 08-11, but a failure).
+    Order matters: plain solve FIRST, collision SECOND, on the same module."""
+    B = 2
+    x = _standing_x()
+    X = np.tile(x, (B, 1)).astype(np.float32)
+    goals = _goals_at(model, x, B)
+    s = _solver(B)
+    r0 = s.solve(X, goals)
+    assert np.isfinite(r0.xu).all()
+    s.set_collision_environment(spheres=[(0.22, -0.16, 0.05, 0.12)])
+    s.enable_collision(margin=0.02, mech="barrier", rho=1e-1)
+    r1 = s.solve(X, goals)   # launches with the GROWN carve — must not fail
+    assert np.isfinite(r1.xu).all()
+    assert (r1.stats.sqp_iters >= 1).all()
+    # (no bitwise comparison against a fresh solver: BSQP is stateful across
+    # solve() — warm start + adapted rho legitimately differ after the first solve)

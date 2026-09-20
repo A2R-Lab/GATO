@@ -923,6 +923,7 @@ __host__ void rowGroupTelemetryBatched(uint32_t batch_size, T* d_telemetry, cons
         if (n_groups <= 0) return;
         rowGroupTelemetryBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, getRowGroupTelemetrySMemSize<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
                                                                                                                (const grid::robotModel<T>*)d_GRiD_mem, env);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // ---- AL outer dual update (MECH_AL) --------------------------------------
@@ -1070,6 +1071,7 @@ __host__ void alDualUpdateBatched(uint32_t batch_size, T* d_lam_hi_batch, T* d_l
 {
         alDualUpdateBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_lam_hi_batch, d_lam_lo_batch, d_prev_viol_batch, d_telemetry, d_xu_traj_batch, d_groups,
                                                                                                                   n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
 // ---- limit row-group initialization ------------------------------------
