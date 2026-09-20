@@ -134,14 +134,34 @@ def _write_limits(robot, out_path, name, urdf_name):
     Path(out_path).write_text("\n".join(out))
 
 
+# The GRiD algorithm families GATO's device code actually consumes (plan D5,
+# 2026-09-20). Everything plant.cuh / grid_plant_step.cuh / bindings.cu call
+# (id, minv, fd + gradients, fdsva_so for the exact-Hessian build, EE pose
+# family, the integrators, f_ext gradient) plus their transitive deps; the
+# grid_plant cost/step presets, contact-frame wrench maps and collision rows
+# are driven by the contact_frames/collision_spec kwargs, not by this list.
+# vs profile="all": drops the regressor + centroidal (com/ccrba/energy/
+# dccrba/cmm) families and their plant presets — ~21% of the emitted header
+# (indy7 41,992 -> 33,016 lines) that nothing here instantiates. A/B-gated:
+# every symbol GATO references is byte-identical between the two emissions.
+GATO_ALGORITHMS = (
+    "inverse_dynamics", "minv", "forward_dynamics",
+    "inverse_dynamics_gradient", "forward_dynamics_gradient", "fdsva_so",
+    "end_effector_pose", "end_effector_pose_gradient", "end_effector_pose_hessian",
+    "integrator", "integrator_gradient", "integrator_with_gradient",
+    "f_ext_gradient",
+)
+
+
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
             floating_base=False):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
-    gato.build() and tools/regen_grid.py go through it. algorithm_list=None uses
-    GRiD's profile="all" (recommended; also emits the grid_plant cost surface).
+    gato.build() and tools/regen_grid.py go through it. algorithm_list=None
+    emits GATO_ALGORITHMS (the consumed families; smallest header that builds
+    every module); pass "all" for GRiD's full profile, or an explicit list.
     out_dir/register let tests generate elsewhere without touching the repo.
 
     collision_res: sphere spacing in meters for the grid_collision namespace
@@ -195,10 +215,10 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         fixed_target_name=ee_frame,
         output_path=str(out_dir / "grid.cuh"),
     )
-    if algorithm_list is None:
+    if algorithm_list == "all":
         kwargs["codegen_profile"] = "all"
     else:
-        kwargs["algorithm_list"] = list(algorithm_list)
+        kwargs["algorithm_list"] = list(GATO_ALGORITHMS if algorithm_list is None else algorithm_list)
     n_spheres = None
     if collision_res is not None:
         from grid_codegen.algorithms._collision import (

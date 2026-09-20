@@ -75,7 +75,7 @@
  *   By default device and kernels need to be launched with dynamic shared mem of size <FUNC_CODE>_DYNAMIC_SHARED_MEM_COUNT where <FUNC_CODE> = [INVERSE_DYNAMICS, MINV, FORWARD_DYNAMICS, INVERSE_DYNAMICS_GRADIENT, FORWARD_DYNAMICS_GRADIENT]
  *   
  *   Codegen profile: all
- *   Generated algorithms: aba, ccrba, cmm_time_variation, com, coriolis_matrix, crba, dccrba, end_effector_pose, end_effector_pose_gradient, end_effector_pose_hessian, energy, f_ext_gradient, fdsva_so, forward_dynamics, forward_dynamics_gradient, forward_dynamics_parameter_gradient, generalized_gravity, idsva_so_body_frame, integrator, integrator_gradient, integrator_with_gradient, inverse_dynamics, inverse_dynamics_gradient, inverse_dynamics_regressor, kinetic_energy_regressor, minv, nonlinear_effects, potential_energy_regressor
+ *   Generated algorithms: crba, end_effector_pose, end_effector_pose_gradient, end_effector_pose_hessian, f_ext_gradient, fdsva_so, forward_dynamics, forward_dynamics_gradient, idsva_so_body_frame, integrator, integrator_gradient, integrator_with_gradient, inverse_dynamics, inverse_dynamics_gradient, minv
  *   
  *   Additional EEPose Functions Included for Fixed Kinematic Target: imu_joint
  *   
@@ -93,8 +93,6 @@
 #include <time.h>
 #include <cuda_runtime.h>
 
-// SIMT GLASS is the only linalg backend (cuBLASDx was removed in v2.0;
-// see docs/source/user_guide/concepts/cublasdx_removal_design.rst).
 #if defined(__has_include)
 #if __has_include(<cub/cub.cuh>)
 #define GRID_CUB_HEADER_AVAILABLE 1
@@ -154,7 +152,7 @@ void printMat(const T *A, int lda){
     }
 }
 
-#define GRID_HAS_IDSVA_SO_BODY_FRAME 1
+#define GRID_HAS_IDSVA_SO_BODY_FRAME 0
 #define GRID_HAS_FDSVA_SO 1
 #define GRID_HAS_IDSVA_SO_WORLD_FRAME 1
 #define GRID_HAS_IDSVA_SO 1
@@ -164,22 +162,23 @@ void printMat(const T *A, int lda){
 #define GRID_HAS_INVERSE_DYNAMICS 1
 #define GRID_HAS_MINV 1
 #define GRID_HAS_FORWARD_DYNAMICS 1
-#define GRID_HAS_ABA 1
+#define GRID_HAS_ABA 0
 #define GRID_HAS_CRBA 1
 #define GRID_HAS_INVERSE_DYNAMICS_GRADIENT 1
 #define GRID_HAS_FORWARD_DYNAMICS_GRADIENT 1
 #define GRID_HAS_F_EXT_GRADIENT 1
 #define GRID_HAS_F_EXT_GRADIENT_DQ 1
-#define GRID_HAS_INVERSE_DYNAMICS_REGRESSOR 1
-#define GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT 1
+#define GRID_HAS_INVERSE_DYNAMICS_REGRESSOR 0
+#define GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT 0
+#define GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT 0
 #define GRID_HAS_END_EFFECTOR_POSE 1
 #define GRID_HAS_END_EFFECTOR_POSE_GRADIENT 1
 #define GRID_HAS_END_EFFECTOR_POSE_HESSIAN 1
-#define GRID_HAS_GENERALIZED_GRAVITY 1
-#define GRID_HAS_NONLINEAR_EFFECTS 1
-#define GRID_HAS_CORIOLIS_MATRIX 1
-#define GRID_HAS_KINETIC_ENERGY_REGRESSOR 1
-#define GRID_HAS_POTENTIAL_ENERGY_REGRESSOR 1
+#define GRID_HAS_GENERALIZED_GRAVITY 0
+#define GRID_HAS_NONLINEAR_EFFECTS 0
+#define GRID_HAS_CORIOLIS_MATRIX 0
+#define GRID_HAS_KINETIC_ENERGY_REGRESSOR 0
+#define GRID_HAS_POTENTIAL_ENERGY_REGRESSOR 0
 #define GRID_RBD_WITH_MUJOCO 1
 
 /**
@@ -228,7 +227,7 @@ namespace grid {
     enum class IntegratorType { EULER = 0, SEMI_IMPLICIT_EULER = 1, MIDPOINT = 2, RK3 = 3, RK4 = 4, TRAPEZOIDAL = 5 };
     
     #ifndef GRID_CUDA_ENABLE_L2_PERSISTING
-    #define GRID_CUDA_ENABLE_L2_PERSISTING 1
+    #define GRID_CUDA_ENABLE_L2_PERSISTING 0
     #endif
     
     __host__ inline cudaError_t grid_get_max_dynamic_shared_memory_bytes(size_t *bytes) {
@@ -357,6 +356,7 @@ namespace grid {
     const int D2XHOM_T_COUNT = 5776;
     const int GRID_INVERSE_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP = 0;
     const int GRID_INVERSE_DYNAMICS_GRADIENT_USES_WORKSPACE_ANY_TIER = 1;
+    const int GRID_INVERSE_DYNAMICS_REGRESSOR_GRADIENT_USES_WORKSPACE_ANY_TIER = 1;
     const int GRID_FORWARD_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP = 0;
     const int GRID_FORWARD_DYNAMICS_GRADIENT_USES_WORKSPACE_ANY_TIER = 1;
     const int GRID_INVERSE_DYNAMICS_GRADIENT_USES_DA_DF_SPILL = 0;
@@ -364,7 +364,7 @@ namespace grid {
     const int GRID_INTEGRATOR_USES_WORKSPACE = 1;
     const int GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE = 1;
     const int GRID_INTEGRATOR_GRADIENT_USES_DA_DF_SPILL = 1;
-    const int GRID_GENERATES_IDSVA_SO_BODY_FRAME = 1;
+    const int GRID_GENERATES_IDSVA_SO_BODY_FRAME = 0;
     const int GRID_GENERATES_FDSVA_SO = 1;
     const int GRID_GENERATES_D2EE = 1;
     const int GRID_IDSVA_SO_USES_GLOBAL_OUTPUT = 1;
@@ -465,6 +465,24 @@ namespace grid {
         GRID_ALGO_INTEGRATOR,
         GRID_ALGO_INTEGRATOR_GRADIENT,
         GRID_ALGO_INTEGRATOR_WITH_GRADIENT,
+        GRID_ALGO_F_EXT_GRADIENT,
+        GRID_ALGO_F_EXT_GRADIENT_DQ,
+        GRID_ALGO_INVERSE_DYNAMICS_REGRESSOR,
+        GRID_ALGO_FORWARD_DYNAMICS_PARAMETER_GRADIENT,
+        GRID_ALGO_KINETIC_ENERGY_REGRESSOR,
+        GRID_ALGO_POTENTIAL_ENERGY_REGRESSOR,
+        GRID_ALGO_FRAME_JACOBIAN,
+        GRID_ALGO_FRAME_JACOBIAN_DOT,
+        GRID_ALGO_OSC_INERTIA,
+        GRID_ALGO_GENERALIZED_GRAVITY,
+        GRID_ALGO_NONLINEAR_EFFECTS,
+        GRID_ALGO_ENERGY,
+        GRID_ALGO_COM,
+        GRID_ALGO_CCRBA,
+        GRID_ALGO_CORIOLIS_MATRIX,
+        GRID_ALGO_DCCRBA,
+        GRID_ALGO_CMM_TIME_VARIATION,
+        GRID_ALGO_INVERSE_DYNAMICS_REGRESSOR_GRADIENT,
         GRID_ALGO_COUNT
     };
     // Primary template = conservative fallback (matches the historical default).
@@ -472,23 +490,40 @@ namespace grid {
         static constexpr int TIER    = GRID_DEFAULT_RESOURCE_TIER;
         static constexpr int THREADS = MAX_PERF_LEVEL_THREADS;
     };
-    template <> struct launch_cfg<GRID_ALGO_INVERSE_DYNAMICS> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_INVERSE_DYNAMICS> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((192) < tier_max_threads<TIER_SHARED>()) ? (192) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_MINV> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
-    template <> struct launch_cfg<GRID_ALGO_FORWARD_DYNAMICS> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_FORWARD_DYNAMICS> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_ABA> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((128) < tier_max_threads<TIER_SHARED>()) ? (128) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_CRBA> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((192) < tier_max_threads<TIER_SHARED>()) ? (192) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_INVERSE_DYNAMICS_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_FORWARD_DYNAMICS_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
-    template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((80) < tier_max_threads<TIER_SHARED>()) ? (80) : tier_max_threads<TIER_SHARED>(); };
-    template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_HESSIAN> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((448) < tier_max_threads<TIER_LITE>()) ? (448) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_HESSIAN> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((384) < tier_max_threads<TIER_LITE>()) ? (384) : tier_max_threads<TIER_LITE>(); };
     template <> struct launch_cfg<GRID_ALGO_IDSVA_SO> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((96) < tier_max_threads<TIER_SHARED>()) ? (96) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_IDSVA_SO_BODY_FRAME> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((64) < tier_max_threads<TIER_SHARED>()) ? (64) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_IDSVA_SO_WORLD_FRAME> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((192) < tier_max_threads<TIER_MINIMAL>()) ? (192) : tier_max_threads<TIER_MINIMAL>(); };
     template <> struct launch_cfg<GRID_ALGO_FDSVA_SO> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((320) < tier_max_threads<TIER_MINIMAL>()) ? (320) : tier_max_threads<TIER_MINIMAL>(); };
     template <> struct launch_cfg<GRID_ALGO_INTEGRATOR> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
-    template <> struct launch_cfg<GRID_ALGO_INTEGRATOR_GRADIENT> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((288) < tier_max_threads<TIER_LITE>()) ? (288) : tier_max_threads<TIER_LITE>(); };
-    template <> struct launch_cfg<GRID_ALGO_INTEGRATOR_WITH_GRADIENT> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((224) < tier_max_threads<TIER_LITE>()) ? (224) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_INTEGRATOR_GRADIENT> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((320) < tier_max_threads<TIER_LITE>()) ? (320) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_INTEGRATOR_WITH_GRADIENT> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((288) < tier_max_threads<TIER_LITE>()) ? (288) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_F_EXT_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_F_EXT_GRADIENT_DQ> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_INVERSE_DYNAMICS_REGRESSOR> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_FORWARD_DYNAMICS_PARAMETER_GRADIENT> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((256) < tier_max_threads<TIER_SHARED>()) ? (256) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_KINETIC_ENERGY_REGRESSOR> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((128) < tier_max_threads<TIER_SHARED>()) ? (128) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_POTENTIAL_ENERGY_REGRESSOR> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_FRAME_JACOBIAN> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((160) < tier_max_threads<TIER_MINIMAL>()) ? (160) : tier_max_threads<TIER_MINIMAL>(); };
+    template <> struct launch_cfg<GRID_ALGO_FRAME_JACOBIAN_DOT> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((224) < tier_max_threads<TIER_LITE>()) ? (224) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_OSC_INERTIA> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_GENERALIZED_GRAVITY> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((128) < tier_max_threads<TIER_SHARED>()) ? (128) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_NONLINEAR_EFFECTS> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((224) < tier_max_threads<TIER_SHARED>()) ? (224) : tier_max_threads<TIER_SHARED>(); };
+    template <> struct launch_cfg<GRID_ALGO_ENERGY> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((224) < tier_max_threads<TIER_MINIMAL>()) ? (224) : tier_max_threads<TIER_MINIMAL>(); };
+    template <> struct launch_cfg<GRID_ALGO_COM> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((448) < tier_max_threads<TIER_MINIMAL>()) ? (448) : tier_max_threads<TIER_MINIMAL>(); };
+    template <> struct launch_cfg<GRID_ALGO_CCRBA> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((256) < tier_max_threads<TIER_MINIMAL>()) ? (256) : tier_max_threads<TIER_MINIMAL>(); };
+    template <> struct launch_cfg<GRID_ALGO_CORIOLIS_MATRIX> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((192) < tier_max_threads<TIER_LITE>()) ? (192) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_DCCRBA> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((512) < tier_max_threads<TIER_MINIMAL>()) ? (512) : tier_max_threads<TIER_MINIMAL>(); };
+    template <> struct launch_cfg<GRID_ALGO_CMM_TIME_VARIATION> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((128) < tier_max_threads<TIER_SHARED>()) ? (128) : tier_max_threads<TIER_SHARED>(); };
     
     #define GRID_GENERATED_NUM_JOINTS 19
     #define GRID_GENERATED_NUM_EES 4
@@ -508,6 +543,7 @@ namespace grid {
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MINV_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(4353, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(4353, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(2409, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(4409, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(4409, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(2465, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(11575, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(11575, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(1963, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(11577, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(11577, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(1965, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(11919, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(11919, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(1335, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(4611, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(4611, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(2667, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_MINV_F_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
@@ -699,6 +735,7 @@ namespace grid {
         T *d_dqdd_dfext;
         T *d_f_ext_gradient_dq;  // -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (both base modes)
         T *d_Y;          // inverse_dynamics_regressor (tau = Y . pi), nv*10NB
+        T *d_dY_dx;      // inverse_dynamics_regressor_gradient (dY/dq | dY/dqd), 2*nv*nv*10NB
         T *d_dqdd_dpi;   // forward_dynamics_parameter_gradient (-Minv . Y), nv*10NB
         T *d_ke_regressor;   // kinetic_energy_regressor (KE = y_KE . pi), 10NB
         T *d_pe_regressor;   // potential_energy_regressor (PE = y_PE . pi), 10NB
@@ -734,6 +771,7 @@ namespace grid {
         T *h_dqdd_dfext;
         T *h_f_ext_gradient_dq;  // -dJ^T/dq, nv*6NB*nv (both base modes)
         T *h_Y;
+        T *h_dY_dx;
         T *h_dqdd_dpi;
         T *h_ke_regressor;
         T *h_pe_regressor;
@@ -9359,9 +9397,8 @@ namespace grid {
      * Linear algebra wrappers (SIMT GLASS)
      *
      */
-    // SIMT-only linalg. cuBLASDx was removed in v2.0; the
-    // `glass_nvidia_smem` parameter on each wrapper is retained for
-    // caller compatibility and is always ignored. The stub
+    // SIMT-only linalg. The `glass_nvidia_smem` parameter on each wrapper is
+    // retained for caller compatibility and is always ignored; the stub
     // `GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()` below returns 0 so
     // shared-memory arena calculations continue to compile unchanged.
     
@@ -18327,6 +18364,59 @@ namespace grid {
         gpuErrchk(cudaFree(d_robotModel));
     }
 
+    template <typename T>
+    __host__
+    T *grid_host_alloc(size_t bytes) {
+        void *p = nullptr;
+        if (cudaMallocHost(&p, bytes) == cudaSuccess) { return (T *)p; }
+        cudaGetLastError(); // consume the failed pinned alloc
+        return (T *)malloc(bytes);
+    }
+    
+    template <typename T>
+    __host__
+    void grid_host_free(T *p) {
+        if (p == nullptr) { return; }
+        cudaPointerAttributes _attr;
+        if (cudaPointerGetAttributes(&_attr, p) == cudaSuccess && _attr.type == cudaMemoryTypeHost) {
+            cudaFreeHost(p);
+            return;
+        }
+        cudaGetLastError();
+        free(p);
+    }
+    
+    struct grid_device_pool_t { void *base; size_t bytes; size_t used; int ws_slots; };
+    // ⚠hidden visibility is LOAD-BEARING: without it the dynamic linker
+    // unifies this inline function's static (weak symbol) across every
+    // dlopened robot .so, so a second robot's init would carve from the
+    // FIRST robot's (already exhausted) slab and 'OOM' on an empty GPU
+    // (observed 2026-09-09, jax-then-torch two-robot process).
+    __host__ inline __attribute__((visibility("hidden"))) grid_device_pool_t &grid_device_pool() {
+        static grid_device_pool_t p = {nullptr, 0, 0, 0};
+        return p;
+    }
+    __host__ __device__ constexpr size_t grid_pool_align(size_t b) { return (b + 255) & ~(size_t)255; }
+    __host__ inline cudaError_t grid_device_alloc(void **p, size_t bytes) {
+        grid_device_pool_t &pool = grid_device_pool();
+        if (pool.base != nullptr) {
+            const size_t need = grid_pool_align(bytes);
+            if (pool.used + need > pool.bytes) { *p = nullptr; return cudaErrorMemoryAllocation; }
+            *p = (void *)((char *)pool.base + pool.used);
+            pool.used += need;
+            return cudaSuccess;
+        }
+        return cudaMalloc(p, bytes);
+    }
+    template <typename T>
+    __host__ inline cudaError_t grid_device_free(T *p) {
+        grid_device_pool_t &pool = grid_device_pool();
+        if (pool.base != nullptr && (void *)p >= pool.base && (char *)p < (char *)pool.base + pool.bytes) {
+            return cudaSuccess;  // carved from the caller-owned slab: nothing to free
+        }
+        return cudaFree((void *)p);
+    }
+    
     /**
      * Allocated device and host memory for all computations
      *
@@ -18340,130 +18430,136 @@ namespace grid {
         const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
         // input variables used by dynamics and/or kinematics
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd_u = (T *)malloc(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_q = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_q_qd_u = grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_q = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
             // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
             // copy to d_f_ext to apply external forces.
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_f_ext = (T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T));
         }
         if (needs_dynamics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_q_qd = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
         }
         // dynamics outputs and fallback workspace
         if (needs_dynamics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #endif
             // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
             #if GRID_HAS_F_EXT_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             #endif
-            hd_data->h_dtau_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_dqdd_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dtau_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dqdd_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
             // sizeof(T) leads so the byte count is size_t throughout: the element count
             // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
             #if GRID_HAS_F_EXT_GRADIENT_DQ
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
-            hd_data->h_f_ext_gradient_dq = (T *)malloc(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
+            hd_data->h_f_ext_gradient_dq = grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
             #endif
             // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
             #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_Y = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_Y = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dqdd_dpi = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dqdd_dpi = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
+            // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS));
+            hd_data->h_dY_dx = grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_IDSVA_SO
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
             #endif
             #if GRID_HAS_FDSVA_SO
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
             #endif
-            hd_data->h_c = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_Minv = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_M = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_qdd = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_c = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_Minv = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_M = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_qdd = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            hd_data->h_dc_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dc_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            hd_data->h_df_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_df_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_IDSVA_SO
-            hd_data->h_idsva_so = (T *)malloc(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            hd_data->h_idsva_so = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_FDSVA_SO
-            hd_data->h_df2 = (T *)malloc(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            hd_data->h_df2 = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_INTEGRATOR
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_x_kp1 = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_x_kp1 = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_INTEGRATOR_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dAB = (T *)malloc(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dAB = grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #endif
         }
         // kinematics outputs
         if (needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_end_effector_pose = (T *)malloc(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_gradient = (T *)malloc(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_hessian = (T *)malloc(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_frame_jacobian = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_frame_jacobian_dot = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_osc_inertia = (T *)malloc(36*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_end_effector_pose = grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_end_effector_pose_gradient = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_end_effector_pose_hessian = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_frame_jacobian = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_frame_jacobian_dot = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_osc_inertia = grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
             { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
               gpuErrchk(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); }
-            hd_data->h_eePose = (T *)malloc(6*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_eePoseGrad = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_eePose = grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_eePoseGrad = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
         }
         // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_com = (T *)malloc((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_ccrba = (T *)malloc((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_energy = (T *)malloc(3*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_com = grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_ccrba = grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_energy = grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T));
             // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_ke_regressor = (T *)malloc(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_pe_regressor = (T *)malloc(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_ke_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_pe_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             // PS5 Coriolis matrix C(q,qd) (nv x nv)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_coriolis = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_coriolis = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dccrba = (T *)malloc(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_cmm_time_variation = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dccrba = grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_cmm_time_variation = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
         }
         // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
             if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
@@ -18471,6 +18567,7 @@ namespace grid {
                 int _ws_slots = NUM_TIMESTEPS;
                 const char *_ws_env = getenv("GRID_WORKSPACE_TIMESTEP_SLOTS");
                 if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
+                else if (grid_device_pool().base != nullptr && grid_device_pool().ws_slots > 0) { _ws_slots = grid_device_pool().ws_slots < NUM_TIMESTEPS ? grid_device_pool().ws_slots : NUM_TIMESTEPS; }
                 else if (_ws_per_ts > 0) {
                     size_t _ws_free = 0, _ws_total = 0;
                     gpuErrchk(cudaMemGetInfo(&_ws_free, &_ws_total));
@@ -18481,7 +18578,7 @@ namespace grid {
                     }
                 }
                 hd_data->workspace_timestep_slots = _ws_slots;
-                gpuErrchk(cudaMalloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
+                gpuErrchk(grid_device_alloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
                 // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
@@ -18504,130 +18601,136 @@ namespace grid {
         const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
         // input variables used by dynamics and/or kinematics
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd_u = (T *)malloc(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_q = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_q_qd_u = grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_q = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
             // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
             // copy to d_f_ext to apply external forces.
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_f_ext = (T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T));
         }
         if (needs_dynamics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_q_qd = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
         }
         // dynamics outputs and fallback workspace
         if (needs_dynamics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             #endif
             // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
             #if GRID_HAS_F_EXT_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             #endif
-            hd_data->h_dtau_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_dqdd_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dtau_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dqdd_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
             // sizeof(T) leads so the byte count is size_t throughout: the element count
             // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
             #if GRID_HAS_F_EXT_GRADIENT_DQ
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
-            hd_data->h_f_ext_gradient_dq = (T *)malloc(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
+            hd_data->h_f_ext_gradient_dq = grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
             #endif
             // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
             #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_Y = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_Y = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dqdd_dpi = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dqdd_dpi = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
+            // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS));
+            hd_data->h_dY_dx = grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_IDSVA_SO
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
             #endif
             #if GRID_HAS_FDSVA_SO
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
             #endif
-            hd_data->h_c = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_Minv = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_M = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_qdd = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_c = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_Minv = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_M = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_qdd = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            hd_data->h_dc_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_dc_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            hd_data->h_df_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_df_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_IDSVA_SO
-            hd_data->h_idsva_so = (T *)malloc(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            hd_data->h_idsva_so = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_FDSVA_SO
-            hd_data->h_df2 = (T *)malloc(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            hd_data->h_df2 = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
             #endif
             #if GRID_HAS_INTEGRATOR
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_x_kp1 = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_x_kp1 = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #endif
             #if GRID_HAS_INTEGRATOR_GRADIENT
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dAB = (T *)malloc(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dAB = grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
             #endif
         }
         // kinematics outputs
         if (needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_end_effector_pose = (T *)malloc(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_gradient = (T *)malloc(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_hessian = (T *)malloc(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_frame_jacobian = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_frame_jacobian_dot = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_osc_inertia = (T *)malloc(36*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_end_effector_pose = grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_end_effector_pose_gradient = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_end_effector_pose_hessian = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_frame_jacobian = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_frame_jacobian_dot = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_osc_inertia = grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
             { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
               gpuErrchk(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); }
-            hd_data->h_eePose = (T *)malloc(6*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_eePoseGrad = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_eePose = grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_eePoseGrad = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
         }
         // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_com = (T *)malloc((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_ccrba = (T *)malloc((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_energy = (T *)malloc(3*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_com = grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_ccrba = grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_energy = grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T));
             // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_ke_regressor = (T *)malloc(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_pe_regressor = (T *)malloc(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_ke_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_pe_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             // PS5 Coriolis matrix C(q,qd) (nv x nv)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_coriolis = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_coriolis = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dccrba = (T *)malloc(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_cmm_time_variation = (T *)malloc(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            gpuErrchk(grid_device_alloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            hd_data->h_dccrba = grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            hd_data->h_cmm_time_variation = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
         }
         // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
             if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
@@ -18635,6 +18738,7 @@ namespace grid {
                 int _ws_slots = NUM_TIMESTEPS;
                 const char *_ws_env = getenv("GRID_WORKSPACE_TIMESTEP_SLOTS");
                 if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
+                else if (grid_device_pool().base != nullptr && grid_device_pool().ws_slots > 0) { _ws_slots = grid_device_pool().ws_slots < NUM_TIMESTEPS ? grid_device_pool().ws_slots : NUM_TIMESTEPS; }
                 else if (_ws_per_ts > 0) {
                     size_t _ws_free = 0, _ws_total = 0;
                     gpuErrchk(cudaMemGetInfo(&_ws_free, &_ws_total));
@@ -18645,13 +18749,110 @@ namespace grid {
                     }
                 }
                 hd_data->workspace_timestep_slots = _ws_slots;
-                gpuErrchk(cudaMalloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
+                gpuErrchk(grid_device_alloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
                 // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
                 gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
             }
         return hd_data;
+    }
+
+    /**
+     * Device bytes a pool-mode init_gridData will carve for this KIND at the given workspace slot count — size the slab handed to grid_device_pool() with this (derived from the SAME allocation list as init_gridData).
+     *
+     * @param workspace timestep slots (clamped to [1, NUM_TIMESTEPS])
+     * @return total device bytes (256-aligned per allocation)
+     */
+    template <typename T, int NUM_TIMESTEPS, gridDataKind KIND = GRID_DATA_ALL>
+    __host__
+    size_t gridData_device_bytes(int ws_slots = NUM_TIMESTEPS){
+        size_t _total = 0;
+        const bool needs_dynamics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS;
+        const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
+        if (needs_dynamics || needs_kinematics) {
+            _total += grid_pool_align(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+        }
+        if (needs_dynamics) {
+            _total += grid_pool_align(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+        }
+        if (needs_dynamics) {
+            _total += grid_pool_align(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            _total += grid_pool_align(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            _total += grid_pool_align(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_F_EXT_GRADIENT
+            _total += grid_pool_align(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_F_EXT_GRADIENT_DQ
+            _total += grid_pool_align(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
+            #endif
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
+            _total += grid_pool_align(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
+            _total += grid_pool_align(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
+            _total += grid_pool_align(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS);
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            _total += grid_pool_align(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            _total += grid_pool_align(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            #endif
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            #endif
+            #if GRID_HAS_INTEGRATOR
+            _total += grid_pool_align(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INTEGRATOR_GRADIENT
+            _total += grid_pool_align(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
+        }
+        if (needs_kinematics) {
+            _total += grid_pool_align(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(36*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(16*sizeof(T));
+        }
+        if (needs_dynamics || needs_kinematics) {
+            _total += grid_pool_align((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(3*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            _total += grid_pool_align(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+        }
+            if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
+                const size_t _ws_per_ts = GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS;
+                int _ws_slots = ws_slots < 1 ? 1 : (ws_slots < NUM_TIMESTEPS ? ws_slots : NUM_TIMESTEPS);
+                _total += grid_pool_align(_ws_per_ts*(size_t)_ws_slots);
+            }
+        return _total;
     }
 
     /**
@@ -20329,8 +20530,9 @@ namespace grid {
         }
         __syncthreads();
         //
-        // Now extract the end_effector_pose from the Tansforms
-        // TODO: ADD OFFSETS
+        // Now extract the end_effector_pose from the transforms.
+        // (This generic family evaluates the last MOVING joint; a terminal fixed
+        // joint's <origin> is tracked by the named fixed-target family instead.)
         //
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             // xyz is easy
@@ -23815,8 +24017,9 @@ namespace grid {
         __syncthreads();
         // Update with parent transform until you reach the base [level 2/3]
         //
-        // Now extract the end_effector_pose from the Tansforms
-        // TODO: ADD OFFSETS
+        // Now extract the end_effector_pose from the transforms.
+        // (This generic family evaluates the last MOVING joint; a terminal fixed
+        // joint's <origin> is tracked by the named fixed-target family instead.)
         //
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 3; ind += blockDim.x*blockDim.y){
             // xyz is easy
@@ -29243,1502 +29446,6 @@ namespace grid {
     }
 
     /**
-     * Compute the joint-torque regressor Y (tau = Y . pi)
-     *
-     * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
-     *   tau = Y . pi with pi_i = [m, m*c(3), I_O(6)=[Ixx,Ixy,Ixz,Iyy,Iyz,Izz]] per link
-     *
-     * @param s_Y is the output joint-torque regressor, row-major nv x 10*NUM_BODIES = 2340
-     * @param s_vaf is scratch of size 18*NUM_JOINTS = 234 (RNEA v|a|f)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_qdd is the vector of joint accelerations
-     * @param s_temp is helper shared memory of size 114
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void inverse_dynamics_regressor_inner(T *s_Y, T *s_vaf, const T *s_q, const T *s_qd, const T *s_qdd, T *s_XImats, int *s_topology_helpers, T *s_temp, const T gravity) {
-        // forward RNEA sweep: populate s_vaf v|a (reuse RNEA vaf inner)
-        inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-        __syncthreads();
-        // zero the regressor
-        glass::set_const<T, 2340>(static_cast<T>(0), s_Y);
-        // build Y: per (link, param) propagate the 6x10 body regressor up the tree
-        for(int col = threadIdx.x + threadIdx.y*blockDim.x; col < 130; col += blockDim.x*blockDim.y){
-            int link_i = col / 10; int param_k = col % 10;
-            T f[6]; T dIv[6]; T dIa[6]; T crfv[6];
-            const T *v_i = &s_vaf[6*link_i];
-            const T *a_i = &s_vaf[78 + 6*link_i];
-            switch (param_k) {
-                case 0: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = v_i[3];
-                    dIv[4] = v_i[4];
-                    dIv[5] = v_i[5];
-                    dIa[0] = static_cast<T>(0);
-                    dIa[1] = static_cast<T>(0);
-                    dIa[2] = static_cast<T>(0);
-                    dIa[3] = a_i[3];
-                    dIa[4] = a_i[4];
-                    dIa[5] = a_i[5];
-                    break;
-                }
-                case 1: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] =  - v_i[5];
-                    dIv[2] = v_i[4];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = v_i[2];
-                    dIv[5] =  - v_i[1];
-                    dIa[0] = static_cast<T>(0);
-                    dIa[1] =  - a_i[5];
-                    dIa[2] = a_i[4];
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = a_i[2];
-                    dIa[5] =  - a_i[1];
-                    break;
-                }
-                case 2: {
-                    dIv[0] = v_i[5];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] =  - v_i[3];
-                    dIv[3] =  - v_i[2];
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = v_i[0];
-                    dIa[0] = a_i[5];
-                    dIa[1] = static_cast<T>(0);
-                    dIa[2] =  - a_i[3];
-                    dIa[3] =  - a_i[2];
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = a_i[0];
-                    break;
-                }
-                case 3: {
-                    dIv[0] =  - v_i[4];
-                    dIv[1] = v_i[3];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = v_i[1];
-                    dIv[4] =  - v_i[0];
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] =  - a_i[4];
-                    dIa[1] = a_i[3];
-                    dIa[2] = static_cast<T>(0);
-                    dIa[3] = a_i[1];
-                    dIa[4] =  - a_i[0];
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 4: {
-                    dIv[0] = v_i[0];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = a_i[0];
-                    dIa[1] = static_cast<T>(0);
-                    dIa[2] = static_cast<T>(0);
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 5: {
-                    dIv[0] = v_i[1];
-                    dIv[1] = v_i[0];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = a_i[1];
-                    dIa[1] = a_i[0];
-                    dIa[2] = static_cast<T>(0);
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 6: {
-                    dIv[0] = v_i[2];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = v_i[0];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = a_i[2];
-                    dIa[1] = static_cast<T>(0);
-                    dIa[2] = a_i[0];
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 7: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = v_i[1];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = static_cast<T>(0);
-                    dIa[1] = a_i[1];
-                    dIa[2] = static_cast<T>(0);
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 8: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = v_i[2];
-                    dIv[2] = v_i[1];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = static_cast<T>(0);
-                    dIa[1] = a_i[2];
-                    dIa[2] = a_i[1];
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                case 9: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = v_i[2];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    dIa[0] = static_cast<T>(0);
-                    dIa[1] = static_cast<T>(0);
-                    dIa[2] = a_i[2];
-                    dIa[3] = static_cast<T>(0);
-                    dIa[4] = static_cast<T>(0);
-                    dIa[5] = static_cast<T>(0);
-                    break;
-                }
-                default: { for (int r=0;r<6;r++){dIv[r]=static_cast<T>(0); dIa[r]=static_cast<T>(0);} }
-            }
-            fx_times_v<T>(crfv, v_i, dIv);
-            for (int r=0;r<6;r++){ f[r] = dIa[r] + crfv[r]; }
-            switch (link_i) {
-                case 0: {
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 1: {
-                    s_Y[6*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[36 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 2: {
-                    s_Y[7*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[72 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[6*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[36 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 3: {
-                    s_Y[8*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[108 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[7*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[72 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[6*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[36 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 4: {
-                    s_Y[9*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[144 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 5: {
-                    s_Y[10*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[180 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[9*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[144 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 6: {
-                    s_Y[11*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[216 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[10*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[180 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[9*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[144 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 7: {
-                    s_Y[12*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[252 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 8: {
-                    s_Y[13*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[288 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[12*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[252 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 9: {
-                    s_Y[14*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[324 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[13*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[288 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[12*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[252 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 10: {
-                    s_Y[15*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[360 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 11: {
-                    s_Y[16*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[396 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[15*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[360 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-                case 12: {
-                    s_Y[17*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[432 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[16*130 + col] += f[1];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[396 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[15*130 + col] += f[0];
-                    { T ft[6];
-                      for (int r=0;r<6;r++){ T acc=static_cast<T>(0); for(int c=0;c<6;c++){ acc += s_XImats[360 + 6*r + c] * f[c]; } ft[r]=acc; }
-                      for (int r=0;r<6;r++){f[r]=ft[r];} }
-                    s_Y[0*130 + col] += f[3];
-                    s_Y[1*130 + col] += f[4];
-                    s_Y[2*130 + col] += f[5];
-                    s_Y[3*130 + col] += f[0];
-                    s_Y[4*130 + col] += f[1];
-                    s_Y[5*130 + col] += f[2];
-                    break;
-                }
-            }
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the joint-torque regressor Y (tau = Y . pi)
-     *
-     * @param s_Y is the output regressor (nv x 10*NUM_BODIES)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_qdd is the vector of joint accelerations
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void inverse_dynamics_regressor_device(T *s_Y, const T *s_q, const T *s_qd, const T *s_qdd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_vaf[342]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1392, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        inverse_dynamics_regressor_inner<T>(s_Y, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, gravity);
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the joint-torque regressor
-     *
-     * @param d_Y is the output regressor, row-major nv x 10*NUM_BODIES = 2340
-     * @param d_q_qd_qdd is the vector of joint positions, velocities, accelerations (q|qd|qdd)
-     * @param stride_q_qd_qdd is the stride between each (q, qd, qdd) triple
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void inverse_dynamics_regressor_kernel(T *d_Y, unsigned char *d_workspace, const T *d_q_qd_qdd, const int stride_q_qd_qdd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool REGRESSOR_Y_IN_SMEM = INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM<RESOURCE_TIER>();
-        constexpr int REGRESSOR_Y_SLOT = REGRESSOR_Y_IN_SMEM ? 2340 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd_qdd[57]
-        //   T s_vaf[342]
-        //   T s_Y[REGRESSOR_Y_SLOT]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Y = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(REGRESSOR_Y_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 57 + 342 + REGRESSOR_Y_SLOT + 936 + 114), 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (REGRESSOR_Y_IN_SMEM) { (void)d_workspace; }
-        T *s_q = s_q_qd_qdd; T *s_qd = &s_q_qd_qdd[19]; T *s_qdd = &s_q_qd_qdd[38];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_qdd_k = &d_q_qd_qdd[k*stride_q_qd_qdd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_qdd[ind] = d_q_qd_qdd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    T alx = s_qdd[0], aly = s_qdd[1], alz = s_qdd[2];
-                    T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
-                    T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
-                    s_qdd[0] = (R[0]*alx + R[3]*aly + R[6]*alz) - (wy_*vz_ - wz_*vy_);
-                    s_qdd[1] = (R[1]*alx + R[4]*aly + R[7]*alz) - (wz_*vx_ - wx_*vz_);
-                    s_qdd[2] = (R[2]*alx + R[5]*aly + R[8]*alz) - (wx_*vy_ - wy_*vx_);
-                }
-                __syncthreads();
-            }
-            if constexpr (!REGRESSOR_Y_IN_SMEM) {
-                s_Y = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_regressor_inner<T>(s_Y, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: base-linear rows of s_Y <- R . rows (row-major nv x 130)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int c = 0; c < 130; c++) { T m0 = s_Y[c], m1 = s_Y[130 + c], m2 = s_Y[260 + c]; s_Y[c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_Y[130 + c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_Y[260 + c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_Y_k = &d_Y[k*2340];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 2340; ind += blockDim.x*blockDim.y){
-                d_Y_k[ind] = s_Y[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the joint-torque regressor
-     *
-     * @param d_Y is the output regressor, row-major nv x 10*NUM_BODIES = 2340
-     * @param d_q_qd_qdd is the vector of joint positions, velocities, accelerations (q|qd|qdd)
-     * @param stride_q_qd_qdd is the stride between each (q, qd, qdd) triple
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void inverse_dynamics_regressor_kernel_single_timing(T *d_Y, unsigned char *d_workspace, const T *d_q_qd_qdd, const int stride_q_qd_qdd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool REGRESSOR_Y_IN_SMEM = INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM<RESOURCE_TIER>();
-        constexpr int REGRESSOR_Y_SLOT = REGRESSOR_Y_IN_SMEM ? 2340 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd_qdd[57]
-        //   T s_vaf[342]
-        //   T s_Y[REGRESSOR_Y_SLOT]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Y = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(REGRESSOR_Y_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 57 + 342 + REGRESSOR_Y_SLOT + 936 + 114), 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (REGRESSOR_Y_IN_SMEM) { (void)d_workspace; }
-        T *s_q = s_q_qd_qdd; T *s_qd = &s_q_qd_qdd[19]; T *s_qdd = &s_q_qd_qdd[38];
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-            s_q_qd_qdd[ind] = d_q_qd_qdd[ind];
-        }
-        __syncthreads();
-        if constexpr (!REGRESSOR_Y_IN_SMEM) {
-            s_Y = reinterpret_cast<T *>(&d_workspace[GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-        }
-        // compute with NUM_TIMESTEPS as NUM_REPS for timing
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_regressor_inner<T>(s_Y, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 2340; ind += blockDim.x*blockDim.y){
-            d_Y[ind] = s_Y[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the joint-torque regressor Y (tau = Y . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/qdd inputs; output regressor written to hd_data->d_Y, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void inverse_dynamics_regressor(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "inverse_dynamics_regressor requires all-data or dynamics gridData");
-        int stride_q_qd_qdd = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd_qdd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_19 = grid_host_clamp_threads((const void*)&inverse_dynamics_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        inverse_dynamics_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_19,INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Y,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,d_robotModel,gravity,num_timesteps);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_Y -> hd_data->h_Y)
-        gpuErrchk(cudaMemcpy(hd_data->h_Y,hd_data->d_Y,num_timesteps*2340*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the joint-torque regressor Y (tau = Y . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/qdd inputs; output regressor written to hd_data->d_Y, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void inverse_dynamics_regressor_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "inverse_dynamics_regressor requires all-data or dynamics gridData");
-        int stride_q_qd_qdd = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd_qdd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        if (!INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_20 = grid_host_clamp_threads((const void*)&inverse_dynamics_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        inverse_dynamics_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_20,INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Y,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_Y -> hd_data->h_Y)
-        gpuErrchk(cudaMemcpy(hd_data->h_Y,hd_data->d_Y,2340*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call INVERSE_DYNAMICS_REGRESSOR %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the joint-torque regressor Y (tau = Y . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/qdd inputs; output regressor written to hd_data->d_Y, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void inverse_dynamics_regressor_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "inverse_dynamics_regressor requires all-data or dynamics gridData");
-        int stride_q_qd_qdd = Q_QD_U_STRIDE;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_21 = grid_host_clamp_threads((const void*)&inverse_dynamics_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        inverse_dynamics_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_21,INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Y,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the kinetic-energy regressor y_KE (KE = y_KE . pi)
-     *
-     * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
-     *   KE = y_KE . pi ; y_KE[10*i+k] = 1/2 v_i^T (dI_k) v_i  (pi_i = [m, m*c(3), I_O(6)])
-     *
-     * @param s_y_ke is the output kinetic-energy regressor, length 10*NUM_BODIES = 130
-     * @param s_vaf is scratch of size 18*NUM_JOINTS = 234 (RNEA v|a|f; only v consumed)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_temp is helper shared memory of size 114
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param gravity is the gravity constant (unused; KE is gravity-independent)
-     */
-    template <typename T>
-    __device__
-    void kinetic_energy_regressor_inner(T *s_y_ke, T *s_vaf, const T *s_q, const T *s_qd, T *s_XImats, int *s_topology_helpers, T *s_temp, const T gravity) {
-        (void)gravity;
-        // forward RNEA sweep: populate s_vaf v (reuse RNEA vaf inner; qdd irrelevant to v)
-        inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-        __syncthreads();
-        // y_KE[10*i+k] = 1/2 v_i^T (dI_k) v_i over all 10*NUM_BODIES columns
-        for(int col = threadIdx.x + threadIdx.y*blockDim.x; col < 130; col += blockDim.x*blockDim.y){
-            int link_i = col / 10; int param_k = col % 10;
-            const T *v_i = &s_vaf[6*link_i];
-            T dIv[6];
-            switch (param_k) {
-                case 0: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = v_i[3];
-                    dIv[4] = v_i[4];
-                    dIv[5] = v_i[5];
-                    break;
-                }
-                case 1: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] =  - v_i[5];
-                    dIv[2] = v_i[4];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = v_i[2];
-                    dIv[5] =  - v_i[1];
-                    break;
-                }
-                case 2: {
-                    dIv[0] = v_i[5];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] =  - v_i[3];
-                    dIv[3] =  - v_i[2];
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = v_i[0];
-                    break;
-                }
-                case 3: {
-                    dIv[0] =  - v_i[4];
-                    dIv[1] = v_i[3];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = v_i[1];
-                    dIv[4] =  - v_i[0];
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 4: {
-                    dIv[0] = v_i[0];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 5: {
-                    dIv[0] = v_i[1];
-                    dIv[1] = v_i[0];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 6: {
-                    dIv[0] = v_i[2];
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = v_i[0];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 7: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = v_i[1];
-                    dIv[2] = static_cast<T>(0);
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 8: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = v_i[2];
-                    dIv[2] = v_i[1];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                case 9: {
-                    dIv[0] = static_cast<T>(0);
-                    dIv[1] = static_cast<T>(0);
-                    dIv[2] = v_i[2];
-                    dIv[3] = static_cast<T>(0);
-                    dIv[4] = static_cast<T>(0);
-                    dIv[5] = static_cast<T>(0);
-                    break;
-                }
-                default: { for (int r=0;r<6;r++){dIv[r]=static_cast<T>(0);} }
-            }
-            T dot = static_cast<T>(0); for (int r=0;r<6;r++){ dot += v_i[r]*dIv[r]; }
-            s_y_ke[col] = static_cast<T>(0.5) * dot;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the kinetic-energy regressor y_KE (KE = y_KE . pi)
-     *
-     * @param s_y_ke is the output kinetic-energy regressor (length 10*NUM_BODIES)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     */
-    template <typename T>
-    __device__
-    void kinetic_energy_regressor_device(T *s_y_ke, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_vaf[342]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1392, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        kinetic_energy_regressor_inner<T>(s_y_ke, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the kinetic-energy regressor
-     *
-     * @param d_y_ke is the output kinetic-energy regressor, length 10*NUM_BODIES = 130
-     * @param d_q_qd is the vector of joint positions, velocities (q|qd)
-     * @param stride_q_qd is the stride between each (q, qd) pair
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void kinetic_energy_regressor_kernel(T *d_y_ke, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q_qd[37]
-        //   T s_y_ke[130]
-        //   T s_vaf[342]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_y_ke = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(130);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1559, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            // compute
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            kinetic_energy_regressor_inner<T>(s_y_ke, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-            // save down to global
-            T *d_y_ke_k = &d_y_ke[k*130];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 130; ind += blockDim.x*blockDim.y){
-                d_y_ke_k[ind] = s_y_ke[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the kinetic-energy regressor
-     *
-     * @param d_y_ke is the output kinetic-energy regressor, length 10*NUM_BODIES = 130
-     * @param d_q_qd is the vector of joint positions, velocities (q|qd)
-     * @param stride_q_qd is the stride between each (q, qd) pair
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void kinetic_energy_regressor_kernel_single_timing(T *d_y_ke, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q_qd[37]
-        //   T s_y_ke[130]
-        //   T s_vaf[342]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_y_ke = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(130);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1559, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        // compute with NUM_TIMESTEPS as NUM_REPS for timing
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            kinetic_energy_regressor_inner<T>(s_y_ke, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 130; ind += blockDim.x*blockDim.y){
-            d_y_ke[ind] = s_y_ke[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the kinetic-energy regressor y_KE (KE = y_KE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_ke_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void kinetic_energy_regressor(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "kinetic_energy_regressor requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("kinetic_energy_regressor", KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        dim3 _grid_thr_clamped_22 = grid_host_clamp_threads((const void*)&kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_22,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_22,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        // finally transfer the result back into the gridData host buffer (hd_data->d_ke_regressor -> hd_data->h_ke_regressor)
-        gpuErrchk(cudaMemcpy(hd_data->h_ke_regressor,hd_data->d_ke_regressor,num_timesteps*130*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the kinetic-energy regressor y_KE (KE = y_KE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_ke_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void kinetic_energy_regressor_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "kinetic_energy_regressor requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("kinetic_energy_regressor", KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_23 = grid_host_clamp_threads((const void*)&kinetic_energy_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {kinetic_energy_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_23,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {kinetic_energy_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_23,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_ke_regressor -> hd_data->h_ke_regressor)
-        gpuErrchk(cudaMemcpy(hd_data->h_ke_regressor,hd_data->d_ke_regressor,130*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call KINETIC_ENERGY_REGRESSOR %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the kinetic-energy regressor y_KE (KE = y_KE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_ke_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void kinetic_energy_regressor_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "kinetic_energy_regressor requires all-data or dynamics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("kinetic_energy_regressor", KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        dim3 _grid_thr_clamped_24 = grid_host_clamp_threads((const void*)&kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_24,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {kinetic_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_24,KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_ke_regressor,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the potential-energy regressor y_PE (PE = y_PE . pi)
-     *
-     * Notes:
-     *   Assumes the homogeneous transforms s_Xhom have been updated for the given q
-     *   PE = y_PE . pi ; per body i only the mass + 3 first-moment cols are nonzero:
-     *     y[10i+0] = -(g . p_i) ; y[10i+1:4] = -(R_i^T g) ; inertia cols = 0
-     *
-     * @param s_y_pe is the output potential-energy regressor, length 10*NUM_BODIES = 130
-     * @param s_q is the vector of joint positions (unused; q is baked into s_Xhom)
-     * @param s_Xhom is the per-joint LOCAL homogeneous transforms (mimic-aware)
-     * @param d_robotModel is the GPU model helpers (unused; PE needs only kinematics)
-     * @param s_temp is scratch of size 208
-     * @param gravity is the gravity constant (g = [0,0,gravity])
-     */
-    template <typename T>
-    __device__
-    void potential_energy_regressor_inner(T *s_y_pe, const T *s_q, const T *s_Xhom, const robotModel<T> *d_robotModel, T *s_temp, const T gravity) {
-        (void)s_q; (void)d_robotModel;
-        T *s_Xworld = s_temp;   // 16 * NUM_JOINTS world homogeneous transforms
-        // Step 1: world homogeneous transforms (chain-up of local s_Xhom)
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            const int jid = 0; const int par = -1;
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 1; par = 0; }
-            else if (slot < 2){ jid = 4; par = 0; }
-            else if (slot < 3){ jid = 7; par = 0; }
-            else              { jid = 10; par = 0; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 2; par = 1; }
-            else if (slot < 2){ jid = 5; par = 4; }
-            else if (slot < 3){ jid = 8; par = 7; }
-            else              { jid = 11; par = 10; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 3; par = 2; }
-            else if (slot < 2){ jid = 6; par = 5; }
-            else if (slot < 3){ jid = 9; par = 8; }
-            else              { jid = 12; par = 11; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        // Step 2: zero all cols then fill the 4 nonzero cols per body
-        for(int col = threadIdx.x + threadIdx.y*blockDim.x; col < 130; col += blockDim.x*blockDim.y){
-            int link_i = col / 10; int param_k = col % 10;
-            const T *Xw = &s_Xworld[16*link_i];
-            if (param_k == 0) { s_y_pe[col] = -gravity * Xw[14]; }
-            else if (param_k <= 3) { s_y_pe[col] = -gravity * Xw[2 + 4*(param_k-1)]; }
-            else { s_y_pe[col] = static_cast<T>(0); }
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the potential-energy regressor y_PE (PE = y_PE . pi)
-     *
-     * @param s_y_pe is the output potential-energy regressor (length 10*NUM_BODIES)
-     * @param s_q is the vector of joint positions
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void potential_energy_regressor_device(T *s_y_pe, const T *s_q, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_XmatsHom[672]
-        //   T s_temp[208]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(208);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(880, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
-        __syncthreads();
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the potential-energy regressor
-     *
-     * @param d_y_pe is the output potential-energy regressor, length 10*NUM_BODIES = 130
-     * @param d_q is the vector of joint positions
-     * @param stride_q is the stride between each q
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void potential_energy_regressor_kernel(T *d_y_pe, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_y_pe[130]
-        //   T s_XmatsHom[672]
-        //   T s_temp[208]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_y_pe = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(130);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(208);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1029, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_k = &d_q[k*stride_q];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-                s_q[ind] = d_q_k[ind];
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: base quaternion wxyz->xyzw (q-only; value frame-independent)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                }
-                __syncthreads();
-            }
-            // compute
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
-            __syncthreads();
-            // save down to global
-            T *d_y_pe_k = &d_y_pe[k*130];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 130; ind += blockDim.x*blockDim.y){
-                d_y_pe_k[ind] = s_y_pe[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the potential-energy regressor
-     *
-     * @param d_y_pe is the output potential-energy regressor, length 10*NUM_BODIES = 130
-     * @param d_q is the vector of joint positions
-     * @param stride_q is the stride between each q
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void potential_energy_regressor_kernel_single_timing(T *d_y_pe, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_y_pe[130]
-        //   T s_XmatsHom[672]
-        //   T s_temp[208]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_y_pe = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(130);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(208);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1029, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-            s_q[ind] = d_q[ind];
-        }
-        __syncthreads();
-        // compute with NUM_TIMESTEPS as NUM_REPS for timing
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
-            __syncthreads();
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 130; ind += blockDim.x*blockDim.y){
-            d_y_pe[ind] = s_y_pe[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the potential-energy regressor y_PE (PE = y_PE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q input; output written to hd_data->d_pe_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void potential_energy_regressor(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "potential_energy_regressor requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("potential_energy_regressor", POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        dim3 _grid_thr_clamped_25 = grid_host_clamp_threads((const void*)&potential_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        potential_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_25,POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_pe_regressor,hd_data->d_q,stride_q,d_robotModel,gravity,num_timesteps);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_pe_regressor -> hd_data->h_pe_regressor)
-        gpuErrchk(cudaMemcpy(hd_data->h_pe_regressor,hd_data->d_pe_regressor,num_timesteps*130*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the potential-energy regressor y_PE (PE = y_PE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q input; output written to hd_data->d_pe_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void potential_energy_regressor_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "potential_energy_regressor requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("potential_energy_regressor", POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_26 = grid_host_clamp_threads((const void*)&potential_energy_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        potential_energy_regressor_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_26,POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_pe_regressor,hd_data->d_q,stride_q,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_pe_regressor -> hd_data->h_pe_regressor)
-        gpuErrchk(cudaMemcpy(hd_data->h_pe_regressor,hd_data->d_pe_regressor,130*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call POTENTIAL_ENERGY_REGRESSOR %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the potential-energy regressor y_PE (PE = y_PE . pi)
-     *
-     * @param hd_data is the packaged input and output pointers (q input; output written to hd_data->d_pe_regressor, 10*NB*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void potential_energy_regressor_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "potential_energy_regressor requires all-data or kinematics gridData");
-        int stride_q = NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("potential_energy_regressor", POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        dim3 _grid_thr_clamped_27 = grid_host_clamp_threads((const void*)&potential_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        potential_energy_regressor_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_27,POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_pe_regressor,hd_data->d_q,stride_q,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-    }
-
-    /**
      * Compute the inverse of the mass matrix
      *
      * Notes:
@@ -31805,9 +30512,9 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_28 = grid_host_clamp_threads((const void*)&minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_28,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_28,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_19 = grid_host_clamp_threads((const void*)&minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_19,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_19,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_Minv,hd_data->d_Minv,NUM_VEL*NUM_VEL*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
@@ -31835,9 +30542,9 @@ namespace grid {
         // then call the kernel
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("minv", MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_29 = grid_host_clamp_threads((const void*)&minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_29,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_29,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_20 = grid_host_clamp_threads((const void*)&minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_20,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {minv_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_20,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -31865,9 +30572,9 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_30 = grid_host_clamp_threads((const void*)&minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_30,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_30,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_21 = grid_host_clamp_threads((const void*)&minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_21,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {minv_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_21,MINV_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_Minv,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
     }
 
@@ -32566,8 +31273,8 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_31 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_31,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_22 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_22,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_qdd,hd_data->d_qdd,NUM_JOINTS*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
@@ -32595,8 +31302,8 @@ namespace grid {
         // then call the kernel
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_32 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_32,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_23 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        forward_dynamics_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_23,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -32625,437 +31332,8 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_33 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_33,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the forward-dynamics param gradient dqdd/dpi = -Minv . Y
-     *
-     * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
-     *   dqdd/dpi = -Minv . Y(q,qd,qdd_actual) with qdd_actual = Minv.(u-c)
-     *
-     * @param s_dqdd_dpi is the output FD param-gradient, row-major nv x 10*NUM_BODIES = 2340
-     * @param s_Minv is scratch of size NUM_VEL*NUM_VEL = 324 (symmetric-upper Minv)
-     * @param s_Y is scratch for the regressor, row-major nv x 10*NUM_BODIES = 2340
-     * @param s_qdd is scratch of size NUM_VEL = 18 (recovered actual accelerations)
-     * @param s_vaf is scratch of size 18*NUM_JOINTS = 234 (RNEA v|a|f)
-     * @param s_c is scratch of size NUM_VEL = 18 (bias term)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_u is the vector of joint input torques
-     * @param s_temp is helper shared memory of size 3037
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void forward_dynamics_parameter_gradient_inner(T *s_dqdd_dpi, T *s_Minv, T *s_Y, T *s_qdd, T *s_vaf, T *s_c, const T *s_q, const T *s_qd, const T *s_u, T *s_XImats, int *s_topology_helpers, T *s_temp, const T gravity) {
-        // Minv = inv(M(q)) (symmetric-upper)
-        minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
-        __syncthreads();
-        // bias c = ID(q, qd, 0)
-        inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-        __syncthreads();
-        // qdd_actual = Minv . (u - c)
-        forward_dynamics_finish<T>(s_qdd, s_u, s_c, s_Minv);
-        __syncthreads();
-        // Y = regressor(q, qd, qdd_actual)
-        inverse_dynamics_regressor_inner<T>(s_Y, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, gravity);
-        __syncthreads();
-        // dqdd/dpi = -Minv . Y  (Minv symmetric-upper)
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 2340; ind += blockDim.x*blockDim.y){
-            int row = ind / 130; int col = ind % 130;
-            T val = static_cast<T>(0);
-            for (int kk = 0; kk < 18; kk++) {
-                // account for the fact that Minv is a SYMMETRIC_UPPER triangular matrix
-                int index = (row <= kk) * (kk * 18 + row) + (row > kk) * (row * 18 + kk);
-                val += s_Minv[index] * s_Y[kk * 130 + col];
-            }
-            s_dqdd_dpi[ind] = -val;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param s_dqdd_dpi is the output FD param-gradient (nv x 10*NUM_BODIES)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_u is the vector of joint input torques
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void forward_dynamics_parameter_gradient_device(T *s_dqdd_dpi, const T *s_q, const T *s_qd, const T *s_u, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_Minv[324]
-        //   T s_Y[2340]
-        //   T s_qdd[18]
-        //   T s_vaf[342]
-        //   T s_c[18]
-        //   T s_XImats[936]
-        //   T s_temp[3037]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Minv = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Y = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2340);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_c = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3037);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(7015, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        forward_dynamics_parameter_gradient_inner<T>(s_dqdd_dpi, s_Minv, s_Y, s_qdd, s_vaf, s_c, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, gravity);
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param d_dqdd_dpi is the output FD param-gradient, row-major nv x 10*NUM_BODIES = 2340
-     * @param d_q_qd_u is the vector of joint positions, velocities, torques (q|qd|u)
-     * @param stride_q_qd_u is the stride between each (q, qd, u) triple
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void forward_dynamics_parameter_gradient_kernel(T *d_dqdd_dpi, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool REGRESSOR_Y_OUTPUT_IN_SMEM = FD_PARAMETER_GRADIENT_Y_IN_SMEM<RESOURCE_TIER>();
-        constexpr int REGRESSOR_Y_OUTPUT_SLOT = REGRESSOR_Y_OUTPUT_IN_SMEM ? 2340 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd_u[57]
-        //   T s_dqdd_dpi[2340]
-        //   T s_Minv[324]
-        //   T s_qdd[18]
-        //   T s_vaf[342]
-        //   T s_c[18]
-        //   T s_Y[REGRESSOR_Y_OUTPUT_SLOT]
-        //   T s_XImats[936]
-        //   T s_temp[3037]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_dqdd_dpi = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2340);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Minv = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_c = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Y = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(REGRESSOR_Y_OUTPUT_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3037);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 57 + 2340 + 324 + 18 + 342 + 18 + REGRESSOR_Y_OUTPUT_SLOT + 936 + 3037), 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (REGRESSOR_Y_OUTPUT_IN_SMEM) { (void)d_workspace; }
-        T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[19]; T *s_u = &s_q_qd_u[38];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_u[ind] = d_q_qd_u_k[ind];
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    T ufx = s_u[0], ufy = s_u[1], ufz = s_u[2];
-                    s_u[0] = R[0]*ufx + R[3]*ufy + R[6]*ufz;
-                    s_u[1] = R[1]*ufx + R[4]*ufy + R[7]*ufz;
-                    s_u[2] = R[2]*ufx + R[5]*ufy + R[8]*ufz;
-                }
-                __syncthreads();
-            }
-            if constexpr (!REGRESSOR_Y_OUTPUT_IN_SMEM) {
-                s_Y = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            forward_dynamics_parameter_gradient_inner<T>(s_dqdd_dpi, s_Minv, s_Y, s_qdd, s_vaf, s_c, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: base-linear rows of s_dqdd_dpi <- R . rows (row-major nv x 130)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int c = 0; c < 130; c++) { T m0 = s_dqdd_dpi[c], m1 = s_dqdd_dpi[130 + c], m2 = s_dqdd_dpi[260 + c]; s_dqdd_dpi[c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_dqdd_dpi[130 + c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_dqdd_dpi[260 + c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_dqdd_dpi_k = &d_dqdd_dpi[k*2340];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 2340; ind += blockDim.x*blockDim.y){
-                d_dqdd_dpi_k[ind] = s_dqdd_dpi[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param d_dqdd_dpi is the output FD param-gradient, row-major nv x 10*NUM_BODIES = 2340
-     * @param d_q_qd_u is the vector of joint positions, velocities, torques (q|qd|u)
-     * @param stride_q_qd_u is the stride between each (q, qd, u) triple
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     */
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void forward_dynamics_parameter_gradient_kernel_single_timing(T *d_dqdd_dpi, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool REGRESSOR_Y_OUTPUT_IN_SMEM = FD_PARAMETER_GRADIENT_Y_IN_SMEM<RESOURCE_TIER>();
-        constexpr int REGRESSOR_Y_OUTPUT_SLOT = REGRESSOR_Y_OUTPUT_IN_SMEM ? 2340 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd_u[57]
-        //   T s_dqdd_dpi[2340]
-        //   T s_Minv[324]
-        //   T s_qdd[18]
-        //   T s_vaf[342]
-        //   T s_c[18]
-        //   T s_Y[REGRESSOR_Y_OUTPUT_SLOT]
-        //   T s_XImats[936]
-        //   T s_temp[3037]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_dqdd_dpi = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2340);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Minv = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_c = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_Y = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(REGRESSOR_Y_OUTPUT_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3037);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 57 + 2340 + 324 + 18 + 342 + 18 + REGRESSOR_Y_OUTPUT_SLOT + 936 + 3037), 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (REGRESSOR_Y_OUTPUT_IN_SMEM) { (void)d_workspace; }
-        T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[19]; T *s_u = &s_q_qd_u[38];
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-            s_q_qd_u[ind] = d_q_qd_u[ind];
-        }
-        __syncthreads();
-        if constexpr (!REGRESSOR_Y_OUTPUT_IN_SMEM) {
-            s_Y = reinterpret_cast<T *>(&d_workspace[GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-        }
-        // compute with NUM_TIMESTEPS as NUM_REPS for timing
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            forward_dynamics_parameter_gradient_inner<T>(s_dqdd_dpi, s_Minv, s_Y, s_qdd, s_vaf, s_c, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, gravity);
-            __syncthreads();
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 2340; ind += blockDim.x*blockDim.y){
-            d_dqdd_dpi[ind] = s_dqdd_dpi[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/u inputs; output written to hd_data->d_dqdd_dpi, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void forward_dynamics_parameter_gradient(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "forward_dynamics_parameter_gradient requires all-data or dynamics gridData");
-        int stride_q_qd_u = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd_u*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!FD_PARAMETER_GRADIENT_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_parameter_gradient", FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_34 = grid_host_clamp_threads((const void*)&forward_dynamics_parameter_gradient_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_parameter_gradient_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_34,FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dqdd_dpi,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        // finally transfer the result back into the gridData host buffer (hd_data->d_dqdd_dpi -> hd_data->h_dqdd_dpi)
-        gpuErrchk(cudaMemcpy(hd_data->h_dqdd_dpi,hd_data->d_dqdd_dpi,num_timesteps*2340*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/u inputs; output written to hd_data->d_dqdd_dpi, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void forward_dynamics_parameter_gradient_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "forward_dynamics_parameter_gradient requires all-data or dynamics gridData");
-        int stride_q_qd_u = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd_u*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        if (!FD_PARAMETER_GRADIENT_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_parameter_gradient", FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_35 = grid_host_clamp_threads((const void*)&forward_dynamics_parameter_gradient_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_parameter_gradient_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_35,FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dqdd_dpi,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        gpuErrchkKernel();
-        // finally transfer the result back into the gridData host buffer (hd_data->d_dqdd_dpi -> hd_data->h_dqdd_dpi)
-        gpuErrchk(cudaMemcpy(hd_data->h_dqdd_dpi,hd_data->d_dqdd_dpi,2340*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call FORWARD_DYNAMICS_PARAMETER_GRADIENT %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the FD param gradient dqdd/dpi = -Minv . Y
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd/u inputs; output written to hd_data->d_dqdd_dpi, 10*NB*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void forward_dynamics_parameter_gradient_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "forward_dynamics_parameter_gradient requires all-data or dynamics gridData");
-        int stride_q_qd_u = Q_QD_U_STRIDE;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!FD_PARAMETER_GRADIENT_Y_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_parameter_gradient", FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_36 = grid_host_clamp_threads((const void*)&forward_dynamics_parameter_gradient_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        forward_dynamics_parameter_gradient_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_36,FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dqdd_dpi,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_24 = grid_host_clamp_threads((const void*)&forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        forward_dynamics_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_24,FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
     }
 
@@ -34944,7 +33222,6 @@ namespace grid {
     void forward_dynamics_gradient_device(T *s_df_du, const T *s_q, const T *s_qd, const T *s_u, T *s_vaf, T *s_dc_du, T *s_qdd, T *s_Minv, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace, T *d_temp_spill, const robotModel<T> *d_robotModel, T *d_f_ext, const T gravity) {
         if constexpr(!SCRATCH_IN_SMEM){ s_temp = d_workspace; } else { (void)d_workspace; }
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
         minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
         inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
         forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -36410,7 +34687,7 @@ namespace grid {
      * @param d_robotModel is the initialized model helpers on the GPU
      * @param NUM_TIMESTEPS is the trajectory length (or timing reps)
      */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __global__
     __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
     void f_ext_gradient_kernel(T *d_dtau_dfext, T *d_dqdd_dfext, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
@@ -36676,7 +34953,7 @@ namespace grid {
      * @param d_robotModel is the initialized model helpers on the GPU
      * @param NUM_TIMESTEPS is the trajectory length (or timing reps)
      */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __global__
     __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
     void f_ext_gradient_kernel_single_timing(T *d_dtau_dfext, T *d_dqdd_dfext, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
@@ -37011,9 +35288,9 @@ namespace grid {
         if (!F_EXT_GRADIENT_DQDD_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_37 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_37,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_37,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_25 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_25,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_25,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_dtau_dfext,hd_data->d_dtau_dfext,NUM_VEL*6*NUM_BODIES*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
@@ -37043,9 +35320,9 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient", F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (!F_EXT_GRADIENT_DQDD_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_38 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_38,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_38,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_26 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_26,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_26,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -37075,9 +35352,9 @@ namespace grid {
         if (!F_EXT_GRADIENT_DQDD_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_39 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_39,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_39,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_27 = grid_host_clamp_threads((const void*)&f_ext_gradient_kernel<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_27,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_27,F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dtau_dfext,hd_data->d_dqdd_dfext,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
     }
 
@@ -37089,7 +35366,7 @@ namespace grid {
      * @param d_robotModel is the initialized model helpers on the GPU
      * @param NUM_TIMESTEPS is the trajectory length (or timing reps)
      */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __global__
     __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
     void f_ext_gradient_dq_kernel(T *d_f_ext_gradient_dq, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
@@ -37388,7 +35665,7 @@ namespace grid {
      * @param d_robotModel is the initialized model helpers on the GPU
      * @param NUM_TIMESTEPS is the trajectory length (or timing reps)
      */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __global__
     __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
     void f_ext_gradient_dq_kernel_single_timing(T *d_f_ext_gradient_dq, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
@@ -37757,9 +36034,9 @@ namespace grid {
         if (!F_EXT_GRADIENT_DQ_SLAB_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_40 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_40,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_40,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_28 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_28,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_28,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_f_ext_gradient_dq,hd_data->d_f_ext_gradient_dq,sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*num_timesteps,cudaMemcpyDeviceToHost));
@@ -37788,9 +36065,9 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient_dq", F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (!F_EXT_GRADIENT_DQ_SLAB_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_41 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_41,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_41,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        dim3 _grid_thr_clamped_29 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_29,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_dq_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_29,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -37819,1632 +36096,9 @@ namespace grid {
         if (!F_EXT_GRADIENT_DQ_SLAB_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_42 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel<T, RESOURCE_TIER>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_42,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
-        else                    {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_42,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Computes the Floating-Base Articulated Body Algorithm
-     *
-     * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
-     *   Floating-base implementation keeps the scalar-joint ABA recursion and solves the 6x6 root block explicitly.
-     *   Inner-controlled placement, two orthogonal levers decided at the top:
-     *     TEMP_IN_SMEM=false                : whole scratch band -> d_workspace (blunt MINIMAL fallback).
-     *     TEMP_IN_SMEM=true, COLD_IN_SMEM=true  : PERF, everything in s_temp (byte-identical to the original).
-     *     TEMP_IN_SMEM=true, COLD_IN_SMEM=false : SURGICAL -- hot recursion stays in s_temp, only the cold vcross slab [36*NJ,72*NJ) and the fb* root tail [140*NJ,140*NJ+138) spill to d_cold (=d_workspace sub-offset), packed back-to-back.
-     *   Caller sizes the arenas from ABA_INNER_{SMEM,WORKSPACE,COLD}_BYTES.
-     *
-     * @param s_qdd is the vector of joint accelerations
-     * @param s_va is a pointer to shared memory of size 2*6*NUM_BODIES = 156
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_tau is the vector of generalized forces
-     * @param s_temp is the (shared) scratch; size ABA_INNER_SMEM_BYTES<T, TEMP_IN_SMEM>() (the band when TEMP_IN_SMEM, else 0)
-     * @param d_workspace is the global scratch. !TEMP_IN_SMEM: the whole band (ABA_INNER_WORKSPACE_BYTES). TEMP_IN_SMEM && !COLD_IN_SMEM: the cold slab d_cold (ABA_INNER_COLD_BYTES = vcross 36*NJ + fb* root tail 138, packed back-to-back). Pass nullptr at PERF (TEMP_IN_SMEM && COLD_IN_SMEM).
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param gravity is the gravity constant
-     * @param d_f_ext is the (optional) GLOBAL external forces, body-major 6*NUM_BODIES local-frame, or nullptr
-     */
-    template <typename T, bool TEMP_IN_SMEM = true, bool COLD_IN_SMEM = true>
-    __device__
-    void aba_inner(T *s_qdd, T *s_va, const T *s_q, const T *s_qd, const T *s_tau, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace, T *d_f_ext, const T gravity) {
-        if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        T *s_vcross_cold = s_temp;
-        T *s_fb_cold = s_temp;
-        if constexpr (TEMP_IN_SMEM && !COLD_IN_SMEM) { s_vcross_cold = d_workspace - 468; s_fb_cold = d_workspace + -1352; }
-        unsigned char *s_linalg_smem = nullptr;
-        // Recursive floating ABA root-port.
-        // Initialize IA = I and clear c
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 546; ind += blockDim.x*blockDim.y){
-            if (ind < 468) { s_temp[0 + ind] = s_XImats[468 + ind]; }
-            else { s_temp[936 + ind - 468] = static_cast<T>(0); }
-        }
-        __syncthreads();
-        //
-        // Forward Pass
-        //
-        // forward pass where bfs_level is 0
-        //     joints are: floating_base_joint
-        //     links are: base
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            int fb_col = row < 3 ? row + 3 : row - 3;
-            s_va[row] = s_qd[fb_col];
-            s_temp[936 + row] = static_cast<T>(0);
-        }
-        __syncthreads();
-        // forward pass where bfs_level is 1
-        //     joints are: FL_hip_joint, FR_hip_joint, RL_hip_joint, RR_hip_joint
-        //     links are: FL_hip, FR_hip, RL_hip, RR_hip
-        // v[k] = X[k]*v[parent_k] + S[k]*qd[k] for all bfs-level joints at once
-        static const int seg_a_off_lvl1[4] = {36, 144, 252, 360};
-        static const int seg_v_x_off_lvl1[4] = {0, 0, 0, 0};
-        static const int seg_v_y_off_lvl1[4] = {6, 24, 42, 60};
-        static const int seg_s_off_lvl1[4] = {0, 6, 12, 18};
-        static const T S_sel_lvl1[24] = {static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0)};
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1274] = s_qd[6];
-            s_temp[1275] = s_qd[9];
-            s_temp[1276] = s_qd[12];
-            s_temp[1277] = s_qd[15];
-        }
-        __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(4, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_va, s_va, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, &s_temp[1274], s_linalg_smem);
-        // c[k] = mxS(v[k]) * (S_sign*qd[k])
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 4; ind += blockDim.x*blockDim.y){
-            // branch to get pointer locations
-            int jid; int dof;
-                 if (ind == 0){ jid = 1; dof = 6; }
-            else if (ind == 1){ jid = 4; dof = 9; }
-            else if (ind == 2){ jid = 7; dof = 12; }
-            else              { jid = 10; dof = 15; }
-            mxX_scaled<T>(&s_temp[936 + 6*jid], &s_va[6*jid], (((s_topology_helpers[18 + jid]) > 0 ? 1 : -1)) * s_qd[dof], ((s_topology_helpers[18 + jid]) > 0 ? (s_topology_helpers[18 + jid]) - 1 : -(s_topology_helpers[18 + jid]) - 1));
-        }
-        __syncthreads();
-        // forward pass where bfs_level is 2
-        //     joints are: FL_thigh_joint, FR_thigh_joint, RL_thigh_joint, RR_thigh_joint
-        //     links are: FL_thigh, FR_thigh, RL_thigh, RR_thigh
-        // v[k] = X[k]*v[parent_k] + S[k]*qd[k] for all bfs-level joints at once
-        static const int seg_a_off_lvl2[4] = {72, 180, 288, 396};
-        static const int seg_v_x_off_lvl2[4] = {6, 24, 42, 60};
-        static const int seg_v_y_off_lvl2[4] = {12, 30, 48, 66};
-        static const int seg_s_off_lvl2[4] = {0, 6, 12, 18};
-        static const T S_sel_lvl2[24] = {static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0)};
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1274] = s_qd[7];
-            s_temp[1275] = s_qd[10];
-            s_temp[1276] = s_qd[13];
-            s_temp[1277] = s_qd[16];
-        }
-        __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(4, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_va, s_va, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, &s_temp[1274], s_linalg_smem);
-        // c[k] = mxS(v[k]) * (S_sign*qd[k])
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 4; ind += blockDim.x*blockDim.y){
-            // branch to get pointer locations
-            int jid; int dof;
-                 if (ind == 0){ jid = 2; dof = 7; }
-            else if (ind == 1){ jid = 5; dof = 10; }
-            else if (ind == 2){ jid = 8; dof = 13; }
-            else              { jid = 11; dof = 16; }
-            mxX_scaled<T>(&s_temp[936 + 6*jid], &s_va[6*jid], (((s_topology_helpers[18 + jid]) > 0 ? 1 : -1)) * s_qd[dof], ((s_topology_helpers[18 + jid]) > 0 ? (s_topology_helpers[18 + jid]) - 1 : -(s_topology_helpers[18 + jid]) - 1));
-        }
-        __syncthreads();
-        // forward pass where bfs_level is 3
-        //     joints are: FL_calf_joint, FR_calf_joint, RL_calf_joint, RR_calf_joint
-        //     links are: FL_calf, FR_calf, RL_calf, RR_calf
-        // v[k] = X[k]*v[parent_k] + S[k]*qd[k] for all bfs-level joints at once
-        static const int seg_a_off_lvl3[4] = {108, 216, 324, 432};
-        static const int seg_v_x_off_lvl3[4] = {12, 30, 48, 66};
-        static const int seg_v_y_off_lvl3[4] = {18, 36, 54, 72};
-        static const int seg_s_off_lvl3[4] = {0, 6, 12, 18};
-        static const T S_sel_lvl3[24] = {static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0)};
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1274] = s_qd[8];
-            s_temp[1275] = s_qd[11];
-            s_temp[1276] = s_qd[14];
-            s_temp[1277] = s_qd[17];
-        }
-        __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(4, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_va, s_va, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, &s_temp[1274], s_linalg_smem);
-        // c[k] = mxS(v[k]) * (S_sign*qd[k])
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 4; ind += blockDim.x*blockDim.y){
-            // branch to get pointer locations
-            int jid; int dof;
-                 if (ind == 0){ jid = 3; dof = 8; }
-            else if (ind == 1){ jid = 6; dof = 11; }
-            else if (ind == 2){ jid = 9; dof = 14; }
-            else              { jid = 12; dof = 17; }
-            mxX_scaled<T>(&s_temp[936 + 6*jid], &s_va[6*jid], (((s_topology_helpers[18 + jid]) > 0 ? 1 : -1)) * s_qd[dof], ((s_topology_helpers[18 + jid]) > 0 ? (s_topology_helpers[18 + jid]) - 1 : -(s_topology_helpers[18 + jid]) - 1));
-        }
-        __syncthreads();
-        // Initialize vcross[k]
-        for(int jid = threadIdx.x + threadIdx.y*blockDim.x; jid < 13; jid += blockDim.x*blockDim.y){
-            int jid6 = 6 * jid;
-            vcross<T>(&s_vcross_cold[468 + 36*jid], &s_va[jid6]);
-        }
-        __syncthreads();
-        // temp[k] = -vcross.T*I[k]
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 468; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = (ind / 6) % 6; int jid = ind / 36;
-            int jid6 = 6 * jid;
-            s_temp[1274 + jid6*6 + row + col*6] = -dot_prod<T,6,1,1>(&s_vcross_cold[468 + 36*jid + row*6], &s_XImats[468 + 36*jid + col*6]);
-        }
-        __syncthreads();
-        // pA[k] = temp[k]*v[k]
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 78; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int jid = ind / 6;
-            int jid6 = 6 * jid;
-            s_temp[1014 + jid6 + row] = dot_prod<T,6,6,1>(&s_temp[1274 + 6*jid6 + row], &s_va[jid6]);
-            if (d_f_ext != nullptr) { s_temp[1014 + jid6 + row] -= d_f_ext[jid6 + row]; }
-        }
-        __syncthreads();
-        //
-        // Backward Pass
-        //
-        // scalar joint 12: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1164 + row] = static_cast<T>(1) * s_temp[438 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1260] = static_cast<T>(1) * s_temp[1165];
-            s_temp[1273] = s_tau[17] - static_cast<T>(1) * s_temp[1087] - dot_prod<T,6,1,1>(&s_temp[1164], &s_temp[1008]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 12
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[432], &s_temp[1164], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1164 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[432], &s_temp[432], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[432], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1164 + row] * s_temp[1164 + col] / s_temp[1260];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1242 + row] = s_temp[1086 + row] + dot_prod<T,6,6,1>(&s_temp[432 + row], &s_temp[1008]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[432], &s_temp[1242], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1164] * s_temp[1273] / s_temp[1260];
-            s_temp[1743] += s_temp[1165] * s_temp[1273] / s_temp[1260];
-            s_temp[1744] += s_temp[1166] * s_temp[1273] / s_temp[1260];
-            s_temp[1745] += s_temp[1167] * s_temp[1273] / s_temp[1260];
-            s_temp[1746] += s_temp[1168] * s_temp[1273] / s_temp[1260];
-            s_temp[1747] += s_temp[1169] * s_temp[1273] / s_temp[1260];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[396 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1080 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 11: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1158 + row] = static_cast<T>(1) * s_temp[402 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1259] = static_cast<T>(1) * s_temp[1159];
-            s_temp[1272] = s_tau[16] - static_cast<T>(1) * s_temp[1081] - dot_prod<T,6,1,1>(&s_temp[1158], &s_temp[1002]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 11
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[396], &s_temp[1158], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1158 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[396], &s_temp[396], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[396], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1158 + row] * s_temp[1158 + col] / s_temp[1259];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1236 + row] = s_temp[1080 + row] + dot_prod<T,6,6,1>(&s_temp[396 + row], &s_temp[1002]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[396], &s_temp[1236], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1158] * s_temp[1272] / s_temp[1259];
-            s_temp[1743] += s_temp[1159] * s_temp[1272] / s_temp[1259];
-            s_temp[1744] += s_temp[1160] * s_temp[1272] / s_temp[1259];
-            s_temp[1745] += s_temp[1161] * s_temp[1272] / s_temp[1259];
-            s_temp[1746] += s_temp[1162] * s_temp[1272] / s_temp[1259];
-            s_temp[1747] += s_temp[1163] * s_temp[1272] / s_temp[1259];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[360 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1074 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 10: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1152 + row] = static_cast<T>(1) * s_temp[360 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1258] = static_cast<T>(1) * s_temp[1152];
-            s_temp[1271] = s_tau[15] - static_cast<T>(1) * s_temp[1074] - dot_prod<T,6,1,1>(&s_temp[1152], &s_temp[996]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 10
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[360], &s_temp[1152], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1152 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[360], &s_temp[360], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[360], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1152 + row] * s_temp[1152 + col] / s_temp[1258];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1230 + row] = s_temp[1074 + row] + dot_prod<T,6,6,1>(&s_temp[360 + row], &s_temp[996]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[360], &s_temp[1230], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1152] * s_temp[1271] / s_temp[1258];
-            s_temp[1743] += s_temp[1153] * s_temp[1271] / s_temp[1258];
-            s_temp[1744] += s_temp[1154] * s_temp[1271] / s_temp[1258];
-            s_temp[1745] += s_temp[1155] * s_temp[1271] / s_temp[1258];
-            s_temp[1746] += s_temp[1156] * s_temp[1271] / s_temp[1258];
-            s_temp[1747] += s_temp[1157] * s_temp[1271] / s_temp[1258];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[0 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1014 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 9: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1146 + row] = static_cast<T>(1) * s_temp[330 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1257] = static_cast<T>(1) * s_temp[1147];
-            s_temp[1270] = s_tau[14] - static_cast<T>(1) * s_temp[1069] - dot_prod<T,6,1,1>(&s_temp[1146], &s_temp[990]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 9
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[324], &s_temp[1146], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1146 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[324], &s_temp[324], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[324], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1146 + row] * s_temp[1146 + col] / s_temp[1257];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1224 + row] = s_temp[1068 + row] + dot_prod<T,6,6,1>(&s_temp[324 + row], &s_temp[990]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[324], &s_temp[1224], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1146] * s_temp[1270] / s_temp[1257];
-            s_temp[1743] += s_temp[1147] * s_temp[1270] / s_temp[1257];
-            s_temp[1744] += s_temp[1148] * s_temp[1270] / s_temp[1257];
-            s_temp[1745] += s_temp[1149] * s_temp[1270] / s_temp[1257];
-            s_temp[1746] += s_temp[1150] * s_temp[1270] / s_temp[1257];
-            s_temp[1747] += s_temp[1151] * s_temp[1270] / s_temp[1257];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[288 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1062 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 8: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1140 + row] = static_cast<T>(1) * s_temp[294 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1256] = static_cast<T>(1) * s_temp[1141];
-            s_temp[1269] = s_tau[13] - static_cast<T>(1) * s_temp[1063] - dot_prod<T,6,1,1>(&s_temp[1140], &s_temp[984]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 8
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[288], &s_temp[1140], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1140 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[288], &s_temp[288], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[288], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1140 + row] * s_temp[1140 + col] / s_temp[1256];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1218 + row] = s_temp[1062 + row] + dot_prod<T,6,6,1>(&s_temp[288 + row], &s_temp[984]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[288], &s_temp[1218], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1140] * s_temp[1269] / s_temp[1256];
-            s_temp[1743] += s_temp[1141] * s_temp[1269] / s_temp[1256];
-            s_temp[1744] += s_temp[1142] * s_temp[1269] / s_temp[1256];
-            s_temp[1745] += s_temp[1143] * s_temp[1269] / s_temp[1256];
-            s_temp[1746] += s_temp[1144] * s_temp[1269] / s_temp[1256];
-            s_temp[1747] += s_temp[1145] * s_temp[1269] / s_temp[1256];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[252 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1056 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 7: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1134 + row] = static_cast<T>(1) * s_temp[252 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1255] = static_cast<T>(1) * s_temp[1134];
-            s_temp[1268] = s_tau[12] - static_cast<T>(1) * s_temp[1056] - dot_prod<T,6,1,1>(&s_temp[1134], &s_temp[978]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 7
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[252], &s_temp[1134], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1134 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[252], &s_temp[252], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[252], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1134 + row] * s_temp[1134 + col] / s_temp[1255];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1212 + row] = s_temp[1056 + row] + dot_prod<T,6,6,1>(&s_temp[252 + row], &s_temp[978]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[252], &s_temp[1212], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1134] * s_temp[1268] / s_temp[1255];
-            s_temp[1743] += s_temp[1135] * s_temp[1268] / s_temp[1255];
-            s_temp[1744] += s_temp[1136] * s_temp[1268] / s_temp[1255];
-            s_temp[1745] += s_temp[1137] * s_temp[1268] / s_temp[1255];
-            s_temp[1746] += s_temp[1138] * s_temp[1268] / s_temp[1255];
-            s_temp[1747] += s_temp[1139] * s_temp[1268] / s_temp[1255];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[0 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1014 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 6: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1128 + row] = static_cast<T>(1) * s_temp[222 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1254] = static_cast<T>(1) * s_temp[1129];
-            s_temp[1267] = s_tau[11] - static_cast<T>(1) * s_temp[1051] - dot_prod<T,6,1,1>(&s_temp[1128], &s_temp[972]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 6
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[216], &s_temp[1128], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1128 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[216], &s_temp[216], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[216], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1128 + row] * s_temp[1128 + col] / s_temp[1254];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1206 + row] = s_temp[1050 + row] + dot_prod<T,6,6,1>(&s_temp[216 + row], &s_temp[972]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[216], &s_temp[1206], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1128] * s_temp[1267] / s_temp[1254];
-            s_temp[1743] += s_temp[1129] * s_temp[1267] / s_temp[1254];
-            s_temp[1744] += s_temp[1130] * s_temp[1267] / s_temp[1254];
-            s_temp[1745] += s_temp[1131] * s_temp[1267] / s_temp[1254];
-            s_temp[1746] += s_temp[1132] * s_temp[1267] / s_temp[1254];
-            s_temp[1747] += s_temp[1133] * s_temp[1267] / s_temp[1254];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[180 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1044 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 5: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1122 + row] = static_cast<T>(1) * s_temp[186 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1253] = static_cast<T>(1) * s_temp[1123];
-            s_temp[1266] = s_tau[10] - static_cast<T>(1) * s_temp[1045] - dot_prod<T,6,1,1>(&s_temp[1122], &s_temp[966]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 5
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[180], &s_temp[1122], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1122 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[180], &s_temp[180], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[180], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1122 + row] * s_temp[1122 + col] / s_temp[1253];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1200 + row] = s_temp[1044 + row] + dot_prod<T,6,6,1>(&s_temp[180 + row], &s_temp[966]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[180], &s_temp[1200], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1122] * s_temp[1266] / s_temp[1253];
-            s_temp[1743] += s_temp[1123] * s_temp[1266] / s_temp[1253];
-            s_temp[1744] += s_temp[1124] * s_temp[1266] / s_temp[1253];
-            s_temp[1745] += s_temp[1125] * s_temp[1266] / s_temp[1253];
-            s_temp[1746] += s_temp[1126] * s_temp[1266] / s_temp[1253];
-            s_temp[1747] += s_temp[1127] * s_temp[1266] / s_temp[1253];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[144 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1038 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 4: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1116 + row] = static_cast<T>(1) * s_temp[144 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1252] = static_cast<T>(1) * s_temp[1116];
-            s_temp[1265] = s_tau[9] - static_cast<T>(1) * s_temp[1038] - dot_prod<T,6,1,1>(&s_temp[1116], &s_temp[960]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 4
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[144], &s_temp[1116], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1116 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[144], &s_temp[144], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[144], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1116 + row] * s_temp[1116 + col] / s_temp[1252];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1194 + row] = s_temp[1038 + row] + dot_prod<T,6,6,1>(&s_temp[144 + row], &s_temp[960]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[144], &s_temp[1194], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1116] * s_temp[1265] / s_temp[1252];
-            s_temp[1743] += s_temp[1117] * s_temp[1265] / s_temp[1252];
-            s_temp[1744] += s_temp[1118] * s_temp[1265] / s_temp[1252];
-            s_temp[1745] += s_temp[1119] * s_temp[1265] / s_temp[1252];
-            s_temp[1746] += s_temp[1120] * s_temp[1265] / s_temp[1252];
-            s_temp[1747] += s_temp[1121] * s_temp[1265] / s_temp[1252];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[0 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1014 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 3: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1110 + row] = static_cast<T>(1) * s_temp[114 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1251] = static_cast<T>(1) * s_temp[1111];
-            s_temp[1264] = s_tau[8] - static_cast<T>(1) * s_temp[1033] - dot_prod<T,6,1,1>(&s_temp[1110], &s_temp[954]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 3
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[108], &s_temp[1110], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1110 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[108], &s_temp[108], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[108], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1110 + row] * s_temp[1110 + col] / s_temp[1251];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1188 + row] = s_temp[1032 + row] + dot_prod<T,6,6,1>(&s_temp[108 + row], &s_temp[954]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[108], &s_temp[1188], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1110] * s_temp[1264] / s_temp[1251];
-            s_temp[1743] += s_temp[1111] * s_temp[1264] / s_temp[1251];
-            s_temp[1744] += s_temp[1112] * s_temp[1264] / s_temp[1251];
-            s_temp[1745] += s_temp[1113] * s_temp[1264] / s_temp[1251];
-            s_temp[1746] += s_temp[1114] * s_temp[1264] / s_temp[1251];
-            s_temp[1747] += s_temp[1115] * s_temp[1264] / s_temp[1251];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[72 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1026 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 2: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1104 + row] = static_cast<T>(1) * s_temp[78 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1250] = static_cast<T>(1) * s_temp[1105];
-            s_temp[1263] = s_tau[7] - static_cast<T>(1) * s_temp[1027] - dot_prod<T,6,1,1>(&s_temp[1104], &s_temp[948]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 2
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[72], &s_temp[1104], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1104 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[72], &s_temp[72], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[72], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1104 + row] * s_temp[1104 + col] / s_temp[1250];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1182 + row] = s_temp[1026 + row] + dot_prod<T,6,6,1>(&s_temp[72 + row], &s_temp[948]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[72], &s_temp[1182], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1104] * s_temp[1263] / s_temp[1250];
-            s_temp[1743] += s_temp[1105] * s_temp[1263] / s_temp[1250];
-            s_temp[1744] += s_temp[1106] * s_temp[1263] / s_temp[1250];
-            s_temp[1745] += s_temp[1107] * s_temp[1263] / s_temp[1250];
-            s_temp[1746] += s_temp[1108] * s_temp[1263] / s_temp[1250];
-            s_temp[1747] += s_temp[1109] * s_temp[1263] / s_temp[1250];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[36 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1020 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // scalar joint 1: U, d, u
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1098 + row] = static_cast<T>(1) * s_temp[36 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1249] = static_cast<T>(1) * s_temp[1098];
-            s_temp[1262] = s_tau[6] - static_cast<T>(1) * s_temp[1020] - dot_prod<T,6,1,1>(&s_temp[1098], &s_temp[942]);
-        }
-        __syncthreads();
-        // transform U into the parent frame for joint 1
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[36], &s_temp[1098], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1098 + row] = s_temp[1742 + row];
-        }
-        __syncthreads();
-        // temp = X.T*IA*X
-        grid_linalg_gemm<T,6,6,6,false,true>(&s_XImats[36], &s_temp[36], &s_temp[1742], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        grid_linalg_gemm<T,6,6,6>(&s_temp[1742], &s_XImats[36], &s_temp[1274], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            s_temp[1274 + row + 6*col] -= s_temp[1098 + row] * s_temp[1098 + col] / s_temp[1249];
-        }
-        __syncthreads();
-        // pa = X.T*(pA + IA*c) + U*u/d
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_temp[1176 + row] = s_temp[1020 + row] + dot_prod<T,6,6,1>(&s_temp[36 + row], &s_temp[942]);
-        }
-        __syncthreads();
-        grid_linalg_gemv<T,6,6,true>(&s_XImats[36], &s_temp[1176], &s_temp[1742], static_cast<T>(1), static_cast<T>(0));
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_temp[1742] += s_temp[1098] * s_temp[1262] / s_temp[1249];
-            s_temp[1743] += s_temp[1099] * s_temp[1262] / s_temp[1249];
-            s_temp[1744] += s_temp[1100] * s_temp[1262] / s_temp[1249];
-            s_temp[1745] += s_temp[1101] * s_temp[1262] / s_temp[1249];
-            s_temp[1746] += s_temp[1102] * s_temp[1262] / s_temp[1249];
-            s_temp[1747] += s_temp[1103] * s_temp[1262] / s_temp[1249];
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            if (ind < 36) { s_temp[0 + row + 6*col] += s_temp[1274 + row + 6*col]; }
-            else { s_temp[1014 + row] += s_temp[1742 + row]; }
-        }
-        __syncthreads();
-        // floating-base root: U = IA*S, D = S^T*U
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            int row = ind % 6; int col = ind / 6;
-            int S_col = col < 3 ? col + 3 : col - 3;
-            int S_row = row < 3 ? row + 3 : row - 3;
-            s_fb_cold[1820 + ind] = s_temp[0 + row + 6*S_col];
-            s_fb_cold[1856 + ind] = s_temp[0 + S_row + 6*S_col];
-        }
-        __syncthreads();
-        invert_matrix(6, &s_fb_cold[1856], &s_fb_cold[1892], &s_fb_cold[1934]);
-        for(int col = threadIdx.x + threadIdx.y*blockDim.x; col < 6; col += blockDim.x*blockDim.y){
-            int S_col = col < 3 ? col + 3 : col - 3;
-            s_fb_cold[1928 + col] = s_tau[col] - s_temp[1014 + S_col];
-        }
-        __syncthreads();
-        //
-        // Second Forward Pass
-        //
-        // root acceleration from gravity, then solve root qdd
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-            s_temp[1274 + ind] = s_XImats[ind];
-        }
-        __syncthreads();
-        invert_matrix(6, &s_temp[1274], &s_temp[1742], &s_fb_cold[1934]);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[78 + row] = -s_temp[1742 + row + 6*5] * gravity;
-        }
-        __syncthreads();
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_fb_cold[1928 + row] -= dot_prod<T,6,1,1>(&s_fb_cold[1820 + 6*row], &s_va[78]);
-        }
-        __syncthreads();
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_qdd[row] = dot_prod<T,6,6,1>(&s_fb_cold[1892 + row], &s_fb_cold[1928]);
-        }
-        __syncthreads();
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            int fb_col = row < 3 ? row + 3 : row - 3;
-            s_va[78 + row] += s_qdd[fb_col];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1262] - dot_prod<T,6,1,1>(&s_temp[1098], &s_va[78]);
-            s_qdd[6] = tempval / s_temp[1249];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[36], &s_va[78], &s_va[84], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[84 + row] += s_temp[942 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[84] += static_cast<T>(1) * s_qdd[6];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1265] - dot_prod<T,6,1,1>(&s_temp[1116], &s_va[78]);
-            s_qdd[9] = tempval / s_temp[1252];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[144], &s_va[78], &s_va[102], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[102 + row] += s_temp[960 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[102] += static_cast<T>(1) * s_qdd[9];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1268] - dot_prod<T,6,1,1>(&s_temp[1134], &s_va[78]);
-            s_qdd[12] = tempval / s_temp[1255];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[252], &s_va[78], &s_va[120], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[120 + row] += s_temp[978 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[120] += static_cast<T>(1) * s_qdd[12];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1271] - dot_prod<T,6,1,1>(&s_temp[1152], &s_va[78]);
-            s_qdd[15] = tempval / s_temp[1258];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[360], &s_va[78], &s_va[138], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[138 + row] += s_temp[996 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[138] += static_cast<T>(1) * s_qdd[15];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1263] - dot_prod<T,6,1,1>(&s_temp[1104], &s_va[84]);
-            s_qdd[7] = tempval / s_temp[1250];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[72], &s_va[84], &s_va[90], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[90 + row] += s_temp[948 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[91] += static_cast<T>(1) * s_qdd[7];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1266] - dot_prod<T,6,1,1>(&s_temp[1122], &s_va[102]);
-            s_qdd[10] = tempval / s_temp[1253];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[180], &s_va[102], &s_va[108], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[108 + row] += s_temp[966 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[109] += static_cast<T>(1) * s_qdd[10];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1269] - dot_prod<T,6,1,1>(&s_temp[1140], &s_va[120]);
-            s_qdd[13] = tempval / s_temp[1256];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[288], &s_va[120], &s_va[126], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[126 + row] += s_temp[984 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[127] += static_cast<T>(1) * s_qdd[13];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1272] - dot_prod<T,6,1,1>(&s_temp[1158], &s_va[138]);
-            s_qdd[16] = tempval / s_temp[1259];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[396], &s_va[138], &s_va[144], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[144 + row] += s_temp[1002 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[145] += static_cast<T>(1) * s_qdd[16];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1264] - dot_prod<T,6,1,1>(&s_temp[1110], &s_va[90]);
-            s_qdd[8] = tempval / s_temp[1251];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[108], &s_va[90], &s_va[96], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[96 + row] += s_temp[954 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[97] += static_cast<T>(1) * s_qdd[8];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1267] - dot_prod<T,6,1,1>(&s_temp[1128], &s_va[108]);
-            s_qdd[11] = tempval / s_temp[1254];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[216], &s_va[108], &s_va[114], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[114 + row] += s_temp[972 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[115] += static_cast<T>(1) * s_qdd[11];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1270] - dot_prod<T,6,1,1>(&s_temp[1146], &s_va[126]);
-            s_qdd[14] = tempval / s_temp[1257];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[324], &s_va[126], &s_va[132], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[132 + row] += s_temp[990 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[133] += static_cast<T>(1) * s_qdd[14];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T tempval = s_temp[1273] - dot_prod<T,6,1,1>(&s_temp[1164], &s_va[144]);
-            s_qdd[17] = tempval / s_temp[1260];
-        }
-        __syncthreads();
-        grid_linalg_row_strided_gemv<T,6,6,6>(&s_XImats[432], &s_va[144], &s_va[150], static_cast<T>(1), static_cast<T>(0), s_linalg_smem);
-        for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-            s_va[150 + row] += s_temp[1008 + row];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_va[151] += static_cast<T>(1) * s_qdd[17];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param s_qdd is the vector of joint accelerations
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_tau is the vector of joint torques
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param d_f_ext is the (optional) GLOBAL external forces, body-major 6*NUM_BODIES local-frame, or nullptr
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void aba_device(T *s_qdd, const T *s_q, const T *s_qd, const T *s_tau, const robotModel<T> *d_robotModel, T *d_f_ext, const T gravity) {
-        // GRID shared arena layout
-        //   T s_va[156]
-        //   T s_XImats[936]
-        //   T s_temp[1958]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(1958);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3050, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        aba_inner<T, true, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param d_qdd is the vector of joint accelerations (output)
-     * @param d_workspace is the L2-pinned global spill buffer (used at LITE/MINIMAL on h1_2-scale)
-     * @param d_q_qd_tau is the vector of joint positions, velocities, torques
-     * @param stride_q_qd is the stride between each q, qd
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param d_f_ext is the (optional) GLOBAL external forces, body-major 6*NUM_BODIES local-frame, or nullptr
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void aba_kernel_single_timing(T *d_qdd, unsigned char *d_workspace, const T *d_q_qd_tau, const int stride_q_qd, T *d_f_ext, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   T s_temp[1958]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(1958);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(3125, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_tau[ind] = d_q_qd_tau[ind];
-            }
-            __syncthreads();
-            (void)d_workspace;
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                // anti-LICM: volatile reload of inputs each rep
-                for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 57; _aopt_i += blockDim.x*blockDim.y){
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd_tau)[_aopt_i];
-                }
-                __syncthreads();
-                // anti-LICM (1/2): stomp one input slot with `rep`
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[rep % (57)] = static_cast<T>(rep);
-                }
-                // anti-LICM (2/2): feedback prev rep's d_qdd into s_q_qd_tau (true loop-carried dep)
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FF) & 0x3FF];
-                    T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FE) & 0x3FF];
-                    T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FD) & 0x3FF];
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 1) % (57)] += _aopt_fb1;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 2) % (57)] += _aopt_fb2;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 3) % (57)] += _aopt_fb3;
-                }
-                __syncthreads();
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, true, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
-                __syncthreads();
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_qdd)[rep & 1023] = reinterpret_cast<const volatile T *>(s_qdd)[rep & 7]; }
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                d_qdd[ind] = s_qdd[ind];
-            }
-            __syncthreads();
-        }
-        else if constexpr (RESOURCE_TIER == TIER_LITE) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   T s_temp[1958]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(1958);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(3125, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_tau[ind] = d_q_qd_tau[ind];
-            }
-            __syncthreads();
-            (void)d_workspace;
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                // anti-LICM: volatile reload of inputs each rep
-                for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 57; _aopt_i += blockDim.x*blockDim.y){
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd_tau)[_aopt_i];
-                }
-                __syncthreads();
-                // anti-LICM (1/2): stomp one input slot with `rep`
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[rep % (57)] = static_cast<T>(rep);
-                }
-                // anti-LICM (2/2): feedback prev rep's d_qdd into s_q_qd_tau (true loop-carried dep)
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FF) & 0x3FF];
-                    T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FE) & 0x3FF];
-                    T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FD) & 0x3FF];
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 1) % (57)] += _aopt_fb1;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 2) % (57)] += _aopt_fb2;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 3) % (57)] += _aopt_fb3;
-                }
-                __syncthreads();
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, true, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
-                __syncthreads();
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_qdd)[rep & 1023] = reinterpret_cast<const volatile T *>(s_qdd)[rep & 7]; }
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                d_qdd[ind] = s_qdd[ind];
-            }
-            __syncthreads();
-        }
-        else if constexpr (RESOURCE_TIER == TIER_MINIMAL) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            T *s_temp = nullptr;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1167, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_tau[ind] = d_q_qd_tau[ind];
-            }
-            __syncthreads();
-            T *aba_d_workspace = reinterpret_cast<T *>(d_workspace);
-            s_temp = aba_d_workspace;
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                // anti-LICM: volatile reload of inputs each rep
-                for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 57; _aopt_i += blockDim.x*blockDim.y){
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd_tau)[_aopt_i];
-                }
-                __syncthreads();
-                // anti-LICM (1/2): stomp one input slot with `rep`
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[rep % (57)] = static_cast<T>(rep);
-                }
-                // anti-LICM (2/2): feedback prev rep's d_qdd into s_q_qd_tau (true loop-carried dep)
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                    T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FF) & 0x3FF];
-                    T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FE) & 0x3FF];
-                    T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_qdd)[(rep + 0x3FD) & 0x3FF];
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 1) % (57)] += _aopt_fb1;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 2) % (57)] += _aopt_fb2;
-                    reinterpret_cast<volatile T *>(s_q_qd_tau)[(rep + 3) % (57)] += _aopt_fb3;
-                }
-                __syncthreads();
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, false, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, aba_d_workspace, d_f_ext, gravity);
-                __syncthreads();
-                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_qdd)[rep & 1023] = reinterpret_cast<const volatile T *>(s_qdd)[rep & 7]; }
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                d_qdd[ind] = s_qdd[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param d_qdd is the vector of joint accelerations (output)
-     * @param d_workspace is the L2-pinned global spill buffer (used at LITE/MINIMAL on h1_2-scale)
-     * @param d_q_qd_tau is the vector of joint positions, velocities, torques
-     * @param stride_q_qd is the stride between each q, qd
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param d_f_ext is the (optional) GLOBAL external forces, body-major 6*NUM_BODIES local-frame, or nullptr
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void aba_kernel(T *d_qdd, unsigned char *d_workspace, const T *d_q_qd_tau, const int stride_q_qd, T *d_f_ext, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   T s_temp[1958]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(1958);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(3125, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_tau_k = &d_q_qd_tau[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                    s_q_qd_tau[ind] = d_q_qd_tau_k[ind];
-                }
-                __syncthreads();
-                (void)d_workspace;
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                        T ufx = s_tau[0], ufy = s_tau[1], ufz = s_tau[2];
-                        s_tau[0] = R[0]*ufx + R[3]*ufy + R[6]*ufz;
-                        s_tau[1] = R[1]*ufx + R[4]*ufy + R[7]*ufz;
-                        s_tau[2] = R[2]*ufx + R[5]*ufy + R[8]*ufz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, true, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
-                        T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
-                        T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
-                        T c1 = s_qdd[1] + (wz_*vx_ - wx_*vz_);
-                        T c2 = s_qdd[2] + (wx_*vy_ - wy_*vx_);
-                        s_qdd[0] = R[0]*c0 + R[1]*c1 + R[2]*c2;
-                        s_qdd[1] = R[3]*c0 + R[4]*c1 + R[5]*c2;
-                        s_qdd[2] = R[6]*c0 + R[7]*c1 + R[8]*c2;
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_qdd_k = &d_qdd[k*19];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                    d_qdd_k[ind] = s_qdd[ind];
-                }
-                __syncthreads();
-            }
-        }
-        else if constexpr (RESOURCE_TIER == TIER_LITE) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   T s_temp[1958]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(1958);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(3125, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_tau_k = &d_q_qd_tau[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                    s_q_qd_tau[ind] = d_q_qd_tau_k[ind];
-                }
-                __syncthreads();
-                (void)d_workspace;
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                        T ufx = s_tau[0], ufy = s_tau[1], ufz = s_tau[2];
-                        s_tau[0] = R[0]*ufx + R[3]*ufy + R[6]*ufz;
-                        s_tau[1] = R[1]*ufx + R[4]*ufy + R[7]*ufz;
-                        s_tau[2] = R[2]*ufx + R[5]*ufy + R[8]*ufz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, true, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
-                        T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
-                        T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
-                        T c1 = s_qdd[1] + (wz_*vx_ - wx_*vz_);
-                        T c2 = s_qdd[2] + (wx_*vy_ - wy_*vx_);
-                        s_qdd[0] = R[0]*c0 + R[1]*c1 + R[2]*c2;
-                        s_qdd[1] = R[3]*c0 + R[4]*c1 + R[5]*c2;
-                        s_qdd[2] = R[6]*c0 + R[7]*c1 + R[8]*c2;
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_qdd_k = &d_qdd[k*19];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                    d_qdd_k[ind] = s_qdd[ind];
-                }
-                __syncthreads();
-            }
-        }
-        else if constexpr (RESOURCE_TIER == TIER_MINIMAL) {
-            // GRID shared arena layout
-            //   T s_qdd[18]
-            //   T s_q_qd_tau[57]
-            //   T s_va[156]
-            //   T s_XImats[936]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd_tau = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_va = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(156);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            T *s_temp = nullptr;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1167, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd_tau; T *s_qd = &s_q_qd_tau[19]; T *s_tau = &s_q_qd_tau[38];
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_tau_k = &d_q_qd_tau[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                    s_q_qd_tau[ind] = d_q_qd_tau_k[ind];
-                }
-                __syncthreads();
-                T *aba_d_workspace = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]);
-                s_temp = aba_d_workspace;
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                        T ufx = s_tau[0], ufy = s_tau[1], ufz = s_tau[2];
-                        s_tau[0] = R[0]*ufx + R[3]*ufy + R[6]*ufz;
-                        s_tau[1] = R[1]*ufx + R[4]*ufy + R[7]*ufz;
-                        s_tau[2] = R[2]*ufx + R[5]*ufy + R[8]*ufz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                aba_inner<T, false, true>(s_qdd, s_va, s_q, s_qd, s_tau, s_XImats, s_topology_helpers, s_temp, aba_d_workspace, d_f_ext, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
-                        T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
-                        T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
-                        T c1 = s_qdd[1] + (wz_*vx_ - wx_*vz_);
-                        T c2 = s_qdd[2] + (wx_*vy_ - wy_*vx_);
-                        s_qdd[0] = R[0]*c0 + R[1]*c1 + R[2]*c2;
-                        s_qdd[1] = R[3]*c0 + R[4]*c1 + R[5]*c2;
-                        s_qdd[2] = R[6]*c0 + R[7]*c1 + R[8]*c2;
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_qdd_k = &d_qdd[k*19];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                    d_qdd_k[ind] = s_qdd[ind];
-                }
-                __syncthreads();
-            }
-        }
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void aba(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "aba requires all-data or dynamics gridData");
-        int stride_q_qd = 3*NUM_JOINTS;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba", ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_43 = grid_host_clamp_threads((const void*)&aba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        aba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_43,ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_qdd,hd_data->d_qdd,NUM_JOINTS*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void aba_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "aba requires all-data or dynamics gridData");
-        int stride_q_qd = 3*NUM_JOINTS;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba", ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_44 = grid_host_clamp_threads((const void*)&aba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        aba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_44,ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_qdd,hd_data->d_qdd,NUM_JOINTS*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call ABA %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the ABA (Articulated Body Algorithm)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void aba_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "aba requires all-data or dynamics gridData");
-        int stride_q_qd = 3*NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba", ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_45 = grid_host_clamp_threads((const void*)&aba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        aba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_45,ABA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_qdd,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,hd_data->d_f_ext,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_30 = grid_host_clamp_threads((const void*)&f_ext_gradient_dq_kernel<T, RESOURCE_TIER>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_30,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {f_ext_gradient_dq_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_30,F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_f_ext_gradient_dq,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchkKernel();
     }
 
@@ -40248,9 +36902,9 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_46 = grid_host_clamp_threads((const void*)&crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_46,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_46,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        dim3 _grid_thr_clamped_31 = grid_host_clamp_threads((const void*)&crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_31,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        else                    {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_31,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
         gpuErrchkKernel();
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_M,hd_data->d_M,NUM_VEL*NUM_VEL*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
@@ -40278,9 +36932,9 @@ namespace grid {
         // then call the kernel
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("crba", CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_47 = grid_host_clamp_threads((const void*)&crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_47,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_47,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        dim3 _grid_thr_clamped_32 = grid_host_clamp_threads((const void*)&crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_32,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        else                    {crba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_32,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -40309,9 +36963,9 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_48 = grid_host_clamp_threads((const void*)&crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_48,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_48,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        dim3 _grid_thr_clamped_33 = grid_host_clamp_threads((const void*)&crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        if (USE_COMPRESSED_MEM) {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_33,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
+        else                    {crba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_33,CRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_M,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
         gpuErrchkKernel();
     }
 
@@ -41125,8 +37779,8 @@ namespace grid {
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_49 = grid_host_clamp_threads((const void*)&integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_49,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_34 = grid_host_clamp_threads((const void*)&integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_34,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
         // finally transfer the result back
@@ -41157,8 +37811,8 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_50 = grid_host_clamp_threads((const void*)&integrator_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_50,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_35 = grid_host_clamp_threads((const void*)&integrator_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_35,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
@@ -41190,8 +37844,8 @@ namespace grid {
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_51 = grid_host_clamp_threads((const void*)&integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_51,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_36 = grid_host_clamp_threads((const void*)&integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_36,INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
     }
@@ -41280,7 +37934,6 @@ namespace grid {
         if constexpr(!SCRATCH_IN_SMEM){ s_temp = d_workspace; } else { (void)d_workspace; }
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
         if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL) {
-            //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
             minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
             inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
             forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -41538,7 +38191,6 @@ namespace grid {
             __syncthreads();
             // --- multi-stage gradient: stage 1 ---
             if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -41601,7 +38253,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -41681,7 +38332,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -41761,7 +38411,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -41900,7 +38549,6 @@ namespace grid {
         if constexpr(!SCRATCH_IN_SMEM){ s_temp = d_workspace; } else { (void)d_workspace; }
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
         if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL) {
-            //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
             minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
             inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
             forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -42188,7 +38836,6 @@ namespace grid {
             __syncthreads();
             // --- multi-stage gradient: stage 1 ---
             if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -42251,7 +38898,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -42331,7 +38977,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -42411,7 +39056,6 @@ namespace grid {
                     grid_dIntegrate_v_block<T>(v_dt_stage, s_dInt_v_6x6);
                 }
                 __syncthreads();
-                //TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[18], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -43369,8 +40013,8 @@ namespace grid {
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_52 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_52,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_37 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_37,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
         // finally transfer the result back
@@ -43401,8 +40045,8 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_53 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_53,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_38 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_38,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
@@ -43434,8 +40078,8 @@ namespace grid {
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_54 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_54,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_39 = grid_host_clamp_threads((const void*)&integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_39,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
     }
@@ -44320,8 +40964,8 @@ namespace grid {
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_55 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_55,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_40 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_40,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
         // finally transfer the result back
@@ -44354,8 +40998,8 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_56 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_with_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_56,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_41 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_with_gradient_kernel_single_timing<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_41,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
@@ -44389,8 +41033,8 @@ namespace grid {
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_57 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_57,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
+        dim3 _grid_thr_clamped_42 = grid_host_clamp_threads((const void*)&integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        integrator_with_gradient_kernel<T, IT, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_42,INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dAB,hd_data->d_x_kp1,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_u,d_robotModel,hd_data->d_f_ext,gravity,dt,num_timesteps);
         gpuErrchkKernel();
         if (GRID_INTEGRATOR_GRADIENT_USES_WORKSPACE) {gpuErrchk(grid_end_l2_persisting(0));}
     }
@@ -44487,887 +41131,6 @@ namespace grid {
             return a;
         }
     };
-
-    /**
-     * Computes floating-base second-order inverse dynamics diagnostics
-     *
-     * Notes:
-     *   Floating diagnostic path: body-indexed spatial state plus packed velocity-indexed derivative columns.
-     *   d2tau_dq is assembled analytically in velocity-coordinate tensor space.
-     *
-     * @param s_idsva_so is a pointer to memory for the final result of size 4*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS = 23328
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_qdd is the vector of joint accelerations
-     * @param s_temp is a pointer to helper shared memory of size  = 14776
-     * @param d_workspace is a pointer to global-memory scratch (per-timestep) of size = 62208 floats
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param d_robotModel holds XImats/topology (the inner loads s_XImats internally)
-     * @param gravity is the gravity constant
-     */
-    template <typename T, bool SCRATCH_IN_SMEM = true, bool BC_IN_SMEM = true>
-    __device__
-    void idsva_so_body_frame_inner(T *s_idsva_so, const T *s_q, const T *s_qd, T *s_qdd, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace, const robotModel<T> *d_robotModel, const T gravity) {
-        if constexpr (!SCRATCH_IN_SMEM) { s_temp = d_workspace; } else { (void)0; }
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        // Floating IDSVA-SO split-memory layout.
-        T *I = s_XImats + XIMAT_SIZE*NUM_BODIES;
-        T *Xdown = s_temp;
-        T *Xup = Xdown + 36*NUM_BODIES;
-        T *IC = Xup + 36*NUM_BODIES;
-        T *I_Xup = IC + 36*NUM_BODIES;
-        T *BC = I_Xup + 36*NUM_BODIES;
-        T *crm_v = BC + 36*NUM_BODIES;
-        T *crf_v = crm_v + 36*NUM_BODIES;
-        T *vJ = crf_v + 36*NUM_BODIES;
-        T *v = vJ + 6*NUM_BODIES;
-        T *aJ = v + 6*NUM_BODIES;
-        T *a = aJ + 6*NUM_BODIES;
-        T *f = a + 6*NUM_BODIES;
-        T *IC_v = f + 6*NUM_BODIES;
-        T *a_world = IC_v + 6*NUM_BODIES;
-        T *S_vel = a_world + 6;
-        T *Sd_vel = S_vel + 6*NUM_VEL;
-        T *psid_vel = Sd_vel + 6*NUM_VEL;
-        T *psidd_vel = psid_vel + 6*NUM_VEL;
-        T *psid_Sd_vel = psidd_vel + 6*NUM_VEL;
-        T *IC_S = psid_Sd_vel + 6*NUM_VEL;
-        T *IC_psid = IC_S + 6*NUM_VEL;
-        T *ICT_S = IC_psid + 6*NUM_VEL;
-        T *T1 = IC_S;
-        T *T2 = ICT_S + 6*NUM_VEL;
-        T *T3 = T2 + 6*NUM_VEL;
-        T *T4 = T3 + 6*NUM_VEL;
-        T *crm_S = T4 + 6*NUM_VEL;
-        T *crf_S = crm_S + 36*NUM_VEL;
-        T *crm_psid = crf_S + 36*NUM_VEL;
-        T *crf_psid = crm_psid + 36*NUM_VEL;
-        // icrf_f used to live here (size 36*NUM_BODIES) but is now a kernel-local
-        // per-body 36-float array; saves NUM_BODIES * 36 floats of shared memory.
-        T *B_IC_S = crf_psid + 36*NUM_VEL;
-        T *D1 = B_IC_S + 36*NUM_VEL;
-        T *D2 = D1 + 36*NUM_VEL;
-        T *D3 = B_IC_S;
-        T *D4 = D2 + 36*NUM_VEL;
-        T *crf_S_IC = D4 + 36*NUM_VEL;
-        T *d2tau_dq2 = s_idsva_so;
-        T *d2tau_dqd2 = d2tau_dq2 + SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS;
-        T *d2tau_dvdq = d2tau_dqd2 + SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS;
-        T *dM_dq = d2tau_dvdq + SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS;
-        
-        static const int idsva_float_parent[] = { -1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 0, 10, 11 };
-        static const int body_v_start[] = { 0, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 };
-        static const int body_v_index[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
-        static const int vel_to_body[] = { 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        static const int vel_s_index[] = { 3, 4, 5, 0, 1, 2, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
-        static const int vel_s_sign[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
-        static const int subtree_v_start[] = { 0, 18, 21, 23, 24, 27, 29, 30, 33, 35, 36, 39, 41, 42 };
-        static const int subtree_v_index[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 6, 7, 8, 7, 8, 8, 9, 10, 11, 10, 11, 11, 12, 13, 14, 13, 14, 14, 15, 16, 17, 16, 17, 17 };
-        static const int successor_v_start[] = { 0, 12, 14, 15, 15, 17, 18, 18, 20, 21, 21, 23, 24, 24 };
-        static const int successor_v_index[] = { 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 7, 8, 8, 10, 11, 11, 13, 14, 14, 16, 17, 17 };
-        static const int ancestor_body_start[] = { 0, 1, 3, 6, 10, 12, 15, 19, 21, 24, 28, 30, 33, 37 };
-        static const int ancestor_body_index[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 4, 0, 4, 5, 0, 4, 5, 6, 0, 7, 0, 7, 8, 0, 7, 8, 9, 0, 10, 0, 10, 11, 0, 10, 11, 12 };
-        
-        if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-            for (int out_idx = 0; out_idx < SECOND_ORDER_TENSOR_SIZE; ++out_idx) s_idsva_so[out_idx] = static_cast<T>(0);
-            // Floating-base: run main sweep with gravity = 0; gravity Hessian added below by
-            // `gen_floating_gravity_d2tau_dq_lie_inline` (mirrors Python idsva_gravity = 0.0 + shim).
-            a_world[0] = static_cast<T>(0); a_world[1] = static_cast<T>(0); a_world[2] = static_cast<T>(0);
-            a_world[3] = static_cast<T>(0); a_world[4] = static_cast<T>(0); a_world[5] = static_cast<T>(0);
-            // Compute accumulated Xup transforms.
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                int parent = idsva_float_parent[jid];
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6;
-                    int col = idx / 6;
-                    if (parent < 0) {
-                        Xup[jid*36 + idx] = s_XImats[jid*36 + idx];
-                    }
-                    else {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * Xup[parent*36 + kk + 6*col];
-                        Xup[jid*36 + idx] = acc;
-                    }
-                }
-            }
-            // Compute IC = Xup^T * I * Xup.
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    T acc = static_cast<T>(0);
-                    for (int kk = 0; kk < 6; ++kk) acc += I[jid*36 + row + 6*kk] * Xup[jid*36 + kk + 6*col];
-                    I_Xup[jid*36 + idx] = acc;
-                }
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    T acc = static_cast<T>(0);
-                    for (int kk = 0; kk < 6; ++kk) acc += Xup[jid*36 + kk + 6*row] * I_Xup[jid*36 + kk + 6*col];
-                    IC[jid*36 + idx] = acc;
-                }
-            }
-            // Compute Xdown using the same spatial-transform inverse pattern as the fixed path.
-            for (int flat = 0; flat < 36*NUM_BODIES; ++flat) Xdown[flat] = static_cast<T>(0);
-            for (int flat = 0; flat < 36*NUM_BODIES; ++flat) {
-                int idx = flat % 36;
-                int sub_idx = idx % 18;
-                if (idx % 18 == 1 || idx % 18 == 4 || idx % 18 == 8 || idx % 18 == 11) {
-                    Xdown[flat] = Xup[flat + 5];
-                    Xdown[flat + 5] = Xup[flat];
-                }
-                else if (idx % 18 == 2 || idx % 18 == 5) {
-                    Xdown[flat] = Xup[flat + 10];
-                    Xdown[flat + 10] = Xup[flat];
-                }
-                else if (sub_idx != 6 && sub_idx != 9 && sub_idx != 13 && sub_idx != 16 && sub_idx != 12 && sub_idx != 15) {
-                    Xdown[flat] = Xup[flat];
-                }
-            }
-            // Transform each velocity-coordinate S column.
-            for (int vel = 0; vel < NUM_VEL; ++vel) {
-                int jid = vel_to_body[vel];
-                int s_col = vel_s_index[vel];
-                T s_sign = static_cast<T>(vel_s_sign[vel]);
-                for (int row = 0; row < 6; ++row) S_vel[vel*6 + row] = s_sign * Xdown[jid*36 + s_col*6 + row];
-            }
-            // Forward pass in body order.
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                int parent = idsva_float_parent[jid];
-                for (int row = 0; row < 6; ++row) {
-                    vJ[jid*6 + row] = static_cast<T>(0);
-                    aJ[jid*6 + row] = static_cast<T>(0);
-                    for (int pos = body_v_start[jid]; pos < body_v_start[jid + 1]; ++pos) {
-                        int vel = body_v_index[pos];
-                        vJ[jid*6 + row] += S_vel[vel*6 + row] * s_qd[vel];
-                        aJ[jid*6 + row] += S_vel[vel*6 + row] * s_qdd[vel];
-                    }
-                    if (parent < 0) {
-                        v[jid*6 + row] = static_cast<T>(0);
-                        a[jid*6 + row] = dot_prod<T, 6, 6, 1>(&Xdown[jid*36 + row], a_world);
-                    }
-                    else {
-                        v[jid*6 + row] = v[parent*6 + row];
-                        a[jid*6 + row] = a[parent*6 + row];
-                    }
-                }
-                for (int row = 0; row < 6; ++row) aJ[jid*6 + row] += crm_mul<T>(row, &v[jid*6], &vJ[jid*6]);
-                for (int pos = body_v_start[jid]; pos < body_v_start[jid + 1]; ++pos) {
-                    int vel = body_v_index[pos];
-                    for (int row = 0; row < 6; ++row) psid_vel[vel*6 + row] = crm_mul<T>(row, &v[jid*6], &S_vel[vel*6]);
-                    for (int row = 0; row < 6; ++row) psidd_vel[vel*6 + row] = crm_mul<T>(row, &a[jid*6], &S_vel[vel*6]) + crm_mul<T>(row, &v[jid*6], &psid_vel[vel*6]);
-                }
-                for (int row = 0; row < 6; ++row) {
-                    v[jid*6 + row] += vJ[jid*6 + row];
-                    a[jid*6 + row] += aJ[jid*6 + row];
-                }
-                for (int pos = body_v_start[jid]; pos < body_v_start[jid + 1]; ++pos) {
-                    int vel = body_v_index[pos];
-                    for (int row = 0; row < 6; ++row) Sd_vel[vel*6 + row] = crm_mul<T>(row, &v[jid*6], &S_vel[vel*6]);
-                }
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    crm_v[jid*36 + idx] = crm<T>(idx, &v[jid*6]);
-                    crf_v[jid*36 + row*6 + col] = -crm<T>(idx, &v[jid*6]);
-                }
-                for (int row = 0; row < 6; ++row) IC_v[jid*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &v[jid*6]);
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    BC[jid*36 + idx] = dot_prod<T, 6, 6, 1>(&crf_v[jid*36 + row], &IC[jid*36 + col*6]) + icrf<T>(idx, &IC_v[jid*6]) - dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_v[jid*36 + col*6]);
-                }
-                for (int row = 0; row < 6; ++row) f[jid*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &a[jid*6]) + dot_prod<T, 6, 6, 1>(&crf_v[jid*36 + row], &IC_v[jid*6]);
-            }
-            // Backward accumulation of body-indexed composite quantities.
-            for (int jid = NUM_BODIES - 1; jid >= 0; --jid) {
-                int parent = idsva_float_parent[jid];
-                if (parent >= 0) {
-                    for (int idx = 0; idx < 36; ++idx) { IC[parent*36 + idx] += IC[jid*36 + idx]; BC[parent*36 + idx] += BC[jid*36 + idx]; }
-                    for (int row = 0; row < 6; ++row) f[parent*6 + row] += f[jid*6 + row];
-                }
-            }
-            // Build velocity-indexed T and D intermediates.
-            for (int jid = NUM_BODIES - 1; jid >= 0; --jid) {
-                // icrf(f[jid]) is consumed only within this per-jid loop's T3 build, so
-                // keep it as a 36-float kernel-local array instead of NUM_BODIES*36 in shared.
-                T icrf_f_local[36];
-                for (int idx = 0; idx < 36; ++idx) icrf_f_local[idx] = icrf<T>(idx, &f[jid*6]);
-                for (int pos = body_v_start[jid]; pos < body_v_start[jid + 1]; ++pos) {
-                    int vel = body_v_index[pos];
-                    for (int idx = 0; idx < 36; ++idx) {
-                        int row = idx % 6; int col = idx / 6;
-                        crm_S[vel*36 + idx] = crm<T>(idx, &S_vel[vel*6]);
-                        crf_S[vel*36 + row*6 + col] = -crm<T>(idx, &S_vel[vel*6]);
-                        crm_psid[vel*36 + idx] = crm<T>(idx, &psid_vel[vel*6]);
-                        crf_psid[vel*36 + row*6 + col] = -crm<T>(idx, &psid_vel[vel*6]);
-                    }
-                    for (int row = 0; row < 6; ++row) {
-                        IC_S[vel*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &S_vel[vel*6]);
-                        IC_psid[vel*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &psid_vel[vel*6]);
-                        psid_Sd_vel[vel*6 + row] = psid_vel[vel*6 + row] + Sd_vel[vel*6 + row];
-                        ICT_S[vel*6 + row] = dot_prod<T, 6, 1, 1>(&IC[jid*36 + row*6], &S_vel[vel*6]);
-                    }
-                    for (int idx = 0; idx < 36; ++idx) {
-                        int row = idx % 6; int col = idx / 6;
-                        B_IC_S[vel*36 + idx] = dot_prod<T, 6, 6, 1>(&crf_S[vel*36 + row], &IC[jid*36 + col*6]) + icrf<T>(idx, &IC_S[vel*6]) - dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_S[vel*36 + col*6]);
-                        D2[vel*36 + idx] = dot_prod<T, 6, 6, 1>(&crf_psid[vel*36 + row], &IC[jid*36 + col*6]) + icrf<T>(idx, &IC_psid[vel*6]) - dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_psid[vel*36 + col*6]);
-                        // RBDReference stores D1 with NumPy default flatten() order, unlike D2/D3/D4.
-                        D1[vel*36 + row*6 + col] = dot_prod<T, 6, 6, 1>(&crf_S[vel*36 + row], &IC[jid*36 + col*6]) - dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_S[vel*36 + col*6]);
-                        D2[vel*36 + idx] += dot_prod<T, 6, 6, 1>(&crf_S[vel*36 + row], &BC[jid*36 + col*6]) - dot_prod<T, 6, 6, 1>(&BC[jid*36 + row], &crm_S[vel*36 + col*6]);
-                        D4[vel*36 + idx] = icrf<T>(idx, &ICT_S[vel*6]);
-                        crf_S_IC[vel*36 + idx] = dot_prod<T, 6, 6, 1>(&crf_S[vel*36 + row], &IC[jid*36 + col*6]);
-                    }
-                    for (int row = 0; row < 6; ++row) {
-                        T2[vel*6 + row] = -dot_prod<T, 6, 1, 1>(&BC[jid*36 + row*6], &S_vel[vel*6]);
-                        T3[vel*6 + row] = dot_prod<T, 6, 6, 1>(&BC[jid*36 + row], &psid_vel[vel*6]) + dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &psidd_vel[vel*6]) + dot_prod<T, 6, 6, 1>(&icrf_f_local[row], &S_vel[vel*6]);
-                        T4[vel*6 + row] = dot_prod<T, 6, 6, 1>(&BC[jid*36 + row], &S_vel[vel*6]) + dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &psid_Sd_vel[vel*6]);
-                    }
-                }
-            }
-            // Reference-order velocity-indexed tensor assembly.
-            T rt1[36], rt2[36], rt3[36], rt4[36], rt5[36], rt6[36], rt7[36], rt8[36], rt9[36];
-            T rp1[6], rp2[6], rp3[6], rp4[6], rp5[6], rp6[6];
-            for (int jid = NUM_BODIES - 1; jid >= 0; --jid) {
-                int st_begin = subtree_v_start[jid]; int st_end = subtree_v_start[jid + 1];
-                int succ_begin = successor_v_start[jid]; int succ_end = successor_v_start[jid + 1];
-                int anc_begin = ancestor_body_start[jid]; int anc_end = ancestor_body_start[jid + 1];
-                for (int dpos = body_v_start[jid]; dpos < body_v_start[jid + 1]; ++dpos) {
-                    int dd = body_v_index[dpos];
-                    for (int anc_pos = anc_begin; anc_pos < anc_end; ++anc_pos) {
-                        int ancestor_body = ancestor_body_index[anc_pos];
-                        for (int cpos = body_v_start[ancestor_body]; cpos < body_v_start[ancestor_body + 1]; ++cpos) {
-                            int cc = body_v_index[cpos];
-                            for (int idx = 0; idx < 36; ++idx) {
-                                int row = idx % 6; int col = idx / 6;
-                                rt1[idx] = S_vel[dd*6 + row] * psid_vel[cc*6 + col];
-                                rt2[idx] = S_vel[dd*6 + row] * S_vel[cc*6 + col];
-                                rt3[idx] = psid_vel[dd*6 + row] * psid_vel[cc*6 + col];
-                                rt4[idx] = S_vel[dd*6 + row] * psidd_vel[cc*6 + col];
-                                rt5[idx] = S_vel[dd*6 + row] * psid_Sd_vel[cc*6 + col];
-                                rt6[idx] = S_vel[cc*6 + row] * psid_vel[dd*6 + col];
-                                rt7[idx] = S_vel[cc*6 + row] * psidd_vel[dd*6 + col];
-                                rt8[idx] = S_vel[cc*6 + row] * S_vel[dd*6 + col];
-                                rt9[idx] = S_vel[cc*6 + row] * psid_Sd_vel[dd*6 + col];
-                            }
-                            for (int row = 0; row < 6; ++row) {
-                                rp1[row] = crm_mul<T>(row, &psid_vel[cc*6], &S_vel[dd*6]);
-                                rp2[row] = crm_mul<T>(row, &psidd_vel[cc*6], &S_vel[dd*6]);
-                                rp3[row] = crm_mul<T>(row, &S_vel[cc*6], &S_vel[dd*6]);
-                                rp4[row] = crm_mul<T>(row, &psid_Sd_vel[cc*6], &S_vel[dd*6]) - static_cast<T>(2) * crm_mul<T>(row, &psid_vel[dd*6], &S_vel[cc*6]);
-                                rp5[row] = crm_mul<T>(row, &S_vel[dd*6], &S_vel[cc*6]);
-                                rp6[row] = dot_prod<T, 6, 1, 1>(&IC_S[dd*6], &crm_S[cc*36 + row*6]) + dot_prod<T, 6, 1, 1>(&S_vel[cc*6], &crf_S_IC[dd*36 + row*6]);
-                            }
-                            for (int st_pos = st_begin; st_pos < st_end; ++st_pos) {
-                                int st_vel = subtree_v_index[st_pos];
-                                d2tau_dq2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + cc] = -dot_prod<T, 36, 1, 1>(rt3, &D3[st_vel*36]) - dot_prod<T, 6, 1, 1>(rp1, &T2[st_vel*6]) + dot_prod<T, 6, 1, 1>(rp2, &T1[st_vel*6]);
-                                d2tau_dvdq[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + cc] = -dot_prod<T, 36, 1, 1>(rt1, &D3[st_vel*36]);
-                            }
-                            if (ancestor_body < jid) {
-                                for (int st_pos = st_begin; st_pos < st_end; ++st_pos) {
-                                    int st_vel = subtree_v_index[st_pos];
-                                    d2tau_dq2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + dd] = d2tau_dq2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + cc];
-                                    T dqd_val = -dot_prod<T, 36, 1, 1>(rt2, &D3[st_vel*36]);
-                                    d2tau_dqd2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + dd] = dqd_val;
-                                    d2tau_dqd2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + cc] = dqd_val;
-                                    d2tau_dvdq[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + dd] = -dot_prod<T, 36, 1, 1>(rt6, &D3[st_vel*36]) - dot_prod<T, 6, 1, 1>(rp3, &T2[st_vel*6]) + dot_prod<T, 6, 1, 1>(rp4, &T1[st_vel*6]);
-                                    d2tau_dq2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_vel*SECOND_ORDER_COORDS + dd] = dot_prod<T, 36, 1, 1>(rt6, &D2[st_vel*36]) + dot_prod<T, 36, 1, 1>(rt7, &D1[st_vel*36]) - dot_prod<T, 6, 1, 1>(rp5, &T3[st_vel*6]);
-                                    d2tau_dvdq[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_vel*SECOND_ORDER_COORDS + dd] = dot_prod<T, 36, 1, 1>(rt6, &D3[st_vel*36]) - dot_prod<T, 6, 1, 1>(rp5, &T4[st_vel*6]);
-                                    T dm_val = dot_prod<T, 36, 1, 1>(rt8, &D4[st_vel*36]);
-                                    dM_dq[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_vel*SECOND_ORDER_COORDS + dd] = dm_val;
-                                    dM_dq[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + dd] = dm_val;
-                                }
-                                T dqd_diag = static_cast<T>(0);
-                                for (int row = 0; row < 6; ++row) {
-                                    dqd_diag += S_vel[dd*6 + row] * dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], rp3);
-                                    dqd_diag += S_vel[cc*6 + row] * dot_prod<T, 6, 6, 1>(&crf_S[dd*36 + row], &IC_S[dd*6]);
-                                }
-                                d2tau_dqd2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + dd] = dqd_diag;
-                                for (int succ_pos = succ_begin; succ_pos < succ_end; ++succ_pos) {
-                                    int succ_vel = successor_v_index[succ_pos];
-                                    T dqd_succ = dot_prod<T, 36, 1, 1>(rt8, &D3[succ_vel*36]);
-                                    d2tau_dqd2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + succ_vel*SECOND_ORDER_COORDS + dd] = dqd_succ;
-                                    d2tau_dqd2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + succ_vel] = dqd_succ;
-                                    d2tau_dvdq[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + succ_vel] = dot_prod<T, 36, 1, 1>(rt8, &D2[succ_vel*36]) + dot_prod<T, 36, 1, 1>(rt9, &D1[succ_vel*36]);
-                                    d2tau_dq2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + succ_vel] = d2tau_dq2[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + succ_vel*SECOND_ORDER_COORDS + dd];
-                                }
-                            }
-                            for (int succ_pos = succ_begin; succ_pos < succ_end; ++succ_pos) {
-                                int succ_vel = successor_v_index[succ_pos];
-                                d2tau_dq2[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + succ_vel] = dot_prod<T, 36, 1, 1>(rt1, &D2[succ_vel*36]) + dot_prod<T, 36, 1, 1>(rt4, &D1[succ_vel*36]);
-                                T dqd_child = dot_prod<T, 36, 1, 1>(rt2, &D3[succ_vel*36]);
-                                d2tau_dqd2[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + succ_vel] = dqd_child;
-                                d2tau_dqd2[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + succ_vel*SECOND_ORDER_COORDS + cc] = dqd_child;
-                                d2tau_dvdq[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + succ_vel*SECOND_ORDER_COORDS + cc] = dot_prod<T, 36, 1, 1>(rt1, &D3[succ_vel*36]);
-                                d2tau_dq2[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + succ_vel*SECOND_ORDER_COORDS + cc] = d2tau_dq2[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + succ_vel];
-                                d2tau_dvdq[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + succ_vel] = dot_prod<T, 36, 1, 1>(rt2, &D2[succ_vel*36]) + dot_prod<T, 36, 1, 1>(rt5, &D1[succ_vel*36]);
-                                T dm_child = dot_prod<T, 36, 1, 1>(rt8, &D1[succ_vel*36]);
-                                dM_dq[cc*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + succ_vel] = dm_child;
-                                dM_dq[dd*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + cc*SECOND_ORDER_COORDS + succ_vel] = dm_child;
-                            }
-                            if (ancestor_body == jid) {
-                                for (int st_pos = st_begin; st_pos < st_end; ++st_pos) {
-                                    int st_vel = subtree_v_index[st_pos];
-                                    d2tau_dqd2[st_vel*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + dd*SECOND_ORDER_COORDS + cc] = -dot_prod<T, 36, 1, 1>(rt2, &D1[st_vel*36]);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Reduced quaternion-vector q columns differentiate rotation with a factor of two at the identity convention used by GRiD/RBDReference.
-            for (int q_col = 3; q_col < 6 && q_col < SECOND_ORDER_COORDS; ++q_col) {
-                for (int rc = 0; rc < SECOND_ORDER_COORDS*SECOND_ORDER_COORDS; ++rc) {
-                    d2tau_dq2[rc*SECOND_ORDER_COORDS + q_col] *= static_cast<T>(2);
-                }
-            }
-        }
-        if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-            // ===== Gravity-Hessian (Lie-tangent) addition into d2tau_dq2 =====
-            // Shared portion (dX / a / da / f / df / 4x36 scratch) lives in s_temp; the
-            // three O(NV*NV*NB) tensors (d2X / d2a / d2f) spill to d_workspace which the
-            // kernel emitter points into per-timestep.
-            static const int grav_lie_body[] = { 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-            static const int grav_lie_s_index[] = { 3, 4, 5, 0, 1, 2, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
-            static const int grav_lie_s_sign[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
-            static const int grav_lie_is_root_translation[] = { 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
-            static const int grav_lie_parent[] = { -1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 0, 10, 11 };
-            
-            // Shared-memory carve (small arrays).
-            T *grav_scratch = s_temp + 11020;
-            T *grav_dX      = grav_scratch;
-            T *grav_a       = grav_dX      + 36*NUM_VEL;
-            T *grav_da      = grav_a       + 6*NUM_BODIES;
-            T *grav_f       = grav_da      + 6*NUM_VEL*NUM_BODIES;
-            T *grav_df      = grav_f       + 6*NUM_BODIES;
-            T *grav_invX    = grav_df      + 6*NUM_VEL*NUM_BODIES;
-            T *grav_tmpA    = grav_invX    + 36;
-            T *grav_tmpB    = grav_tmpA    + 36;
-            T *grav_tmpC    = grav_tmpB    + 36;
-            // Global-memory spill carve (large per-timestep tensors).
-            T *grav_d2X     = d_workspace;
-            T *grav_d2a     = grav_d2X     + 36*NUM_VEL*NUM_VEL;
-            T *grav_d2f     = grav_d2a     + 6*NUM_VEL*NUM_VEL*NUM_BODIES;
-            
-            // gravity_vec mirrors Python's `gravity_vec[5] = -GRAVITY`. The CUDA `gravity`
-            // parameter is the SIGNED gravitational acceleration (= -9.81, the unified GRiD
-            // convention matching RBDReference's GRAVITY). So `gravity_vec[5] = -GRAVITY = +9.81`
-            // equals CUDA's `gravity_vec[5] = -gravity`.
-            T grav_gravity_vec[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                      static_cast<T>(0), static_cast<T>(0), -gravity };
-            
-            // Zero scratch (single-thread; could be parallelised across threadIdx for speed).
-            for (int idx = 0; idx < 36*NUM_VEL; ++idx) grav_dX[idx] = static_cast<T>(0);
-            for (int idx = 0; idx < 36*NUM_VEL*NUM_VEL; ++idx) grav_d2X[idx] = static_cast<T>(0);
-            for (int idx = 0; idx < 6*NUM_BODIES; ++idx) { grav_a[idx] = static_cast<T>(0); grav_f[idx] = static_cast<T>(0); }
-            for (int idx = 0; idx < 6*NUM_VEL*NUM_BODIES; ++idx) { grav_da[idx] = static_cast<T>(0); grav_df[idx] = static_cast<T>(0); }
-            for (int idx = 0; idx < 6*NUM_VEL*NUM_VEL*NUM_BODIES; ++idx) { grav_d2a[idx] = static_cast<T>(0); grav_d2f[idx] = static_cast<T>(0); }
-            
-            // ---- (1) Build Lie generators B[vi] = +/- crm(unit_axis_si).
-            //        Root (jid==0):  dX[vi] = X_local[0] @ B[vi]   (Featherstone xlt convention,
-            //                        sign flip on translation columns baked into B).
-            //        Non-root joints: dX[vi] = B[vi] @ X_local[jid] (codebase's sympy convention:
-            //                         dXmat/dq = -crm(S_local) @ Xmat, with B = -crm(S_local)).
-            for (int vi = 0; vi < NUM_VEL; ++vi) {
-                int jid = grav_lie_body[vi];
-                int s_row = grav_lie_s_index[vi];
-                T sign = static_cast<T>(grav_lie_s_sign[vi]);
-                if (grav_lie_is_root_translation[vi]) sign = -sign;
-                T B[36];
-                T e_vec[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                               static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                e_vec[s_row] = sign;
-                for (int idx = 0; idx < 36; ++idx) B[idx] = crm<T>(idx, e_vec);
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    T acc = static_cast<T>(0);
-                    if (jid == 0) {
-                        for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * B[kk + 6*col];
-                    } else {
-                        for (int kk = 0; kk < 6; ++kk) acc += B[row + 6*kk] * s_XImats[jid*36 + kk + 6*col];
-                    }
-                    grav_dX[vi*36 + idx] = acc;
-                    
-                }
-            }
-            
-            // ---- (2) Build d2X[vi][vj] when vi, vj share a body.
-            //        Root (jid_i==0):  d2X[vi,vj] = X_local[0] @ Bj @ Bi   (right multiplication).
-            //        Non-root:         d2X[vi,vj] = Bj @ Bi @ X_local[jid] (left multiplication;
-            //                          for single-DoF non-root vi==vj this is B^2 @ X_local).
-            for (int vi = 0; vi < NUM_VEL; ++vi) {
-                int jid_i = grav_lie_body[vi];
-                for (int vj = 0; vj < NUM_VEL; ++vj) {
-                    if (grav_lie_body[vj] != jid_i) continue;  // d2X is zero for cross-body pairs.
-                    T sign_i = static_cast<T>(grav_lie_s_sign[vi]);
-                    if (grav_lie_is_root_translation[vi]) sign_i = -sign_i;
-                    T sign_j = static_cast<T>(grav_lie_s_sign[vj]);
-                    if (grav_lie_is_root_translation[vj]) sign_j = -sign_j;
-                    T Bi[36], Bj[36];
-                    T ei[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                    T ej[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                    ei[grav_lie_s_index[vi]] = sign_i;
-                    ej[grav_lie_s_index[vj]] = sign_j;
-                    for (int idx = 0; idx < 36; ++idx) { Bi[idx] = crm<T>(idx, ei); Bj[idx] = crm<T>(idx, ej); }
-                    // tmpA = Bj @ Bi  (6x6 @ 6x6).
-                    for (int idx = 0; idx < 36; ++idx) {
-                        int row = idx % 6; int col = idx / 6;
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += Bj[row + 6*kk] * Bi[kk + 6*col];
-                        grav_tmpA[idx] = acc;
-                    }
-                    // Multiply tmpA by X_local on the correct side (right for root, left for non-root).
-                    for (int idx = 0; idx < 36; ++idx) {
-                        int row = idx % 6; int col = idx / 6;
-                        T acc = static_cast<T>(0);
-                        if (jid_i == 0) {
-                            for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid_i*36 + row + 6*kk] * grav_tmpA[kk + 6*col];
-                        } else {
-                            for (int kk = 0; kk < 6; ++kk) acc += grav_tmpA[row + 6*kk] * s_XImats[jid_i*36 + kk + 6*col];
-                        }
-                        grav_d2X[(vi*NUM_VEL + vj)*36 + idx] = acc;
-                    }
-                }
-            }
-            
-            // ---- (3) Forward sweep: propagate a, da, d2a through the tree (body frame).
-            //        Root (parent < 0): a[0] = inv(X_local[0]) @ gravity_vec. Since X_local[0]
-            //        equals the cumulative Xup[0] (no parent in the chain), Xdown[0] is its inverse.
-            //        Non-root: a[jid] = X_local[jid] @ a[parent]; carry first/second derivatives.
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                int parent = grav_lie_parent[jid];
-                if (parent < 0) {
-                        // ---- Root: a[0] = inv(X[0]) @ gravity_vec.
-                        for (int row = 0; row < 6; ++row) {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += Xdown[jid*36 + row + 6*kk] * grav_gravity_vec[kk];
-                        grav_a[jid*6 + row] = acc;
-                    }
-                        // da[0, vi] = -inv_X @ dX[vi] @ a[0] for root coords; zero otherwise.
-                        for (int vi = 0; vi < NUM_VEL; ++vi) {
-                        if (grav_lie_body[vi] != jid) continue;
-                        // tmp = dX[vi] @ a[0]   (6-vector).
-                        T tmp_v[6];
-                        for (int row = 0; row < 6; ++row) {
-                            T acc = static_cast<T>(0);
-                            for (int kk = 0; kk < 6; ++kk) acc += grav_dX[vi*36 + row + 6*kk] * grav_a[jid*6 + kk];
-                            tmp_v[row] = acc;
-                        }
-                        // grav_da[jid, vi] = -inv_X @ tmp_v = -Xdown[jid] @ tmp_v.
-                        for (int row = 0; row < 6; ++row) {
-                            T acc = static_cast<T>(0);
-                            for (int kk = 0; kk < 6; ++kk) acc += Xdown[jid*36 + row + 6*kk] * tmp_v[kk];
-                            grav_da[(jid*NUM_VEL + vi)*6 + row] = -acc;
-                        }
-                    }
-                        // d2a[0, vi, vj] = -inv_X @ (dX[vi]@da[0,vj] + dX[vj]@da[0,vi] + d2X[vi,vj]@a[0]).
-                        // Nonzero only when both vi and vj are coords of the root body.
-                        for (int vi = 0; vi < NUM_VEL; ++vi) {
-                        if (grav_lie_body[vi] != jid) continue;
-                        for (int vj = 0; vj < NUM_VEL; ++vj) {
-                            if (grav_lie_body[vj] != jid) continue;
-                            T inner_v[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                             static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                            // dX[vi] @ da[0, vj].
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) inner_v[row] += grav_dX[vi*36 + row + 6*kk] * grav_da[(jid*NUM_VEL + vj)*6 + kk];
-                            }
-                            // dX[vj] @ da[0, vi].
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) inner_v[row] += grav_dX[vj*36 + row + 6*kk] * grav_da[(jid*NUM_VEL + vi)*6 + kk];
-                            }
-                            // d2X[vi, vj] @ a[0].
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) inner_v[row] += grav_d2X[(vi*NUM_VEL + vj)*36 + row + 6*kk] * grav_a[jid*6 + kk];
-                            }
-                            // grav_d2a[0, vi, vj] = -Xdown[0] @ inner_v.
-                            for (int row = 0; row < 6; ++row) {
-                                T acc = static_cast<T>(0);
-                                for (int kk = 0; kk < 6; ++kk) acc += Xdown[jid*36 + row + 6*kk] * inner_v[kk];
-                                grav_d2a[((jid*NUM_VEL + vi)*NUM_VEL + vj)*6 + row] = -acc;
-                            }
-                        }
-                    }
-                }
-                else {
-                        // ---- Non-root: a[jid] = X_local[jid] @ a[parent].
-                        for (int row = 0; row < 6; ++row) {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * grav_a[parent*6 + kk];
-                        grav_a[jid*6 + row] = acc;
-                    }
-                        // da[jid, vi] = dX[jid, vi] @ a[parent]   (only when vi is a coord of jid)
-                        //            + X_local[jid] @ da[parent, vi]   (always for any vi that affects parent).
-                        for (int vi = 0; vi < NUM_VEL; ++vi) {
-                        T row_vals[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                          static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                        // First term: dX[jid, vi] @ a[parent], only when vi is a coord of jid.
-                        if (grav_lie_body[vi] == jid) {
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vi*36 + row + 6*kk] * grav_a[parent*6 + kk];
-                            }
-                        }
-                        // Second term: X_local[jid] @ da[parent, vi].
-                        for (int row = 0; row < 6; ++row) {
-                            T acc = static_cast<T>(0);
-                            for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * grav_da[(parent*NUM_VEL + vi)*6 + kk];
-                            row_vals[row] += acc;
-                        }
-                        for (int row = 0; row < 6; ++row) grav_da[(jid*NUM_VEL + vi)*6 + row] = row_vals[row];
-                    }
-                        // d2a[jid, vi, vj] = d2X[jid, vi, vj] @ a[parent]   (only when both vi, vj coords of jid)
-                        //               + dX[jid, vi] @ da[parent, vj]   (only when vi is a coord of jid)
-                        //               + dX[jid, vj] @ da[parent, vi]   (only when vj is a coord of jid)
-                        //               + X_local[jid] @ d2a[parent, vi, vj]   (always).
-                        for (int vi = 0; vi < NUM_VEL; ++vi) {
-                        for (int vj = 0; vj < NUM_VEL; ++vj) {
-                            T row_vals[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                              static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                            // Term 1: d2X[jid, vi, vj] @ a[parent].
-                            if (grav_lie_body[vi] == jid && grav_lie_body[vj] == jid) {
-                                for (int row = 0; row < 6; ++row) {
-                                    for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_d2X[(vi*NUM_VEL + vj)*36 + row + 6*kk] * grav_a[parent*6 + kk];
-                                }
-                            }
-                            // Term 2: dX[jid, vi] @ da[parent, vj].
-                            if (grav_lie_body[vi] == jid) {
-                                for (int row = 0; row < 6; ++row) {
-                                    for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vi*36 + row + 6*kk] * grav_da[(parent*NUM_VEL + vj)*6 + kk];
-                                }
-                            }
-                            // Term 3: dX[jid, vj] @ da[parent, vi].
-                            if (grav_lie_body[vj] == jid) {
-                                for (int row = 0; row < 6; ++row) {
-                                    for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vj*36 + row + 6*kk] * grav_da[(parent*NUM_VEL + vi)*6 + kk];
-                                }
-                            }
-                            // Term 4: X_local[jid] @ d2a[parent, vi, vj].
-                            for (int row = 0; row < 6; ++row) {
-                                T acc = static_cast<T>(0);
-                                for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * grav_d2a[((parent*NUM_VEL + vi)*NUM_VEL + vj)*6 + kk];
-                                row_vals[row] += acc;
-                            }
-                            for (int row = 0; row < 6; ++row) grav_d2a[((jid*NUM_VEL + vi)*NUM_VEL + vj)*6 + row] = row_vals[row];
-                        }
-                    }
-                }
-            }
-            
-            // ---- (4) f = I @ a (and derivatives) per body, body-frame inertia.
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                for (int row = 0; row < 6; ++row) {
-                    T acc = static_cast<T>(0);
-                    for (int kk = 0; kk < 6; ++kk) acc += I[jid*36 + row + 6*kk] * grav_a[jid*6 + kk];
-                    grav_f[jid*6 + row] = acc;
-                }
-                for (int vi = 0; vi < NUM_VEL; ++vi) {
-                    for (int row = 0; row < 6; ++row) {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += I[jid*36 + row + 6*kk] * grav_da[(jid*NUM_VEL + vi)*6 + kk];
-                        grav_df[(jid*NUM_VEL + vi)*6 + row] = acc;
-                    }
-                }
-                for (int vi = 0; vi < NUM_VEL; ++vi) {
-                    for (int vj = 0; vj < NUM_VEL; ++vj) {
-                        for (int row = 0; row < 6; ++row) {
-                            T acc = static_cast<T>(0);
-                            for (int kk = 0; kk < 6; ++kk) acc += I[jid*36 + row + 6*kk] * grav_d2a[((jid*NUM_VEL + vi)*NUM_VEL + vj)*6 + kk];
-                            grav_d2f[((jid*NUM_VEL + vi)*NUM_VEL + vj)*6 + row] = acc;
-                        }
-                    }
-                }
-            }
-            
-            // ---- (5) Backward sweep: project d2f onto each joint's S (body-frame motion subspace),
-            //        ADD into d2tau_dq2 (caller's main sweep is expected to have run with gravity=0).
-            //        Then bubble f, df, d2f to the parent via X_local transposes.
-            for (int jid = NUM_BODIES - 1; jid >= 0; --jid) {
-                // Projection: for each velocity coord finds_c of jid, d2tau_dq2[finds_c, k, l] += S_body[:, c] . d2f[jid, k, l, :].
-                // Body-frame S has a single nonzero entry per column: row=grav_lie_s_index[finds_c], value=grav_lie_s_sign[finds_c].
-                for (int pos = body_v_start[jid]; pos < body_v_start[jid + 1]; ++pos) {
-                    int finds_c = body_v_index[pos];
-                    int s_row = grav_lie_s_index[finds_c];
-                    T s_sign = static_cast<T>(grav_lie_s_sign[finds_c]);
-                    for (int k = 0; k < NUM_VEL; ++k) {
-                        for (int l = 0; l < NUM_VEL; ++l) {
-                            T proj = s_sign * grav_d2f[((jid*NUM_VEL + k)*NUM_VEL + l)*6 + s_row];
-                            d2tau_dq2[(finds_c*NUM_VEL + k)*NUM_VEL + l] += proj;
-                        }
-                    }
-                }
-                int parent = grav_lie_parent[jid];
-                if (parent < 0) continue;
-                // Build X_local transpose once per body (used in all three parent updates).
-                T Xt[36];
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    Xt[idx] = s_XImats[jid*36 + col + 6*row];
-                }
-                // f[parent] += Xt @ f[jid].
-                for (int row = 0; row < 6; ++row) {
-                    T acc = static_cast<T>(0);
-                    for (int kk = 0; kk < 6; ++kk) acc += Xt[row + 6*kk] * grav_f[jid*6 + kk];
-                    grav_f[parent*6 + row] += acc;
-                }
-                // df[parent, vi] += dXt[vi] @ f[jid]   (only when vi is a coord of jid)
-                //                + Xt @ df[jid, vi]   (always).
-                for (int vi = 0; vi < NUM_VEL; ++vi) {
-                    T row_vals[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                      static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                    if (grav_lie_body[vi] == jid) {
-                        // dXt[vi] uses dX[vi].T, i.e., swap row<->col indices.
-                        for (int row = 0; row < 6; ++row) {
-                            for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vi*36 + kk + 6*row] * grav_f[jid*6 + kk];
-                        }
-                    }
-                    for (int row = 0; row < 6; ++row) {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += Xt[row + 6*kk] * grav_df[(jid*NUM_VEL + vi)*6 + kk];
-                        row_vals[row] += acc;
-                    }
-                    for (int row = 0; row < 6; ++row) grav_df[(parent*NUM_VEL + vi)*6 + row] += row_vals[row];
-                }
-                // d2f[parent, vi, vj] += d2Xt[vi,vj]@f[jid] + dXt[vi]@df[jid,vj] + dXt[vj]@df[jid,vi] + Xt@d2f[jid,vi,vj].
-                for (int vi = 0; vi < NUM_VEL; ++vi) {
-                    for (int vj = 0; vj < NUM_VEL; ++vj) {
-                        T row_vals[6] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0),
-                                          static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-                        // Term 1: d2Xt[vi, vj] @ f[jid] — nonzero only when both vi, vj are coords of jid.
-                        if (grav_lie_body[vi] == jid && grav_lie_body[vj] == jid) {
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_d2X[(vi*NUM_VEL + vj)*36 + kk + 6*row] * grav_f[jid*6 + kk];
-                            }
-                        }
-                        // Term 2: dXt[vi] @ df[jid, vj].
-                        if (grav_lie_body[vi] == jid) {
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vi*36 + kk + 6*row] * grav_df[(jid*NUM_VEL + vj)*6 + kk];
-                            }
-                        }
-                        // Term 3: dXt[vj] @ df[jid, vi].
-                        if (grav_lie_body[vj] == jid) {
-                            for (int row = 0; row < 6; ++row) {
-                                for (int kk = 0; kk < 6; ++kk) row_vals[row] += grav_dX[vj*36 + kk + 6*row] * grav_df[(jid*NUM_VEL + vi)*6 + kk];
-                            }
-                        }
-                        // Term 4: Xt @ d2f[jid, vi, vj].
-                        for (int row = 0; row < 6; ++row) {
-                            T acc = static_cast<T>(0);
-                            for (int kk = 0; kk < 6; ++kk) acc += Xt[row + 6*kk] * grav_d2f[((jid*NUM_VEL + vi)*NUM_VEL + vj)*6 + kk];
-                            row_vals[row] += acc;
-                        }
-                        for (int row = 0; row < 6; ++row) grav_d2f[((parent*NUM_VEL + vi)*NUM_VEL + vj)*6 + row] += row_vals[row];
-                    }
-                }
-            }
-        }
-        __syncthreads();
-        __syncthreads();
-    }
-
-    /**
-     * Computes the second order derivatives of inverse dynamics
-     *
-     * @param d_idsva_so is a pointer to memory for the final result of size 4*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS = 23328
-     * @param d_workspace is a per-timestep global-memory scratch buffer (gravity shim + LITE/MINIMAL spill rungs)
-     * @param d_q_dq_u is the vector of joint positions, velocities, and accelerations
-     * @param stride_q_qd_u is the stide between each q, qd, u
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void idsva_so_body_frame_kernel_single_timing(T *d_idsva_so, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q_qd_u[57]
-        //   T s_XImats[936]
-        //   T s_temp[14776]
-        //   int s_topology_helpers[115]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(14776);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(15769, 115, 0));
-        #endif
-        (void)s_arena_offset;
-        T *d_temp_spill = nullptr; (void)d_temp_spill;
-        T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[19]; T *s_qdd = &s_q_qd_u[38];
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-            s_q_qd_u[ind] = d_q_qd_u[ind];
-        }
-        __syncthreads();
-        d_temp_spill = reinterpret_cast<T *>(&d_workspace[GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-        // compute with NUM_TIMESTEPS as NUM_REPS for timing
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 57; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd_u)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd_u)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd_u)[rep % (57)] = static_cast<T>(rep);
-            }
-            __syncthreads();
-            // Write directly to RAM due to output tensor size
-            T *s_idsva_so = d_idsva_so;
-            idsva_so_body_frame_inner<T, true, true>(s_idsva_so, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_temp_spill, d_robotModel, gravity);
-        }
-    }
-
-    /**
-     * Computes the second order derivatives of inverse dynamics
-     *
-     * @param d_idsva_so is a pointer to memory for the final result of size 4*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS = 23328
-     * @param d_workspace is a per-timestep global-memory scratch buffer (gravity shim + LITE/MINIMAL spill rungs)
-     * @param d_q_dq_u is the vector of joint positions, velocities, and accelerations
-     * @param stride_q_qd_u is the stide between each q, qd, u
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void idsva_so_body_frame_kernel(T *d_idsva_so, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        // GRID shared arena layout
-        //   T s_q_qd_u[57]
-        //   T s_XImats[936]
-        //   T s_temp[14776]
-        //   int s_topology_helpers[115]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd_u = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(14776);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(15769, 115, 0));
-        #endif
-        (void)s_arena_offset;
-        T *d_temp_spill = nullptr; (void)d_temp_spill;
-        T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[19]; T *s_qdd = &s_q_qd_u[38];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                s_q_qd_u[ind] = d_q_qd_u_k[ind];
-            }
-            __syncthreads();
-            d_temp_spill = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-            // compute (the inner loads/updates XImats internally, after its scratch repoint)
-            // Write directly to RAM due to output tensor size
-            T *s_idsva_so = &d_idsva_so[k*23328];
-            idsva_so_body_frame_inner<T, true, true>(s_idsva_so, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_temp_spill, d_robotModel, gravity);
-        }
-    }
-
-    /**
-     * Compute IDSVA-SO (Inverse Dynamics - Spatial Vector Algebra - Second Order)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void idsva_so_body_frame(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "idsva_so_body_frame requires all-data or dynamics gridData");
-        int stride_q_qd = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_58 = grid_host_clamp_threads((const void*)&idsva_so_body_frame_kernel<T, RESOURCE_TIER>, thread_dimms);
-        idsva_so_body_frame_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_58,IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_idsva_so,hd_data->d_idsva_so,sizeof(T)*SECOND_ORDER_TENSOR_SIZE*num_timesteps,cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute IDSVA-SO (Inverse Dynamics - Spatial Vector Algebra - Second Order)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void idsva_so_body_frame_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "idsva_so_body_frame requires all-data or dynamics gridData");
-        int stride_q_qd = Q_QD_U_STRIDE;
-        // start code with memory transfer
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        gpuErrchkKernel();
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_59 = grid_host_clamp_threads((const void*)&idsva_so_body_frame_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
-        idsva_so_body_frame_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_59,IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_idsva_so,hd_data->d_idsva_so,sizeof(T)*SECOND_ORDER_TENSOR_SIZE,cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call IDSVA_SO_BODY_FRAME %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute IDSVA-SO (Inverse Dynamics - Spatial Vector Algebra - Second Order)
-     *
-     * @param hd_data is the packaged input and output pointers
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
-     * @param gravity is the gravity constant,
-     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
-     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
-     */
-    template <typename T, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void idsva_so_body_frame_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "idsva_so_body_frame requires all-data or dynamics gridData");
-        int stride_q_qd = Q_QD_U_STRIDE;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_60 = grid_host_clamp_threads((const void*)&idsva_so_body_frame_kernel<T, RESOURCE_TIER>, thread_dimms);
-        idsva_so_body_frame_kernel<T, RESOURCE_TIER><<<_ws_grid,_grid_thr_clamped_60,IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
-        gpuErrchkKernel();
-    }
 
     /**
      * Computes IDSVA second-order derivatives via the world-frame single-pass formulation
@@ -46961,8 +42724,8 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_61 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_61,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_43 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_43,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
         // finally transfer the result back
         gpuErrchk(cudaMemcpy(hd_data->h_idsva_so,hd_data->d_idsva_so,sizeof(T)*SECOND_ORDER_TENSOR_SIZE*num_timesteps,cudaMemcpyDeviceToHost));
         gpuErrchkKernel();
@@ -46989,8 +42752,8 @@ namespace grid {
         // then call the kernel
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_62 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_62,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_44 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_44,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -47019,8 +42782,8 @@ namespace grid {
         const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_63 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_63,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_45 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        idsva_so_world_frame_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_45,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
     }
 
@@ -47121,8 +42884,8 @@ namespace grid {
         // then call the kernel
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_64 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_64,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_46 = grid_host_clamp_threads((const void*)&idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        idsva_so_world_frame_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_46,IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_idsva_so,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         // finally transfer the result back
@@ -48308,8 +44071,8 @@ namespace grid {
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_65 = grid_host_clamp_threads((const void*)&fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_65,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_47 = grid_host_clamp_threads((const void*)&fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_47,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_end_l2_persisting(0));}
         // finally transfer the result back
@@ -48339,8 +44102,8 @@ namespace grid {
         gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS*1));}
         struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_66 = grid_host_clamp_threads((const void*)&fdsva_so_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        fdsva_so_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_66,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_48 = grid_host_clamp_threads((const void*)&fdsva_so_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        fdsva_so_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_48,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         clock_gettime(CLOCK_MONOTONIC,&end);
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_end_l2_persisting(0));}
@@ -48371,8 +44134,8 @@ namespace grid {
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS*static_cast<size_t>(_grid_ws_n)));}
         dim3 _ws_grid = block_dimms;
         if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_67 = grid_host_clamp_threads((const void*)&fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_67,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
+        dim3 _grid_thr_clamped_49 = grid_host_clamp_threads((const void*)&fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
+        fdsva_so_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_49,FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_df2,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd_qdd,hd_data->d_idsva_so,d_robotModel,gravity,num_timesteps);
         gpuErrchkKernel();
         if (GRID_FDSVA_SO_USES_WORKSPACE_ANY_TIER) {gpuErrchk(grid_end_l2_persisting(0));}
     }
@@ -48946,4043 +44709,9 @@ namespace grid {
         }
     }
 
-    /**
-     * Compute the generalized gravity g(q) = RNEA(q, 0, 0)
-     *
-     * @param s_out is the output bias torque (size NUM_VEL)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities (ignored for gravity)
-     * @param d_robotModel is the GPU model helpers
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void generalized_gravity_device(T *s_out, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_vaf[342]
-        //   T s_qd0[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qd0 = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1410, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        glass::set_const<T, 18>(static_cast<T>(0), s_qd0);
-        inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd0, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-    }
-
-    /**
-     * Compute generalized_gravity (RNEA bias) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void generalized_gravity_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        (void)d_workspace;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[18]
-        //   T s_vaf[342]
-        //   T s_qd0[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qd0 = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1466, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        (void)s_qd;
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 38; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd)[rep % (38)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q_qd (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 1) % (38)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 2) % (38)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (38)] += _aopt_fb3;
-            }
-            __syncthreads();
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            glass::set_const<T, 18>(static_cast<T>(0), s_qd0);
-            inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd0, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute generalized_gravity (RNEA bias) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void generalized_gravity_kernel(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        (void)d_workspace;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[18]
-        //   T s_vaf[342]
-        //   T s_qd0[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qd0 = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1466, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        (void)s_qd;
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: base quaternion wxyz->xyzw (q-only; value frame-independent)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                }
-                __syncthreads();
-            }
-            // compute
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            glass::set_const<T, 18>(static_cast<T>(0), s_qd0);
-            inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd0, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: base-linear rows of s_out <- R * rows
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T b0 = s_out[0], b1 = s_out[1], b2 = s_out[2];
-                    s_out[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
-                    s_out[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
-                    s_out[2] = R[6]*b0 + R[7]*b1 + R[8]*b2;
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_out_k = &d_out[k*18];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute generalized_gravity (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void generalized_gravity(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "generalized_gravity requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_68 = grid_host_clamp_threads((const void*)&generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_68,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_68,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_c,hd_data->d_c,NUM_VEL*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute generalized_gravity (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void generalized_gravity_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "generalized_gravity requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_69 = grid_host_clamp_threads((const void*)&generalized_gravity_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {generalized_gravity_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_69,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {generalized_gravity_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_69,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_c,hd_data->d_c,NUM_VEL*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call GENERALIZED_GRAVITY %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute generalized_gravity (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void generalized_gravity_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "generalized_gravity requires all-data or dynamics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_70 = grid_host_clamp_threads((const void*)&generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_70,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {generalized_gravity_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_70,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the nonlinear (bias) effects c(q,qd) = RNEA(q, qd, 0)
-     *
-     * @param s_out is the output bias torque (size NUM_VEL)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities (ignored for gravity)
-     * @param d_robotModel is the GPU model helpers
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void nonlinear_effects_device(T *s_out, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_vaf[342]
-        //   T s_qdd[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1410, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        glass::set_const<T, 18>(static_cast<T>(0), s_qdd);
-        inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-    }
-
-    /**
-     * Compute nonlinear_effects (RNEA bias) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void nonlinear_effects_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        (void)d_workspace;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[18]
-        //   T s_vaf[342]
-        //   T s_qdd[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1466, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        glass::set_const<T, 18>(static_cast<T>(0), s_qdd);
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 38; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd)[rep % (38)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q_qd (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 1) % (38)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 2) % (38)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (38)] += _aopt_fb3;
-            }
-            __syncthreads();
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute nonlinear_effects (RNEA bias) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void nonlinear_effects_kernel(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        (void)d_workspace;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[18]
-        //   T s_vaf[342]
-        //   T s_qdd[18]
-        //   T s_XImats[936]
-        //   T s_temp[114]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(342);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_qdd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(18);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1466, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            glass::set_const<T, 18>(static_cast<T>(0), s_qdd);
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    T alx = s_qdd[0], aly = s_qdd[1], alz = s_qdd[2];
-                    T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
-                    T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
-                    s_qdd[0] = (R[0]*alx + R[3]*aly + R[6]*alz) - (wy_*vz_ - wz_*vy_);
-                    s_qdd[1] = (R[1]*alx + R[4]*aly + R[7]*alz) - (wz_*vx_ - wx_*vz_);
-                    s_qdd[2] = (R[2]*alx + R[5]*aly + R[8]*alz) - (wx_*vy_ - wy_*vx_);
-                }
-                __syncthreads();
-            }
-            // compute
-            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_inner<T>(s_out, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: base-linear rows of s_out <- R * rows
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T b0 = s_out[0], b1 = s_out[1], b2 = s_out[2];
-                    s_out[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
-                    s_out[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
-                    s_out[2] = R[6]*b0 + R[7]*b1 + R[8]*b2;
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_out_k = &d_out[k*18];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute nonlinear_effects (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void nonlinear_effects(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "nonlinear_effects requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_71 = grid_host_clamp_threads((const void*)&nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_71,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_71,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_c,hd_data->d_c,NUM_VEL*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute nonlinear_effects (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void nonlinear_effects_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "nonlinear_effects requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_72 = grid_host_clamp_threads((const void*)&nonlinear_effects_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {nonlinear_effects_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_72,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {nonlinear_effects_kernel_single_timing<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_72,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_c,hd_data->d_c,NUM_VEL*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call NONLINEAR_EFFECTS %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute nonlinear_effects (RNEA bias)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false>
-    __host__
-    void nonlinear_effects_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "nonlinear_effects requires all-data or dynamics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_73 = grid_host_clamp_threads((const void*)&nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_73,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {nonlinear_effects_kernel<T, GRID_DEFAULT_RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_73,INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_c,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the world momentum map, composite inertia, CoM and CMM
-     *
-     * @param s_A is the output 6 x NUM_VEL CMM (column-major, [linear; angular] @ CoM, world-aligned)
-     * @param s_com is the output 3-vector world CoM
-     * @param s_extra holds [M_total] (s_extra[0])
-     * @param s_q is the vector of joint positions (unused; q is baked into s_Xhom)
-     * @param s_Xhom is the per-joint LOCAL homogeneous transforms
-     * @param d_robotModel is the GPU model helpers (for the constant body inertias)
-     * @param s_temp is scratch of size 2224
-     * @param s_J_ext is the spilled-J band (used only when !J_IN_SMEM; pass nullptr when J_IN_SMEM)
-     * @param s_linalg_smem is reserved (unused)
-     */
-    template <typename T, bool J_IN_SMEM = true>
-    __device__
-    void centroidal_inner(T *s_A, T *s_com, T *s_extra, const T *s_q, const T *s_Xhom, const robotModel<T> *d_robotModel, T *s_temp, T *s_J_ext, unsigned char *s_linalg_smem) {
-        (void)s_q; (void)s_linalg_smem; (void)s_J_ext;
-        T *s_Xworld = &s_temp[0];
-        T *s_J; T *s_Iw; T *s_A0; T *s_IW;
-        if constexpr (J_IN_SMEM) {
-            s_J  = &s_temp[208];   // 6 x NV per body (angular-first)
-            s_Iw = &s_temp[1612];  // 36 per body world inertia
-            s_A0 = &s_temp[2080];  // 6 x NV world momentum map
-            s_IW = &s_temp[2188];  // 36 world composite inertia
-        }
-        else {
-            s_J  = s_J_ext;   // spilled to d_workspace SO band (6*nv*NB)
-            s_Iw = &s_temp[208];  // pool shrinks by 6*nv*NB
-            s_A0 = &s_temp[676];
-            s_IW = &s_temp[784];
-        }
-        // Step 1: world homogeneous transforms (chain-up of local s_Xhom)
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            const int jid = 0; const int par = -1;
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 1; par = 0; }
-            else if (slot < 2){ jid = 4; par = 0; }
-            else if (slot < 3){ jid = 7; par = 0; }
-            else              { jid = 10; par = 0; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 2; par = 1; }
-            else if (slot < 2){ jid = 5; par = 4; }
-            else if (slot < 3){ jid = 8; par = 7; }
-            else              { jid = 11; par = 10; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 64; ind += blockDim.x*blockDim.y){
-            int slot = ind / 16; int ele = ind % 16;
-            int row = ele & 3; int col = ele >> 2;
-            // branch to get pointer locations
-            int jid; int par;
-                 if (slot < 1){ jid = 3; par = 2; }
-            else if (slot < 2){ jid = 6; par = 5; }
-            else if (slot < 3){ jid = 9; par = 8; }
-            else              { jid = 12; par = 11; }
-            if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
-            else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
-        }
-        __syncthreads();
-        // Step 2: per-body world spatial inertia (angular-first)
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            for (int jid = 0; jid < 13; ++jid) {
-                const T *Xw = &s_Xworld[16*jid];
-                T R[9]; for (int c=0;c<3;++c) for (int r=0;r<3;++r) R[r+3*c] = Xw[r + 4*c];
-                T px = Xw[12], py = Xw[13], pz = Xw[14];
-                const T *Ib = &d_robotModel->d_XImats[468 + 36*jid];
-                T m = Ib[5 + 6*5];
-                T IO[9]; for (int c=0;c<3;++c) for (int r=0;r<3;++r) IO[r+3*c] = Ib[r + 6*c];
-                T mc0 = Ib[2 + 6*4]; T mc1 = Ib[0 + 6*5]; T mc2 = Ib[1 + 6*3];
-                T tmp[9];
-                for (int c=0;c<3;++c) for (int r=0;r<3;++r) { T s=0; for(int k=0;k<3;++k) s += R[r+3*k]*IO[k+3*c]; tmp[r+3*c]=s; }
-                T IOw[9];
-                for (int c=0;c<3;++c) for (int r=0;r<3;++r) { T s=0; for(int k=0;k<3;++k) s += tmp[r+3*k]*R[c+3*k]; IOw[r+3*c]=s; }
-                T mcw0 = R[0]*mc0 + R[3]*mc1 + R[6]*mc2;
-                T mcw1 = R[1]*mc0 + R[4]*mc1 + R[7]*mc2;
-                T mcw2 = R[2]*mc0 + R[5]*mc1 + R[8]*mc2;
-                T Sp[9] = {0,pz,-py, -pz,0,px, py,-px,0};   // skew(p) col-major
-                T Sm[9] = {0,mcw2,-mcw1, -mcw2,0,mcw0, mcw1,-mcw0,0};  // skew(mc_w) col-major
-                auto mm = [](const T*X,const T*Y,T*Z){ for(int c=0;c<3;++c) for(int r=0;r<3;++r){ T s=0; for(int k=0;k<3;++k) s+=X[r+3*k]*Y[k+3*c]; Z[r+3*c]=s; } };
-                T BSp[9]; mm(Sm,Sp,BSp);
-                T D[9] = {m,0,0, 0,m,0, 0,0,m};
-                T DSp[9]; mm(D,Sp,DSp);
-                T C[9]; for(int c=0;c<3;++c) for(int r=0;r<3;++r) C[r+3*c]=Sm[c+3*r];
-                T CmDSp[9]; for(int i=0;i<9;++i) CmDSp[i]=C[i]-DSp[i];
-                T SpCmDSp[9]; mm(Sp,CmDSp,SpCmDSp);
-                T SpD[9]; mm(Sp,D,SpD);
-                T angang[9]; for(int i=0;i<9;++i) angang[i]=IOw[i]-BSp[i]+SpCmDSp[i];
-                T anglin[9]; for(int i=0;i<9;++i) anglin[i]=Sm[i]+SpD[i];
-                T *Iw = &s_Iw[36*jid];
-                for(int c=0;c<3;++c) for(int r=0;r<3;++r){
-                  Iw[r + 6*c] = angang[r+3*c];
-                  Iw[r + 6*(c+3)] = anglin[r+3*c];
-                  Iw[(r+3) + 6*c] = CmDSp[r+3*c];
-                  Iw[(r+3) + 6*(c+3)] = D[r+3*c];
-                }
-            }
-        }
-        __syncthreads();
-        // Step 3: per-body world spatial Jacobian J (6 x NV, angular-first)
-        glass::set_const<T, 1404>(static_cast<T>(0), s_J);
-        static const int cj_jid[] = { 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
-        static const int cj_jj[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 0, 0, 4, 5, 6, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 7, 8, 0, 0, 0, 0, 0, 0, 7, 8, 9, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 10, 11, 0, 0, 0, 0, 0, 0, 10, 11, 12 };
-        static const int cj_vi[] = { 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 3, 4, 5, 9, 0, 1, 2, 3, 4, 5, 9, 10, 0, 1, 2, 3, 4, 5, 9, 10, 11, 0, 1, 2, 3, 4, 5, 12, 0, 1, 2, 3, 4, 5, 12, 13, 0, 1, 2, 3, 4, 5, 12, 13, 14, 0, 1, 2, 3, 4, 5, 15, 0, 1, 2, 3, 4, 5, 15, 16, 0, 1, 2, 3, 4, 5, 15, 16, 17 };
-        static const T cj_ang[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0) };
-        static const T cj_lin[] = { static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            for (int t = 0; t < 102; ++t) {
-                int jid = cj_jid[t]; int jj = cj_jj[t]; int vi = cj_vi[t];
-                const T *Xj = &s_Xworld[16*jj];
-                T a0=cj_ang[3*t], a1=cj_ang[3*t+1], a2=cj_ang[3*t+2];
-                T l0=cj_lin[3*t], l1=cj_lin[3*t+1], l2=cj_lin[3*t+2];
-                T aw0 = Xj[0]*a0 + Xj[4]*a1 + Xj[8]*a2;
-                T aw1 = Xj[1]*a0 + Xj[5]*a1 + Xj[9]*a2;
-                T aw2 = Xj[2]*a0 + Xj[6]*a1 + Xj[10]*a2;
-                T lw0 = Xj[0]*l0 + Xj[4]*l1 + Xj[8]*l2;
-                T lw1 = Xj[1]*l0 + Xj[5]*l1 + Xj[9]*l2;
-                T lw2 = Xj[2]*l0 + Xj[6]*l1 + Xj[10]*l2;
-                T pjx = Xj[12], pjy = Xj[13], pjz = Xj[14];
-                T linw0 = lw0 + (pjy*aw2 - pjz*aw1);
-                T linw1 = lw1 + (pjz*aw0 - pjx*aw2);
-                T linw2 = lw2 + (pjx*aw1 - pjy*aw0);
-                T *Jc = &s_J[108*jid + 6*vi];
-                Jc[0]+=aw0; Jc[1]+=aw1; Jc[2]+=aw2; Jc[3]+=linw0; Jc[4]+=linw1; Jc[5]+=linw2;
-            }
-        }
-        __syncthreads();
-        // Step 4: world momentum map A0 = sum_j Iw_j J_j ; composite IW = sum_j Iw_j
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            for (int i = 0; i < 36; ++i) s_IW[i] = static_cast<T>(0);
-            for (int i = 0; i < 108; ++i) s_A0[i] = static_cast<T>(0);
-            for (int jid = 0; jid < 13; ++jid) {
-                const T *Iw = &s_Iw[36*jid];
-                for (int i=0;i<36;++i) s_IW[i] += Iw[i];
-                const T *Jb = &s_J[108*jid];
-                for (int vi = 0; vi < 18; ++vi) {
-                    const T *Jcol = &Jb[6*vi];
-                    for (int r = 0; r < 6; ++r) { T s=0; for(int k=0;k<6;++k) s += Iw[r + 6*k]*Jcol[k]; s_A0[r + 6*vi] += s; }
-                }
-            }
-            T mass = s_IW[5 + 6*5];
-            T mcx = s_IW[2 + 6*4]; T mcy = s_IW[0 + 6*5]; T mcz = s_IW[1 + 6*3];
-            s_com[0] = mcx/mass; s_com[1] = mcy/mass; s_com[2] = mcz/mass;
-            s_extra[0] = mass;
-            T cx = s_com[0], cy = s_com[1], cz = s_com[2];
-            for (int vi = 0; vi < 18; ++vi) {
-                T n0=s_A0[0+6*vi], n1=s_A0[1+6*vi], n2=s_A0[2+6*vi];
-                T f0=s_A0[3+6*vi], f1=s_A0[4+6*vi], f2=s_A0[5+6*vi];
-                T nc0 = n0 - (cy*f2 - cz*f1);
-                T nc1 = n1 - (cz*f0 - cx*f2);
-                T nc2 = n2 - (cx*f1 - cy*f0);
-                s_A[0 + 6*vi] = f0; s_A[1 + 6*vi] = f1; s_A[2 + 6*vi] = f2;
-                s_A[3 + 6*vi] = nc0; s_A[4 + 6*vi] = nc1; s_A[5 + 6*vi] = nc2;
-            }
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute CoM position and CoM Jacobian
-     *
-     * @param s_out holds [p_com (3); J_com (3 x NUM_VEL, column-major)]
-     * @param s_q is the joint position vector
-     * @param d_robotModel is the GPU model helpers
-     */
-    template <typename T>
-    __device__
-    void com_device(T *s_out, const T *s_q, const robotModel<T> *d_robotModel) {
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            s_out[0]=s_com[0]; s_out[1]=s_com[1]; s_out[2]=s_com[2];
-            T inv_m = static_cast<T>(1)/s_extra[0];
-            for (int vi=0; vi<18; ++vi) for (int r=0;r<3;++r) s_out[3 + 3*vi + r] = s_A[r + 6*vi]*inv_m;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute com per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void com_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool COM_J_SMEM = COM_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int COM_J_SLOT = COM_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_out[57]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[COM_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(COM_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 19 + 57 + 108 + 3 + 4 + COM_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (COM_J_SMEM) { (void)d_workspace; }
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-            s_q[ind] = d_q[ind];
-        }
-        __syncthreads();
-        if constexpr (!COM_J_SMEM) {
-            s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-        }
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 19; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q)[rep % (19)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q)[(rep + 1) % (19)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q)[(rep + 2) % (19)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (19)] += _aopt_fb3;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: base quaternion wxyz->xyzw (q-only; value frame-independent)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                s_out[0]=s_com[0]; s_out[1]=s_com[1]; s_out[2]=s_com[2];
-                T inv_m = static_cast<T>(1)/s_extra[0];
-                for (int vi=0; vi<18; ++vi) for (int r=0;r<3;++r) s_out[3 + 3*vi + r] = s_A[r + 6*vi]*inv_m;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe (s_out + 3) G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 3; r++) { T j0 = (s_out + 3)[r + 3*0], j1 = (s_out + 3)[r + 3*1], j2 = (s_out + 3)[r + 3*2]; (s_out + 3)[r + 3*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_out + 3)[r + 3*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_out + 3)[r + 3*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            __syncthreads();
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute com per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void com_kernel(T *d_out, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool COM_J_SMEM = COM_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int COM_J_SLOT = COM_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_out[57]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[COM_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(57);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(COM_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 19 + 57 + 108 + 3 + 4 + COM_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (COM_J_SMEM) { (void)d_workspace; }
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_k = &d_q[k*stride_q];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-                s_q[ind] = d_q_k[ind];
-            }
-            __syncthreads();
-            if constexpr (!COM_J_SMEM) {
-                s_J = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: base quaternion wxyz->xyzw (q-only; value frame-independent)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                s_out[0]=s_com[0]; s_out[1]=s_com[1]; s_out[2]=s_com[2];
-                T inv_m = static_cast<T>(1)/s_extra[0];
-                for (int vi=0; vi<18; ++vi) for (int r=0;r<3;++r) s_out[3 + 3*vi + r] = s_A[r + 6*vi]*inv_m;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe (s_out + 3) G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 3; r++) { T j0 = (s_out + 3)[r + 3*0], j1 = (s_out + 3)[r + 3*1], j2 = (s_out + 3)[r + 3*2]; (s_out + 3)[r + 3*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_out + 3)[r + 3*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_out + 3)[r + 3*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            __syncthreads();
-            // save down to global
-            T *d_out_k = &d_out[k*57];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 57; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute com
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void com(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "com requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!COM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_74 = grid_host_clamp_threads((const void*)&com_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        com_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_74,COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_com,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_com,hd_data->d_com,57*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute com
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void com_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "com requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        if (!COM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_75 = grid_host_clamp_threads((const void*)&com_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        com_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_75,COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_com,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_com,hd_data->d_com,57*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call COM %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute com
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void com_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "com requires all-data or kinematics gridData");
-        int stride_q = NUM_JOINTS;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!COM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_76 = grid_host_clamp_threads((const void*)&com_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        com_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_76,COM_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_com,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-    }
-
-    #define GRID_HAS_COM 1
-    /**
-     * Compute the centroidal momentum matrix A and momentum h = A qd
-     *
-     * @param s_out holds [A (6 x NUM_VEL, column-major); h (6)]
-     * @param s_q / s_qd are joint position / velocity
-     * @param d_robotModel is the GPU model helpers
-     */
-    template <typename T>
-    __device__
-    void ccrba_device(T *s_out, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel) {
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
-            s_out[ind] = s_A[ind];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += s_A[r + 6*vi]*s_qd[vi]; s_out[108 + r] = s; }
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute ccrba per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void ccrba_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool CCRBA_J_SMEM = CCRBA_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int CCRBA_J_SLOT = CCRBA_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[114]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[CCRBA_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(CCRBA_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 114 + 108 + 3 + 4 + CCRBA_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (CCRBA_J_SMEM) { (void)d_workspace; }
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        if constexpr (!CCRBA_J_SMEM) {
-            s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-        }
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 38; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd)[rep % (38)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q_qd (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 1) % (38)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 2) % (38)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (38)] += _aopt_fb3;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
-                s_out[ind] = s_A[ind];
-            }
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += s_A[r + 6*vi]*s_qd[vi]; s_out[108 + r] = s; }
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            __syncthreads();
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 114; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute ccrba per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void ccrba_kernel(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool CCRBA_J_SMEM = CCRBA_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int CCRBA_J_SLOT = CCRBA_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[114]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[CCRBA_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(114);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(CCRBA_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 114 + 108 + 3 + 4 + CCRBA_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (CCRBA_J_SMEM) { (void)d_workspace; }
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (!CCRBA_J_SMEM) {
-                s_J = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
-                s_out[ind] = s_A[ind];
-            }
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += s_A[r + 6*vi]*s_qd[vi]; s_out[108 + r] = s; }
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            __syncthreads();
-            // save down to global
-            T *d_out_k = &d_out[k*114];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 114; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute ccrba
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void ccrba(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "ccrba requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!CCRBA_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_77 = grid_host_clamp_threads((const void*)&ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_77,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_77,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_ccrba,hd_data->d_ccrba,114*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute ccrba
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void ccrba_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "ccrba requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        if (!CCRBA_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_78 = grid_host_clamp_threads((const void*)&ccrba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {ccrba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_78,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {ccrba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_78,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_ccrba,hd_data->d_ccrba,114*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call CCRBA %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute ccrba
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void ccrba_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "ccrba requires all-data or kinematics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!CCRBA_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_79 = grid_host_clamp_threads((const void*)&ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_79,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {ccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_79,CCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_ccrba,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    #define GRID_HAS_CCRBA 1
-    /**
-     * Compute kinetic / potential / mechanical energy
-     *
-     * @param s_out holds [KE, PE, mechanical]
-     * @param s_q / s_qd are joint position / velocity
-     * @param d_robotModel is the GPU model helpers
-     * @param gravity is the gravity constant
-     */
-    template <typename T>
-    __device__
-    void energy_device(T *s_out, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T *cJ  = &s_temp[208];
-            T *cIw = &s_temp[1612];
-            T ke = static_cast<T>(0);
-            for (int jid = 0; jid < 13; ++jid) {
-                const T *Jb = &cJ[108*jid]; const T *Iw = &cIw[36*jid];
-                T v[6]; for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += Jb[6*vi+r]*s_qd[vi]; v[r]=s; }
-                for (int r=0;r<6;++r){ T s=0; for(int k=0;k<6;++k) s += Iw[r+6*k]*v[k]; ke += static_cast<T>(0.5)*v[r]*s; }
-            }
-            T pe = -s_extra[0] * gravity * s_com[2]; // PE = -M*gravity*com_z (gravity=-9.81, matches RBDReference)
-            s_out[0]=ke; s_out[1]=pe; s_out[2]=ke+pe;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute energy per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void energy_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool ENERGY_J_SMEM = ENERGY_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int ENERGY_J_SLOT = ENERGY_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[3]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[ENERGY_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(ENERGY_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 3 + 108 + 3 + 4 + ENERGY_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (ENERGY_J_SMEM) { (void)d_workspace; }
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        if constexpr (!ENERGY_J_SMEM) {
-            s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-        }
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 38; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd)[rep % (38)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q_qd (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 1) % (38)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 2) % (38)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (38)] += _aopt_fb3;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                const T *cJ = s_J; const T *cIw = &s_temp[208];
-                T ke = static_cast<T>(0);
-                for (int jid = 0; jid < 13; ++jid) {
-                    const T *Jb = &cJ[108*jid]; const T *Iw = &cIw[36*jid];
-                    T v[6]; for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += Jb[6*vi+r]*s_qd[vi]; v[r]=s; }
-                    for (int r=0;r<6;++r){ T s=0; for(int k=0;k<6;++k) s += Iw[r+6*k]*v[k]; ke += static_cast<T>(0.5)*v[r]*s; }
-                }
-                T pe = -s_extra[0] * gravity * s_com[2]; // PE = -M*gravity*com_z (gravity=-9.81, matches RBDReference)
-                s_out[0]=ke; s_out[1]=pe; s_out[2]=ke+pe;
-            }
-            __syncthreads();
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 3; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute energy per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void energy_kernel(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        constexpr bool ENERGY_J_SMEM = ENERGY_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int ENERGY_J_SLOT = ENERGY_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[3]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[ENERGY_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[820]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(ENERGY_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(820);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 3 + 108 + 3 + 4 + ENERGY_J_SLOT + 672 + 820), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (ENERGY_J_SMEM) { (void)d_workspace; }
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (!ENERGY_J_SMEM) {
-                s_J = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if(threadIdx.x == 0 && threadIdx.y == 0){
-                const T *cJ = s_J; const T *cIw = &s_temp[208];
-                T ke = static_cast<T>(0);
-                for (int jid = 0; jid < 13; ++jid) {
-                    const T *Jb = &cJ[108*jid]; const T *Iw = &cIw[36*jid];
-                    T v[6]; for (int r=0;r<6;++r){ T s=0; for(int vi=0;vi<18;++vi) s += Jb[6*vi+r]*s_qd[vi]; v[r]=s; }
-                    for (int r=0;r<6;++r){ T s=0; for(int k=0;k<6;++k) s += Iw[r+6*k]*v[k]; ke += static_cast<T>(0.5)*v[r]*s; }
-                }
-                T pe = -s_extra[0] * gravity * s_com[2]; // PE = -M*gravity*com_z (gravity=-9.81, matches RBDReference)
-                s_out[0]=ke; s_out[1]=pe; s_out[2]=ke+pe;
-            }
-            __syncthreads();
-            // save down to global
-            T *d_out_k = &d_out[k*3];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 3; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute energy
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void energy(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "energy requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!ENERGY_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_80 = grid_host_clamp_threads((const void*)&energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_80,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_80,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_energy,hd_data->d_energy,3*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute energy
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void energy_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "energy requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        if (!ENERGY_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_81 = grid_host_clamp_threads((const void*)&energy_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {energy_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_81,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {energy_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_81,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_energy,hd_data->d_energy,3*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call ENERGY %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute energy
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void energy_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "energy requires all-data or kinematics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!ENERGY_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_82 = grid_host_clamp_threads((const void*)&energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_82,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {energy_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_82,ENERGY_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_energy,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    #define GRID_HAS_ENERGY 1
-    /**
-     * Compute Adot = dA(q(t))/dt = sum_m (dA/dq_m) qd_m (analytic dCCRBA contraction)
-     *
-     * @param s_adot is the output Adot = dA/dt, 6 x NUM_VEL (column-major, [linear;angular] @ CoM) = 108
-     * @param s_q is the joint positions (unused; q is baked into s_Xhom)
-     * @param s_qd is the joint velocities (contracted: Adot = sum_m (dA/dq_m) qd_m)
-     * @param s_Xhom is the per-joint LOCAL homogeneous transforms
-     * @param d_robotModel is the GPU model helpers (constant body inertias)
-     * @param s_temp is scratch of size 928
-     * @param s_linalg_smem is reserved (unused)
-     */
-    template <typename T>
-    __device__
-    void cmm_time_variation_inner(T *s_adot, T *s_A, T *s_com, T *s_extra, const T *s_q, const T *s_qd, const T *s_Xhom, const robotModel<T> *d_robotModel, T *s_temp, T *s_J_ext, unsigned char *s_linalg_smem) {
-        (void)s_q;
-        centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_Xhom, d_robotModel, s_temp, s_J_ext, s_linalg_smem);
-        __syncthreads();
-        // dccrba scratch: centroidal_inner left s_Xworld(0)/s_Iw/s_A0 in s_temp and
-        // the Jw band (6*NV per body) in s_J_ext (in-smem at L0/L1, d_workspace at L2).
-        T *dc_Xworld = &s_temp[0];
-        T *dc_J  = s_J_ext;            // Jw, 6*NV per body (angular-first)
-        T *dc_Iw = &s_temp[208];  // 36 per body world inertia
-        T *dc_A0 = &s_temp[676];  // 6*NV world-origin momentum map [ang;lin]
-        T *s_phi = &s_temp[820]; // 6*n_int per-unit world motion columns
-        static const int dc_unit_body[] = { 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        static const int dc_unit_vi[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
-        static const T dc_unit_ax[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0) };
-        static const T dc_unit_lin[] = { static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-        static const int dc_is_root_v[] = { 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        static const int dc_unit_anc_self[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
-        static const int dc_unit_anc_strict[] = { 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        // per-unit world motion column phi (angular-first)
-        for(int u = threadIdx.x + threadIdx.y*blockDim.x; u < 18; u += blockDim.x*blockDim.y){
-            int jb = dc_unit_body[u]; const T *Xj = &dc_Xworld[16*jb];
-            T a0=dc_unit_ax[3*u], a1=dc_unit_ax[3*u+1], a2=dc_unit_ax[3*u+2];
-            T l0=dc_unit_lin[3*u], l1=dc_unit_lin[3*u+1], l2=dc_unit_lin[3*u+2];
-            T aw0 = Xj[0]*a0 + Xj[4]*a1 + Xj[8]*a2;
-            T aw1 = Xj[1]*a0 + Xj[5]*a1 + Xj[9]*a2;
-            T aw2 = Xj[2]*a0 + Xj[6]*a1 + Xj[10]*a2;
-            T lw0 = Xj[0]*l0 + Xj[4]*l1 + Xj[8]*l2;
-            T lw1 = Xj[1]*l0 + Xj[5]*l1 + Xj[9]*l2;
-            T lw2 = Xj[2]*l0 + Xj[6]*l1 + Xj[10]*l2;
-            T pjx = Xj[12], pjy = Xj[13], pjz = Xj[14];
-            s_phi[6*u+0] = aw0; s_phi[6*u+1] = aw1; s_phi[6*u+2] = aw2;
-            s_phi[6*u+3] = lw0 + (pjy*aw2 - pjz*aw1);
-            s_phi[6*u+4] = lw1 + (pjz*aw0 - pjx*aw2);
-            s_phi[6*u+5] = lw2 + (pjx*aw1 - pjy*aw0);
-        }
-        __syncthreads();
-        T dc_cx = s_com[0], dc_cy = s_com[1], dc_cz = s_com[2];
-        T dc_inv_m = static_cast<T>(1)/s_extra[0];
-        // P2 fan: one thread per column k; sum m in FIXED order (was atomicAdd over m)
-        for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < 18; k += blockDim.x*blockDim.y){
-            T acc[6]; for (int r=0;r<6;++r) acc[r] = static_cast<T>(0);
-            for (int m = 0; m < 18; ++m) {
-                T dA0col[6]; for (int r=0;r<6;++r) dA0col[r] = static_cast<T>(0);
-                bool m_is_root = dc_is_root_v[m] != 0;
-                for (int um = 0; um < 18; ++um) {
-                    if (dc_unit_vi[um] != m) continue;
-                    const T *phim = &s_phi[6*um]; int jm = dc_unit_body[um];
-                    T CrmM[36];
-                    CrmM[0 + 6*0] = static_cast<T>(0);
-                    CrmM[0 + 6*1] = -phim[2];
-                    CrmM[0 + 6*2] = phim[1];
-                    CrmM[0 + 6*3] = static_cast<T>(0);
-                    CrmM[0 + 6*4] = static_cast<T>(0);
-                    CrmM[0 + 6*5] = static_cast<T>(0);
-                    CrmM[1 + 6*0] = phim[2];
-                    CrmM[1 + 6*1] = static_cast<T>(0);
-                    CrmM[1 + 6*2] = -phim[0];
-                    CrmM[1 + 6*3] = static_cast<T>(0);
-                    CrmM[1 + 6*4] = static_cast<T>(0);
-                    CrmM[1 + 6*5] = static_cast<T>(0);
-                    CrmM[2 + 6*0] = -phim[1];
-                    CrmM[2 + 6*1] = phim[0];
-                    CrmM[2 + 6*2] = static_cast<T>(0);
-                    CrmM[2 + 6*3] = static_cast<T>(0);
-                    CrmM[2 + 6*4] = static_cast<T>(0);
-                    CrmM[2 + 6*5] = static_cast<T>(0);
-                    CrmM[3 + 6*0] = static_cast<T>(0);
-                    CrmM[3 + 6*1] = -phim[5];
-                    CrmM[3 + 6*2] = phim[4];
-                    CrmM[3 + 6*3] = static_cast<T>(0);
-                    CrmM[3 + 6*4] = -phim[2];
-                    CrmM[3 + 6*5] = phim[1];
-                    CrmM[4 + 6*0] = phim[5];
-                    CrmM[4 + 6*1] = static_cast<T>(0);
-                    CrmM[4 + 6*2] = -phim[3];
-                    CrmM[4 + 6*3] = phim[2];
-                    CrmM[4 + 6*4] = static_cast<T>(0);
-                    CrmM[4 + 6*5] = -phim[0];
-                    CrmM[5 + 6*0] = -phim[4];
-                    CrmM[5 + 6*1] = phim[3];
-                    CrmM[5 + 6*2] = static_cast<T>(0);
-                    CrmM[5 + 6*3] = -phim[1];
-                    CrmM[5 + 6*4] = phim[0];
-                    CrmM[5 + 6*5] = static_cast<T>(0);
-                    T CrfM[36];
-                    CrfM[0 + 6*0] = static_cast<T>(0);
-                    CrfM[0 + 6*1] = -phim[2];
-                    CrfM[0 + 6*2] = phim[1];
-                    CrfM[0 + 6*3] = static_cast<T>(0);
-                    CrfM[0 + 6*4] = -phim[5];
-                    CrfM[0 + 6*5] = phim[4];
-                    CrfM[1 + 6*0] = phim[2];
-                    CrfM[1 + 6*1] = static_cast<T>(0);
-                    CrfM[1 + 6*2] = -phim[0];
-                    CrfM[1 + 6*3] = phim[5];
-                    CrfM[1 + 6*4] = static_cast<T>(0);
-                    CrfM[1 + 6*5] = -phim[3];
-                    CrfM[2 + 6*0] = -phim[1];
-                    CrfM[2 + 6*1] = phim[0];
-                    CrfM[2 + 6*2] = static_cast<T>(0);
-                    CrfM[2 + 6*3] = -phim[4];
-                    CrfM[2 + 6*4] = phim[3];
-                    CrfM[2 + 6*5] = static_cast<T>(0);
-                    CrfM[3 + 6*0] = static_cast<T>(0);
-                    CrfM[3 + 6*1] = static_cast<T>(0);
-                    CrfM[3 + 6*2] = static_cast<T>(0);
-                    CrfM[3 + 6*3] = static_cast<T>(0);
-                    CrfM[3 + 6*4] = -phim[2];
-                    CrfM[3 + 6*5] = phim[1];
-                    CrfM[4 + 6*0] = static_cast<T>(0);
-                    CrfM[4 + 6*1] = static_cast<T>(0);
-                    CrfM[4 + 6*2] = static_cast<T>(0);
-                    CrfM[4 + 6*3] = phim[2];
-                    CrfM[4 + 6*4] = static_cast<T>(0);
-                    CrfM[4 + 6*5] = -phim[0];
-                    CrfM[5 + 6*0] = static_cast<T>(0);
-                    CrfM[5 + 6*1] = static_cast<T>(0);
-                    CrfM[5 + 6*2] = static_cast<T>(0);
-                    CrfM[5 + 6*3] = -phim[1];
-                    CrfM[5 + 6*4] = phim[0];
-                    CrfM[5 + 6*5] = static_cast<T>(0);
-                    if (m_is_root) {
-                        const T *A0k = &dc_A0[6*k];
-                        for (int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrfM[r+6*c]*A0k[c]; dA0col[r] += s; }
-                        continue;
-                    }
-                    for (int i = 0; i < 13; ++i) {
-                        const T *Iw_i = &dc_Iw[36*i];
-                        const T *Jw_i = &dc_J[108*i];
-                        if (dc_unit_anc_self[um*13 + i]) {
-                            const T *xk = &Jw_i[6*k];
-                            T Ix[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*xk[c]; Ix[r]=s; }
-                            T cmx[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrmM[r+6*c]*xk[c]; cmx[r]=s; }
-                            T Icmx[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*cmx[c]; Icmx[r]=s; }
-                            for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrfM[r+6*c]*Ix[c]; dA0col[r] += s - Icmx[r]; }
-                        }
-                        T dJk[6]; for(int r=0;r<6;++r) dJk[r] = static_cast<T>(0);
-                        for (int uc = 0; uc < 18; ++uc) {
-                            if (dc_unit_vi[uc] != k) continue;
-                            if (!dc_unit_anc_self[uc*13 + i]) continue;
-                            if (!dc_unit_anc_strict[um*13 + dc_unit_body[uc]]) continue;
-                            const T *phic = &s_phi[6*uc];
-                            for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrmM[r+6*c]*phic[c]; dJk[r] += s; }
-                        }
-                        for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*dJk[c]; dA0col[r] += s; }
-                    }
-                }
-                // CoM-shift (Xstar) + CoM-motion (dXstar) + [ang;lin]->[lin;ang] reorder
-                const T *A0k2 = &dc_A0[6*k];
-                T jcx = dc_A0[3 + 6*m]*dc_inv_m, jcy = dc_A0[4 + 6*m]*dc_inv_m, jcz = dc_A0[5 + 6*m]*dc_inv_m;
-                T fa0 = A0k2[3], fa1 = A0k2[4], fa2 = A0k2[5];
-                T xa0 = dA0col[0] - (dc_cy*dA0col[5] - dc_cz*dA0col[4]);
-                T xa1 = dA0col[1] - (dc_cz*dA0col[3] - dc_cx*dA0col[5]);
-                T xa2 = dA0col[2] - (dc_cx*dA0col[4] - dc_cy*dA0col[3]);
-                xa0 += -(jcy*fa2 - jcz*fa1);
-                xa1 += -(jcz*fa0 - jcx*fa2);
-                xa2 += -(jcx*fa1 - jcy*fa0);
-                T xl0 = dA0col[3], xl1 = dA0col[4], xl2 = dA0col[5];
-                T qm = s_qd[m];
-                acc[0] += xl0*qm; acc[1] += xl1*qm; acc[2] += xl2*qm;
-                acc[3] += xa0*qm; acc[4] += xa1*qm; acc[5] += xa2*qm;
-            }
-            s_adot[0 + 6*k] = acc[0]; s_adot[1 + 6*k] = acc[1]; s_adot[2 + 6*k] = acc[2];
-            s_adot[3 + 6*k] = acc[3]; s_adot[4 + 6*k] = acc[4]; s_adot[5 + 6*k] = acc[5];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute Adot = dA/dt (analytic dCCRBA contraction)
-     *
-     * @param s_adot holds Adot (6 x NUM_VEL, column-major [linear;angular] @ CoM)
-     * @param s_q / s_qd are joint position / velocity
-     * @param d_robotModel is the GPU model helpers
-     */
-    template <typename T>
-    __device__
-    void cmm_time_variation_device(T *s_adot, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel) {
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[1404]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(1404);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3119, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        cmm_time_variation_inner<T>(s_adot, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-        __syncthreads();
-    }
-
-    /**
-     * Compute cmm_time_variation (Adot) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void cmm_time_variation_kernel_single_timing(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool CMM_J_SMEM = CMM_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int CMM_J_SLOT = CMM_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[108]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[CMM_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(CMM_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 108 + 108 + 3 + 4 + CMM_J_SLOT + 672 + 928), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (CMM_J_SMEM) { (void)d_workspace; }
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-            s_q_qd[ind] = d_q_qd[ind];
-        }
-        __syncthreads();
-        if constexpr (!CMM_J_SMEM) {
-            s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-        }
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            // anti-LICM: volatile reload of inputs each rep
-            for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 38; _aopt_i += blockDim.x*blockDim.y){
-                reinterpret_cast<volatile T *>(s_q_qd)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q_qd)[_aopt_i];
-            }
-            __syncthreads();
-            // anti-LICM (1/2): stomp one input slot with `rep`
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                reinterpret_cast<volatile T *>(s_q_qd)[rep % (38)] = static_cast<T>(rep);
-            }
-            // anti-LICM (2/2): feedback prev rep's d_out into s_q_qd (true loop-carried dep)
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-                T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FF) & 0x3FF];
-                T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FE) & 0x3FF];
-                T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_out)[(rep + 0x3FD) & 0x3FF];
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 1) % (38)] += _aopt_fb1;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 2) % (38)] += _aopt_fb2;
-                reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (38)] += _aopt_fb3;
-            }
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            cmm_time_variation_inner<T>(s_out, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            __syncthreads();
-            if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_out)[rep & 1023] = reinterpret_cast<const volatile T *>(s_out)[rep & 7]; }
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
-            d_out[ind] = s_out[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute cmm_time_variation (Adot) per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void cmm_time_variation_kernel(T *d_out, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool CMM_J_SMEM = CMM_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int CMM_J_SLOT = CMM_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q_qd[38]
-        //   T s_out[108]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[CMM_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(38);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_out = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(CMM_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 38 + 108 + 108 + 3 + 4 + CMM_J_SLOT + 672 + 928), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-        if constexpr (CMM_J_SMEM) { (void)d_workspace; }
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 38; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd_k[ind];
-            }
-            __syncthreads();
-            if constexpr (!CMM_J_SMEM) {
-                s_J = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                    s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            cmm_time_variation_inner<T>(s_out, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_out_k = &d_out[k*108];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
-                d_out_k[ind] = s_out[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute cmm_time_variation (Adot)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void cmm_time_variation(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "cmm_time_variation requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!CMM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_83 = grid_host_clamp_threads((const void*)&cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_83,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_83,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_cmm_time_variation,hd_data->d_cmm_time_variation,108*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute cmm_time_variation (Adot)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void cmm_time_variation_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "cmm_time_variation requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        if (!CMM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_84 = grid_host_clamp_threads((const void*)&cmm_time_variation_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {cmm_time_variation_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_84,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {cmm_time_variation_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_84,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_cmm_time_variation,hd_data->d_cmm_time_variation,108*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call CMM_TIME_VARIATION %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute cmm_time_variation (Adot)
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void cmm_time_variation_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "cmm_time_variation requires all-data or kinematics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if (!CMM_J_IN_SMEM<RESOURCE_TIER>() && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_85 = grid_host_clamp_threads((const void*)&cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_85,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,num_timesteps);}
-        else                    {cmm_time_variation_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_85,CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_cmm_time_variation,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the analytic dCCRBA tensor dA_dq[:,k,m] (6 x NV x NV)
-     *
-     * @param s_dccrba is the output tensor dA_dq[:,k,m], 6*NUM_VEL*NUM_VEL = 1944 (layout dA[row + 6*k + 6*NV*m], [linear;angular] @ CoM)
-     * @param s_q is the joint positions (unused; baked into s_Xhom)
-     * @param s_Xhom is the per-joint LOCAL homogeneous transforms
-     * @param d_robotModel is the GPU model helpers (constant body inertias)
-     * @param s_temp is scratch of size 928
-     * @param s_linalg_smem is reserved (unused)
-     */
-    template <typename T>
-    __device__
-    void dccrba_inner(T *s_dccrba, T *s_A, T *s_com, T *s_extra, const T *s_q, const T *s_Xhom, const robotModel<T> *d_robotModel, T *s_temp, T *s_J_ext, unsigned char *s_linalg_smem) {
-        (void)s_q;
-        centroidal_inner<T, false>(s_A, s_com, s_extra, s_q, s_Xhom, d_robotModel, s_temp, s_J_ext, s_linalg_smem);
-        __syncthreads();
-        // dccrba scratch: centroidal_inner left s_Xworld(0)/s_Iw/s_A0 in s_temp and
-        // the Jw band (6*NV per body) in s_J_ext (in-smem at L0/L1, d_workspace at L2).
-        T *dc_Xworld = &s_temp[0];
-        T *dc_J  = s_J_ext;            // Jw, 6*NV per body (angular-first)
-        T *dc_Iw = &s_temp[208];  // 36 per body world inertia
-        T *dc_A0 = &s_temp[676];  // 6*NV world-origin momentum map [ang;lin]
-        T *s_phi = &s_temp[820]; // 6*n_int per-unit world motion columns
-        static const int dc_unit_body[] = { 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        static const int dc_unit_vi[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
-        static const T dc_unit_ax[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0) };
-        static const T dc_unit_lin[] = { static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
-        static const int dc_is_root_v[] = { 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        static const int dc_unit_anc_self[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
-        static const int dc_unit_anc_strict[] = { 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        // per-unit world motion column phi (angular-first)
-        for(int u = threadIdx.x + threadIdx.y*blockDim.x; u < 18; u += blockDim.x*blockDim.y){
-            int jb = dc_unit_body[u]; const T *Xj = &dc_Xworld[16*jb];
-            T a0=dc_unit_ax[3*u], a1=dc_unit_ax[3*u+1], a2=dc_unit_ax[3*u+2];
-            T l0=dc_unit_lin[3*u], l1=dc_unit_lin[3*u+1], l2=dc_unit_lin[3*u+2];
-            T aw0 = Xj[0]*a0 + Xj[4]*a1 + Xj[8]*a2;
-            T aw1 = Xj[1]*a0 + Xj[5]*a1 + Xj[9]*a2;
-            T aw2 = Xj[2]*a0 + Xj[6]*a1 + Xj[10]*a2;
-            T lw0 = Xj[0]*l0 + Xj[4]*l1 + Xj[8]*l2;
-            T lw1 = Xj[1]*l0 + Xj[5]*l1 + Xj[9]*l2;
-            T lw2 = Xj[2]*l0 + Xj[6]*l1 + Xj[10]*l2;
-            T pjx = Xj[12], pjy = Xj[13], pjz = Xj[14];
-            s_phi[6*u+0] = aw0; s_phi[6*u+1] = aw1; s_phi[6*u+2] = aw2;
-            s_phi[6*u+3] = lw0 + (pjy*aw2 - pjz*aw1);
-            s_phi[6*u+4] = lw1 + (pjz*aw0 - pjx*aw2);
-            s_phi[6*u+5] = lw2 + (pjx*aw1 - pjy*aw0);
-        }
-        __syncthreads();
-        T dc_cx = s_com[0], dc_cy = s_com[1], dc_cz = s_com[2];
-        T dc_inv_m = static_cast<T>(1)/s_extra[0];
-        // P2 fan: one thread per (m, k) output cell
-        for(int cell = threadIdx.x + threadIdx.y*blockDim.x; cell < 324; cell += blockDim.x*blockDim.y){
-            int m = cell / 18; int k = cell % 18;
-            T dA0col[6]; for (int r=0;r<6;++r) dA0col[r] = static_cast<T>(0);
-            bool m_is_root = dc_is_root_v[m] != 0;
-            for (int um = 0; um < 18; ++um) {
-                if (dc_unit_vi[um] != m) continue;
-                const T *phim = &s_phi[6*um]; int jm = dc_unit_body[um];
-                T CrmM[36];
-                CrmM[0 + 6*0] = static_cast<T>(0);
-                CrmM[0 + 6*1] = -phim[2];
-                CrmM[0 + 6*2] = phim[1];
-                CrmM[0 + 6*3] = static_cast<T>(0);
-                CrmM[0 + 6*4] = static_cast<T>(0);
-                CrmM[0 + 6*5] = static_cast<T>(0);
-                CrmM[1 + 6*0] = phim[2];
-                CrmM[1 + 6*1] = static_cast<T>(0);
-                CrmM[1 + 6*2] = -phim[0];
-                CrmM[1 + 6*3] = static_cast<T>(0);
-                CrmM[1 + 6*4] = static_cast<T>(0);
-                CrmM[1 + 6*5] = static_cast<T>(0);
-                CrmM[2 + 6*0] = -phim[1];
-                CrmM[2 + 6*1] = phim[0];
-                CrmM[2 + 6*2] = static_cast<T>(0);
-                CrmM[2 + 6*3] = static_cast<T>(0);
-                CrmM[2 + 6*4] = static_cast<T>(0);
-                CrmM[2 + 6*5] = static_cast<T>(0);
-                CrmM[3 + 6*0] = static_cast<T>(0);
-                CrmM[3 + 6*1] = -phim[5];
-                CrmM[3 + 6*2] = phim[4];
-                CrmM[3 + 6*3] = static_cast<T>(0);
-                CrmM[3 + 6*4] = -phim[2];
-                CrmM[3 + 6*5] = phim[1];
-                CrmM[4 + 6*0] = phim[5];
-                CrmM[4 + 6*1] = static_cast<T>(0);
-                CrmM[4 + 6*2] = -phim[3];
-                CrmM[4 + 6*3] = phim[2];
-                CrmM[4 + 6*4] = static_cast<T>(0);
-                CrmM[4 + 6*5] = -phim[0];
-                CrmM[5 + 6*0] = -phim[4];
-                CrmM[5 + 6*1] = phim[3];
-                CrmM[5 + 6*2] = static_cast<T>(0);
-                CrmM[5 + 6*3] = -phim[1];
-                CrmM[5 + 6*4] = phim[0];
-                CrmM[5 + 6*5] = static_cast<T>(0);
-                T CrfM[36];
-                CrfM[0 + 6*0] = static_cast<T>(0);
-                CrfM[0 + 6*1] = -phim[2];
-                CrfM[0 + 6*2] = phim[1];
-                CrfM[0 + 6*3] = static_cast<T>(0);
-                CrfM[0 + 6*4] = -phim[5];
-                CrfM[0 + 6*5] = phim[4];
-                CrfM[1 + 6*0] = phim[2];
-                CrfM[1 + 6*1] = static_cast<T>(0);
-                CrfM[1 + 6*2] = -phim[0];
-                CrfM[1 + 6*3] = phim[5];
-                CrfM[1 + 6*4] = static_cast<T>(0);
-                CrfM[1 + 6*5] = -phim[3];
-                CrfM[2 + 6*0] = -phim[1];
-                CrfM[2 + 6*1] = phim[0];
-                CrfM[2 + 6*2] = static_cast<T>(0);
-                CrfM[2 + 6*3] = -phim[4];
-                CrfM[2 + 6*4] = phim[3];
-                CrfM[2 + 6*5] = static_cast<T>(0);
-                CrfM[3 + 6*0] = static_cast<T>(0);
-                CrfM[3 + 6*1] = static_cast<T>(0);
-                CrfM[3 + 6*2] = static_cast<T>(0);
-                CrfM[3 + 6*3] = static_cast<T>(0);
-                CrfM[3 + 6*4] = -phim[2];
-                CrfM[3 + 6*5] = phim[1];
-                CrfM[4 + 6*0] = static_cast<T>(0);
-                CrfM[4 + 6*1] = static_cast<T>(0);
-                CrfM[4 + 6*2] = static_cast<T>(0);
-                CrfM[4 + 6*3] = phim[2];
-                CrfM[4 + 6*4] = static_cast<T>(0);
-                CrfM[4 + 6*5] = -phim[0];
-                CrfM[5 + 6*0] = static_cast<T>(0);
-                CrfM[5 + 6*1] = static_cast<T>(0);
-                CrfM[5 + 6*2] = static_cast<T>(0);
-                CrfM[5 + 6*3] = -phim[1];
-                CrfM[5 + 6*4] = phim[0];
-                CrfM[5 + 6*5] = static_cast<T>(0);
-                if (m_is_root) {
-                    const T *A0k = &dc_A0[6*k];
-                    for (int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrfM[r+6*c]*A0k[c]; dA0col[r] += s; }
-                    continue;
-                }
-                for (int i = 0; i < 13; ++i) {
-                    const T *Iw_i = &dc_Iw[36*i];
-                    const T *Jw_i = &dc_J[108*i];
-                    if (dc_unit_anc_self[um*13 + i]) {
-                        const T *xk = &Jw_i[6*k];
-                        T Ix[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*xk[c]; Ix[r]=s; }
-                        T cmx[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrmM[r+6*c]*xk[c]; cmx[r]=s; }
-                        T Icmx[6]; for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*cmx[c]; Icmx[r]=s; }
-                        for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrfM[r+6*c]*Ix[c]; dA0col[r] += s - Icmx[r]; }
-                    }
-                    T dJk[6]; for(int r=0;r<6;++r) dJk[r] = static_cast<T>(0);
-                    for (int uc = 0; uc < 18; ++uc) {
-                        if (dc_unit_vi[uc] != k) continue;
-                        if (!dc_unit_anc_self[uc*13 + i]) continue;
-                        if (!dc_unit_anc_strict[um*13 + dc_unit_body[uc]]) continue;
-                        const T *phic = &s_phi[6*uc];
-                        for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += CrmM[r+6*c]*phic[c]; dJk[r] += s; }
-                    }
-                    for(int r=0;r<6;++r){ T s=0; for(int c=0;c<6;++c) s += Iw_i[r+6*c]*dJk[c]; dA0col[r] += s; }
-                }
-            }
-            // CoM-shift (Xstar) + CoM-motion (dXstar) + [ang;lin]->[lin;ang] reorder
-            const T *A0k2 = &dc_A0[6*k];
-            T jcx = dc_A0[3 + 6*m]*dc_inv_m, jcy = dc_A0[4 + 6*m]*dc_inv_m, jcz = dc_A0[5 + 6*m]*dc_inv_m;
-            T fa0 = A0k2[3], fa1 = A0k2[4], fa2 = A0k2[5];
-            T xa0 = dA0col[0] - (dc_cy*dA0col[5] - dc_cz*dA0col[4]);
-            T xa1 = dA0col[1] - (dc_cz*dA0col[3] - dc_cx*dA0col[5]);
-            T xa2 = dA0col[2] - (dc_cx*dA0col[4] - dc_cy*dA0col[3]);
-            xa0 += -(jcy*fa2 - jcz*fa1);
-            xa1 += -(jcz*fa0 - jcx*fa2);
-            xa2 += -(jcx*fa1 - jcy*fa0);
-            T xl0 = dA0col[3], xl1 = dA0col[4], xl2 = dA0col[5];
-            s_dccrba[6*k + 108*m + 0] = xl0;
-            s_dccrba[6*k + 108*m + 1] = xl1;
-            s_dccrba[6*k + 108*m + 2] = xl2;
-            s_dccrba[6*k + 108*m + 3] = xa0;
-            s_dccrba[6*k + 108*m + 4] = xa1;
-            s_dccrba[6*k + 108*m + 5] = xa2;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the analytic dCCRBA tensor dA_dq[:,k,m]
-     *
-     * @param s_dccrba holds the tensor dA_dq[:,k,m] (6*NV*NV, dA[row + 6*k + 6*NV*m])
-     * @param s_q is joint position
-     * @param d_robotModel is the GPU model helpers
-     */
-    template <typename T>
-    __device__
-    void dccrba_device(T *s_dccrba, const T *s_q, const robotModel<T> *d_robotModel) {
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_J[1404]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(1404);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3119, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-        __syncthreads();
-    }
-
-    /**
-     * Compute the dCCRBA tensor dA_dq[:,k,m] per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void dccrba_kernel_single_timing(T *d_dccrba, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool DCCRBA_OUT_IN_SMEM = DCCRBA_OUTPUT_IN_SMEM<RESOURCE_TIER>();
-        constexpr int DCCRBA_OUT_SLOT = DCCRBA_OUT_IN_SMEM ? 1944 : 0;
-        constexpr bool DCCRBA_J_SMEM = DCCRBA_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int DCCRBA_J_SLOT = DCCRBA_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_dccrba[DCCRBA_OUT_SLOT]
-        //   T s_J[DCCRBA_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_dccrba = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(DCCRBA_OUT_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(DCCRBA_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 19 + 108 + 3 + 4 + DCCRBA_OUT_SLOT + DCCRBA_J_SLOT + 672 + 928), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (DCCRBA_OUT_IN_SMEM && DCCRBA_J_SMEM) { (void)d_workspace; }
-        // load to shared mem
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-            s_q[ind] = d_q[ind];
-        }
-        __syncthreads();
-        if constexpr (!DCCRBA_OUT_IN_SMEM) {
-            s_dccrba = reinterpret_cast<T *>(&d_workspace[GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-        }
-        if constexpr (!DCCRBA_J_SMEM) {
-            s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-        }
-        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-        }
-        // save down to global
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
-            d_dccrba[ind] = s_dccrba[ind];
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the dCCRBA tensor dA_dq[:,k,m] per timestep
-     *
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void dccrba_kernel(T *d_dccrba, unsigned char *d_workspace, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        constexpr bool DCCRBA_OUT_IN_SMEM = DCCRBA_OUTPUT_IN_SMEM<RESOURCE_TIER>();
-        constexpr int DCCRBA_OUT_SLOT = DCCRBA_OUT_IN_SMEM ? 1944 : 0;
-        constexpr bool DCCRBA_J_SMEM = DCCRBA_J_IN_SMEM<RESOURCE_TIER>();
-        constexpr int DCCRBA_J_SLOT = DCCRBA_J_SMEM ? 1404 : 0;
-        // GRID shared arena layout
-        //   T s_q[19]
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_dccrba[DCCRBA_OUT_SLOT]
-        //   T s_J[DCCRBA_J_SLOT]
-        //   T s_XmatsHom[672]
-        //   T s_temp[928]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(19);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_dccrba = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(DCCRBA_OUT_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_J = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(DCCRBA_J_SLOT);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(928);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(static_cast<size_t>(0 + 19 + 108 + 3 + 4 + DCCRBA_OUT_SLOT + DCCRBA_J_SLOT + 672 + 928), 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        if constexpr (DCCRBA_OUT_IN_SMEM && DCCRBA_J_SMEM) { (void)d_workspace; }
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            // load to shared mem
-            const T *d_q_k = &d_q[k*stride_q];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 19; ind += blockDim.x*blockDim.y){
-                s_q[ind] = d_q_k[ind];
-            }
-            __syncthreads();
-            if constexpr (!DCCRBA_OUT_IN_SMEM) {
-                s_dccrba = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-            }
-            if constexpr (!DCCRBA_J_SMEM) {
-                s_J = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
-            }
-            // compute
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx input convert: base quaternion wxyz->xyzw (q-only; value frame-independent)
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q[3];
-                    s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                }
-                __syncthreads();
-            }
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
-            __syncthreads();
-            if constexpr (MUJOCO_OUTPUT) {
-                // mjx output-convention transform of the dccrba tensor dA_dq[i + 6*k + 6*NV*m]
-                // (double G^{-1} reframe of the qd-col k and q-tangent m base-linear indices
-                //  + base-rotation frame term A_pin @ g_dot(R,c)^T). See _emit_dccrba_mjx_output.
-                // step 1: reframe the q-tangent index m (base-linear cols 0,1,2), per (i,k) cell
-                for(int ik = threadIdx.x + threadIdx.y*blockDim.x; ik < 108; ik += blockDim.x*blockDim.y){
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T t0 = s_dccrba[ik + 108*0], t1 = s_dccrba[ik + 108*1], t2 = s_dccrba[ik + 108*2];
-                    s_dccrba[ik + 108*0] = R[0]*t0 + R[1]*t1 + R[2]*t2;
-                    s_dccrba[ik + 108*1] = R[3]*t0 + R[4]*t1 + R[5]*t2;
-                    s_dccrba[ik + 108*2] = R[6]*t0 + R[7]*t1 + R[8]*t2;
-                }
-                __syncthreads();
-                // step 2: reframe the qd-col index k (base-linear cols 0,1,2), per (i,m) cell
-                for(int cell = threadIdx.x + threadIdx.y*blockDim.x; cell < 108; cell += blockDim.x*blockDim.y){
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    int m = cell / 6; int i = cell % 6;
-                    int b = i + 108*m;
-                    T t0 = s_dccrba[b + 6*0], t1 = s_dccrba[b + 6*1], t2 = s_dccrba[b + 6*2];
-                    s_dccrba[b + 6*0] = R[0]*t0 + R[1]*t1 + R[2]*t2;
-                    s_dccrba[b + 6*1] = R[3]*t0 + R[4]*t1 + R[5]*t2;
-                    s_dccrba[b + 6*2] = R[6]*t0 + R[7]*t1 + R[8]*t2;
-                }
-                __syncthreads();
-                // step 3: base-rotation frame term  out[i,a,3+c] += A_pin[i,:] . (R skew(e_c))[a][:], per row i
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T a0 = s_A[i + 6*0], a1 = s_A[i + 6*1], a2 = s_A[i + 6*2];
-                    s_dccrba[i + 6*0 + 108*3] += a1*R[2] - a2*R[1];
-                    s_dccrba[i + 6*1 + 108*3] += a1*R[5] - a2*R[4];
-                    s_dccrba[i + 6*2 + 108*3] += a1*R[8] - a2*R[7];
-                    s_dccrba[i + 6*0 + 108*4] += -a0*R[2] + a2*R[0];
-                    s_dccrba[i + 6*1 + 108*4] += -a0*R[5] + a2*R[3];
-                    s_dccrba[i + 6*2 + 108*4] += -a0*R[8] + a2*R[6];
-                    s_dccrba[i + 6*0 + 108*5] += a0*R[1] - a1*R[0];
-                    s_dccrba[i + 6*1 + 108*5] += a0*R[4] - a1*R[3];
-                    s_dccrba[i + 6*2 + 108*5] += a0*R[7] - a1*R[6];
-                }
-                __syncthreads();
-            }
-            // save down to global
-            T *d_dccrba_k = &d_dccrba[k*1944];
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
-                d_dccrba_k[ind] = s_dccrba[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute the dCCRBA tensor dA_dq[:,k,m]
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void dccrba(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "dccrba requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if ((!DCCRBA_OUTPUT_IN_SMEM<RESOURCE_TIER>() || !DCCRBA_J_IN_SMEM<RESOURCE_TIER>()) && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_86 = grid_host_clamp_threads((const void*)&dccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        dccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_86,DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dccrba,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_dccrba,hd_data->d_dccrba,1944*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the dCCRBA tensor dA_dq[:,k,m]
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void dccrba_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "dccrba requires all-data or kinematics gridData");
-        // start code with memory transfer
-        int stride_q = NUM_JOINTS;
-        gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));
-        // then call the kernel
-        if ((!DCCRBA_OUTPUT_IN_SMEM<RESOURCE_TIER>() || !DCCRBA_J_IN_SMEM<RESOURCE_TIER>()) && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_87 = grid_host_clamp_threads((const void*)&dccrba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        dccrba_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_87,DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dccrba,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back
-        gpuErrchk(cudaMemcpy(hd_data->h_dccrba,hd_data->d_dccrba,1944*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call DCCRBA %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the dCCRBA tensor dA_dq[:,k,m]
-     *
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void dccrba_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "dccrba requires all-data or kinematics gridData");
-        int stride_q = NUM_JOINTS;
-        // then call the kernel
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        if ((!DCCRBA_OUTPUT_IN_SMEM<RESOURCE_TIER>() || !DCCRBA_J_IN_SMEM<RESOURCE_TIER>()) && hd_data->d_workspace != nullptr) {gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*static_cast<size_t>(_grid_ws_n)));}
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_88 = grid_host_clamp_threads((const void*)&dccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        dccrba_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_88,DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_dccrba,hd_data->d_workspace,hd_data->d_q,stride_q,d_robotModel,num_timesteps);
-        gpuErrchkKernel();
-    }
-
-    #define GRID_HAS_DCCRBA 1
-    #define GRID_HAS_CMM_TIME_VARIATION 1
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
-     *   C qd + g = nonlinear_effects ; port of pin computeCoriolisMatrix (world frame)
-     *
-     * @param s_coriolis is the output Coriolis matrix, row-major nv x nv = 324
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param s_temp is helper shared memory of size 3210
-     * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
-     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param gravity is the gravity constant (unused; C is gravity-independent)
-     */
-    template <typename T>
-    __device__
-    void coriolis_matrix_inner(T *s_coriolis, const T *s_q, const T *s_qd, T *s_XImats, int *s_topology_helpers, T *s_temp, const T gravity) {
-        (void)gravity;
-        static const int cor_parent[] = { -1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 0, 10, 11 };
-        static const int cor_col_body[] = { 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        static const int cor_col_true_vel[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
-        static const int cor_col_s_index[] = { 3, 4, 5, 0, 1, 2, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
-        static const int cor_col_s_sign[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
-        static const int cor_body_col_start[] = { 0, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 };
-        static const T cor_col_alpha[] = { static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0), static_cast<T>(1.0) };
-        static const int cor_job_icol[] = { 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16, 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17 };
-        static const int cor_job_tcol[] = { 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 6, 7, 8, 0, 1, 2, 3, 4, 5, 7, 8, 6, 0, 1, 2, 3, 4, 5, 8, 7, 6, 0, 1, 2, 3, 4, 5, 9, 10, 11, 0, 1, 2, 3, 4, 5, 10, 11, 9, 0, 1, 2, 3, 4, 5, 11, 10, 9, 0, 1, 2, 3, 4, 5, 12, 13, 14, 0, 1, 2, 3, 4, 5, 13, 14, 12, 0, 1, 2, 3, 4, 5, 14, 13, 12, 0, 1, 2, 3, 4, 5, 15, 16, 17, 0, 1, 2, 3, 4, 5, 16, 17, 15, 0, 1, 2, 3, 4, 5, 17, 16, 15, 0, 1, 2, 3, 4, 5 };
-        static const int cor_job_body[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
-        static const int cor_job_kind[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1 };
-        // per-body bands (NB-sized, column-major 6x6) + per-column bands (n_int).
-        T *s_iX0 = s_temp;
-        T *s_oXi = &s_temp[468];
-        T *s_oY  = &s_temp[936];
-        T *s_B   = &s_temp[1404];
-        T *s_oYc = &s_temp[1872];
-        T *s_Bc  = &s_temp[2340];
-        T *s_ov  = &s_temp[2808];
-        T *s_Sw  = &s_temp[2886];
-        T *s_dJ  = &s_temp[2994];
-        T *s_dFdv= &s_temp[3102];
-        // zero the output Coriolis matrix
-        glass::set_const<T, 324>(static_cast<T>(0), s_coriolis);
-        // forward: accumulated iX0[i] = X_i . iX0[parent] (column-major 6x6)
-        if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-            for (int jid = 0; jid < 13; ++jid) {
-                int par = cor_parent[jid];
-                for (int idx = 0; idx < 36; ++idx) {
-                    int row = idx % 6; int col = idx / 6;
-                    if (par < 0) { s_iX0[jid*36 + idx] = s_XImats[jid*36 + idx]; }
-                    else {
-                        T acc = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) acc += s_XImats[jid*36 + row + 6*kk] * s_iX0[par*36 + kk + 6*col];
-                        s_iX0[jid*36 + idx] = acc;
-                    }
-                }
-            }
-        }
-        __syncthreads();
-        // oXi[i] = inv(iX0[i]) via the Plucker-block spatial inverse (no solve)
-        for(int jid = threadIdx.x + threadIdx.y*blockDim.x; jid < 13; jid += blockDim.x*blockDim.y){
-            T *Xup = &s_iX0[jid*36]; T *Xdn = &s_oXi[jid*36];
-            for (int flat = 0; flat < 36; ++flat) Xdn[flat] = static_cast<T>(0);
-            for (int flat = 0; flat < 36; ++flat) {
-                int sub_idx = flat % 18;
-                if (flat % 18 == 1 || flat % 18 == 4 || flat % 18 == 8 || flat % 18 == 11) { Xdn[flat] = Xup[flat + 5]; Xdn[flat + 5] = Xup[flat]; }
-                else if (flat % 18 == 2 || flat % 18 == 5) { Xdn[flat] = Xup[flat + 10]; Xdn[flat + 10] = Xup[flat]; }
-                else if (sub_idx != 6 && sub_idx != 9 && sub_idx != 13 && sub_idx != 16 && sub_idx != 12 && sub_idx != 15) { Xdn[flat] = Xup[flat]; }
-            }
-        }
-        __syncthreads();
-        // oY[i] = iX0[i]^T . I_loc . iX0[i]  (world single-body spatial inertia)
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 468; ind += blockDim.x*blockDim.y){
-            int jid = ind / 36; int idx = ind % 36; int row = idx % 6; int col = idx / 6;
-            const T *Iloc = &s_XImats[36*(jid + 13)];
-            T *X = &s_iX0[jid*36];
-            T acc = static_cast<T>(0);
-            for (int kk = 0; kk < 6; ++kk) {
-                T ix = static_cast<T>(0);
-                for (int mm = 0; mm < 6; ++mm) ix += Iloc[kk + 6*mm] * X[mm + 6*col];
-                acc += X[kk + 6*row] * ix;
-            }
-            s_oY[ind] = acc;
-        }
-        __syncthreads();
-        // Sw[c] = oXi[body(c)] . S_col(c)  (world motion subspace, per internal column)
-        for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 18; c += blockDim.x*blockDim.y){
-            int jid = cor_col_body[c]; int s_row = cor_col_s_index[c]; T s_sgn = static_cast<T>(cor_col_s_sign[c]);
-            for (int row = 0; row < 6; ++row) s_Sw[c*6 + row] = s_sgn * s_oXi[jid*36 + s_row*6 + row];
-        }
-        __syncthreads();
-        // ov[i] = ov[parent] + sum_{c in body i} Sw[c]*(alpha_c * qd[true_vel(c)])
-        if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-            for (int jid = 0; jid < 13; ++jid) {
-                int par = cor_parent[jid];
-                for (int row = 0; row < 6; ++row) {
-                    T acc = (par < 0) ? static_cast<T>(0) : s_ov[par*6 + row];
-                    for (int c = cor_body_col_start[jid]; c < cor_body_col_start[jid + 1]; ++c) {
-                        acc += s_Sw[c*6 + row] * (cor_col_alpha[c] * s_qd[cor_col_true_vel[c]]);
-                    }
-                    s_ov[jid*6 + row] = acc;
-                }
-            }
-        }
-        __syncthreads();
-        // B[i] (per-body bias) and dJ[c] = crm(ov[i]) Sw[c]
-        for(int jid = threadIdx.x + threadIdx.y*blockDim.x; jid < 13; jid += blockDim.x*blockDim.y){
-            T *v = &s_ov[jid*6]; T *oY = &s_oY[jid*36]; T *Bi = &s_B[jid*36];
-            T oh[6];
-            for (int row = 0; row < 6; ++row) { T a = static_cast<T>(0); for (int kk = 0; kk < 6; ++kk) a += oY[row + 6*kk]*v[kk]; oh[row] = a; }
-            T hv[6]; for (int r = 0; r < 6; ++r) hv[r] = static_cast<T>(0.5) * v[r];
-            T hoh[6]; for (int r = 0; r < 6; ++r) hoh[r] = static_cast<T>(0.5) * oh[r];
-            T Crm[36];
-            Crm[0 + 6*0] = static_cast<T>(0);
-            Crm[0 + 6*1] = -hv[2];
-            Crm[0 + 6*2] = hv[1];
-            Crm[0 + 6*3] = static_cast<T>(0);
-            Crm[0 + 6*4] = static_cast<T>(0);
-            Crm[0 + 6*5] = static_cast<T>(0);
-            Crm[1 + 6*0] = hv[2];
-            Crm[1 + 6*1] = static_cast<T>(0);
-            Crm[1 + 6*2] = -hv[0];
-            Crm[1 + 6*3] = static_cast<T>(0);
-            Crm[1 + 6*4] = static_cast<T>(0);
-            Crm[1 + 6*5] = static_cast<T>(0);
-            Crm[2 + 6*0] = -hv[1];
-            Crm[2 + 6*1] = hv[0];
-            Crm[2 + 6*2] = static_cast<T>(0);
-            Crm[2 + 6*3] = static_cast<T>(0);
-            Crm[2 + 6*4] = static_cast<T>(0);
-            Crm[2 + 6*5] = static_cast<T>(0);
-            Crm[3 + 6*0] = static_cast<T>(0);
-            Crm[3 + 6*1] = -hv[5];
-            Crm[3 + 6*2] = hv[4];
-            Crm[3 + 6*3] = static_cast<T>(0);
-            Crm[3 + 6*4] = -hv[2];
-            Crm[3 + 6*5] = hv[1];
-            Crm[4 + 6*0] = hv[5];
-            Crm[4 + 6*1] = static_cast<T>(0);
-            Crm[4 + 6*2] = -hv[3];
-            Crm[4 + 6*3] = hv[2];
-            Crm[4 + 6*4] = static_cast<T>(0);
-            Crm[4 + 6*5] = -hv[0];
-            Crm[5 + 6*0] = -hv[4];
-            Crm[5 + 6*1] = hv[3];
-            Crm[5 + 6*2] = static_cast<T>(0);
-            Crm[5 + 6*3] = -hv[1];
-            Crm[5 + 6*4] = hv[0];
-            Crm[5 + 6*5] = static_cast<T>(0);
-            T Crf[36];
-            Crf[0 + 6*0] = static_cast<T>(0);
-            Crf[0 + 6*1] = -hv[2];
-            Crf[0 + 6*2] = hv[1];
-            Crf[0 + 6*3] = static_cast<T>(0);
-            Crf[0 + 6*4] = -hv[5];
-            Crf[0 + 6*5] = hv[4];
-            Crf[1 + 6*0] = hv[2];
-            Crf[1 + 6*1] = static_cast<T>(0);
-            Crf[1 + 6*2] = -hv[0];
-            Crf[1 + 6*3] = hv[5];
-            Crf[1 + 6*4] = static_cast<T>(0);
-            Crf[1 + 6*5] = -hv[3];
-            Crf[2 + 6*0] = -hv[1];
-            Crf[2 + 6*1] = hv[0];
-            Crf[2 + 6*2] = static_cast<T>(0);
-            Crf[2 + 6*3] = -hv[4];
-            Crf[2 + 6*4] = hv[3];
-            Crf[2 + 6*5] = static_cast<T>(0);
-            Crf[3 + 6*0] = static_cast<T>(0);
-            Crf[3 + 6*1] = static_cast<T>(0);
-            Crf[3 + 6*2] = static_cast<T>(0);
-            Crf[3 + 6*3] = static_cast<T>(0);
-            Crf[3 + 6*4] = -hv[2];
-            Crf[3 + 6*5] = hv[1];
-            Crf[4 + 6*0] = static_cast<T>(0);
-            Crf[4 + 6*1] = static_cast<T>(0);
-            Crf[4 + 6*2] = static_cast<T>(0);
-            Crf[4 + 6*3] = hv[2];
-            Crf[4 + 6*4] = static_cast<T>(0);
-            Crf[4 + 6*5] = -hv[0];
-            Crf[5 + 6*0] = static_cast<T>(0);
-            Crf[5 + 6*1] = static_cast<T>(0);
-            Crf[5 + 6*2] = static_cast<T>(0);
-            Crf[5 + 6*3] = -hv[1];
-            Crf[5 + 6*4] = hv[0];
-            Crf[5 + 6*5] = static_cast<T>(0);
-            T Icrf[36];
-            Icrf[0 + 6*0] = static_cast<T>(0);
-            Icrf[0 + 6*1] = hoh[2];
-            Icrf[0 + 6*2] = -hoh[1];
-            Icrf[0 + 6*3] = static_cast<T>(0);
-            Icrf[0 + 6*4] = hoh[5];
-            Icrf[0 + 6*5] = -hoh[4];
-            Icrf[1 + 6*0] = -hoh[2];
-            Icrf[1 + 6*1] = static_cast<T>(0);
-            Icrf[1 + 6*2] = hoh[0];
-            Icrf[1 + 6*3] = -hoh[5];
-            Icrf[1 + 6*4] = static_cast<T>(0);
-            Icrf[1 + 6*5] = hoh[3];
-            Icrf[2 + 6*0] = hoh[1];
-            Icrf[2 + 6*1] = -hoh[0];
-            Icrf[2 + 6*2] = static_cast<T>(0);
-            Icrf[2 + 6*3] = hoh[4];
-            Icrf[2 + 6*4] = -hoh[3];
-            Icrf[2 + 6*5] = static_cast<T>(0);
-            Icrf[3 + 6*0] = static_cast<T>(0);
-            Icrf[3 + 6*1] = hoh[5];
-            Icrf[3 + 6*2] = -hoh[4];
-            Icrf[3 + 6*3] = static_cast<T>(0);
-            Icrf[3 + 6*4] = static_cast<T>(0);
-            Icrf[3 + 6*5] = static_cast<T>(0);
-            Icrf[4 + 6*0] = -hoh[5];
-            Icrf[4 + 6*1] = static_cast<T>(0);
-            Icrf[4 + 6*2] = hoh[3];
-            Icrf[4 + 6*3] = static_cast<T>(0);
-            Icrf[4 + 6*4] = static_cast<T>(0);
-            Icrf[4 + 6*5] = static_cast<T>(0);
-            Icrf[5 + 6*0] = hoh[4];
-            Icrf[5 + 6*1] = -hoh[3];
-            Icrf[5 + 6*2] = static_cast<T>(0);
-            Icrf[5 + 6*3] = static_cast<T>(0);
-            Icrf[5 + 6*4] = static_cast<T>(0);
-            Icrf[5 + 6*5] = static_cast<T>(0);
-            for (int idx = 0; idx < 36; ++idx) {
-                int row = idx % 6; int col = idx / 6;
-                T t1 = static_cast<T>(0); T t2 = static_cast<T>(0);
-                for (int kk = 0; kk < 6; ++kk) { t1 += Crf[row + 6*kk]*oY[kk + 6*col]; t2 += oY[row + 6*kk]*Crm[kk + 6*col]; }
-                Bi[idx] = t1 - t2 + Icrf[idx];
-            }
-        }
-        __syncthreads();
-        // dJ[c] = crm(ov[body(c)]) . Sw[c]
-        for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 18; c += blockDim.x*blockDim.y){
-            int jid = cor_col_body[c]; T *v = &s_ov[jid*6];
-            T Crm[36];
-            Crm[0 + 6*0] = static_cast<T>(0);
-            Crm[0 + 6*1] = -v[2];
-            Crm[0 + 6*2] = v[1];
-            Crm[0 + 6*3] = static_cast<T>(0);
-            Crm[0 + 6*4] = static_cast<T>(0);
-            Crm[0 + 6*5] = static_cast<T>(0);
-            Crm[1 + 6*0] = v[2];
-            Crm[1 + 6*1] = static_cast<T>(0);
-            Crm[1 + 6*2] = -v[0];
-            Crm[1 + 6*3] = static_cast<T>(0);
-            Crm[1 + 6*4] = static_cast<T>(0);
-            Crm[1 + 6*5] = static_cast<T>(0);
-            Crm[2 + 6*0] = -v[1];
-            Crm[2 + 6*1] = v[0];
-            Crm[2 + 6*2] = static_cast<T>(0);
-            Crm[2 + 6*3] = static_cast<T>(0);
-            Crm[2 + 6*4] = static_cast<T>(0);
-            Crm[2 + 6*5] = static_cast<T>(0);
-            Crm[3 + 6*0] = static_cast<T>(0);
-            Crm[3 + 6*1] = -v[5];
-            Crm[3 + 6*2] = v[4];
-            Crm[3 + 6*3] = static_cast<T>(0);
-            Crm[3 + 6*4] = -v[2];
-            Crm[3 + 6*5] = v[1];
-            Crm[4 + 6*0] = v[5];
-            Crm[4 + 6*1] = static_cast<T>(0);
-            Crm[4 + 6*2] = -v[3];
-            Crm[4 + 6*3] = v[2];
-            Crm[4 + 6*4] = static_cast<T>(0);
-            Crm[4 + 6*5] = -v[0];
-            Crm[5 + 6*0] = -v[4];
-            Crm[5 + 6*1] = v[3];
-            Crm[5 + 6*2] = static_cast<T>(0);
-            Crm[5 + 6*3] = -v[1];
-            Crm[5 + 6*4] = v[0];
-            Crm[5 + 6*5] = static_cast<T>(0);
-            for (int row = 0; row < 6; ++row) { T a = static_cast<T>(0); for (int kk = 0; kk < 6; ++kk) a += Crm[row + 6*kk]*s_Sw[c*6 + kk]; s_dJ[c*6 + row] = a; }
-        }
-        __syncthreads();
-        // init composites oYc = oY, Bc = B
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 468; ind += blockDim.x*blockDim.y){
-            s_oYc[ind] = s_oY[ind]; s_Bc[ind] = s_B[ind];
-        }
-        __syncthreads();
-        // backward composite accumulation + per-column dFdv (serial, reverse body order)
-        if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-            for (int jid = 12; jid >= 0; --jid) {
-                for (int c = cor_body_col_start[jid]; c < cor_body_col_start[jid + 1]; ++c) {
-                    for (int row = 0; row < 6; ++row) {
-                        T a = static_cast<T>(0);
-                        for (int kk = 0; kk < 6; ++kk) a += s_oYc[jid*36 + row + 6*kk]*s_dJ[c*6 + kk] + s_Bc[jid*36 + row + 6*kk]*s_Sw[c*6 + kk];
-                        s_dFdv[c*6 + row] = a;
-                    }
-                }
-                int par = cor_parent[jid];
-                if (par >= 0) { for (int idx = 0; idx < 36; ++idx) { s_oYc[par*36 + idx] += s_oYc[jid*36 + idx]; s_Bc[par*36 + idx] += s_Bc[jid*36 + idx]; } }
-            }
-        }
-        __syncthreads();
-        // C assembly: fan over baked (i_col, t_col, body, kind) jobs
-        for(int job = threadIdx.x + threadIdx.y*blockDim.x; job < 216; job += blockDim.x*blockDim.y){
-            int ic = cor_job_icol[job]; int tc = cor_job_tcol[job]; int bi = cor_job_body[job]; int kind = cor_job_kind[job];
-            int rrow = cor_col_true_vel[ic]; int ccol = cor_col_true_vel[tc];
-            T coeff = cor_col_alpha[ic] * cor_col_alpha[tc];
-            T val;
-            if (kind == 0) {
-                // subtree: Sw[ic]^T dFdv[tc]
-                val = static_cast<T>(0); for (int r = 0; r < 6; ++r) val += s_Sw[ic*6 + r]*s_dFdv[tc*6 + r];
-            }
-            else {
-                // ancestor: (oYc[bi] Sw[ic])^T dJ[tc] + (Sw[ic]^T Bc[bi]) Sw[tc]
-                T ag[6]; for (int row = 0; row < 6; ++row) { T a = static_cast<T>(0); for (int kk = 0; kk < 6; ++kk) a += s_oYc[bi*36 + row + 6*kk]*s_Sw[ic*6 + kk]; ag[row] = a; }
-                T mt[6]; for (int colk = 0; colk < 6; ++colk) { T a = static_cast<T>(0); for (int kk = 0; kk < 6; ++kk) a += s_Sw[ic*6 + kk]*s_Bc[bi*36 + kk + 6*colk]; mt[colk] = a; }
-                T t1 = static_cast<T>(0); T t2 = static_cast<T>(0);
-                for (int r = 0; r < 6; ++r) { t1 += ag[r]*s_dJ[tc*6 + r]; t2 += mt[r]*s_Sw[tc*6 + r]; }
-                val = t1 + t2;
-            }
-            s_coriolis[rrow*18 + ccol] += coeff * val;
-        }
-        __syncthreads();
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param s_coriolis is the output Coriolis matrix (nv x nv)
-     * @param s_q is the vector of joint positions
-     * @param s_qd is the vector of joint velocities
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     */
-    template <typename T>
-    __device__
-    void coriolis_matrix_device(T *s_coriolis, const T *s_q, const T *s_qd, const robotModel<T> *d_robotModel, const T gravity) {
-        // GRID shared arena layout
-        //   T s_XImats[936]
-        //   T s_temp[3210]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-        extern __shared__ __align__(16) unsigned char s_arena[];
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3210);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(4146, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param d_coriolis is the output Coriolis matrix, row-major nv x nv = 324
-     * @param d_workspace is the L2-pinned spill workspace (used at the output-spill / whole-band tiers)
-     * @param d_q_qd is the vector of joint positions, velocities (q|qd)
-     * @param stride_q_qd is the stride between each (q, qd) pair
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void coriolis_matrix_kernel(T *d_coriolis, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_coriolis[324]
-            //   T s_XImats[936]
-            //   T s_temp[3210]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_coriolis = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(3210);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(4507, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                    s_q_qd[ind] = d_q_qd_k[ind];
-                }
-                __syncthreads();
-                (void)d_workspace;
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: congruence G s_coriolis G^T (base rows then base cols)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        for (int c = 0; c < 18; c++) { T m0 = s_coriolis[0 + 18*c], m1 = s_coriolis[1 + 18*c], m2 = s_coriolis[2 + 18*c]; s_coriolis[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_coriolis[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_coriolis[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                        for (int r = 0; r < 18; r++) { T m0 = s_coriolis[r + 18*0], m1 = s_coriolis[r + 18*1], m2 = s_coriolis[r + 18*2]; s_coriolis[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_coriolis[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_coriolis[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_coriolis_k = &d_coriolis[k*324];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                    d_coriolis_k[ind] = s_coriolis[ind];
-                }
-                __syncthreads();
-            }
-        }
-        else if constexpr (RESOURCE_TIER == TIER_LITE) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_coriolis[324]
-            //   T s_XImats[936]
-            //   T s_temp[3210]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_coriolis = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(3210);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(4507, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                    s_q_qd[ind] = d_q_qd_k[ind];
-                }
-                __syncthreads();
-                (void)d_workspace;
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: congruence G s_coriolis G^T (base rows then base cols)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        for (int c = 0; c < 18; c++) { T m0 = s_coriolis[0 + 18*c], m1 = s_coriolis[1 + 18*c], m2 = s_coriolis[2 + 18*c]; s_coriolis[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_coriolis[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_coriolis[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                        for (int r = 0; r < 18; r++) { T m0 = s_coriolis[r + 18*0], m1 = s_coriolis[r + 18*1], m2 = s_coriolis[r + 18*2]; s_coriolis[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_coriolis[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_coriolis[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_coriolis_k = &d_coriolis[k*324];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                    d_coriolis_k[ind] = s_coriolis[ind];
-                }
-                __syncthreads();
-            }
-        }
-        else if constexpr (RESOURCE_TIER == TIER_MINIMAL) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_XImats[936]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            T *s_temp = nullptr;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(973, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            T *s_coriolis;  // repointed to the L2-pinned SO band (output spill) per timing branch
-            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-                // load to shared mem
-                const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                    s_q_qd[ind] = d_q_qd_k[ind];
-                }
-                __syncthreads();
-                T *coriolis_d_workspace = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]);
-                s_temp = coriolis_d_workspace;
-                s_coriolis = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx input convert: quaternion wxyz->xyzw, base-linear velocity/accel/force -> pin frame
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qw_in = s_q[3];
-                        s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
-                        s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                        s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                        s_qd[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                    }
-                    __syncthreads();
-                }
-                // compute
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-                if constexpr (MUJOCO_OUTPUT) {
-                    // mjx output: congruence G s_coriolis G^T (base rows then base cols)
-                    if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                        for (int c = 0; c < 18; c++) { T m0 = s_coriolis[0 + 18*c], m1 = s_coriolis[1 + 18*c], m2 = s_coriolis[2 + 18*c]; s_coriolis[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_coriolis[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_coriolis[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                        for (int r = 0; r < 18; r++) { T m0 = s_coriolis[r + 18*0], m1 = s_coriolis[r + 18*1], m2 = s_coriolis[r + 18*2]; s_coriolis[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_coriolis[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_coriolis[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
-                    }
-                    __syncthreads();
-                }
-                // save down to global
-                T *d_coriolis_k = &d_coriolis[k*324];
-                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                    d_coriolis_k[ind] = s_coriolis[ind];
-                }
-                __syncthreads();
-            }
-        }
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param d_coriolis is the output Coriolis matrix, row-major nv x nv = 324
-     * @param d_workspace is the L2-pinned spill workspace (used at the output-spill / whole-band tiers)
-     * @param d_q_qd is the vector of joint positions, velocities (q|qd)
-     * @param stride_q_qd is the stride between each (q, qd) pair
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     */
-    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
-    __global__
-    __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
-    void coriolis_matrix_kernel_single_timing(T *d_coriolis, unsigned char *d_workspace, const T *d_q_qd, const int stride_q_qd, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
-        if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_coriolis[324]
-            //   T s_XImats[936]
-            //   T s_temp[3210]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_coriolis = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(3210);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(4507, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd[ind];
-            }
-            __syncthreads();
-            (void)d_workspace;
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                d_coriolis[ind] = s_coriolis[ind];
-            }
-            __syncthreads();
-        }
-        else if constexpr (RESOURCE_TIER == TIER_LITE) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_coriolis[324]
-            //   T s_XImats[936]
-            //   T s_temp[3210]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_coriolis = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(324);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(3210);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(4507, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd[ind];
-            }
-            __syncthreads();
-            (void)d_workspace;
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                d_coriolis[ind] = s_coriolis[ind];
-            }
-            __syncthreads();
-        }
-        else if constexpr (RESOURCE_TIER == TIER_MINIMAL) {
-            // GRID shared arena layout
-            //   T s_q_qd[37]
-            //   T s_XImats[936]
-            //   int s_topology_helpers[115]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
-            extern __shared__ __align__(16) unsigned char s_arena[];
-            size_t s_arena_offset = 0;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_q_qd = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(37);
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(T) * static_cast<size_t>(936);
-            T *s_temp = nullptr;
-            s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-            int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-            s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
-            #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(973, 115, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
-            #endif
-            (void)s_arena_offset;
-            T *s_q = s_q_qd; T *s_qd = &s_q_qd[19];
-            T *s_coriolis;  // repointed to the L2-pinned SO band (output spill) per timing branch
-            // load to shared mem
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
-                s_q_qd[ind] = d_q_qd[ind];
-            }
-            __syncthreads();
-            T *coriolis_d_workspace = reinterpret_cast<T *>(d_workspace);
-            s_temp = coriolis_d_workspace;
-            s_coriolis = reinterpret_cast<T *>(&d_workspace[GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]);
-            // compute with NUM_TIMESTEPS as NUM_REPS for timing
-            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                coriolis_matrix_inner<T>(s_coriolis, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, gravity);
-                __syncthreads();
-            }
-            // save down to global
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 324; ind += blockDim.x*blockDim.y){
-                d_coriolis[ind] = s_coriolis[ind];
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_coriolis, nv*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void coriolis_matrix(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                          const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "coriolis_matrix requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_89 = grid_host_clamp_threads((const void*)&coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_89,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_89,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        // finally transfer the result back into the gridData host buffer (hd_data->d_coriolis -> hd_data->h_coriolis)
-        gpuErrchk(cudaMemcpy(hd_data->h_coriolis,hd_data->d_coriolis,num_timesteps*324*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_coriolis, nv*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void coriolis_matrix_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                        const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "coriolis_matrix requires all-data or dynamics gridData");
-        // start code with memory transfer
-        int stride_q_qd;
-        if (USE_COMPRESSED_MEM) {stride_q_qd = 2*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd,hd_data->h_q_qd,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        else {stride_q_qd = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q_qd*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
-        dim3 _grid_thr_clamped_90 = grid_host_clamp_threads((const void*)&coriolis_matrix_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {coriolis_matrix_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_90,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {coriolis_matrix_kernel_single_timing<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<block_dimms,_grid_thr_clamped_90,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-        clock_gettime(CLOCK_MONOTONIC,&end);
-        // finally transfer the result back into the gridData host buffer (hd_data->d_coriolis -> hd_data->h_coriolis)
-        gpuErrchk(cudaMemcpy(hd_data->h_coriolis,hd_data->d_coriolis,324*sizeof(T),cudaMemcpyDeviceToHost));
-        gpuErrchkKernel();
-        printf("Single Call CORIOLIS_MATRIX %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
-    }
-
-    /**
-     * Compute the Coriolis matrix C(q, qd)
-     *
-     * @param hd_data is the packaged input and output pointers (q/qd inputs; output written to hd_data->d_coriolis, nv*nv*num_timesteps floats)
-     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU
-     * @param gravity is the gravity constant (unused)
-     * @param num_timesteps is the length of the trajectory points
-     * @param streams are pointers to CUDA streams for async memory transfers
-     */
-    template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, bool MUJOCO_OUTPUT = false, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
-    __host__
-    void coriolis_matrix_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps,
-                                       const dim3 block_dimms, const dim3 thread_dimms) {
-        static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS, "coriolis_matrix requires all-data or dynamics gridData");
-        int stride_q_qd = USE_COMPRESSED_MEM ? 2*NUM_JOINTS : 3*NUM_JOINTS;
-        // then call the kernel
-        gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()));
-        const int _grid_ws_n = (hd_data->workspace_timestep_slots > 0 && hd_data->workspace_timestep_slots < num_timesteps) ? hd_data->workspace_timestep_slots : num_timesteps;
-        dim3 _ws_grid = block_dimms;
-        if ((int)(_ws_grid.x*_ws_grid.y*_ws_grid.z) > _grid_ws_n) { _ws_grid = dim3(_grid_ws_n,1,1); }
-        dim3 _grid_thr_clamped_91 = grid_host_clamp_threads((const void*)&coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT>, thread_dimms);
-        if (USE_COMPRESSED_MEM) {coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_91,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        else                    {coriolis_matrix_kernel<T, RESOURCE_TIER, MUJOCO_OUTPUT><<<_ws_grid,_grid_thr_clamped_91,CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>()>>>(hd_data->d_coriolis,hd_data->d_workspace,hd_data->d_q_qd_u,stride_q_qd,d_robotModel,gravity,num_timesteps);}
-        gpuErrchkKernel();
-    }
-
+    // [centroidal] generalized_gravity/nonlinear_effects skipped: not requested (request 'generalized_gravity'/'nonlinear_effects').
+    // [centroidal] com/ccrba/energy/dccrba/cmm_time_variation skipped: not requested.
+    // [coriolis] coriolis_matrix skipped: not requested (request 'coriolis_matrix').
     /**
      * Run inverse dynamics, Minv, and forward dynamics in sequence
      *
@@ -53064,7 +44793,6 @@ namespace grid {
         forward_dynamics<T,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         inverse_dynamics_gradient<T,false,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         forward_dynamics_gradient<T,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
-        aba<T,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         crba<T,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
     }
 
@@ -53082,7 +44810,6 @@ namespace grid {
         forward_dynamics<T,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         inverse_dynamics_gradient<T,false,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         forward_dynamics_gradient<T,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
-        aba<T,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
         crba<T,false,KIND>(hd_data,d_robotModel,gravity,num_timesteps,block_dimms,thread_dimms,streams);
     }
 
@@ -53142,347 +44869,354 @@ namespace grid {
             auto _grid_kern_alias_7 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
-        if (ABA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba", ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_8 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
         if (CRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("crba", CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_8 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_12 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_13 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_10 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_11 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_12 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_13 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_19 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_20 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_19 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_20 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient", F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_24 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_24, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_25 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_25, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_22 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_23 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient_dq", F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_26 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_26, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_27 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_27, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_28 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_28, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_29 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_29, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("kinetic_energy_regressor", KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_30 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&kinetic_energy_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_30, cudaFuncAttributeMaxDynamicSharedMemorySize, KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_31 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&kinetic_energy_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_31, cudaFuncAttributeMaxDynamicSharedMemorySize, KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("potential_energy_regressor", POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_32 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&potential_energy_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_32, cudaFuncAttributeMaxDynamicSharedMemorySize, POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_33 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&potential_energy_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_33, cudaFuncAttributeMaxDynamicSharedMemorySize, POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_parameter_gradient", FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_34 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&forward_dynamics_parameter_gradient_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_34, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_35 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&forward_dynamics_parameter_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_35, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_body_frame", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_36 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_36, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_37 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_37, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_24 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_24, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_25 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_25, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_38 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_38, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_39 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_39, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_26 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_26, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_27 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_27, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // idsva_so_world_frame: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_28 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_28, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_29 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel_single_timing<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_29, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
         if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_40 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_40, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_41 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_41, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_30 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_30, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_31 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_31, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // fdsva_so: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_32 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_32, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_33 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_33, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
         if (INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_42 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER>);
+            auto _grid_kern_alias_34 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_34, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_35 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_35, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_36 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_36, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_37 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_37, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_38 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_38, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_39 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_39, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_40 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_40, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_41 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_41, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_42 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_42, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_43 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            auto _grid_kern_alias_43 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_43, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_44 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
+            auto _grid_kern_alias_44 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_44, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3>);
+            auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_45, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_49 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_54 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
+            auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_49 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_54 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_54, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_55 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            auto _grid_kern_alias_55 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_55, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_56 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
+            auto _grid_kern_alias_56 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_56, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
+            auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_57, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_60 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_61 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_62 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_63 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_64 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_65 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // integrator_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_60 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_61 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_62 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_63 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_64 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_65 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_66 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_66, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_67 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_67, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_68 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_68, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_69 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_69, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
         if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_66 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_66, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_67 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_67, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_68 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_68, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_69 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_69, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_70 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
+            auto _grid_kern_alias_70 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_70, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_71 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            auto _grid_kern_alias_71 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_71, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_72 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
+            auto _grid_kern_alias_72 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_72, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_73 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            auto _grid_kern_alias_73 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_73, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_74 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+            auto _grid_kern_alias_74 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_74, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_75 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+            auto _grid_kern_alias_75 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_75, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_76 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+            auto _grid_kern_alias_76 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_76, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_77 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+            auto _grid_kern_alias_77 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_77, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_78 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_78, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_79 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_79, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_80 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_80, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_81 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_81, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // integrator_with_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_82 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_82, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_83 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_83, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_84 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_84, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_85 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_85, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_86 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_86, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_87 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_87, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_88 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_88, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_89 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_89, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_90 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_90, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_91 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_91, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_92 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_92, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_93 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_93, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
         if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_78 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_78, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_79 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_79, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_94 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_94, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_95 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_95, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
-        if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_80 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_80, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_81 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_81, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_82 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_82, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_83 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_83, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_84 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_84, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_85 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_85, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_86 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_86, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_87 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_87, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_88 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_88, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_89 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_89, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (COM_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_90 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_90, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_91 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_91, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_92 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_92, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_93 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_93, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_94 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_94, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_95 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_95, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        // end_effector_pose_hessian: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_96 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_96, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_97 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_97, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
         if (INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics(mjx)", INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_96 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_96, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_98 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_98, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (MINV_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("minv(mjx)", MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_97 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_97, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_99 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_99, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics(mjx)", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_98 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_98, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (ABA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba(mjx)", ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_99 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_99, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_100 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_100, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (CRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("crba(mjx)", CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_100 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_100, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_101 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_101, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose(mjx)", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_101 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_101, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_102 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_102, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient(mjx)", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_102 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_102, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_103 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_103, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian(mjx)", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_103 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_103, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_104 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_104, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // end_effector_pose_hessian(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian(mjx)@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_105 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_105, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
         if (INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient(mjx)", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_104 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_104, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_106 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_106, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient(mjx)", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_105 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_105, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-        if (INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor(mjx)", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_106 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_106, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_107 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_107, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_107 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_107, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_108 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_108, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // idsva_so_world_frame(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_109 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_109, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
         if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_108 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_108, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_110 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_110, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // fdsva_so(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_111 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_111, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
         if (INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator(mjx)", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_109 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_109, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_110 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_110, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_111 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_111, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_112 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3, GRID_DEFAULT_RESOURCE_TIER, true>);
+            auto _grid_kern_alias_112 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_112, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_113 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, GRID_DEFAULT_RESOURCE_TIER, true>);
+            auto _grid_kern_alias_113 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_113, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_114 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_114, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_115 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_115, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_116 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_116, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
         if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient(mjx)", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_114 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_114, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_115 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_115, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_117 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_117, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            auto _grid_kern_alias_118 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_118, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // integrator_gradient(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient(mjx)@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_119 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_119, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_120 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_120, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
     }
 
@@ -53583,38 +45317,6 @@ namespace grid {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics(mjx)", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the aba kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_aba(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (ABA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba", ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the aba(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_aba_mjx(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (ABA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("aba(mjx)", ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&aba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, ABA_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
     }
 
@@ -53821,106 +45523,6 @@ namespace grid {
     }
 
     /**
-     * Set MaxDynamicSharedMemorySize for the inverse_dynamics_regressor kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_inverse_dynamics_regressor(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the inverse_dynamics_regressor(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_inverse_dynamics_regressor_mjx(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_regressor(mjx)", INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&inverse_dynamics_regressor_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the kinetic_energy_regressor kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_kinetic_energy_regressor(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("kinetic_energy_regressor", KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&kinetic_energy_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&kinetic_energy_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the potential_energy_regressor kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_potential_energy_regressor(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("potential_energy_regressor", POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&potential_energy_regressor_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const T, const int)>(&potential_energy_regressor_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the forward_dynamics_parameter_gradient kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_forward_dynamics_parameter_gradient(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_parameter_gradient", FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&forward_dynamics_parameter_gradient_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&forward_dynamics_parameter_gradient_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the idsva_so_body_frame kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_idsva_so_body_frame(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_body_frame", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
      * Set MaxDynamicSharedMemorySize for the idsva_so_world_frame kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -53934,6 +45536,15 @@ namespace grid {
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // idsva_so_world_frame: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel_single_timing<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
     }
 
@@ -53949,6 +45560,13 @@ namespace grid {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // idsva_so_world_frame(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
     }
 
@@ -53967,6 +45585,15 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+        // fdsva_so: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T, TIER_MINIMAL>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+        }
     }
 
     /**
@@ -53981,6 +45608,13 @@ namespace grid {
             gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // fdsva_so(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
     }
 
@@ -54079,6 +45713,35 @@ namespace grid {
             auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+        // integrator_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_12 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_13 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_19 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_20 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+        }
     }
 
     /**
@@ -54095,6 +45758,15 @@ namespace grid {
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        }
+        // integrator_gradient(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient(mjx)@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
     }
 
@@ -54133,6 +45805,35 @@ namespace grid {
             auto _grid_kern_alias_11 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+        // integrator_with_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_12 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_13 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_14 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_15 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_16 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_17 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_18 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_19 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_20 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_21 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_22 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_23 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+        }
     }
 
     /**
@@ -54150,6 +45851,15 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+        // end_effector_pose_hessian: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T, TIER_LITE>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+        }
     }
 
     /**
@@ -54165,141 +45875,12 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the generalized_gravity kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_generalized_gravity(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("generalized_gravity", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&generalized_gravity_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the nonlinear_effects kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_nonlinear_effects(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("nonlinear_effects", INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&nonlinear_effects_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the coriolis_matrix kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_coriolis_matrix(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("coriolis_matrix", CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&coriolis_matrix_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the cmm_time_variation kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_cmm_time_variation(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("cmm_time_variation", CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&cmm_time_variation_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the dccrba kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_dccrba(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("dccrba", DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&dccrba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the com kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_com(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (COM_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("com", COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&com_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, COM_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the ccrba kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_ccrba(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("ccrba", CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&ccrba_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
-        }
-    }
-
-    /**
-     * Set MaxDynamicSharedMemorySize for the energy kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
-     *
-     */
-    template <typename T>
-    __host__ __forceinline__
-    void init_grid_kernel_attr_energy(){
-        size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
-        if (ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-            gpuErrchk(grid_check_dynamic_shared_memory_bytes("energy", ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
-            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&energy_kernel_single_timing<T>);
-            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>()));
+        // end_effector_pose_hessian(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian(mjx)@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE, true>);
+            gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
     }
 
@@ -54355,36 +45936,38 @@ namespace grid {
     __host__
     void close_grid(cudaStream_t *streams, robotModel<T> *d_robotModel, gridData<T, KIND> *hd_data){
         free_robotModel(d_robotModel); // frees nested d_XImats/d_topology_helpers(+runtime tables)+struct (bare cudaFree would leak the nested arrays)
-        gpuErrchk(cudaFree(hd_data->d_q_qd_u)); gpuErrchk(cudaFree(hd_data->d_q_qd)); gpuErrchk(cudaFree(hd_data->d_q));
-        gpuErrchk(cudaFree(hd_data->d_f_ext)); free(hd_data->h_f_ext);
-        gpuErrchk(cudaFree(hd_data->d_c)); gpuErrchk(cudaFree(hd_data->d_Minv)); gpuErrchk(cudaFree(hd_data->d_qdd)); gpuErrchk(cudaFree(hd_data->d_M));
-        gpuErrchk(cudaFree(hd_data->d_dc_du)); gpuErrchk(cudaFree(hd_data->d_df_du));
-        gpuErrchk(cudaFree(hd_data->d_dtau_dfext)); gpuErrchk(cudaFree(hd_data->d_dqdd_dfext));
-        free(hd_data->h_dtau_dfext); free(hd_data->h_dqdd_dfext);
-        gpuErrchk(cudaFree(hd_data->d_f_ext_gradient_dq)); free(hd_data->h_f_ext_gradient_dq);
-        gpuErrchk(cudaFree(hd_data->d_Y)); gpuErrchk(cudaFree(hd_data->d_dqdd_dpi));
-        free(hd_data->h_Y); free(hd_data->h_dqdd_dpi);
-        gpuErrchk(cudaFree(hd_data->d_ke_regressor)); gpuErrchk(cudaFree(hd_data->d_pe_regressor));
-        free(hd_data->h_ke_regressor); free(hd_data->h_pe_regressor);
-        gpuErrchk(cudaFree(hd_data->d_coriolis)); free(hd_data->h_coriolis);
-        gpuErrchk(cudaFree(hd_data->d_dccrba)); gpuErrchk(cudaFree(hd_data->d_cmm_time_variation));
-        free(hd_data->h_dccrba); free(hd_data->h_cmm_time_variation);
-        gpuErrchk(cudaFree(hd_data->d_end_effector_pose)); gpuErrchk(cudaFree(hd_data->d_end_effector_pose_gradient)); gpuErrchk(cudaFree(hd_data->d_end_effector_pose_hessian));
+        gpuErrchk(grid_device_free(hd_data->d_q_qd_u)); gpuErrchk(grid_device_free(hd_data->d_q_qd)); gpuErrchk(grid_device_free(hd_data->d_q));
+        gpuErrchk(grid_device_free(hd_data->d_f_ext)); grid_host_free(hd_data->h_f_ext);
+        gpuErrchk(grid_device_free(hd_data->d_c)); gpuErrchk(grid_device_free(hd_data->d_Minv)); gpuErrchk(grid_device_free(hd_data->d_qdd)); gpuErrchk(grid_device_free(hd_data->d_M));
+        gpuErrchk(grid_device_free(hd_data->d_dc_du)); gpuErrchk(grid_device_free(hd_data->d_df_du));
+        gpuErrchk(grid_device_free(hd_data->d_dtau_dfext)); gpuErrchk(grid_device_free(hd_data->d_dqdd_dfext));
+        grid_host_free(hd_data->h_dtau_dfext); grid_host_free(hd_data->h_dqdd_dfext);
+        gpuErrchk(grid_device_free(hd_data->d_f_ext_gradient_dq)); grid_host_free(hd_data->h_f_ext_gradient_dq);
+        gpuErrchk(grid_device_free(hd_data->d_Y)); gpuErrchk(grid_device_free(hd_data->d_dqdd_dpi));
+        grid_host_free(hd_data->h_Y); grid_host_free(hd_data->h_dqdd_dpi);
+        gpuErrchk(grid_device_free(hd_data->d_dY_dx)); grid_host_free(hd_data->h_dY_dx);
+        gpuErrchk(grid_device_free(hd_data->d_ke_regressor)); gpuErrchk(grid_device_free(hd_data->d_pe_regressor));
+        grid_host_free(hd_data->h_ke_regressor); grid_host_free(hd_data->h_pe_regressor);
+        gpuErrchk(grid_device_free(hd_data->d_coriolis)); grid_host_free(hd_data->h_coriolis);
+        gpuErrchk(grid_device_free(hd_data->d_dccrba)); gpuErrchk(grid_device_free(hd_data->d_cmm_time_variation));
+        grid_host_free(hd_data->h_dccrba); grid_host_free(hd_data->h_cmm_time_variation);
+        gpuErrchk(grid_device_free(hd_data->d_end_effector_pose)); gpuErrchk(grid_device_free(hd_data->d_end_effector_pose_gradient)); gpuErrchk(grid_device_free(hd_data->d_end_effector_pose_hessian));
         gpuErrchk(grid_end_l2_persisting(0));
-        gpuErrchk(cudaFree(hd_data->d_workspace));
-        gpuErrchk(cudaFree(hd_data->d_idsva_so));
-        gpuErrchk(cudaFree(hd_data->d_df2));
-        free(hd_data->h_idsva_so); free(hd_data->h_df2);
-        free(hd_data->h_q_qd_u); free(hd_data->h_q_qd); free(hd_data->h_q);
-        free(hd_data->h_c); free(hd_data->h_Minv); free(hd_data->h_qdd); free(hd_data->h_M);
-        free(hd_data->h_dc_du); free(hd_data->h_df_du);
-        free(hd_data->h_end_effector_pose); free(hd_data->h_end_effector_pose_gradient); free(hd_data->h_end_effector_pose_hessian);
-        gpuErrchk(cudaFree(hd_data->d_frame_jacobian)); gpuErrchk(cudaFree(hd_data->d_frame_jacobian_dot)); gpuErrchk(cudaFree(hd_data->d_osc_inertia));
-        free(hd_data->h_frame_jacobian); free(hd_data->h_frame_jacobian_dot); free(hd_data->h_osc_inertia);
-        gpuErrchk(cudaFree(hd_data->d_eePose)); gpuErrchk(cudaFree(hd_data->d_eePoseGrad)); gpuErrchk(cudaFree(hd_data->d_eepose_runtime_offset));
-        free(hd_data->h_eePose); free(hd_data->h_eePoseGrad);
-        gpuErrchk(cudaFree(hd_data->d_x_kp1)); gpuErrchk(cudaFree(hd_data->d_dAB));
-        free(hd_data->h_x_kp1); free(hd_data->h_dAB);
+        gpuErrchk(grid_device_free(hd_data->d_workspace));
+        gpuErrchk(grid_device_free(hd_data->d_idsva_so));
+        gpuErrchk(grid_device_free(hd_data->d_df2));
+        grid_host_free(hd_data->h_idsva_so); grid_host_free(hd_data->h_df2);
+        grid_host_free(hd_data->h_q_qd_u); grid_host_free(hd_data->h_q_qd); grid_host_free(hd_data->h_q);
+        grid_host_free(hd_data->h_c); grid_host_free(hd_data->h_Minv); grid_host_free(hd_data->h_qdd); grid_host_free(hd_data->h_M);
+        grid_host_free(hd_data->h_dc_du); grid_host_free(hd_data->h_df_du);
+        grid_host_free(hd_data->h_end_effector_pose); grid_host_free(hd_data->h_end_effector_pose_gradient); grid_host_free(hd_data->h_end_effector_pose_hessian);
+        gpuErrchk(grid_device_free(hd_data->d_frame_jacobian)); gpuErrchk(grid_device_free(hd_data->d_frame_jacobian_dot)); gpuErrchk(grid_device_free(hd_data->d_osc_inertia));
+        grid_host_free(hd_data->h_frame_jacobian); grid_host_free(hd_data->h_frame_jacobian_dot); grid_host_free(hd_data->h_osc_inertia);
+        gpuErrchk(grid_device_free(hd_data->d_eePose)); gpuErrchk(grid_device_free(hd_data->d_eePoseGrad)); gpuErrchk(grid_device_free(hd_data->d_eepose_runtime_offset));
+        grid_host_free(hd_data->h_eePose); grid_host_free(hd_data->h_eePoseGrad);
+        gpuErrchk(grid_device_free(hd_data->d_x_kp1)); gpuErrchk(grid_device_free(hd_data->d_dAB));
+        grid_host_free(hd_data->h_x_kp1); grid_host_free(hd_data->h_dAB);
+        grid_device_pool().used = 0;
         for(int i=0; i<3; i++){gpuErrchk(cudaStreamDestroy(streams[i]));} free(streams);
     }
 
@@ -55489,513 +47072,7 @@ namespace grid_plant {
     }
 
     // [grid_plant] tracking_cost preset skipped: fixed-base only (NUM_POS == NUM_VEL); floating-base composition is a follow-up.
-    /**
-     * com_cost: value = 1/2 sum_r W[r] (p_com_r(q) - p_des_r)^2 over the 3 CoM axes
-     *
-     * Notes:
-     *   Caller-scratch INNER: lays out the centroidal arena from s_scratch and runs centroidal_inner (fills s_com = CoM pos, s_A = CMM, s_extra = mass), NOT the auto-allocating grid::com_device, so it is callable from another kernel's block without aliasing that kernel's dynamic-smem arena.
-     *   s_scratch must hold >= COM_DYNAMIC_SHARED_MEM_COUNT elements of T (16B aligned).
-     *
-     * @param s_out scalar cost
-     * @param s_q joint positions
-     * @param s_p_des desired CoM (3)
-     * @param s_W per-axis weight (3)
-     * @param s_scratch caller centroidal-arena scratch (>= COM_DYNAMIC_SHARED_MEM_COUNT)
-     * @param d_robotModel GPU model helpers
-     */
-    template <typename T, bool ACCUMULATE = false>
-    __device__
-    void com_cost(T *s_out, const T *s_q, const T *s_p_des, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T acc = static_cast<T>(0);
-            #pragma unroll
-            for (int r = 0; r < 3; ++r) { T e = s_com[r] - s_p_des[r]; acc += static_cast<T>(0.5) * s_W[r] * e * e; }
-            if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
-        }
-    }
-
-    /**
-     * com_cost_gradient: grad_x = [J_com^T W (p_com - p_des) ; 0]
-     *
-     * Notes:
-     *   Caller-scratch INNER (centroidal_inner from s_scratch): J_com[r,vi] = s_A[r + 6*vi] / mass (top-3 rows of the CMM s_A / mass).
-     *
-     * @param s_grad gradient over x (37)
-     * @param s_q / s_p_des / s_W / d_robotModel as above
-     * @param s_scratch caller centroidal-arena scratch (>= COM_DYNAMIC_SHARED_MEM_COUNT)
-     */
-    template <typename T, bool ACCUMULATE = false, bool MUJOCO_OUTPUT = false>
-    __device__
-    void com_cost_gradient(T *s_grad, const T *s_q, const T *s_p_des, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        T inv_m = static_cast<T>(1) / s_extra[0];
-        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 18; i += blockDim.x*blockDim.y){
-            T g = static_cast<T>(0);
-            #pragma unroll
-            for (int r = 0; r < 3; ++r) { T Jri = s_A[r + 6*i] * inv_m; T e = s_com[r] - s_p_des[r]; g += Jri * s_W[r] * e; }
-            if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
-        }
-        if (!ACCUMULATE) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 19; i += blockDim.x*blockDim.y){
-                s_grad[18 + i] = static_cast<T>(0);
-            }
-        }
-        __syncthreads();
-        if constexpr (MUJOCO_OUTPUT) {
-            // mjx output: base-linear rows of s_grad <- R * rows
-            if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                T b0 = s_grad[0], b1 = s_grad[1], b2 = s_grad[2];
-                s_grad[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
-                s_grad[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
-                s_grad[2] = R[6]*b0 + R[7]*b1 + R[8]*b2;
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * com_cost_hessian: Gauss-Newton hessian = J_com^T diag(W) J_com in the q-block of the x-hessian
-     *
-     * Notes:
-     *   Caller-scratch INNER (centroidal_inner from s_scratch); J_com[r,vi] = s_A[r + 6*vi] / mass.
-     *   Dense column-major NX x NX; only the top-left NUM_VEL x NUM_VEL q-block is non-zero.
-     *
-     * @param s_hess dense x-hessian (1369)
-     * @param s_q / s_W / d_robotModel as above
-     * @param s_scratch caller centroidal-arena scratch (>= COM_DYNAMIC_SHARED_MEM_COUNT)
-     */
-    template <typename T, bool ACCUMULATE = false, bool MUJOCO_OUTPUT = false>
-    __device__
-    void com_cost_hessian(T *s_hess, const T *s_q, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        T inv_m = static_cast<T>(1) / s_extra[0];
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1369; ind += blockDim.x*blockDim.y){
-            int row = ind % 37; int col = ind / 37;
-            T h = static_cast<T>(0);
-            if (row < 18 && col < 18) {
-                #pragma unroll
-                for (int r = 0; r < 3; ++r) { T Jri = s_A[r + 6*row] * inv_m; T Jrj = s_A[r + 6*col] * inv_m; h += Jri * s_W[r] * Jrj; }
-            }
-            if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
-        }
-        __syncthreads();
-        if constexpr (MUJOCO_OUTPUT) {
-            // mjx output: congruence G s_hess G^T (base rows then base cols)
-            if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                for (int c = 0; c < 37; c++) { T m0 = s_hess[0 + 37*c], m1 = s_hess[1 + 37*c], m2 = s_hess[2 + 37*c]; s_hess[0 + 37*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_hess[1 + 37*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_hess[2 + 37*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
-                for (int r = 0; r < 37; r++) { T m0 = s_hess[r + 37*0], m1 = s_hess[r + 37*1], m2 = s_hess[r + 37*2]; s_hess[r + 37*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_hess[r + 37*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_hess[r + 37*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * momentum_cost: value = 1/2 sum_r W[r] (h_r(q,qd) - h_des_r)^2 over the 6 centroidal components
-     *
-     * Notes:
-     *   Caller-scratch INNER: lays out the centroidal arena from s_scratch and runs centroidal_inner (fills s_A = CMM 6 x NUM_VEL col-major), NOT the auto-allocating grid::ccrba_device. The momentum h = A*qd is computed here from s_A (ccrba's separate h-output is not in the arena).
-     *   s_scratch must hold >= CCRBA_DYNAMIC_SHARED_MEM_COUNT elements of T (16B aligned).
-     *
-     * @param s_out scalar cost
-     * @param s_q / s_qd joint position/velocity
-     * @param s_h_des desired momentum (6)
-     * @param s_W per-component weight (6)
-     * @param s_scratch caller centroidal-arena scratch (>= CCRBA_DYNAMIC_SHARED_MEM_COUNT)
-     * @param d_robotModel GPU model helpers
-     */
-    template <typename T, bool ACCUMULATE = false>
-    __device__
-    void momentum_cost(T *s_out, const T *s_q, const T *s_qd, const T *s_h_des, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        __shared__ T s_e[6];
-        for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 6; r += blockDim.x*blockDim.y){
-            T h = static_cast<T>(0);
-            #pragma unroll
-            for (int vi = 0; vi < 18; ++vi) h += s_A[r + 6*vi] * s_qd[vi];
-            s_e[r] = h - s_h_des[r];
-        }
-        __syncthreads();
-        if(threadIdx.x == 0 && threadIdx.y == 0){
-            T acc = static_cast<T>(0);
-            #pragma unroll
-            for (int r = 0; r < 6; ++r) { T e = s_e[r]; acc += static_cast<T>(0.5) * s_W[r] * e * e; }
-            if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
-        }
-    }
-
-    /**
-     * momentum_cost_gradient: grad_x = [0 ; A^T W (h - h_des)] (q-block dropped, GN on A)
-     *
-     * Notes:
-     *   Caller-scratch INNER (centroidal_inner from s_scratch): A = s_A[r + 6*vi] (6 x NUM_VEL column-major, the CMM); h = A*qd; J_h = A (GN drops dA/dq).
-     *
-     * @param s_grad gradient over x (37)
-     * @param s_q / s_qd / s_h_des / s_W / d_robotModel as above
-     * @param s_scratch caller centroidal-arena scratch (>= CCRBA_DYNAMIC_SHARED_MEM_COUNT)
-     */
-    template <typename T, bool ACCUMULATE = false, bool MUJOCO_OUTPUT = false>
-    __device__
-    void momentum_cost_gradient(T *s_grad, const T *s_q, const T *s_qd, const T *s_h_des, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        __shared__ T s_e[6];
-        for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 6; r += blockDim.x*blockDim.y){
-            T h = static_cast<T>(0);
-            #pragma unroll
-            for (int vi = 0; vi < 18; ++vi) h += s_A[r + 6*vi] * s_qd[vi];
-            s_e[r] = h - s_h_des[r];
-        }
-        __syncthreads();
-        if (!ACCUMULATE) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 19; i += blockDim.x*blockDim.y){
-                s_grad[i] = static_cast<T>(0);
-            }
-        }
-        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 18; i += blockDim.x*blockDim.y){
-            T g = static_cast<T>(0);
-            #pragma unroll
-            for (int r = 0; r < 6; ++r) { g += s_A[r + 6*i] * s_W[r] * s_e[r]; }
-            if (ACCUMULATE) { s_grad[19 + i] += g; } else { s_grad[19 + i] = g; }
-        }
-        __syncthreads();
-        if constexpr (MUJOCO_OUTPUT) {
-            // mjx output: base-linear rows of (s_grad + 19) <- R * rows
-            if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                T b0 = (s_grad + 19)[0], b1 = (s_grad + 19)[1], b2 = (s_grad + 19)[2];
-                (s_grad + 19)[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
-                (s_grad + 19)[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
-                (s_grad + 19)[2] = R[6]*b0 + R[7]*b1 + R[8]*b2;
-            }
-            __syncthreads();
-        }
-    }
-
-    /**
-     * momentum_cost_hessian: Gauss-Newton hessian = A^T diag(W) A in the qd-block of the x-hessian
-     *
-     * Notes:
-     *   Caller-scratch INNER (centroidal_inner from s_scratch): A = s_A[r + 6*vi] (the CMM).
-     *   Dense column-major NX x NX; only the bottom-right NUM_VEL x NUM_VEL qd-block is non-zero.
-     *
-     * @param s_hess dense x-hessian (1369)
-     * @param s_q / s_qd / s_W / d_robotModel as above
-     * @param s_scratch caller centroidal-arena scratch (>= CCRBA_DYNAMIC_SHARED_MEM_COUNT)
-     */
-    template <typename T, bool ACCUMULATE = false, bool MUJOCO_OUTPUT = false>
-    __device__
-    void momentum_cost_hessian(T *s_hess, const T *s_q, const T *s_qd, const T *s_W, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
-        using namespace grid;
-        // GRID shared arena layout
-        //   T s_A[108]
-        //   T s_com[3]
-        //   T s_extra[4]
-        //   T s_XmatsHom[672]
-        //   T s_temp[2224]
-        //   int s_topology_helpers[115]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
-        unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
-        size_t s_arena_offset = 0;
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_A = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(108);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_com = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(3);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_extra = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(4);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(672);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
-        T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(T) * static_cast<size_t>(2224);
-        s_arena_offset = grid_align_up(s_arena_offset, alignof(int));
-        int *s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
-        s_arena_offset += sizeof(int) * static_cast<size_t>(115);
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
-        #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(3011, 115, GRID_EE_LINALG_SHARED_BYTES<T>()));
-        #endif
-        (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
-        __syncthreads();
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1369; ind += blockDim.x*blockDim.y){
-            int row = ind % 37; int col = ind / 37;
-            T h = static_cast<T>(0);
-            if (row >= 19 && col >= 19) {
-                int vi = row - 19; int vj = col - 19;
-                #pragma unroll
-                for (int r = 0; r < 6; ++r) { T Ari = s_A[r + 6*vi]; T Arj = s_A[r + 6*vj]; h += Ari * s_W[r] * Arj; }
-            }
-            if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
-        }
-        __syncthreads();
-        if constexpr (MUJOCO_OUTPUT) {
-            // mjx output: congruence G s_hess G^T on the base block at offset 19 (rows then cols)
-            for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 37; c += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                T m0 = s_hess[19 + 37*c], m1 = s_hess[20 + 37*c], m2 = s_hess[21 + 37*c];
-                s_hess[19 + 37*c] = R[0]*m0 + R[1]*m1 + R[2]*m2;
-                s_hess[20 + 37*c] = R[3]*m0 + R[4]*m1 + R[5]*m2;
-                s_hess[21 + 37*c] = R[6]*m0 + R[7]*m1 + R[8]*m2;
-            }
-            __syncthreads();
-            for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 37; r += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                T m0 = s_hess[r + 37*19], m1 = s_hess[r + 37*20], m2 = s_hess[r + 37*21];
-                s_hess[r + 37*19] = m0*R[0] + m1*R[1] + m2*R[2];
-                s_hess[r + 37*20] = m0*R[3] + m1*R[4] + m2*R[5];
-                s_hess[r + 37*21] = m0*R[6] + m1*R[7] + m2*R[8];
-            }
-            __syncthreads();
-        }
-    }
-
+    // [grid_plant] com_cost/momentum_cost skipped: require grid::com_device/ccrba_device (need 'com'+'ccrba').
     /**
      * quadratic_state_cost_kernel: value + gradient + GN-diag hessian per timestep
      *
@@ -56577,106 +47654,6 @@ namespace grid_plant {
     }
 
     #define GRID_PLANT_HAS_EE_COST 1
-    /**
-     * com_cost_kernel: value + grad_x + GN hess_x per timestep
-     *
-     * @param d_out scalar cost (1 per timestep)
-     * @param d_grad grad over x (37 per timestep)
-     * @param d_hess dense col-major x-hessian (1369 per timestep)
-     * @param d_q joint positions (NUM_POS per timestep)
-     * @param d_p_des desired CoM position (3 per timestep)
-     * @param d_W per-axis weight (3 per timestep)
-     * @param NUM_TIMESTEPS is the batch size
-     */
-    template <typename T, bool MUJOCO_OUTPUT = false>
-    __global__
-    void com_cost_kernel(T *d_out, T *d_grad, T *d_hess, const T *d_q, const T *d_p_des, const T *d_W, const grid::robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        extern __shared__ __align__(16) T s_com_arena[];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            const T *s_q = &d_q[k*19]; const T *s_p_des = &d_p_des[k*3]; const T *s_W = &d_W[k*3];
-            const T *s_q_use = s_q;
-            if constexpr (MUJOCO_OUTPUT) {
-                __shared__ T s_q_mjx[19];
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 19; i += blockDim.x*blockDim.y){
-                    s_q_mjx[i] = s_q[i];
-                }
-                __syncthreads();
-                // mjx input convert: base quaternion wxyz->xyzw
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q_mjx[3];
-                    s_q_mjx[3] = s_q_mjx[4]; s_q_mjx[4] = s_q_mjx[5]; s_q_mjx[5] = s_q_mjx[6]; s_q_mjx[6] = qw_in;
-                }
-                __syncthreads();
-                s_q_use = s_q_mjx;
-            }
-            com_cost<T>(&d_out[k], s_q_use, s_p_des, s_W, s_com_arena, d_robotModel);
-            __syncthreads();
-            com_cost_gradient<T, false, MUJOCO_OUTPUT>(&d_grad[k*37], s_q_use, s_p_des, s_W, s_com_arena, d_robotModel);
-            __syncthreads();
-            com_cost_hessian<T, false, MUJOCO_OUTPUT>(&d_hess[k*1369], s_q_use, s_W, s_com_arena, d_robotModel);
-            __syncthreads();
-        }
-    }
-
-    #define GRID_PLANT_HAS_COM_COST 1
-    /**
-     * momentum_cost_kernel: value + grad_x + GN hess_x per timestep
-     *
-     * @param d_out scalar cost (1 per timestep)
-     * @param d_grad grad over x (37 per timestep)
-     * @param d_hess dense col-major x-hessian (1369 per timestep)
-     * @param d_q / d_qd joint positions/velocities (NUM_POS / NUM_VEL per timestep)
-     * @param d_h_des desired centroidal momentum (6 per timestep)
-     * @param d_W per-component weight (6 per timestep)
-     * @param NUM_TIMESTEPS is the batch size
-     */
-    template <typename T, bool MUJOCO_OUTPUT = false>
-    __global__
-    void momentum_cost_kernel(T *d_out, T *d_grad, T *d_hess, const T *d_q, const T *d_qd, const T *d_h_des, const T *d_W, const grid::robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
-        extern __shared__ __align__(16) T s_ccrba_arena[];
-        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
-            const T *s_q = &d_q[k*19]; const T *s_qd = &d_qd[k*18];
-            const T *s_h_des = &d_h_des[k*6]; const T *s_W = &d_W[k*6];
-            const T *s_q_use = s_q; const T *s_qd_use = s_qd;
-            if constexpr (MUJOCO_OUTPUT) {
-                __shared__ T s_q_mjx[19];
-                __shared__ T s_qd_mjx[18];
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 19; i += blockDim.x*blockDim.y){
-                    s_q_mjx[i] = s_q[i];
-                }
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 18; i += blockDim.x*blockDim.y){
-                    s_qd_mjx[i] = s_qd[i];
-                }
-                __syncthreads();
-                // mjx input convert: base quaternion wxyz->xyzw + base-linear velocity -> pin frame
-                if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qw_in = s_q_mjx[3];
-                    s_q_mjx[3] = s_q_mjx[4]; s_q_mjx[4] = s_q_mjx[5]; s_q_mjx[5] = s_q_mjx[6]; s_q_mjx[6] = qw_in;
-                    T qx = s_q_mjx[3], qy = s_q_mjx[4], qz = s_q_mjx[5], qw = s_q_mjx[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
-                    T vlx = s_qd_mjx[0], vly = s_qd_mjx[1], vlz = s_qd_mjx[2];
-                    s_qd_mjx[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
-                    s_qd_mjx[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
-                    s_qd_mjx[2] = R[2]*vlx + R[5]*vly + R[8]*vlz;
-                }
-                __syncthreads();
-                s_q_use = s_q_mjx; s_qd_use = s_qd_mjx;
-            }
-            momentum_cost<T>(&d_out[k], s_q_use, s_qd_use, s_h_des, s_W, s_ccrba_arena, d_robotModel);
-            __syncthreads();
-            momentum_cost_gradient<T, false, MUJOCO_OUTPUT>(&d_grad[k*37], s_q_use, s_qd_use, s_h_des, s_W, s_ccrba_arena, d_robotModel);
-            __syncthreads();
-            momentum_cost_hessian<T, false, MUJOCO_OUTPUT>(&d_hess[k*1369], s_q_use, s_qd_use, s_W, s_ccrba_arena, d_robotModel);
-            __syncthreads();
-        }
-    }
-
-    #define GRID_PLANT_HAS_MOMENTUM_COST 1
 }
 
 #include "grid_collision_geometry.cuh"  // W3 Component E: SDF primitives (grid_collision::)

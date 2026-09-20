@@ -5,9 +5,9 @@ Thin CLI over gato.build.codegen (the single codegen path — gato.build() uses
 the same code). Writes gato/dynamics/<robot>/{grid.cuh, limits.cuh} and updates
 python/gato/_registry.json. Run from the GATO repo root:
 
-    python tools/regen_grid.py              # both vendored robots
+    python tools/regen_grid.py              # all vendored robots (indy7, iiwa14, go2)
     python tools/regen_grid.py --robot indy7
-    python tools/regen_grid.py --list       # use the explicit algorithm list
+    python tools/regen_grid.py --all-algos  # GRiD profile="all" instead of gato.builder.GATO_ALGORITHMS
 
 Requires the GRiD submodule initialized:
     git submodule update --init --recursive
@@ -42,24 +42,13 @@ ROBOTS = {
                                 "RR_foot_joint", "RL_foot_joint"]),
 }
 
-# Explicit list covering everything GATO's plant.cuh needs + integrators + EE
-# pose/gradient. profile="all" is the simpler, recommended default (it also
-# emits grid_plant incl. plant_step_hessian); this list documents intent and is
-# used with --list. Add "fdsva_so" if plant_step_hessian is wanted with --list.
-ALGORITHM_LIST = [
-    "forward_dynamics", "inverse_dynamics",
-    "forward_dynamics_gradient", "inverse_dynamics_gradient",
-    "minv",
-    "end_effector_pose", "end_effector_pose_gradient",
-    "integrator", "integrator_gradient", "integrator_with_gradient",
-]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Regenerate GATO's vendored GRiD headers.")
     ap.add_argument("--robot", choices=list(ROBOTS) + ["all"], default="all")
-    ap.add_argument("--list", dest="use_list", action="store_true",
-                    help="Use the explicit algorithm list instead of profile='all'.")
+    ap.add_argument("--all-algos", dest="all_algos", action="store_true",
+                    help="Emit GRiD's full profile='all' instead of the consumed set (gato.builder.GATO_ALGORITHMS).")
     args = ap.parse_args()
 
     targets = list(ROBOTS) if args.robot == "all" else [args.robot]
@@ -67,7 +56,7 @@ def main() -> None:
         spec = ROBOTS[rid]
         print(f"[{rid}] parsing {spec['urdf']} (EE target joint = {spec['ee_frame']!r})")
         meta = codegen(spec["urdf"], rid, ee_frame=spec["ee_frame"],
-                       algorithm_list=ALGORITHM_LIST if args.use_list else None,
+                       algorithm_list="all" if args.all_algos else None,
                        collision_res=spec.get("collision_res"),
                        contact_frames=spec.get("contact_frames"),
                        floating_base=spec.get("floating_base", False))
