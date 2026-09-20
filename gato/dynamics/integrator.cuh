@@ -23,6 +23,29 @@ namespace gato::plant {
 // local truncated-pi reflection — only live under ANGLE_WRAP=true, which no
 // vendored plant sets).
 
+// Scratch sizers for the entry points below = the prefix THIS layer carves
+// (qdd | dqdd | err) + the plant adapter's arena. Kernels size their s_temp
+// from these, never from the adapter's arena alone: setup_kkt/merit used to,
+// which under-sized the linearization by the qdd|dqdd prefix (114 floats on
+// indy7) — hidden for months by unrelated layout slack, exposed by memcheck
+// when the slack was reclaimed (Wave F, 2026-09-20).
+template<typename T>
+__host__ __device__ constexpr uint32_t simStep_TempMemCt()
+{
+        return STATE_SIZE / 2 + forwardDynamics_TempMemSize_Shared();
+}
+template<typename T>
+__host__ __device__ constexpr uint32_t integratorError_TempMemCt()
+{
+        return STATE_SIZE + forwardDynamics_TempMemSize_Shared();
+}
+template<typename T>
+__host__ __device__ constexpr uint32_t linearizedDynamics_TempMemCt()
+{
+        return STATE_SIZE / 2 + (STATE_SIZE / 2) * (STATE_SIZE + CONTROL_SIZE)
+               + forwardDynamicsAndGradient_TempMemSize_Shared();
+}
+
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
 __device__ void integrator_inner(T* s_q_next, T* s_qd_next, T* s_q, T* s_qd, T* s_qdd, T dt)
 {

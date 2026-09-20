@@ -1,5 +1,6 @@
 {
   "go2": {
+    "codegen_key": "9dee65831b27bf24",
     "collision": {
       "n_spheres": 50,
       "res": 0.15

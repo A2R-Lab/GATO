@@ -72,6 +72,8 @@ __host__ void solve_pcg_batched(uint32_t batch_size, T* d_lambda_batch, SchurSys
         dim3           grid(batch_size);
         dim3           thread_block(PCG_THREADS);
         const uint32_t s_mem_size = get_solve_pcg_batched_smem_size<T>();
+        static size_t  attr_bytes = 0;
+        opt_in_dynamic_smem(solve_pcg_batched_kernel<T>, s_mem_size, attr_bytes);
 
         solve_pcg_batched_kernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_epsilon_batch, max_pcg_iters, d_kkt_converged_batch);

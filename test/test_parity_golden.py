@@ -65,8 +65,8 @@ def _go2_problem(N):
 
 def _make(plant, N, variant, urdfs):
     if plant == "go2":
-        import test_floating_rowgroups as fr
-        return fr._solver(1)
+        from conftest import go2_solver
+        return go2_solver(1, variant=variant)
     params = TEST_PARAMS.replace(exact_hessian=True) if variant == "eh" else TEST_PARAMS
     return gato.BSQP(model_path=str(urdfs[plant]), batch_size=1, N=N, dt=0.01, params=params,
                      plant_type=plant, variant=variant)

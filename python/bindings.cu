@@ -685,6 +685,11 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("CONTROL_SIZE") = gato::constants::CONTROL_SIZE;
         m.attr("ACTUATED_SIZE") = gato::constants::ACTUATED_SIZE;
         m.attr("FC_SIZE") = gato::constants::FC_SIZE;
+#ifdef GRID_HAS_CONTACT_FRAMES
+        m.attr("NUM_CONTACT_FRAMES") = grid::NUM_CONTACT_FRAMES;   // baked wrench frames (fc slots = 6 each)
+#else
+        m.attr("NUM_CONTACT_FRAMES") = 0;
+#endif
         // state layout (CL-3): stored xu packs [q(NQ); qd(NV); u], the KKT/dz
         // tangent state is STATE_SIZE = 2*NV. Fixed base: NQ == NV.
         m.attr("NQ") = gato::constants::NQ;

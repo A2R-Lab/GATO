@@ -126,8 +126,10 @@ class MuJoCoWorld:
       deterministic on a fixed binary/machine; the warmstart cache is reset
       each call for state-purity).
     - ``last_contact`` after each step: dict with ``ncon``, ``fn`` (total
-      normal force, plane frame = world z), ``ft`` (tangential magnitude) —
-      the contact-task metrics feed.
+      normal force, plane frame = world z), ``ft`` (tangential magnitude) and
+      ``fn_by_body`` (normal force per robot body in contact, keyed by URDF
+      link name — the per-foot split the fc-on-feet gates read) — the
+      contact-task metrics feed.
     - No pendulum / no constant-wrench support: those are PinocchioWorld
       features; MuJoCo experiments model disturbances as geometry.
     """
@@ -196,7 +198,7 @@ class MuJoCoWorld:
         self.data = mujoco.MjData(self.model)
         self.nq = self.model.nq
         self.nv = self.model.nv
-        self.last_contact = {"ncon": 0, "fn": 0.0, "ft": 0.0}
+        self.last_contact = {"ncon": 0, "fn": 0.0, "ft": 0.0, "fn_by_body": {}}
         # opt-in SUBSTEP-rate contact trace (the control tick is ~30 substeps —
         # force metrics sampled per tick would alias chatter): one (ncon, fn, ft)
         # row per step() call. None when recording is off (zero overhead).
@@ -272,6 +274,7 @@ class MuJoCoWorld:
         mujoco = self._mujoco
         d = self.data
         fn, ft = 0.0, 0.0
+        fn_by_body = {}   # robot body name -> normal force it carries (multi-contact plants)
         force = np.zeros(6)
         for i in range(d.ncon):
             mujoco.mj_contactForce(self.model, d, i, force)
@@ -280,4 +283,10 @@ class MuJoCoWorld:
             f_world = R.T @ force[:3]
             fn += abs(f_world[2])
             ft += float(np.hypot(f_world[0], f_world[1]))
-        self.last_contact = {"ncon": int(d.ncon), "fn": float(fn), "ft": float(ft)}
+            c = d.contact[i]
+            gid = c.geom2 if self.model.geom_bodyid[c.geom1] == 0 else c.geom1   # the non-world geom
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY,
+                                     int(self.model.geom_bodyid[gid]))
+            fn_by_body[name] = fn_by_body.get(name, 0.0) + abs(float(f_world[2]))
+        self.last_contact = {"ncon": int(d.ncon), "fn": float(fn), "ft": float(ft),
+                             "fn_by_body": fn_by_body}

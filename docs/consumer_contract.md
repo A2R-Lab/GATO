@@ -107,6 +107,19 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   (on `GATO_CONTACT_FORCES` builds, `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE`).
   Use `SolveResult.u0()/control_at(k)` for the APPLIED (actuated) control —
   never slice xu by pinocchio's nv.
+- **fc slots are per baked contact frame**: `BSQP.contact_frames` lists the
+  frames in codegen order (`_registry.json`), `BSQP.fc_slots(frame, part=None|"n"|"f")`
+  gives the 6-wide `[n; f]` block (world-aligned, about the frame origin) or
+  its moment/force half — feed it to `add_fc_box`, `set_fc_ref`, `fc_at`.
+  Arms bake one frame (the EE); go2 bakes the four `*_foot_joint` frames
+  (`FC_SIZE = 24`, module attr `NUM_CONTACT_FRAMES = 4`). Floating base
+  consumes fc through the grid step: the fc columns of B and the dfext/dq
+  chain term are composed from the full-force B block, gated against
+  pinocchio FD (`test_floating_go2.py`). `add_fc_box` rows are TELEMETRY unless
+  a mechanism is chosen (`mech="al"` / `enable_limit_*` first) — a pin that
+  does not pin is the default-mech trap.
+- `MuJoCoWorld.last_contact["fn_by_body"]` splits the normal force per robot
+  link (URDF link name) — the per-foot signal the standing gates read.
 - `MPCController.step()` returns `StepResult.u` = the ACTUATED control only
   (what you apply; `StepResult.fc` carries the contact-wrench slots on fc
   variants). Solves are bit-deterministic run-to-run; batch entries are

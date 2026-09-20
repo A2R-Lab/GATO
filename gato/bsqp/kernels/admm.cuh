@@ -489,7 +489,10 @@ template<typename T>
 __host__ void admm_init_state_batched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, const T* d_xu_traj_batch, const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem, bool eq_rows_only = false,
                                    const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
-        admm_init_state_batched_kernel<T><<<batch_size, ADMM_THREADS, sizeof(T) * rowgroup_eval_scratch_ct<T>()>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env, eq_rows_only);
+        const size_t s_mem_size = sizeof(T) * rowgroup_eval_scratch_ct<T>();
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(admm_init_state_batched_kernel<T>, s_mem_size, attr_bytes);
+        admm_init_state_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env, eq_rows_only);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -499,7 +502,10 @@ __host__ void admm_gradient_batched(uint32_t batch_size, T* d_q_batch, T* d_r_ba
                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_rho_scale_batch = nullptr)
 {
         dim3 grid(KNOT_POINTS, batch_size);
-        admm_gradient_batched_kernel<T><<<grid, ADMM_THREADS, sizeof(T) * rowgroup_eval_grad_scratch_ct<T>()>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
+        const size_t s_mem_size = sizeof(T) * rowgroup_eval_grad_scratch_ct<T>();
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(admm_gradient_batched_kernel<T>, s_mem_size, attr_bytes);
+        admm_gradient_batched_kernel<T><<<grid, ADMM_THREADS, s_mem_size>>>(d_q_batch, d_r_batch, d_q_base_batch, d_r_base_batch, d_xu_traj_batch, d_z_batch, d_y_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -515,15 +521,9 @@ __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_
                                      const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_rho_scale_batch = nullptr)
 {
         const size_t s_mem_size = get_admm_project_dual_smem_size<T>();
-        // the TELEMETRY_MAX_ROWS residual scratch can exceed the 48KB default
-        // dynamic-smem ceiling at large N — opt the kernel in once
-        if (s_mem_size > 48 * 1024) {
-                static size_t attr_bytes = 0;   // re-attribute whenever the request grows; FAIL LOUD like setup_kkt/merit
-                if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(admm_project_dual_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
-                        attr_bytes = s_mem_size;
-                }
-        }
+        // the TELEMETRY_MAX_ROWS residual scratch can exceed the 48KB default at large N
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(admm_project_dual_batched_kernel<T>, s_mem_size, attr_bytes);
         admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

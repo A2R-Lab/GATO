@@ -63,10 +63,16 @@ def go2_standing_x(**base):
     return x
 
 
-def go2_solver(B, **kw):
-    """go2 N16 solver on the shared test params (+ field overrides)."""
+# the four baked contact frames (fc slots 6i..6i+5 = world-aligned [n; f] at foot i)
+GO2_FEET = ("FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint")
+GO2_FC = 6 * len(GO2_FEET)
+
+
+def go2_solver(B, variant=None, **kw):
+    """go2 N16 solver on the shared test params (+ field overrides).
+    variant="fc" = the contact-force module (bsqpN16_go2_fc, receipt profile)."""
     return gato.BSQP(model_path=str(GO2_URDF), batch_size=B, N=GO2_N, dt=GO2_DT,
-                     params=GO2_TEST_PARAMS.replace(**kw), plant_type="go2")
+                     params=GO2_TEST_PARAMS.replace(**kw), plant_type="go2", variant=variant)
 
 
 def go2_goals_at(model, x, B):

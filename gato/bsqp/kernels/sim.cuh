@@ -10,6 +10,7 @@
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
 #include "dynamics/grid_plant_step.cuh"  // floating twins + GATO_FLOATING_STEP
+#include "utils/cuda.cuh"
 
 using namespace sqp;
 using namespace gato;
@@ -27,7 +28,7 @@ struct SimSmem {
 #if GATO_FLOATING_STEP
     static constexpr size_t temp_ct = gato::plant::stepValueFloating_TempMemCt<T>();
 #else
-    static constexpr size_t temp_ct = 2 * STATE_SIZE + gato::plant::forwardDynamics_TempMemSize_Shared();
+    static constexpr size_t temp_ct = gato::plant::simStep_TempMemCt<T>();   // qdd prefix + adapter arena
 #endif
     static constexpr size_t total = temp + temp_ct;
     static constexpr size_t bytes() { return total * sizeof(T); }
@@ -97,6 +98,8 @@ void sim_forward_batched(
     dim3 grid(1, batch_size);
     dim3 block(SIM_FORWARD_THREADS);
     size_t s_mem_size = get_sim_forward_batched_kernel_smem_size<T>();
+    static size_t attr_bytes = 0;
+    opt_in_dynamic_smem(sim_forward_batched_kernel<T>, s_mem_size, attr_bytes);
 
     sim_forward_batched_kernel<T><<<grid, block, s_mem_size>>>(
         d_xkp1_batch,

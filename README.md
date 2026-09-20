@@ -157,8 +157,21 @@ step/linearization from GRiD's `grid_plant`, SI-Euler integrator, tangent-space
 state cost; N16-only module). The stored state is `[p(3); quat xyzw(4); q_j; qd]`
 and every knot's tangent is `[v_lin; omega; qd_j]`; `gato.common.state_difference`
 / `check_floating_state` are the manifold helpers, `gato.worlds.MuJoCoWorld(floating=True)`
-the ground-plane simulator. Contact forces as decision variables on the four
-feet (fc variant) is the next arc. See `examples/07_go2_floating.py`.
+the ground-plane simulator.
+
+**Contact forces on the feet** (`bsqpN16_go2_fc`, `gato.build(..., floating_base=True,
+contact_forces=True)`): the fc variant appends one world-aligned wrench `[n; f]` per
+baked foot frame to every control (`FC_SIZE = 24`; `solver.contact_frames`,
+`solver.fc_slots(frame, "n"|"f")`). The wrenches are the solver's contact
+EXPLANATION, not commands to the world: a standing loop with `fc_ref = mg/4` up per
+foot and the moment rows pinned (`add_fc_box(0, 0, slots=..., mech="al")`) holds
+the stance height on MuJoCo with each foot carrying mg/4 — the contactless model
+collapses from the same start (`test_floating_worlds.py`). Two traps: the standing
+keyframe (base z 0.35) has the feet 8.5 cm in the air — derive the stance pose from
+FK (feet touch at z ≈ 0.287); and an asymmetric `fc_ref` does NOT shift weight — the
+world's split follows the centre of mass, so the solver plans for an imagined split
+and tips over (weight shift / foot lift need contact-consistency rows: next arc).
+`python examples/07_go2_floating.py --fc` runs the standing recipe.
 
 ### Same robot? The dynamics fingerprint
 

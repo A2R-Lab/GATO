@@ -47,12 +47,11 @@ namespace plant {
     #if USE_EXACT_HESSIAN
         #error "GATO_CONTACT_FORCES x USE_EXACT_HESSIAN unsupported (fdsva_so is not fc-aware; W2+ item)"
     #endif
-        // fc controls on floating base: not wired (the fc scratch below is NQ-sized
-        // generalized-dims math and the step twins scatter actuated torques only)
-        static_assert(grid::NUM_POS == grid::NUM_VEL,
-                      "GATO_CONTACT_FORCES is fixed-base only for now (CL-3 later wave)");
         // CL-3a: NU stays the ACTUATED width (the generated grid_plant cost code is
         // NU-wide); gato::constants::CONTROL_SIZE = NU + FC is the solver-facing width.
+        // The fixed-base adapters below carry the fc chain in generalized dims (NQ ==
+        // NV there); the floating base consumes fc through the grid step twins in
+        // grid_plant_step.cuh (Wave F, 2026-09-20) and the composed cost below.
         inline constexpr int FC         = 6 * grid::NUM_CONTACT_FRAMES; // wrench slots appended to u
         inline constexpr int FEXT_COUNT = 6 * grid::NUM_BODIES;         // per-body wrench array
         // Persistent fc scratch APPENDED after the FD/FD_DU arenas (inner-call scratch
@@ -65,6 +64,8 @@ namespace plant {
         inline constexpr int FC = 0;
         inline constexpr int FC_PERSIST_COUNT = 0;
 #endif
+        inline constexpr int CS = NU + FC;   // solver-facing control width (== gato::constants::CONTROL_SIZE)
+        static_assert(CS == (int)gato::constants::CONTROL_SIZE, "plant CS must be the solver's CONTROL_SIZE");
 
         template<class T>
         __host__ __device__ constexpr T PI()
@@ -666,7 +667,12 @@ namespace plant {
         //     slots 6..NV, stored q slots 7..NQ; the NU-row limit tables align
         //     with the actuated joints by construction). d_q_nom /
         //     d_q_pos_w_vec are STORED-q indexed (base slots unread).
-        //   - fc terms: none (fc builds are fixed-base only, asserted above).
+        //   - fc terms (fc builds, Wave F): 0.5*fc_cost*|fc - fc_ref|^2 over the
+        //     fc tail of the CONTROL_SIZE-wide control on running knots (the
+        //     terminal knot has no control), gradient rows NU.. and a diagonal
+        //     Hessian block — the same term the arms' generated fc preset adds.
+        //     R/r are CS = NU + FC wide (== NU on default builds: bitwise the
+        //     pre-Wave-F composition there).
         static_assert(NQ == NV + 1, "floating tracking composition expects the free-flyer layout");
 
         template<typename T>
@@ -674,12 +680,12 @@ namespace plant {
         {
                 // W(3) + ee_pos(6*NEE) + Q_diag(2*NV) + x_des(NX) + max(EE value
                 // arena incl. topology ints, the tangent state-cost value
-                // scratch (54), the per-slot partial buffer 3*NU)
+                // scratch (54), the per-slot partial buffer 3*NU + FC)
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
                     + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
                     + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
-                constexpr unsigned partials = (unsigned)(3 * NU);
+                constexpr unsigned partials = (unsigned)(3 * NU + FC);
                 constexpr unsigned tsc = 54u;
                 constexpr unsigned mx0 = arena > partials ? arena : partials;
                 return 3 + 6 * NEE + 2 * NV + NX + (mx0 > tsc ? mx0 : tsc);
@@ -737,7 +743,6 @@ namespace plant {
             const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
             const T* d_fc_ref = nullptr)
         {
-                (void)fc_cost; (void)d_fc_ref;
                 T* s_W = s_temp;
                 T* s_eePos = s_W + 3;
                 T* s_Q = s_eePos + 6 * NEE;      // tangent diag weights (2*NV)
@@ -762,8 +767,9 @@ namespace plant {
                 __syncthreads();
                 // remaining per-slot partials in a FIXED layout (deterministic
                 // serial sum below): [0,NU) u reg+barrier | +NU q barrier | +NU qd barrier
+                // | +3NU fc reg (fc builds; 0 on the terminal knot — it has no control)
                 T* s_part = s_arena;
-                constexpr int NP = 3 * NU;
+                constexpr int NP = 3 * NU + FC;
                 for (int i = tid; i < NP; i += nth) {
                         T v;
                         if (i < NU) {
@@ -775,9 +781,17 @@ namespace plant {
                         } else if (i < 2 * NU) {
                                 const int j = i - NU;
                                 v = grid_plant::grid_plant_log_barrier<T>(s_x[7 + j], JOINT_LIMITS<T>()[j][0], JOINT_LIMITS<T>()[j][1], q_lim_cost);
-                        } else {
+                        } else if (i < 3 * NU) {
                                 const int j = i - 2 * NU;
                                 v = grid_plant::grid_plant_log_barrier<T>(s_x[NQ + 6 + j], VEL_LIMITS<T>()[j][0], VEL_LIMITS<T>()[j][1], vel_lim_cost);
+                        } else {
+                                const int j = i - 3 * NU;
+                                if (is_terminal) {
+                                        v = static_cast<T>(0);
+                                } else {
+                                        const T e = s_u[NU + j] - ((d_fc_ref != nullptr) ? d_fc_ref[j] : static_cast<T>(0));
+                                        v = static_cast<T>(0.5) * fc_cost * e * e;
+                                }
                         }
                         s_part[i] = v;
                 }
@@ -792,7 +806,8 @@ namespace plant {
         }
 
         // GRAD+HESS (same signature as the fixed adapter). Outputs TANGENT
-        // blocks: s_Qk 2NV×2NV col-major, s_qk 2NV, s_Rk NU×NU, s_rk NU.
+        // blocks: s_Qk 2NV×2NV col-major, s_qk 2NV, s_Rk CS×CS col-major, s_rk CS
+        // (CS = CONTROL_SIZE: the actuated block first, then the fc rows on fc builds).
         template<typename T>
         __device__ void tracking_cost_grad_hess(
             const T* s_x, const T* s_u, const T* s_eePos_traj,
@@ -804,7 +819,6 @@ namespace plant {
             const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr,
             const T* d_fc_ref = nullptr)
         {
-                (void)fc_cost; (void)d_fc_ref;
                 constexpr int TS = NV * 2;  // tangent state size
                 T* s_W = s_temp;
                 T* s_eePos = s_W + 3;
@@ -816,8 +830,8 @@ namespace plant {
                 const int nth = blockDim.x * blockDim.y;
                 for (int i = tid; i < TS * TS; i += nth) { s_Qk[i] = static_cast<T>(0); }
                 for (int i = tid; i < TS; i += nth) { s_qk[i] = static_cast<T>(0); }
-                for (int i = tid; i < NU * NU; i += nth) { s_Rk[i] = static_cast<T>(0); }
-                for (int i = tid; i < NU; i += nth) { s_rk[i] = static_cast<T>(0); }
+                for (int i = tid; i < CS * CS; i += nth) { s_Rk[i] = static_cast<T>(0); }
+                for (int i = tid; i < CS; i += nth) { s_rk[i] = static_cast<T>(0); }
                 for (int r = tid; r < 3; r += nth) { s_W[r] = ee_weight; }
                 build_tangent_state_cost_inputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
                                                d_q_nom, d_q_pos_w_vec, tid, nth);
@@ -860,13 +874,21 @@ namespace plant {
                         s_qk[i] += g;
                         s_Qk[i * TS + i] += h;
                 }
-                for (int j = tid; j < NU; j += nth) {
-                        const T uw = (d_u_cost_vec != nullptr) ? d_u_cost_vec[j] : u_cost;
-                        const T uj = s_u[j];
-                        s_rk[j] = uw * uj
-                                  + grid_plant::grid_plant_log_barrier_grad<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
-                        s_Rk[j * NU + j] = uw
-                                  + grid_plant::grid_plant_log_barrier_hess<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
+                for (int j = tid; j < CS; j += nth) {
+                        if (j < NU) {
+                                const T uw = (d_u_cost_vec != nullptr) ? d_u_cost_vec[j] : u_cost;
+                                const T uj = s_u[j];
+                                s_rk[j] = uw * uj
+                                          + grid_plant::grid_plant_log_barrier_grad<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
+                                s_Rk[j * CS + j] = uw
+                                          + grid_plant::grid_plant_log_barrier_hess<T>(uj, CTRL_LIMITS<T>()[j][0], CTRL_LIMITS<T>()[j][1], ctrl_lim_cost);
+                        } else {
+                                // fc regularization rows (fc builds): fc_cost*(fc - fc_ref), diag fc_cost
+                                const int c = j - NU;
+                                const T e = s_u[j] - ((d_fc_ref != nullptr) ? d_fc_ref[c] : static_cast<T>(0));
+                                s_rk[j] = fc_cost * e;
+                                s_Rk[j * CS + j] = fc_cost;
+                        }
                 }
                 __syncthreads();
         }

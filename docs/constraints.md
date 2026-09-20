@@ -238,8 +238,14 @@ Box rows on contact-force slots (GATO_CONTACT_FORCES builds only):
 selection LIN_U rows on control columns n_actuated+slots. ``slots``
 indexes into the fc block (default: all n_fc slots); lo/hi broadcast.
 Pin the wrench torque rows of a point contact with
-``add_fc_box(0, 0, slots=range(3))`` (wrench layout is [n; f]).
-Extra kwargs go to add_lin_u_rows (mech/rho/knot range/...).
+``add_fc_box(0, 0, slots=range(3))`` (wrench layout is [n; f]); on
+multi-contact plants address a frame's block with
+``solver.fc_slots(frame, "n"|"f")`` (frame = index or baked name from
+``solver.contact_frames``; go2 bakes the four ``*_foot_joint`` frames).
+Extra kwargs go to add_lin_u_rows (mech/rho/knot range/...). ⚠ Like every
+appended row group the default mechanism is TELEMETRY (unless an
+``enable_limit_*`` set one) — pass ``mech="al"`` (or "admm") for an
+enforced pin; the standing gates pin the moment rows with AL.
 
 ## `enable_u_cone(C, d, mech, rho, form, facets, facet_scale)`
 

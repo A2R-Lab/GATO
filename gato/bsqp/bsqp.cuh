@@ -702,6 +702,17 @@ class BSQP {
                                     T* h_qdd, T* h_fext, T* h_dqdd_dfc, T* h_dqdd_dq, T* h_dqdd_dq_corr,
                                     T* h_dqdd_dfc_adapter = nullptr, T* h_dqdd_dq_adapter = nullptr)
         {
+                if constexpr (gato::constants::FLOATING_BASE) {
+                        // The kernel composes the chain in generalized dims over the
+                        // FIXED-BASE adapter (NQ == NV); on the manifold that adapter is
+                        // not the solver's path (grid_plant_step.cuh is), so the numbers
+                        // would be silently wrong. Floating fc gates use the pinocchio
+                        // FD oracle on debug_setup_kkt / sim_forward (test_floating_go2.py).
+                        (void)h_q; (void)h_qd; (void)h_u; (void)h_fc; (void)h_qdd; (void)h_fext;
+                        (void)h_dqdd_dfc; (void)h_dqdd_dq; (void)h_dqdd_dq_corr; (void)h_dqdd_dfc_adapter; (void)h_dqdd_dq_adapter;
+                        throw std::runtime_error("debug_contact_dynamics is the fixed-base contact oracle; floating-base "
+                                                 "modules gate the fc linearization against pinocchio FD (debug_setup_kkt)");
+                } else {
                 constexpr int NQ = gato::plant::NQ;
                 constexpr int FEXT = 6 * grid::NUM_BODIES;
                 constexpr int NFCW = 6 * grid::NUM_CONTACT_FRAMES;
@@ -743,6 +754,7 @@ class BSQP {
                         gpuErrchk(cudaMemcpy(h_dqdd_dq_adapter, d_dqdd_dq_adapter, NQ * NQ * sizeof(T), cudaMemcpyDeviceToHost));
                 }
                 gpuErrchk(cudaFree(d_buf));
+                }
         }
 #endif  // GRID_HAS_CONTACT_FRAMES
 

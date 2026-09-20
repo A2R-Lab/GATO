@@ -29,7 +29,7 @@ __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
         // XU_STATE_SIZE + STATE_SIZE << the arena)
         constexpr size_t b = gato::plant::stepValueFloating_TempMemCt<T>();
 #else
-        constexpr size_t b = gato::plant::forwardDynamics_TempMemSize_Shared();
+        constexpr size_t b = gato::plant::integratorError_TempMemCt<T>();   // qdd|err prefix + adapter arena
 #endif
         return a > b ? a : b;
 }
@@ -263,7 +263,11 @@ __host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0)
         if (has_collision) {
                 constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
                 constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
-                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : (size_t)0);
+                // the kernel places the dedicated carve PAST the base layout, so the
+                // whole carve is extra (not just its excess over the tail — the old
+                // sizer under-allocated by tail_ct on that branch; latent: every
+                // generated robot's carve fits the tail)
+                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct : (size_t)0);
         }
         return size;
 }
@@ -306,16 +310,8 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
         size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision);
-        // mirror setup_kkt: opt in past the 48KB default once, FAIL LOUD on both
-        // the attribute set and the launch (silent launch failures leave the
-        // merit buffers unwritten while the line search "runs")
-        if (s_mem_size > 48 * 1024) {
-                static size_t attr_bytes = 0;   // re-attribute whenever the request grows (runtime flags size the carve)
-                if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(compute_merit_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
-                        attr_bytes = s_mem_size;
-                }
-        }
+        static size_t attr_bytes = 0;   // runtime-sized (has_collision): re-attributes on growth
+        opt_in_dynamic_smem(compute_merit_batched_kernel<T>, s_mem_size, attr_bytes);
 
         compute_merit_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
                                                                                     d_dz_batch,

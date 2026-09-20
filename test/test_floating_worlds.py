@@ -264,3 +264,163 @@ def test_controller_floating_state_checks_and_pred_err(model):
     assert np.isfinite(r2.pred_err)
     with pytest.raises(ValueError):
         ctrl.step(np.zeros_like(x0), goals)
+
+
+# ---------------------------------------------------------------------------
+# Wave F (fc-on-feet, 2026-09-20): the go2 fc module in closed loop on the
+# MuJoCo ground plane — THE standing gate the contactless model physically
+# cannot pass (a free-flyer with no contact model is weightless in its own
+# frame; see _mpc_standing_run). S1 = all four feet in stance, no schedule:
+# the solver explains gravity through the four foot wrenches (fc_ref = mg/4 up
+# per foot, moment rows pinned), so the posture anchor + base-height goal are
+# reachable at the stance height.
+#
+# Geometry trap (found 2026-09-20): the standing KEYFRAME (base z = 0.35) has
+# the foot frames 8.5 cm above the ground — it is an in-the-air pose. Feet
+# touch down at base z ≈ 0.287 (frame height minus the 2.2 cm foot sphere),
+# so the stance pose/goal below are derived from FK, not the keyframe; an imu
+# goal taken at the keyframe is 6 cm out of reach and keeps the loop fighting.
+# Measured on the fc loop at the stance goal: base 0.287 ± 0.002 m, Σfn = mg,
+# per foot 39.5 N (mg/4 = 39.45), solver fz explanation 39.5 N/foot; the
+# one-step pred_err (~0.4-0.6) is joint-VELOCITY jitter from MuJoCo's soft
+# contact (positions predict to 1e-4), so the controller's default
+# reseed_threshold=None is used here (0.5 would re-seed every other tick).
+# ---------------------------------------------------------------------------
+
+from conftest import GO2_FEET, GO2_FC, go2_solver as _go2_solver  # noqa: E402
+
+# MuJoCo's URDF import merges the fixed *_foot links into their calves, so the
+# per-body contact split is keyed by the calf bodies
+FOOT_BODY = {"FR_foot_joint": "FR_calf", "FL_foot_joint": "FL_calf",
+             "RR_foot_joint": "RR_calf", "RL_foot_joint": "RL_calf"}
+FOOT_RADIUS = 0.022   # go2.urdf *_foot collision sphere
+
+
+def _mg(model):
+    return sum(i.mass for i in model.inertias) * 9.81
+
+
+def _stance_x(model):
+    """The standing keyframe lowered so the foot spheres rest on the plane."""
+    x = _standing_x().astype(np.float64)
+    data = model.createData()
+    pin.framesForwardKinematics(model, data, x[:NQ])
+    foot_z = np.array([data.oMf[model.getFrameId(f)].translation[2] for f in GO2_FEET])
+    x[2] -= foot_z.mean() - FOOT_RADIUS
+    pin.framesForwardKinematics(model, data, x[:NQ])
+    for f in GO2_FEET:
+        assert abs(data.oMf[model.getFrameId(f)].translation[2] - FOOT_RADIUS) < 1e-3
+    return x
+
+
+def _imu_goals(model, x):
+    data = model.createData()
+    pin.framesForwardKinematics(model, data, np.asarray(x[:NQ], dtype=np.float64))
+    p = data.oMf[model.getFrameId("imu_joint")].translation
+    goals = np.zeros(16 * 6, dtype=np.float32)
+    goals[0::6], goals[1::6], goals[2::6] = p[0], p[1], p[2]
+    return goals
+
+
+_STAND_PARAMS = dict(q_cost=5.0, qd_cost=1e-1, u_cost=1e-4, N_cost=25.0,
+                     q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
+
+
+def _fc_standing_solver(model, fc_cost=1e-2, fn_ref=None, pin_moments=True, q_pos_cost=50.0):
+    """go2 fc solver programmed for S1 standing: posture anchor at the stance
+    pose, per-foot vertical reference fn_ref (default mg/4), moment rows
+    pinned (AL). Returns (solver, x_stance, goals)."""
+    s = _go2_solver(1, variant="fc", **_STAND_PARAMS)
+    x = _stance_x(model).astype(np.float32)
+    s.set_q_nom(x[:NQ])
+    s.set_q_pos_cost(q_pos_cost)
+    fn_ref = _mg(model) / 4 if fn_ref is None else fn_ref
+    ref = np.zeros(GO2_FC, dtype=np.float32)
+    for i in range(len(GO2_FEET)):
+        ref[s.fc_slots(i, "f")[2]] = fn_ref
+        if pin_moments:
+            s.add_fc_box(0.0, 0.0, slots=s.fc_slots(i, "n"), mech="al")   # enforced, not telemetry
+    s.set_fc_cost(fc_cost)
+    s.set_fc_ref(ref)
+    return s, x, _imu_goals(model, x)
+
+
+def _closed_loop(s, x, goals, steps, drop=0.01, **ctrl_kw):
+    """Fixed pacing (one solve per 10 ms of sim), torques saturated at the URDF
+    effort limit; starts `drop` above x. Returns the world, final state, peak
+    torque, the last StepResult and the base-height trace."""
+    from gato.controller import MPCController
+    w = _mujoco_world(plane={"z": 0.0, "pos_xy": (0.0, 0.0), "size_xy": (1.0, 1.0)})
+    ctrl = MPCController(s, **ctrl_kw)
+    ctrl.reset(x)
+    q, dq = np.asarray(x[:NQ], np.float64).copy(), np.asarray(x[NQ:], np.float64).copy()
+    q[2] += drop
+    umax, z_hist, r = 0.0, [], None
+    for _ in range(steps):
+        r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
+        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        umax = max(umax, float(np.abs(u).max()))
+        for _ in range(10):
+            q, dq = w.step(q, dq, u, 1e-3)
+        z_hist.append(q[2])
+    return w, q, dq, umax, r, np.asarray(z_hist)
+
+
+def _mpc_standing_run_fc(model, steps=150, **solver_kw):
+    s, x, goals = _fc_standing_solver(model, **solver_kw)
+    return (x[2],) + _closed_loop(s, x, goals, steps)
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_stands_at_height(model):
+    """S1 standing gate: with contact forces in the model the closed loop holds
+    the STANCE height, upright on four feet, total normal force ~mg with each
+    foot carrying a share, and the solver's knot-0 wrench explanation agrees
+    with the measured contact (same sign, order and sum — fc is the model's
+    contact explanation, so this is the "is the model live" check)."""
+    z_stance, w, q, dq, umax, r, z = _mpc_standing_run_fc(model)   # 1.5 s of sim
+    mg = _mg(model)
+    c = w.last_contact
+    assert np.isfinite(q).all() and np.isfinite(dq).all()
+    assert c["ncon"] >= 4, c
+    assert 0.9 * mg < c["fn"] < 1.1 * mg, (c["fn"], mg)
+    per_foot = [c["fn_by_body"].get(FOOT_BODY[f], 0.0) for f in GO2_FEET]
+    assert min(per_foot) > 0.6 * mg / 4 and max(per_foot) < 1.4 * mg / 4, (per_foot, mg / 4)
+    # THE gate: settled AT the stance height (the contactless A/B below collapses)
+    assert abs(q[2] - z_stance) < 0.015, (q[2], z_stance)
+    assert np.ptp(z[-50:]) < 0.01, (z[-50:].min(), z[-50:].max())
+    assert np.linalg.norm(dq) < 0.5, dq
+    assert abs(q[6]) > 0.99 and abs(np.linalg.norm(q[3:7]) - 1.0) < 1e-6, q[3:7]
+    assert umax > 1.0, umax
+    # solver explanation vs world: vertical foot forces up, summing to ~mg
+    fc0 = np.asarray(r.fc, np.float64)
+    fz = fc0[5::6]
+    assert np.all(fz > 0.0), fz
+    assert 0.85 * mg < fz.sum() < 1.15 * mg, (fz.sum(), mg)
+    assert np.abs(fc0[[j for i in range(4) for j in range(6 * i, 6 * i + 3)]]).max() < 0.5, fc0  # moments pinned
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_holds_height_where_contactless_collapses(model):
+    """The A/B that makes the gate above meaningful: the DEFAULT module (no
+    contact model) from the same stance start, goal and params ends far below
+    the stance height (measured: 0.076 m vs 0.287 m) — the fc model is what
+    holds the robot up, not the posture anchor."""
+    _, x, goals = _fc_standing_solver(model)
+    z_stance = float(x[2])
+    s0 = _go2_solver(1, **_STAND_PARAMS)
+    s0.set_q_nom(x[:NQ])
+    s0.set_q_pos_cost(50.0)
+    _, q, _, _, _, _ = _closed_loop(s0, x, goals, steps=150)
+    assert q[2] < z_stance - 0.1, (q[2], z_stance)
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_standing_deterministic(model):
+    _, _, q1, dq1, _, _, _ = _mpc_standing_run_fc(model, steps=60)
+    _, _, q2, dq2, _, _, _ = _mpc_standing_run_fc(model, steps=60)
+    np.testing.assert_array_equal(q1, q2)
+    np.testing.assert_array_equal(dq1, dq2)

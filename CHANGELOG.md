@@ -2,6 +2,34 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-20 — Wave F: contact forces on the floating base (go2 fc-on-feet)
+
+- `bsqpN16_go2_fc`: the fc variant now builds on the floating base (was a
+  `static_assert`). The fc tail (one world-aligned `[n; f]` wrench per baked foot
+  frame, `FC_SIZE = 24`) enters the grid step as the mapped per-body wrench; the
+  linearization gains the fc columns of B and the dfext/dq chain term, composed from
+  the grid step's full-force B block; the floating cost composition carries the fc
+  regularization/reference terms. Gated against pinocchio central FD at 25 N
+  wrenches, bitwise the default module at fc = 0. `go2 16 fc` joins the receipt
+  profile (+2 goldens).
+- API: `BSQP.contact_frames`, `BSQP.fc_slots(frame, part)`, module attr
+  `NUM_CONTACT_FRAMES`, `MuJoCoWorld.last_contact["fn_by_body"]`.
+- Fixed: `debug_contact_dynamics` returned silently wrong numbers on floating
+  modules (fixed-base composition) — it now raises there. Kernel launches past the
+  48 KB dynamic-smem default are opted in at every launch site via one helper
+  (the Schur assembly kernel had no opt-in: 64 KB on go2-fc failed to launch);
+  the setup_kkt/merit collision sizers under-allocated the dedicated carve by the
+  temp tail (latent — every generated robot's carve fit the tail). setup_kkt's
+  terminal cost blocks overlay the dead dynamics scratch (offsets only, −10 KB:
+  the device opt-in maximum is ~99 KB, go2 default sat at 94 KB).
+- Fixed (found by memcheck once that slack was gone): the fixed-base setup_kkt and
+  merit kernels sized their dynamics scratch from the plant adapter's arena alone,
+  omitting the integrator layer's own qdd|dqdd / qdd|err prefix (114 floats on
+  indy7 N8) — the ID-gradient inner wrote past the launch by up to that much, hidden
+  for months by the prepended terminal chain. `linearizedDynamics_TempMemCt` /
+  `integratorError_TempMemCt` / `simStep_TempMemCt` (integrator.cuh) are now the
+  sizers. Results are bitwise unchanged (goldens).
+
 ## 2026-09-20 — audit waves 0–2
 
 Breaking (clean-break API, no shims):

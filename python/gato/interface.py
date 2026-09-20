@@ -289,6 +289,14 @@ class BSQP:
         self.n_fc = int(getattr(base, "FC_SIZE", 0))
         self.nu = int(getattr(base, "CONTROL_SIZE", self.nv))
         self.xu_size = self.N * (self.nx + self.nu) - self.nu
+        # The baked contact frames (registry, codegen order): fc slot block i
+        # (fc_slots(i)) is the world-aligned wrench [n; f] at contact_frames[i].
+        # Empty when the module was generated without contact frames.
+        self.contact_frames = list(robot_info(plant_type).get("contact_frames") or [])
+        if self.n_fc and len(self.contact_frames) * 6 != self.n_fc:
+            raise ValueError(
+                f"module {mod} has FC_SIZE={self.n_fc} but the registry lists "
+                f"{len(self.contact_frames)} contact frames for {plant_type!r} — stale registry/headers, regen")
 
         # Optional batched hyperparameters
         if rho_batch is not None:
@@ -666,6 +674,25 @@ cross-term audit's contact-frame rule for config-dependent maps).
                                     int(admm_iters), bool(equilibrate))
         self._n_appended_groups += 1
 
+    def fc_slots(self, frame, part=None):
+        """fc slot indices of one contact frame (index or baked frame name):
+        the 6-wide block [n(3); f(3)] (world-aligned, about the frame origin), or
+        just its ``"n"`` (moment) / ``"f"`` (force) half. Feeds add_fc_box /
+        set_fc_ref / SolveResult.fc_at slicing on multi-contact (fc-on-feet) plants."""
+        if self.n_fc == 0:
+            raise RuntimeError("fc_slots needs a GATO_CONTACT_FORCES build (this module has no fc slots)")
+        i = self.contact_frames.index(frame) if isinstance(frame, str) else int(frame)
+        if i < 0 or i >= len(self.contact_frames):
+            raise ValueError(f"contact frame {frame!r} not in {self.contact_frames}")
+        base = 6 * i
+        if part is None:
+            return list(range(base, base + 6))
+        if part == "n":
+            return list(range(base, base + 3))
+        if part == "f":
+            return list(range(base + 3, base + 6))
+        raise ValueError(f"part must be None, 'n' or 'f', got {part!r}")
+
     def add_fc_box(self, lo, hi, slots=None, **kw):
         """Box rows on contact-force slots (GATO_CONTACT_FORCES builds only):
         selection LIN_U rows on control columns n_actuated+slots. ``slots``
@@ -889,7 +916,7 @@ spherizer), so margin is extra safety on top.
         return None if self._ee_frame_id == -1 else self._ee_frame_id
 
     def ee_pos(self, q, frame="ee"):
-        """EE position via pinocchio FK.
+        """Frame position via pinocchio FK.
 
         frame="ee": the URDF ee_frame (fixed-joint child, e.g. tcp). Since
         GRiD e31f7bd the device FK (tracking cost AND EE row-groups) uses the
@@ -897,13 +924,21 @@ spherizer), so margin is extra safety on top.
         origin — device == this frame to f32 precision (~1e-7).
         frame="solver": historical alias for the device frame; now identical
         to "ee" (the old dropped-origin convention is gone upstream).
+        Any other string is a URDF frame name (e.g. a baked contact frame from
+        ``contact_frames``): its origin, the point the fc wrench acts about.
         """
         pin = _require_pin()
         pin.forwardKinematics(self.model, self.data, q)
-        if self.ee_frame_id is None:
-            return np.array(self.data.oMi[self.model.njoints - 1].translation)
-        pin.updateFramePlacement(self.model, self.data, self.ee_frame_id)
-        return np.array(self.data.oMf[self.ee_frame_id].translation)
+        if frame in ("ee", "solver"):
+            fid = self.ee_frame_id
+            if fid is None:
+                return np.array(self.data.oMi[self.model.njoints - 1].translation)
+        else:
+            if not self.model.existFrame(frame):
+                raise ValueError(f"frame {frame!r} is not in the URDF {self.model_path!r}")
+            fid = self.model.getFrameId(frame)
+        pin.updateFramePlacement(self.model, self.data, fid)
+        return np.array(self.data.oMf[fid].translation)
 
     def reset(self):
         """Clear all solver state carried across solves: duals (AL/ADMM), the

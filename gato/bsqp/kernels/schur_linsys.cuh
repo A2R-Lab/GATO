@@ -338,6 +338,11 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
         dim3           thread_block(SCHUR_THREADS);
         const uint32_t s_mem_size1 = get_form_schur_system_batched1_smem_size<T>();
         const uint32_t s_mem_size2 = get_form_schur_system_batched2_smem_size<T>();
+        // kernel1 carries Q/R/A/B + their inverses: 64 KB on go2-fc (36-wide
+        // control) — past the 48 KB default (found by the Wave-F build, 2026-09-20)
+        static size_t attr1 = 0, attr2 = 0;
+        opt_in_dynamic_smem(form_schur_system_batched_kernel1<T>, s_mem_size1, attr1);
+        opt_in_dynamic_smem(form_schur_system_batched_kernel2<T>, s_mem_size2, attr2);
 
         form_schur_system_batched_kernel1<T><<<grid1, thread_block, s_mem_size1>>>(
             schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
@@ -443,7 +448,10 @@ __host__ void compute_gamma_batched(uint32_t batch_size, SchurSystem<T> schur, K
 {
         dim3 grid(KNOT_POINTS, batch_size);
         dim3 thread_block(SCHUR_THREADS);
-        compute_gamma_batched_kernel<T><<<grid, thread_block, get_compute_gamma_batched_smem_size<T>()>>>(
+        const size_t s_mem_size = get_compute_gamma_batched_smem_size<T>();
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(compute_gamma_batched_kernel<T>, s_mem_size, attr_bytes);
+        compute_gamma_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(
             schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
@@ -564,6 +572,8 @@ __host__ void compute_dz_batched(uint32_t batch_size, T* d_dz_batch, T* d_lambda
         dim3           grid(KNOT_POINTS, batch_size, 2);
         dim3           thread_block(DZ_THREADS);
         const uint32_t s_mem_size = get_compute_dz_batched_smem_size<T>();
+        static size_t  attr_bytes = 0;
+        opt_in_dynamic_smem(compute_dz_batched_kernel<T>, s_mem_size, attr_bytes);
 
         compute_dz_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

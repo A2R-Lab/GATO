@@ -24,6 +24,7 @@ iiwa14 46
 iiwa14 64
 iiwa14 128
 go2 16
+go2 16 fc
 indy7 16 fc
 iiwa14 16 fc
 indy7 16 eh

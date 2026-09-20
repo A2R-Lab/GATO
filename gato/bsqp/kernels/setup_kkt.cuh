@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "constants.h"
 #include "utils/linalg.cuh"
+#include "utils/cuda.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
 #include "dynamics/grid_plant_step.cuh"  // floating twins + GATO_FLOATING_STEP
@@ -27,21 +28,25 @@ __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
         // floating: the linearization scratch is the grid step-gradient arena
         constexpr uint32_t dyn_ct = gato::plant::stepGradFloating_TempMemCt<T>();
 #else
-        constexpr uint32_t dyn_ct = gato::plant::forwardDynamicsAndGradient_TempMemSize_Shared();
+        constexpr uint32_t dyn_ct = gato::plant::linearizedDynamics_TempMemCt<T>();   // qdd|dqdd prefix + adapter arena
 #endif
         return gato::plant::trackingCostGradHess_TempMemCt<T>() > dyn_ct
                    ? gato::plant::trackingCostGradHess_TempMemCt<T>()
                    : dyn_ct;
 }
 
-// shared-memory element count of the flag-independent kernel layout (the
-// terminal-branch chain is the superset of the running-knot one): everything
-// through r_dummy plus the s_temp tail above. The exact-Hessian carve (below)
-// starts at exactly this offset.
 // setup_kkt shared layout: ONE table for the kernel carve and the host sizer.
-// The running-knot chain ends at `temp`; the TERMINAL block (last knot) carves
-// Q_last..r_dummy after c_k and its temp starts past them (`temp_terminal`).
-// `total` covers both roles.
+// The running-knot chain ends at `temp`. The TERMINAL block (last knot)
+// OVERLAYS the temp region: Q_last..r_dummy sit at `temp` and its cost
+// scratch starts past them (`temp_terminal`) — legal because the dynamics
+// linearization (the big consumer of `temp`) has been copied out to global
+// before the terminal cost runs, and every later temp consumer (row-group
+// folds, the collision carve) is placed past `temp_terminal`. The region is
+// sized for the larger of the two roles (running: dyn/cost scratch; terminal:
+// chain + cost scratch). Pre-Wave-F the chain was prepended to a full temp
+// region — 10 KB the floating fc carve could not afford under the ~99 KB
+// device opt-in ceiling (go2 default sat at 94 KB). Offsets only; values are
+// bitwise unchanged. The exact-Hessian carve (below) starts at `total`.
 template<typename T>
 struct SetupKktSmem {
         static constexpr uint32_t xux_k = 0;
@@ -54,13 +59,17 @@ struct SetupKktSmem {
         static constexpr uint32_t B_k = A_k + STATE_SIZE_SQ;
         static constexpr uint32_t c_k = B_k + STATE_P_CONTROL;
         static constexpr uint32_t temp = c_k + STATE_SIZE;                  // running knots
-        static constexpr uint32_t Q_last = c_k + STATE_SIZE;                // terminal block chain
+        static constexpr uint32_t Q_last = temp;                            // terminal block chain (overlay)
         static constexpr uint32_t q_last = Q_last + STATE_SIZE_SQ;
         static constexpr uint32_t R_dummy = q_last + STATE_SIZE;            // throwaway terminal R
         static constexpr uint32_t r_dummy = R_dummy + CONTROL_SIZE_SQ;
         static constexpr uint32_t temp_terminal = r_dummy + CONTROL_SIZE;
-        static constexpr uint32_t temp_ct = setup_kkt_temp_mem_ct<T>();
-        static constexpr uint32_t total = temp_terminal + temp_ct;         // >= temp + temp_ct
+        static constexpr uint32_t running_ct = setup_kkt_temp_mem_ct<T>();
+        static constexpr uint32_t terminal_ct = (temp_terminal - temp) + gato::plant::trackingCostGradHess_TempMemCt<T>();
+        static constexpr uint32_t temp_ct = running_ct > terminal_ct ? running_ct : terminal_ct;
+        static constexpr uint32_t total = temp + temp_ct;
+        // dead scratch past the terminal chain (where the collision carve overlays)
+        static constexpr uint32_t tail_ct = total - temp_terminal;
 };
 
 template<typename T>
@@ -233,8 +242,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
         // dereferenced when a COLLISION group is active (host sized it then).
         constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
         T* s_cc;
-        if constexpr (cc_ct <= setup_kkt_temp_mem_ct<T>()) {
-                s_cc = s_mem + (setup_kkt_base_smem_ct<T>() - setup_kkt_temp_mem_ct<T>());
+        if constexpr (cc_ct <= L::tail_ct) {
+                s_cc = s_mem + L::temp_terminal;   // past the terminal chain: never aliases a live block
         } else {
 #if USE_EXACT_HESSIAN
                 s_cc = s_mem + setup_kkt_base_smem_ct<T>() + (exact_hessian ? setup_kkt_exact_hess_smem_ct<T>() : 0);
@@ -395,8 +404,8 @@ __host__ size_t get_setup_kkt_system_batched_smem_size(int exact_hessian = 0, in
         // overlays (see the kernel's s_cc placement) does the launch grow
         if (has_collision) {
                 constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
-                constexpr uint32_t tail_ct = setup_kkt_temp_mem_ct<T>();
-                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : 0u);
+                constexpr uint32_t tail_ct = SetupKktSmem<T>::tail_ct;
+                size += sizeof(T) * (cc_ct > tail_ct ? cc_ct : 0u);   // dedicated carve past `total`
         }
         return size;
 }
@@ -411,21 +420,9 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
         size_t s_mem_size = get_setup_kkt_system_batched_smem_size<T>(exact_hessian, has_collision);
-        // the exact / collision carves can exceed the 48KB default dynamic-smem
-        // ceiling — opt the kernel in once (harmless when already under).
-        // FAIL LOUD on both the attribute set and the launch: an over-ceiling
-        // request here used to fail SILENTLY, leaving every KKT buffer
-        // unwritten while the solve "ran" (2026-08-11 collision-carve bug).
-        // The size is a function of RUNTIME flags (exact_hessian, has_collision),
-        // so a later, larger request in the same process must re-attribute: a
-        // once-only latch would launch the bigger carve over the old ceiling.
-        if (s_mem_size > 48 * 1024) {
-                static size_t attr_bytes = 0;
-                if (s_mem_size > attr_bytes) {
-                        gpuErrchk(cudaFuncSetAttribute(setup_kkt_system_batched_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)s_mem_size));
-                        attr_bytes = s_mem_size;
-                }
-        }
+        // runtime-sized (exact_hessian / has_collision): the latch re-attributes on growth
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(setup_kkt_system_batched_kernel<T>, s_mem_size, attr_bytes);
 
         setup_kkt_system_batched_kernel<T><<<grid, block, s_mem_size>>>(kkt.d_Q_batch,
                                                                                kkt.d_R_batch,
