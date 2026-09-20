@@ -33,7 +33,7 @@ timing runs serialized, never concurrent). These are the numbers in the shipped 
 | 64  | 1.804 ms     | 11.44 ms | 18.8 ms  | 6.3×  | 10.4× |
 | 128 | **3.158 ms** | 20.82 ms | 37.6 ms  | 6.6×  | 11.9× |
 
-- **GATO**: `examples/benchmark_fig8.py --plant indy7 --N 64` → `benchmark_fig8_64N.pkl`. Sub-linear
+- **GATO**: `examples/archive/benchmark_fig8.py --plant indy7 --N 64` (June chain; superseded by `paper-figures/reproduce_fig3_fair.py`) → `benchmark_fig8_64N.pkl`. Sub-linear
   (128× batch = 23× time). M=2 unsupported ("batch must be >3 for exploit+explore").
 - **BatchThneed** (`pysqpcpu`, the student's real batched-CPU baseline, threads=24): flat ~2.5–3.3 ms to
   M=16 (fan-out to core count), then linear past 24 cores. `baselines/batchthneed_fig8_results.pkl`.
@@ -185,7 +185,7 @@ Raw artifacts: `baselines/benchmark_fig8_64N.pkl` (GATO), `baselines/osqp_fig8_r
 ## CPU / Pinocchio-sim MPC baseline (Indy7) — ported, runs
 - **What:** drives the GATO BSQP solver in closed loop with a Pinocchio RK4 simulator + Pinocchio FK
   (a Pinocchio-physics MPC baseline — *not* a CPU-solver competitor; it uses the GPU solver).
-- **File:** [examples/benchmark_pinocchio.py](../examples/benchmark_pinocchio.py) (ported from
+- **File:** [examples/archive/benchmark_pinocchio.py](../examples/archive/benchmark_pinocchio.py) (archived 2026-09-20; ported from
   `origin/a2rlab03:benchmark_pinocchio.py`: fixed URDF path, dropped dead `f_ext_B_std` /
   `f_ext_resample_std` ctor kwargs, added `plant_type='indy7'`). Goal set
   `examples/points1000.npy` recovered from `origin/a2rlab03`.
@@ -194,20 +194,10 @@ Raw artifacts: `baselines/benchmark_fig8_64N.pkl` (GATO), `baselines/osqp_fig8_r
 - **Status:** construction-validated (solver + model build, goal set loads). Runs on Indy7 (the
   migrated Indy7 dynamics are validated). iiwa14 is blocked by the FD-NaN bug (see archaeology).
 
-## OSQP / CPU baseline (Indy7) — runs
-- **What:** the paper's CPU/OSQP competitor — a pure-Python single-solve SQP (pinocchio +
-  `scipy.sparse` + OSQP), the `Thneed` class in the `sqpcpu` submodule
-  (`baselines/sqpcpu/pinocchio_template.py`). A genuine CPU *solver* competitor (unlike the
-  Pinocchio-sim baseline above, which uses the GPU solver). No C++/pybind build needed.
-- **File:** [baselines/run_osqp_fig8.py](../baselines/run_osqp_fig8.py) — drives `Thneed` through the
-  same Indy7 figure-8 MPC loop as `examples/benchmark_fig8.py` (same trajectory, dt, sim_dt).
-- **Deps:** pinocchio + scipy + osqp. The GATO `.venv` lacks pinocchio; use the GRiD venv
-  (`../GRiD/.venv`) — `pip install osqp` into it if missing (the only extra over pinocchio/scipy).
-- **Run:** `../GRiD/.venv/bin/python baselines/run_osqp_fig8.py --N 8,16,32,64 --sim-time 5`.
-- **Status:** runs. CPU solve time scales cleanly with horizon: **N=8/16/32/64 → 5.7/12.5/32/72
-  ms/solve** at `max_qp_iters=5` (real-time budget). Tracking is tight at N≤16 (~0.01–0.02 m); long
-  horizons need more SQP iters to converge (N=32 reaches <0.02 m only at ~20 iters / ~135 ms),
-  itself an honest illustration of the CPU/GPU gap the figure shows.
+## OSQP / CPU baseline (Indy7) — DELETED 2026-06-26
+`run_osqp_fig8.py` + its results were removed (see the DROPPED note above: single-solve OSQP
+was slower than the threaded BatchThneed baseline even at M=1). The CPU competitor of record
+is BatchThneed (`pysqpcpu`, the opt-in `sqpcpu` submodule + `baselines/build_cpu_baseline.sh`).
 
 ## MPCGPU / GBD-PCG baseline — builds AND runs on sm_120 (ported), iiwa14 AND indy7
 The cited GPU competitor ([arXiv:2309.08079](https://arxiv.org/abs/2309.08079)). Build it from its

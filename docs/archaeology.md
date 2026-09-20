@@ -1,5 +1,17 @@
 # Branch archaeology & provenance
 
+> **DATED SNAPSHOT (2026-06-24) — read as history.** Since then: `cleanup-modernization`
+> IS pushed to A2R-Lab/GATO (CI-verified receipts); the Python package moved
+> `python/bsqp/` → `python/gato/`; the recovered data lives under
+> `examples/benchmarks/data/`; the June fig3 chain (`benchmark_fig8.py`,
+> `benchmark_pinocchio.py`, `reproduce_fig3_{scalability,heatmap}.py`) is in
+> `examples/archive/` — the paper's Fig-3 path is `examples/paper-figures/reproduce_fig3_fair.py`;
+> the notebooks named below were folded into `examples/explore.ipynb` /
+> `paper-figures/visualizations.ipynb`; `ImprovedForceEstimator`/`CEMForceEstimator` were
+> re-imported (`python/gato/estimators.py`). The deletion gate below was never
+> executed: items 1 (dynamics validated) and 3 (branch pushed) are cleared, item 2
+> (fair Fig-3) landed 07-30, item 4 (explicit approval) is still open.
+
 This repo's `main`/`ICRA-26` (the clean, GRiD/GLASS-vendored, migrated solver) is an **unrelated
 git history** to the older `Alex-Du`-era development branches (empty merge-base — they share no
 common ancestor). Those older branches are each a full *pre-migration-API* world that carried the

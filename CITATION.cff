@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use GATO, please cite the paper below."
+title: "GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"
+type: software
+repository-code: "https://github.com/A2R-Lab/GATO"
+license: MIT
+authors:
+  - family-names: Du
+    given-names: Alexander
+  - family-names: Adabag
+    given-names: Emre
+  - family-names: Bravo
+    given-names: Gabriel
+  - family-names: Plancher
+    given-names: Brian
+preferred-citation:
+  type: article
+  title: "GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"
+  authors:
+    - family-names: Du
+      given-names: Alexander
+    - family-names: Adabag
+      given-names: Emre
+    - family-names: Bravo
+      given-names: Gabriel
+    - family-names: Plancher
+      given-names: Brian
+  year: 2025
+  journal: "arXiv preprint arXiv:2510.07625"
+  url: "https://arxiv.org/abs/2510.07625"

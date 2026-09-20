@@ -86,30 +86,47 @@ migrated to `glass::`.
 
 ## Source layout
 
-- `gato/bsqp/` — the BSQP solver: `bsqp.cuh` (host orchestration) + `kernels/*.cuh`.
+- `gato/bsqp/` — the BSQP solver: `bsqp.cuh` (host orchestration), `rowgroups.cuh` (the
+  constraint row-group layer: box / EE / LIN_U / collision rows, barrier / ADMM / AL folds),
+  `kernels/{setup_kkt, schur_linsys, pcg, bdsv, merit, line_search, sim, admm, contact_debug}.cuh`.
+  Every kernel's shared-memory layout is one `*Smem` struct read by both the host sizer and the
+  device carve. Naming: snake_case for every hand-written device/host function.
 - `gato/dynamics/` — `plant.cuh` (ONE shared robot-agnostic adapter: dimension aliases from
-  `grid::` constants, dynamics + tracking-cost wrappers over `grid_plant::`) + per-robot
-  `<name>/{grid.cuh, limits.cuh}` (both generated; limits from the URDF `<limit>` tags). CMake
-  injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"` and puts the robot dir on the include path.
-- `gato/utils/` — `linalg.cuh` (GATO helpers), `cuda.cuh` (error macros).
+  `grid::` constants, dynamics + tracking-cost wrappers over `grid_plant::`), `integrator.cuh`,
+  `grid_plant_step.cuh` (floating-base step/linearization via the emitted arena carves),
+  `manifold.cuh` (SE(3) retract/difference) + per-robot `<name>/{grid.cuh, limits.cuh}` (both
+  generated; `indy7`, `iiwa14`, `go2`). CMake injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"`
+  and puts the robot dir on the include path. Regen emits only the consumed GRiD families
+  (`gato.builder.GATO_ALGORITHMS`).
+- `gato/utils/` — `linalg.cuh` (batch-layout accessors), `cuda.cuh` (error macros).
 - `gato/{constants.h, settings.h, types.cuh}` — dims, build flags, KKT/Schur structs.
 - `python/gato/` — the Python package (`import gato`):
-  - `interface.py` — `BSQP` (solve → `SolveResult`/`SolverStats`), `available()`, `robot_info()`.
-  - `controller.py` — task-agnostic `MPCController` (warm-start shift/hold, hypothesis hooks).
+  - `config.py` — `SolverParams` (THE solver configuration) + robot start configs.
+  - `interface.py` — `BSQP` (stateless `solve(x, ref, xu_warm)` → `SolveResult`/`SolverStats`),
+    `available(variant)`, `module_name`, `robot_info()`.
+  - `controller.py` — task-agnostic `MPCController` (owns the warm start; shift/hold, linsys
+    "auto", reseed, hypothesis hooks); `StepResult.u` is the ACTUATED control.
   - `hypotheses.py` / `estimators.py` — `HypothesisBatch` ABC, `ForceHypothesisBatch`,
     `ForceEstimator`/`CEMForceEstimator` (batch-as-identity API).
   - `policy.py` / `envs.py` — `MPCPolicy` + reference providers (numpy-only) / gymnasium
     `ArmTrackEnv` (lazy import).
-  - `mpc_gato.py` — `MPC_GATO`, the thin legacy sim driver (`run_mpc_fig8`, `run_mpc_goals`).
-  - `builder.py` — `gato.build(urdf)` codegen+compile; writes `_registry.json` (robot metadata).
-  - `config.py` / `common.py` — robot/solver configs, figure8/rk4 helpers.
-- `examples/` — intro demos `01/02/03/04` + `explore.ipynb` + robot URDFs.
-  `examples/paper-figures/` — `reproduce_fig*.py` + `_common.py` (paper constants) +
-  `_pickplace_runner.py` + `visualizations.ipynb`. `examples/benchmarks/` — `benchmark_fig8.py`/
-  `benchmark_pinocchio.py` + `baselines/` (incl. `sqpcpu` submodule) + `data/`.
-- `test/` — pytest suite (`gpu`/`slow` markers; see Validation) + `test/cuda/` standalone harness.
+  - `worlds.py` — `PinocchioWorld` / `MuJoCoWorld` simulators; `certificate.py` (KKT certificate);
+    `linsys_autotune.py` (resolve_linsys + the tuned-entry table); `fingerprint.py`.
+  - `mpc_gato.py` — `MPC_GATO`, the closed-loop SIM DRIVER (`run_mpc_fig8`, `run_mpc_goals`).
+  - `builder.py` — `gato.build(urdf, ..., floating_base=, contact_frames=, contact_forces=,
+    exact_hessian=)` codegen+compile; `_registry.json` (tracked) holds robot metadata.
+  - `common.py` — figure8 / rk4 / manifold helpers.
+- `examples/` — intro demos `01..08` + `explore.ipynb` + robot URDFs; `paper-figures/`
+  (`reproduce_fig*.py`, `_common.py`, `_pickplace_runner.py`); `benchmarks/` (`_bench.py` shared
+  helpers, `iiwa_fig8_shared.py`, `constraint_eval.py`, `_linsys_probe.py`/`linsys_auto_cdf.py`,
+  `run_timing_night.sh`, `baselines/` incl. the opt-in `sqpcpu` submodule); `contact-task/`
+  (the wipe task); `archive/` (superseded June-era scripts).
+- `test/` — pytest suite (`gpu`/`slow` markers; see Validation): goldens in `test/golden/`,
+  the receipt module set in `test/receipt_modules.txt`, kernel harnesses in `test/cuda/` (run by
+  `test_kernel_gates.py`), `conftest.py` shared fixtures (TEST_PARAMS, go2 helpers).
 - `external/GRiD` (pinned to `modernizing-tests`), `external/GLASS` (pinned to `main`).
-- `tools/regen_grid.py` — thin CLI over `gato.builder.codegen` for the vendored robots.
+- `tools/` — `regen_grid.py` (CLI over `gato.builder.codegen`), `build.sh` (`--profile receipt`,
+  `--variant fc|eh`), `install.sh` (`--test --dev`), `autotune_linsys.py`, `gen_dynamics_fingerprint.py`.
 
 ## Build & run
 
@@ -131,10 +148,12 @@ gives it pinocchio + mujoco + scipy + gymnasium + pytest-gpu-proof, which is wha
 requires (it refuses a python missing them — a skip-laden receipt fails CI). Do NOT sign receipts
 from other repos' venvs.
 
-New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE")` runs codegen (grid.cuh +
-limits.cuh + registry) and compiles the modules in one call (fixed-base serial chains with bounded
-`<limit>` tags only; `ee_frame` must be a URDF fixed joint). NOTE: it reconfigures the `build/`
-tree for its own (plant, N) request — re-run your usual cmake configure afterwards.
+New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_base=False,
+contact_frames=None, contact_forces=False, exact_hessian=False)` runs codegen (grid.cuh +
+limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
+call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
+fixed joint). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your
+usual configure (`./tools/build.sh --profile receipt`) afterwards.
 
 Constraint-layer rulings/provenance (moved out of the docstrings): [`docs/constraints.md`](docs/constraints.md).
 
@@ -205,10 +224,12 @@ receipt is committed yet, so code can push before a receipt lands). Config in
 regenerate the receipt with (or right after) such a push. The workflow's
 `cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
-`test/cuda/pcg_vs_cpu.cu` is a standalone single-block `glass::pcg`-vs-CPU harness (build command
-in its header; `-DNDEBUG` required, no fast-math). For kernel changes, prefer bit-parity gates:
-a saved `solve()` npz on fixed inputs + the fixed-pacing fig8 runs (see the gotchas above for the
-merit-jitter caveat), plus `compute-sanitizer --tool memcheck` on `examples/01_single_solve.py`.
+`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 34 goldens (pcg + bdsv
+per receipt module, an arm ADMM/EE-row case, the fc/eh variants) — a kernel edit that keeps
+them bitwise is safe; one that changes them needs `GATO_GOLDEN_REBASELINE=1` and the reason in
+the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cuda/` harnesses
+(`-DNDEBUG`, `-arch=native`, no fast-math). Also `compute-sanitizer --tool racecheck` on the demo
+`build/bsqp` for shared-memory changes.
 
 ## Commit style
 
