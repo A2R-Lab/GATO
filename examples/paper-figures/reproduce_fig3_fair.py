@@ -28,16 +28,15 @@ import os
 import csv
 import argparse
 import subprocess
+import sys
+import sysconfig
 
 import numpy as np
 
 import _common as C
 
-MPCGPU_REPO = os.path.join(os.path.dirname(C.REPO), "MPCGPU")
-GRIDVENV = os.path.join(os.path.dirname(C.REPO), "GRiD", ".venv")
-PY = os.path.join(GRIDVENV, "bin", "python")
-if not os.path.exists(PY):
-    PY = "python"
+MPCGPU_REPO = str(C.bench.mpcgpu_root())   # $MPCGPU_ROOT or <repo>/../MPCGPU
+PY = sys.executable                        # the data stages run under THIS python
 
 GATO_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_gato.csv")
 BT_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_bt.csv")
@@ -50,17 +49,18 @@ def _run(cmd, cwd=C.REPO, env=None):
 
 
 def bt_env():
-    """LD_LIBRARY_PATH/PYTHONPATH for pysqpcpu (mirrors MPCGPU tools/run_3way_iiwa.sh)."""
+    """LD_LIBRARY_PATH/PYTHONPATH for pysqpcpu (mirrors baselines/sqpcpu_env.sh, written by
+    build_cpu_baseline.sh): the module build dir, the local osqp prefix and this python's
+    cmeel pinocchio libs."""
     sqpcpu = os.path.join(C.BENCH_DIR, "baselines", "sqpcpu")
     prefix = os.path.join(sqpcpu, "deps", "install")
-    cmeel = os.path.join(GRIDVENV, "lib", "python3.12", "site-packages", "cmeel.prefix", "lib")
+    cmeel = os.path.join(sysconfig.get_paths()["purelib"], "cmeel.prefix", "lib")
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = ":".join(
         [os.path.join(sqpcpu, "build"), os.path.join(prefix, "lib"), cmeel,
          env.get("LD_LIBRARY_PATH", "")])
     env["PYTHONPATH"] = ":".join(
-        [os.path.join(sqpcpu, "build"), os.path.join(C.REPO, "python"),
-         env.get("PYTHONPATH", "")])
+        [os.path.join(sqpcpu, "build"), env.get("PYTHONPATH", "")])
     return env
 
 
@@ -227,6 +227,8 @@ def main():
         args.fig3_N = 16  # fig3-left must use a horizon the quick subset ran
         print("[quick] tiny subset — NOT paper numbers")
 
+    if args.run_gato or args.run_bt or args.run_mpcgpu:
+        C.bench.require_quiet_gpu(allow_busy=args.quick)   # the --run-* stages are TIMING
     if args.run_gato:
         run_gato(N_list, batches, extra, solves)
     if args.run_bt:

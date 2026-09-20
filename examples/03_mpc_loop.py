@@ -1,33 +1,34 @@
 """Intro example 3: a closed-loop MPC tracking loop.
 
-Runs the MPC_GATO controller tracking a figure-8 end-effector trajectory on the
-Indy7 for a few seconds, then prints the average tracking error and per-step solve
-time. This is the high-level wrapper used by the paper's Fig-3/Fig-5 experiments
-(see examples/paper-figures/).
+Runs the MPC_GATO simulation driver (pinocchio RK4 world + pacing around a
+gato.MPCController) tracking a figure-8 end-effector trajectory on the Indy7
+for a few seconds, then prints the average tracking error and per-step solve
+time. This is the driver the paper's Fig-3/Fig-5 experiments use
+(see examples/paper-figures/); for your own loop see 04_gym_mpc.py / 07_go2_floating.py.
 
-Run from the repo root (needs the bsqpN64_indy7 module built):
+Needs the bsqpN64_indy7 module and a python with pinocchio; runs from any cwd:
     python examples/03_mpc_loop.py
 """
-import os
-import sys
-import numpy as np
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+import numpy as np
 import pinocchio as pin
-from gato.mpc_gato import MPC_GATO
+
+import gato
+from gato import MPC_GATO
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
+REPO = Path(__file__).resolve().parents[1]
+URDF = str(REPO / gato.robot_info("indy7")["urdf"])
 # M=1 here for a clean, deterministic tracking demo. (Batched solves are shown in
-# 02_batched_solve.py; batched MPC with online force estimation is in
+# 02_batched_solve.py; batched MPC with online force estimation is in 04_gym_mpc.py and
 # examples/paper-figures/reproduce_fig5_disturbance.py, where the batch hypothesizes
 # an actual disturbance — running the estimator without a disturbance just adds noise.)
 N, DT, M = 64, 0.01, 1
 
-model, _, _ = pin.buildModelsFromUrdf(URDF, os.path.dirname(URDF) + "/")
-mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=M, plant_type="indy7",
-               track_full_stats=False)
+model = pin.buildModelFromUrdf(URDF)
+mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=M, plant_type="indy7")
 
 fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
 x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(model.nv)))

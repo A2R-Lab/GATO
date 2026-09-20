@@ -13,15 +13,18 @@ All three solvers must track the IDENTICAL goal, measured at the IDENTICAL end-e
   - warm-start (all three): x_curr replicated + ZERO controls (infeasible on purpose; a gravity-comp
     feasible hold is a strict merit min that traps the SQP).
 
-Load path: prefer the MPCGPU-generated goal file (examples/trajfiles/0_0_eepos.traj) so the goal is
-BYTE-identical across repos; else synthesize from the formula (verified equal to the generator).
+Load path: prefer the MPCGPU-generated goal file (<MPCGPU>/examples/trajfiles/0_0_eepos.traj,
+MPCGPU = $MPCGPU_ROOT or <repo>/../MPCGPU) so the goal is BYTE-identical across repos; else
+synthesize from the formula (verified equal to the generator).
 """
 import os
 import numpy as np
 import pinocchio as pin
 
+from _bench import mpcgpu_root, pin_model, urdf_path
+
 # canonical iiwa14 URDF: the one GATO regen + MPCGPU both codegen from (md5 eeb7d4ff), NOT GRiD/robot_assets.
-IIWA14_URDF = "/home/plancher/Desktop/GATO/examples/iiwa_description/iiwa14.urdf"
+IIWA14_URDF = urdf_path("iiwa14")
 EE_FRAME = "EE"                                        # grid end_effector_pose == URDF "EE" fixed joint
 Q0_READYC = np.array([0.0, 0.30, 0.0, -1.60, 0.0, 1.20, 0.0])   # bent start; EE ~ [0.5077, 0, 0.511]
 
@@ -31,8 +34,8 @@ FIG8_PERIOD = 6.0
 DT = 0.01
 
 
-def build_model(urdf=IIWA14_URDF):
-    m = pin.buildModelFromUrdf(urdf)
+def build_model():
+    m = pin_model("iiwa14")
     m.gravity.linear = np.array([0.0, 0.0, -9.81])     # match GATO/MPCGPU (-9.81)
     return m, m.createData()
 
@@ -65,9 +68,12 @@ def figure8_goal(n_steps, A=FIG8_A, period=FIG8_PERIOD, dt=DT, center=None):
     return out
 
 
-def load_goal_file(prefix="/home/plancher/Desktop/MPCGPU/examples/trajfiles/0_0"):
+def load_goal_file(prefix=None):
     """Load MPCGPU's generated fig8 goal (BYTE-identical goal for all three). Returns flat 6-wide array
-    or None if absent (caller then falls back to figure8_goal)."""
+    or None if absent (caller then falls back to figure8_goal). Default prefix:
+    <MPCGPU>/examples/trajfiles/0_0."""
+    if prefix is None:
+        prefix = str(mpcgpu_root() / "examples" / "trajfiles" / "0_0")
     path = prefix + "_eepos.traj"
     if not os.path.exists(path):
         return None

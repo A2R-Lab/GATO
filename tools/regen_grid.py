@@ -15,13 +15,11 @@ Requires the GRiD submodule initialized:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+from gato.builder import codegen
 
-from gato.builder import codegen  # noqa: E402
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # robot id -> (URDF path, EE target fixed-joint name, collision/contact bake).
 # collision_res 0.15 keeps the sphere set row-group sized (iiwa14 44 / indy7 29

@@ -1,3 +1,4 @@
+# ARCHIVED 2026-09-20: superseded by paper-figures/reproduce_fig3_fair.py (iiwa14 parity harness). Kept for indy7 provenance; not maintained.
 """Regenerate Fig-3 (left): Indy7 figure-8 batch-size scalability.
 
 SUPERSEDED (2026-07) by reproduce_fig3_fair.py — the iiwa14 parity harness where all three
@@ -10,7 +11,7 @@ per-step solve time against the BatchThneed CPU baseline and the MPCGPU GPU
 baseline as M grows over [1, 2, 4, ..., 128].
 
 This is a thin orchestrator over the canonical generators:
-  - GATO:        examples/benchmarks/benchmark_fig8.py -> data/benchmark_fig8_64N.pkl (batched GPU)
+  - GATO:        archive/benchmark_fig8.py -> benchmarks/data/benchmark_fig8_64N.pkl (batched GPU)
   - BatchThneed: benchmarks/baselines/run_batchthneed_fig8.py -> baselines/batchthneed_fig8_results.pkl
                  The paper's CPU competitor: threaded C++ BatchThneed solves M problems across
                  cores -> SUB-LINEAR (flat to core count, then linear), the fair CPU line. Build
@@ -27,9 +28,9 @@ DEFAULT regenerates GATO then assembles the plot (BatchThneed/MPCGPU read if pre
 ``--replot`` just assembles from existing pkls.
 
 Examples::
-    python examples/paper-figures/reproduce_fig3_scalability.py            # regen + plot
-    python examples/paper-figures/reproduce_fig3_scalability.py --quick    # fast smoke
-    python examples/paper-figures/reproduce_fig3_scalability.py --replot   # assemble only
+    python examples/archive/reproduce_fig3_scalability.py            # regen + plot
+    python examples/archive/reproduce_fig3_scalability.py --quick    # fast smoke
+    python examples/archive/reproduce_fig3_scalability.py --replot   # assemble only
 """
 import os
 import argparse
@@ -38,14 +39,17 @@ import subprocess
 
 import numpy as np
 
-import _common as C
+import sys
 
+import _paths
+C = _paths.load("_common")
+
+HERE = _paths.HERE          # the archived indy7 chain lives together here
 N = 64
 GATO_PKL = os.path.join(C.BENCH_DATA, f"benchmark_fig8_{N}N.pkl")
-BATCHTHNEED_PKL = os.path.join(C.BENCH_DIR, "baselines", "batchthneed_fig8_results.pkl")
-MPCGPU_CSV = os.path.join(C.BENCH_DIR, "baselines", "mpcgpu_indy7_fig8_N64.csv")
-VENV = os.path.join(os.path.dirname(C.REPO), "GRiD", ".venv", "bin", "python")
-PY = VENV if os.path.exists(VENV) else "python"
+BATCHTHNEED_PKL = os.path.join(HERE, "batchthneed_fig8_results.pkl")
+MPCGPU_CSV = os.path.join(HERE, "mpcgpu_indy7_fig8_N64.csv")
+PY = sys.executable
 
 
 def _run(cmd):
@@ -54,7 +58,7 @@ def _run(cmd):
 
 
 def regen_gato(batch_sizes, sim_time):
-    _run([PY, "examples/benchmarks/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
+    _run([PY, os.path.join(HERE, "benchmark_fig8.py"), "--plant", "indy7", "--N", str(N),
           "--batch-sizes", batch_sizes, "--sim-time", str(sim_time)])
 
 

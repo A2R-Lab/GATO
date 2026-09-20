@@ -1,5 +1,5 @@
+# ARCHIVED 2026-09-20: superseded by benchmarks/sweep_batch_iiwa_fig8.py (the fig3-fair GATO generator). Kept for indy7 provenance; not maintained.
 import os
-import sys
 import time
 import argparse
 import numpy as np
@@ -7,20 +7,18 @@ import pickle
 from datetime import datetime
 import pinocchio as pin
 
-# benchmark pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
-_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-
-# Add paths
-sys.path.append('./python')
-sys.path.append('./python')
-
 from gato.mpc_gato import MPC_GATO
 from gato.common import figure8
 from gato.config import (
     FIG8_DEFAULT_PARAMS,
     INDY7_START_CONFIGS,
 )
-from _common import STANDARD_BATCH_SIZES, BATCH_COLORS  # examples/paper-figures
+import _paths
+_bench = _paths.load("_bench")
+STANDARD_BATCH_SIZES = _paths.load("_common").STANDARD_BATCH_SIZES
+
+# benchmark pkls land in examples/benchmarks/data/ (where the archived fig3 assemblers read them)
+_DATA_DIR = os.path.join(_paths.EXAMPLES, "benchmarks", "data")
 
 
 def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start, model_path=None, plant='indy7'):
@@ -127,16 +125,13 @@ def main():
                    help="small subset (batch 1,32,128 @ N=64) for a wiring smoke")
     args = p.parse_args()
 
-    PLANT_URDFS = {"indy7": "examples/indy7_description/indy7.urdf",
-                   "iiwa14": "examples/iiwa_description/iiwa14.urdf"}
-    urdf_path = args.urdf or PLANT_URDFS[args.plant]
-    model_dir = urdf_path.rsplit('/', 1)[0] + '/'
+    urdf_path = args.urdf or _bench.urdf_path(args.plant)
     N_list = _parse_int_list(args.N)
     batch_sizes = _parse_int_list(args.batch_sizes)
     if args.quick:
         N_list, batch_sizes = [64], [1, 32, 128]
 
-    model, _, _ = pin.buildModelsFromUrdf(urdf_path, model_dir)
+    model = pin.buildModelFromUrdf(urdf_path)
     fig8_traj = figure8(args.dt, **FIG8_DEFAULT_PARAMS)
     start_cfg = INDY7_START_CONFIGS[args.start_config] if args.plant == 'indy7' \
         else np.zeros(model.nq)

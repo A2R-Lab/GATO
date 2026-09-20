@@ -19,18 +19,12 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parents[1]
-if str(REPO / "python") not in sys.path:
-    sys.path.insert(0, str(REPO / "python"))
-
 import gato
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS, SolverParams
 
+REPO = Path(__file__).resolve().parents[1]
 START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
-URDFS = {
-    "indy7": REPO / "examples" / "indy7_description" / "indy7.urdf",
-    "iiwa14": REPO / "examples" / "iiwa_description" / "iiwa14.urdf",
-}
+URDFS = {p: REPO / gato.robot_info(p)["urdf"] for p in ("indy7", "iiwa14")}   # from the registry
 
 
 def _inputs(plant, N, B):

@@ -10,29 +10,28 @@ Two policies run the same task:
            guessed wrench, reality picks the winner each tick, and a force
            estimator refines the guesses (the paper's Fig-5/CS3 mechanism).
 
-This demo exercises the full MPCPolicy / ArmTrackEnv / HypothesisBatch API.
-NOTE (2026-07-07): the hypothesis frame-convention bug is FIXED (world wrench ->
-GRiD's Featherstone-ordered joint-local slot, plus the sim now re-expresses the
-world force each substep) — the estimator converges to the true wrench (~0.35 N
-steady-state on the 20 N task) and B=16 tracks ~1.3x better than B=1 here.
-Radius-schedule tuning remains open R&D (see docs/open-tasks).
+This demo exercises the full MPCPolicy / MPCController / ArmTrackEnv /
+HypothesisBatch API. The estimator converges to the true wrench (~0.35 N
+steady-state on the 20 N task) and B=16 tracks ~1.3x better than B=1 here;
+radius-schedule tuning remains open R&D (see docs/open-tasks).
 
-Run from the repo root (needs the bsqpN64_indy7 module built):
+Needs the bsqpN64_indy7 module and the [examples] extra (gymnasium, pinocchio);
+runs from any cwd:
     python examples/04_gym_mpc.py
 """
-import os
-import sys
+from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+import gato
 from gato import BSQP, MPCController, MPCPolicy, ForceEstimator, ForceHypothesisBatch
 from gato.envs import ArmTrackEnv
 from gato.policy import TrajectoryReference
 from gato.common import figure8, _require_pin
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
+REPO = Path(__file__).resolve().parents[1]
+URDF = str(REPO / gato.robot_info("indy7")["urdf"])
 N, DT = 64, 0.01
 F_EXT = np.array([0.0, 0.0, -20.0, 0.0, 0.0, 0.0])  # unmodeled EE force (world frame)
 SIM_S = 3.0
@@ -45,7 +44,7 @@ def make_env(reference):
 
 
 def rollout(batch_size, with_hypotheses):
-    solver = BSQP(model_path=URDF, batch_size=batch_size, N=N, dt=DT, plant_type="indy7")
+    solver = BSQP(URDF, batch_size=batch_size, N=N, dt=DT, plant_type="indy7")
 
     hypotheses = None
     if with_hypotheses:

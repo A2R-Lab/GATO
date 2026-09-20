@@ -13,40 +13,33 @@ run when other compute pids hold the GPU; --allow-busy overrides for
 plumbing smoke tests, never for numbers you keep).
 
 Tasks: the wired task is the disturbance-rich fig8 (same rig as the 08-12
-CDF study, examples/benchmarks/_linsys_probe.py); --kick-every scales how
-often the state is kicked (larger = warmer workload). Rerun go2 through this
-under a real gait once fc-on-feet lands — the w36 "bdsv everywhere" verdict
-came from a forced-iterations cold protocol.
+CDF study, examples/benchmarks/_bench.run_kicked_arm); --kick-every scales
+how often the state is kicked (larger = warmer workload). Rerun go2 through
+this under a real gait once fc-on-feet lands — the w36 "bdsv everywhere"
+verdict came from a forced-iterations cold protocol.
 
 Example:
     tools/autotune_linsys.py --plant iiwa14 --N 64 --task-tag fig8
     python -c "from gato.linsys_autotune import lookup; print(lookup('iiwa14', 64, 'fig8'))"
 """
 import argparse
-import datetime
+import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "python"))
-sys.path.insert(0, str(ROOT / "examples" / "benchmarks"))
 
 
-def pct(t):
-    t = np.asarray(t, dtype=float)
-    return {k: float(np.percentile(t, q)) for k, q in
-            (("p50", 50), ("p90", 90), ("p99", 99))} | \
-           {"max": float(t.max()), "mean": float(t.mean())}
-
-
-def line(name, t, extra=""):
-    s = pct(t)
-    return (f"{name:<14} p50 {s['p50']:6.3f}  p90 {s['p90']:6.3f}  "
-            f"p99 {s['p99']:6.3f}  max {s['max']:6.3f}  mean {s['mean']:6.3f} ms{extra}")
+def _load_bench():
+    """examples/benchmarks/_bench.py by path (not a package; nothing edits the import path)."""
+    spec = importlib.util.spec_from_file_location("_bench", ROOT / "examples" / "benchmarks" / "_bench.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_bench"] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def main():
@@ -71,22 +64,17 @@ def main():
                          "never persist numbers from a busy box)")
     args = ap.parse_args()
 
-    from _linsys_probe import gpu_busy, run_arm
+    bench = _load_bench()
     from gato.linsys_autotune import decide_policy, fit_tau, save_tuning
 
-    busy = gpu_busy()
-    if busy and not args.allow_busy:
-        sys.exit(f"REFUSING to time: GPU busy ({busy})")
-    if busy:
-        print(f"WARNING: probing under contention (pids: {busy}) — do NOT "
-              "persist these numbers", flush=True)
+    quiet = bench.require_quiet_gpu(allow_busy=args.allow_busy)
 
     probe_kw = dict(plant=args.plant, N=args.N, sim_time=args.sim_time,
                     kick_every=args.kick_every, seed=args.seed)
-    pcg = run_arm("pcg", **probe_kw)
-    print(line("pcg", pcg["solve_ms"], f"  track {pcg['track_mean']:.4f}"))
-    bdsv = run_arm("bdsv", **probe_kw)
-    print(line("bdsv", bdsv["solve_ms"], f"  track {bdsv['track_mean']:.4f}"))
+    pcg = bench.run_kicked_arm("pcg", **probe_kw)
+    print(bench.pct_line("pcg", pcg["solve_ms"], f"  track {pcg['track_mean']:.4f}"))
+    bdsv = bench.run_kicked_arm("bdsv", **probe_kw)
+    print(bench.pct_line("bdsv", bdsv["solve_ms"], f"  track {bdsv['track_mean']:.4f}"))
     bdsv_ms = float(np.median(bdsv["solve_ms"]))
 
     tau, diag = fit_tau(pcg["pred_err"], pcg["solve_ms"], bdsv_ms,
@@ -98,30 +86,29 @@ def main():
 
     validation = None
     if decision["policy"] == "auto" and not args.no_validate:
-        auto = run_arm("auto", decision["tau"], **probe_kw)
+        auto = bench.run_kicked_arm("auto", decision["tau"], **probe_kw)
         cold = f"  cold {100 * np.mean(auto['cold']):.0f}%" if auto["cold"] else ""
-        print(line(f"auto@{decision['tau']:.3f}", auto["solve_ms"],
-                   f"  track {auto['track_mean']:.4f}{cold}"))
-        validation = pct(auto["solve_ms"])
+        print(bench.pct_line(f"auto@{decision['tau']:.3f}", auto["solve_ms"],
+                             f"  track {auto['track_mean']:.4f}{cold}"))
+        validation = bench.pct(auto["solve_ms"])
 
     if args.dry_run:
         print("dry run — tuning table not written")
         return
-    if busy:
+    if not quiet:
         sys.exit("REFUSING to persist numbers probed under contention "
                  "(rerun on a quiet box)")
-    sha = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
-                         capture_output=True, text=True).stdout.strip()
+    prov = bench.git_provenance()
     entry = {
         "policy": decision["policy"],
         "tau": decision["tau"],
         "provenance": {
-            "date": datetime.date.today().isoformat(),
-            "sha": sha,
+            "date": prov["date"][:10],
+            "sha": prov["short"] + ("+dirty" if prov["dirty"] else ""),
             "cold_frac": decision["cold_frac"],
             "probe": {"sim_time": args.sim_time, "kick_every": args.kick_every,
                       "seed": args.seed, "steps": pcg["steps"]},
-            "pcg": pct(pcg["solve_ms"]),
+            "pcg": bench.pct(pcg["solve_ms"]),
             "bdsv_ms": bdsv_ms,
             "auto_validation": validation,
             "fit": diag,

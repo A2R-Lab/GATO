@@ -2,7 +2,7 @@
 
 Every ``reproduce_figN_*.py`` script in this directory imports from here so they
 share a consistent look, model/path resolution, data I/O, and CLI flags. Run any
-script from the repo root, e.g.::
+script from any cwd, e.g.::
 
     python examples/paper-figures/reproduce_fig4_hparam.py --quick
 
@@ -10,13 +10,14 @@ Reproducibility tiers (see paper-figures/README.md):
   A (no GPU)  : ``--replot`` loads bundled/recovered data and only renders.
   B (GPU)     : default invocation re-runs the experiment on the GPU.
   C (hardware): Fig-6 / Fig-8 / Table-II are NOT reproducible in software.
+
+The CS3 pick-place experiment constants (PICKPLACE_*, PENDULUM_DEFAULT_PARAMS,
+sample_pendulum_params) live in _pickplace_runner.py since 2026-09-20.
 """
+import importlib.util
 import os
 import sys
 import pickle
-import argparse
-
-import numpy as np
 
 # Experiment sweep sizes + the paper's batch-size palette (moved out of the
 # runtime package gato.config on 2026-09-20 — they are figure/experiment config).
@@ -44,36 +45,40 @@ FIG_DIR = HERE                                    # figures render next to scrip
 BENCH_DIR = os.path.join(REPO, "examples", "benchmarks")   # benchmark scripts + baselines + data
 BENCH_DATA = os.path.join(BENCH_DIR, "data")               # benchmark pkls (GATO sweep, recovered)
 
-# make the GATO python package importable no matter the CWD
-for _p in (os.path.join(REPO, "python"),):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
-# robot URDFs (note iiwa14 lives under iiwa_description/, not iiwa14_description/)
-URDFS = {
-    "indy7": os.path.join(REPO, "examples", "indy7_description", "indy7.urdf"),
-    "iiwa14": os.path.join(REPO, "examples", "iiwa_description", "iiwa14.urdf"),
-}
+def _load_bench():
+    """examples/benchmarks/_bench.py by path (URDF lookup, pin models, GPU guard,
+    provenance, MPCGPU location) — the benchmarks dir is not a package."""
+    if "_bench" in sys.modules:
+        return sys.modules["_bench"]
+    spec = importlib.util.spec_from_file_location("_bench", os.path.join(BENCH_DIR, "_bench.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_bench"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+bench = _load_bench()
+
+# robot URDFs, from the registry (python/gato/_registry.json via gato.robot_info)
+URDFS = {p: bench.urdf_path(p) for p in ("indy7", "iiwa14")}
 
 
 def resolve_model(plant):
     """Return (urdf_path, model_dir, pin_model) for a plant ('indy7'|'iiwa14')."""
-    import pinocchio as pin
     urdf = URDFS[plant]
     if not os.path.exists(urdf):
         raise FileNotFoundError(f"URDF for {plant} not found at {urdf}")
-    model_dir = os.path.dirname(urdf) + "/"
-    model, _, _ = pin.buildModelsFromUrdf(urdf, model_dir)
-    return urdf, model_dir, model
+    return urdf, os.path.dirname(urdf) + "/", bench.pin_model(plant)
 
 
 def require_module(plant, N):
     """Assert the compiled bsqpN{N}_{plant} extension exists; else a clear error.
 
-    Batch sizes / (plant, N) are compile-time, so the module must be pre-built::
+    (plant, N) are compile-time, so the module must be pre-built::
 
-        cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;16;32;64;128" \\
-              -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4
+        ./tools/build.sh --profile receipt      # the full attested module set
+        MODULES="indy7:64" ./tools/build.sh     # one module
     """
     import importlib
     try:
@@ -82,8 +87,7 @@ def require_module(plant, N):
         raise SystemExit(
             f"\n[paper-figures] Missing compiled module gato.bsqpN{N}_{plant} "
             f"({e}).\nBuild it first, e.g.:\n"
-            f"  cmake -S . -B build -DPLANT=\"{plant}\" -DKNOTS=\"{N}\" "
-            f"-DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4\n"
+            f"  MODULES=\"{plant}:{N}\" ./tools/build.sh\n"
         )
 
 
@@ -169,93 +173,3 @@ def add_repro_args(parser):
 
 def parse_int_list(s):
     return [int(x) for x in str(s).split(",") if x != ""]
-
-
-# ---- paper-experiment constants (moved from gato.config/gato.common: these are
-# CS3 pick-place experiment settings, not solver API) ----
-
-PICKPLACE_SOLVER_PARAMS = {
-    'max_sqp_iters': 5,
-    'max_pcg_iters': 100,
-    'pcg_tol': 1e-6,
-    'solve_ratio': 1.0,
-    'mu': 10.0,
-    'q_cost': 5.0,
-    'qd_cost': 1e-2,
-    'u_cost': 5e-7,
-    'N_cost': 50.0,
-    'q_lim_cost': 0.0,
-    'vel_lim_cost': 0.0,
-    'ctrl_lim_cost': 0.0,
-    'rho': 0.001
-}
-
-PICKPLACE_MPC_DEFAULTS = {
-    'goal_timeout': 5.0,
-    'goal_threshold': 0.05,
-    'velocity_threshold': 1.0,
-    # Paper-comparable metrics (2026-07-08 gap investigation): the paper's
-    # "total joint velocity < 1.0 rad/s" is read as the Euclidean norm (the L1
-    # sum over 7 joints is materially stricter and capped success), and fixed
-    # pacing makes the completion clock physical task time instead of
-    # cumulative wall time (also makes runs deterministic).
-    'velocity_norm': 2,
-    'pace_by_solve_time': False,
-}
-
-# Pendulum parameter defaults
-PENDULUM_DEFAULT_PARAMS = {
-    'mass': 15.0,           # kg
-    'length': 0.3,          # m
-    'damping': 0.4,         # Nms/rad
-    'initial_angle': np.array([0.3, 0.0, 0.0])  # axis-angle (radians)
-}
-
-# Default pick&place goal sequence (IIWA14 workspace)
-PICKPLACE_DEFAULT_GOALS = [
-    np.array([0.5, -0.1865, 0.5]),
-    np.array([0.5, 0.5, 0.2]),
-    np.array([0.3, 0.3, 0.8]),
-    np.array([0.6, -0.5, 0.2]),
-    np.array([0.0, -0.5, 0.8])
-]
-
-
-def sample_axis_angle(mag_range=(0.0, 0.6)):
-    """
-    Sample random axis-angle vector for pendulum initial condition.
-    
-    Args:
-        mag_range: Tuple of (min_magnitude, max_magnitude) in radians
-        
-    Returns:
-        3D axis-angle vector
-    """
-    mag = np.random.uniform(*mag_range)
-    # Random direction on unit sphere
-    v = np.random.normal(size=3)
-    n = np.linalg.norm(v) + 1e-12
-    axis = v / n
-    return axis * mag
-
-
-def sample_pendulum_params(length_range=(0.3, 0.7), damping_range=(0.1, 0.6), 
-                          angle_range=(0.0, 0.6), mass=15.0):
-    """
-    Sample random pendulum configuration for parameter sweeps.
-    
-    Args:
-        length_range: Tuple of (min, max) pendulum length in meters
-        damping_range: Tuple of (min, max) damping coefficient in Nms/rad
-        angle_range: Tuple of (min, max) initial angle magnitude in radians
-        mass: Fixed mass in kg
-        
-    Returns:
-        Dictionary with pendulum configuration
-    """
-    return {
-        'mass': mass,
-        'length': np.random.uniform(*length_range),
-        'damping': np.random.uniform(*damping_range),
-        'initial_angle': sample_axis_angle(angle_range)
-    }

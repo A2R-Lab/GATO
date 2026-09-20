@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Camera-ready table + figure for the contact-wipe study (pure CPU).
 
-Reads the committed n=24 paired pool (data/wipe_20260809_181705/, three arms:
+Reads the n=24 paired pool of record (data/wipe_20260809_181705/, three arms:
 pos = position-reference baseline, ucone = frozen-pinv EE cone rows on
-torques, fc = contact-force slots + fc_ref + cone on the fc columns) and
-emits, under <pool>/paper/:
+torques, fc = contact-force slots + fc_ref + cone on the fc columns). The
+per-cell pkls are regenerated artifacts (gitignored — re-run run_wipe_pool.sh
+to rebuild the pool); what is TRACKED is the derived <pool>/paper/ assets this
+script emits:
   - wipe_table.md / wipe_table.tex — paired means/medians + Wilcoxon p's
   - wipe_scenarios.md              — full per-scenario appendix table
   - wipe_figure.png / .pdf         — fn(t) trace + paired per-scenario slopes

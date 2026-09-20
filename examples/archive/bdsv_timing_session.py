@@ -1,15 +1,22 @@
 #!/usr/bin/env python
+# ARCHIVED 2026-09-20: the 07-10 hybrid pcg/bdsv timing session; its verdict is superseded by benchmarks/linsys_auto_cdf.py (08-12) and tools/autotune_linsys.py. Not maintained.
 """Single-command driver for the hybrid pcg/bdsv TIMING session
 (`docs/open-tasks/hybrid_pcg_bdsv_plan_2026-07-07.md` §6.2-6.4).
 
-Run from the repo root with a python that has pinocchio (the GRiD venv):
+Run with a python that has pinocchio (the project .venv):
 
-    python examples/benchmarks/bdsv_timing_session.py            # all phases, in order
-    python examples/benchmarks/bdsv_timing_session.py --build    # GATO_BDSV_THREADS variants
-    python examples/benchmarks/bdsv_timing_session.py --kernel   # §6.2 per-SQP-iter linsys A/B
-    python examples/benchmarks/bdsv_timing_session.py --mpc      # §6.3/6.4 fig8 modes × τ
-    python examples/benchmarks/bdsv_timing_session.py --report   # aggregate → markdown
-    python examples/benchmarks/bdsv_timing_session.py --restore  # put the pre-session .so back
+    python examples/archive/bdsv_timing_session.py            # all phases, in order
+    python examples/archive/bdsv_timing_session.py --build    # GATO_BDSV_THREADS variants
+    python examples/archive/bdsv_timing_session.py --kernel   # §6.2 per-SQP-iter linsys A/B
+    python examples/archive/bdsv_timing_session.py --mpc      # §6.3/6.4 fig8 modes × τ
+    python examples/archive/bdsv_timing_session.py --report   # aggregate → markdown
+    python examples/archive/bdsv_timing_session.py --restore  # put the pre-session .so back
+
+NOTE (2026-09-20 archive): the --mpc child now runs the SHARED kicked-arm probe
+(examples/benchmarks/_bench.run_kicked_arm — the 08-12 CDF rig: mild/medium/severe
+kick cycle every `perturb` steps, tracked pcg iters + pred_err), not the original
+N(0,0.05)-only kick, so its rows are not comparable to the 07-10 session's
+data/bdsv_timing/mpc_results.json.
 
 §6.1 (GLASS-level characterization) is separate — standalone GLASS + the bs14 shapes patch;
 measured 2026-07-09 in `docs/open-tasks/glass_bs14_solvers_results_2026-07-09.md`.
@@ -28,17 +35,18 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "python"))
+import _paths
+_bench = _paths.load("_bench")
+
+ROOT = _bench.REPO
 OUT = ROOT / "examples" / "benchmarks" / "data" / "bdsv_timing"
 PLANT = "indy7"
 KNOTS = [32, 64]
 BATCHES = [1, 16, 64, 128]
 THREADS = [128, 256, 512]          # GATO_BDSV_THREADS candidates (256 = current default)
 TAUS = [0.05, 0.10, 0.17, 0.35]    # around the measured anchor 5×median(pred_err) ≈ 0.17
-URDF = str(ROOT / "examples" / "indy7_description" / "indy7.urdf")
+URDF = _bench.urdf_path(PLANT)
 
 
 # ─── shared helpers ──────────────────────────────────────────────────────────
@@ -54,24 +62,13 @@ def module_sos(knots=KNOTS):
 
 
 def gpu_idle_or_die():
-    apps = subprocess.run(
-        ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
-        capture_output=True, text=True).stdout.strip()
-    if apps:
-        sys.exit(f"REFUSING to time: GPU busy (compute pids: {apps.replace(chr(10), ' ')})")
+    _bench.require_quiet_gpu()
 
 
 def provenance(tag):
-    smi = subprocess.run(
-        ["nvidia-smi", "--query-gpu=name,clocks.sm,temperature.gpu,driver_version",
-         "--format=csv,noheader"], capture_output=True, text=True).stdout.strip()
-    sha = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
-                         capture_output=True, text=True).stdout.strip()
-    dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain",
-                            "--ignore-submodules=untracked"],
-                           capture_output=True, text=True).stdout.strip()
-    rec = {"tag": tag, "when": time.strftime("%F %T"), "gpu": smi,
-           "gato": sha + ("+dirty" if dirty else "")}
+    g = _bench.git_provenance()
+    rec = {"tag": tag, "when": time.strftime("%F %T"), "gpu": _bench.gpu_info(),
+           "gato": g["short"] + ("+dirty" if g["dirty"] else "")}
     OUT.mkdir(parents=True, exist_ok=True)
     with open(OUT / "provenance.jsonl", "a") as f:
         f.write(json.dumps(rec) + "\n")
@@ -194,57 +191,23 @@ def phase_mpc():
 
 
 def child_mpc(mode, tau, perturb_every):
+    """One fig8 MPC arm via the shared kicked-arm probe (_bench.run_kicked_arm);
+    perturb_every=0 = nominal (no kicks)."""
     import numpy as np
-    import pinocchio as pin
-    from gato.mpc_gato import MPC_GATO
-    from gato.controller import MPCController
-    from gato.common import figure8
-    from gato.config import INDY7_START_CONFIGS, FIG8_DEFAULT_PARAMS, SolverParams
-    N, DT = 64, 0.01
-    model = pin.buildModelFromUrdf(URDF)
-    mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type=PLANT)
-    # always pass linsys explicitly: since 08-12 the controller DEFAULT is auto
-    # (fixed-base), so an omitted arg would not give the pure-pcg arm
-    kw = {"linsys": mode}
-    if mode == "auto":
-        kw["bdsv_threshold"] = tau
-    mpc.controller = MPCController(mpc.solver, hypotheses=mpc.controller.hypotheses,
-                                   warm_start="shift", reset_rho_each_step=True, **kw)
-
-    iters, pred_errs = [], []
-    rng = np.random.default_rng(7)
-    orig_step = mpc.controller.step
-    nq = mpc.solver.nq
-    state = {"k": 0}
-
-    def step(x, g, **skw):
-        state["k"] += 1
-        if perturb_every and state["k"] % perturb_every == 0:
-            x = x.copy()
-            x[:nq] += rng.normal(0.0, 0.05, nq)      # seeded joint-position kick
-        r = orig_step(x, g, **skw)
-        iters.append(np.asarray(r.solve.stats.pcg_iters).reshape(-1))
-        pred_errs.append(r.pred_err)
-        return r
-
-    mpc.controller.step = step
-    xs = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(mpc.solver.nx - 6)))
-    fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
-    _, stats = mpc.run_mpc_fig8(xs, fig8, sim_dt=0.001, sim_time=3.0,
-                                pace_by_solve_time=False)   # fixed pacing: deterministic
-    st = np.asarray(stats["solve_times"], dtype=float)
-    gd = np.asarray(stats["goal_distances"], dtype=float)
-    it = np.concatenate(iters)
+    r = _bench.run_kicked_arm(mode, tau, plant=PLANT, N=64, dt=0.01, sim_time=3.0,
+                              kick_every=(perturb_every or 10**9), seed=7)
+    st = np.asarray(r["solve_ms"], dtype=float)
+    it = np.asarray(r["pcg_iters"], dtype=float)
     print(json.dumps({
         "mode": mode, "tau": tau, "perturb_every": perturb_every,
-        "steps": int(len(st)),
+        "steps": int(r["steps"]),
         "solve_ms_p50": float(np.percentile(st, 50)),
         "solve_ms_p95": float(np.percentile(st, 95)),
-        "track_mean": float(gd.mean()), "track_max": float(gd.max()),
+        "track_mean": r["track_mean"], "track_max": r["track_max"],
         "iters_p50": float(np.percentile(it, 50)),
         "iters_p95": float(np.percentile(it, 95)),
-        "iters_hist": {str(k): int((it == k).sum()) for k in np.unique(it)[:12]},
-        "pred_err_med": float(np.median(pred_errs)),
+        "iters_hist": {str(int(k)): int((it == k).sum()) for k in np.unique(it)[:12]},
+        "pred_err_med": float(np.median(r["pred_err"])),
     }))
 
 

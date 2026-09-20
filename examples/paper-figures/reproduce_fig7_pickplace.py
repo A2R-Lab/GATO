@@ -53,13 +53,12 @@ DT = 0.01
 
 def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None,
         start_config='ready'):
-    from _pickplace_runner import ExperimentRunner
-    from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_SOLVER_PARAMS,
-                         PICKPLACE_MPC_DEFAULTS, sample_pendulum_params)
+    from _pickplace_runner import (ExperimentRunner, PICKPLACE_DEFAULT_GOALS,
+                                   PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS,
+                                   sample_pendulum_params)
 
-    urdf = C.URDFS["iiwa14"]
     C.require_module("iiwa14", N)
-    runner = ExperimentRunner(urdf)
+    runner = ExperimentRunner("iiwa14")
 
     # per-batch pools of episode completion times (None == failed/timeout) +
     # per-goal outcomes ('reached'/'timeout' per goal — the failure taxonomy)
@@ -185,7 +184,7 @@ def main():
                         "gravity-aligned (horizon-constant) component")
     p.add_argument("--fc", action="store_true",
                    help="contact-force arm: the SOLVER's fc slots explain the payload "
-                        "(needs a GATO_CONTACT_FORCES module; no ForceEstimator). "
+                        "(runs the fc module variant bsqpN16_iiwa14_fc; no ForceEstimator). "
                         "Pools from the fc and FE arms share a protocol but not a solver "
                         "— tag them apart.")
     p.add_argument("--fc-cost", type=float, default=1e-2,

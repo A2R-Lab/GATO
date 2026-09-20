@@ -1,3 +1,4 @@
+# ARCHIVED 2026-09-20: Phase-0 pick-place diagnostic; its findings are folded into paper-figures/reproduce_fig7_pickplace.py (header) and docs/baselines.md. Not maintained.
 """Phase-0 diagnostic for the iiwa14 pick-place case (Fig-7 / Table-I, CS3).
 
 NOT a paper figure. Localizes WHY closed-loop pick-place fails before any tuning,
@@ -18,19 +19,19 @@ Plus a 5th run (c_wide) = run c with the FE force range widened to cover the
 is far too small for the disturbance magnitude.
 
 These are SUCCESS-RATE / solver-health runs (not timing), so they are safe to run
-under light GPU load. Run with the GRiD venv (has pinocchio):
+under light GPU load (needs a python with pinocchio: the project .venv):
 
-    ~/Desktop/GRiD/.venv/bin/python examples/paper-figures/_diag_pickplace_phase0.py
-    ~/Desktop/GRiD/.venv/bin/python examples/paper-figures/_diag_pickplace_phase0.py --quick
+    python examples/archive/_diag_pickplace_phase0.py
+    python examples/archive/_diag_pickplace_phase0.py --quick
 """
 import argparse
 import os
-import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _common as C  # noqa: E402
+import _paths
+C = _paths.load("_common")
+_PP = _paths.load("_pickplace_runner")
 
 N = 16
 DT = 0.01
@@ -81,7 +82,7 @@ def _summarize(stats, fe_log, label):
 def _make_mpc(model, urdf, batch_size, pendulum_config, fe_override=None, solver_override=None):
     """Build an MPC_GATO that logs the FE estimate magnitude each control step."""
     from gato.mpc_gato import MPC_GATO
-    from _common import PICKPLACE_SOLVER_PARAMS
+    PICKPLACE_SOLVER_PARAMS = _PP.PICKPLACE_SOLVER_PARAMS
     from gato.estimators import ForceEstimator
     from gato.hypotheses import ForceHypothesisBatch
 
@@ -129,14 +130,14 @@ def main():
                          "fixes the FE divergence (Phase-1 tuning, success-rate only)")
     args = ap.parse_args()
 
-    from _pickplace_runner import ExperimentRunner
     from gato.config import IIWA14_START_CONFIGS
-    from _common import (PICKPLACE_DEFAULT_GOALS, PICKPLACE_MPC_DEFAULTS,
-                         PENDULUM_DEFAULT_PARAMS)
+    PICKPLACE_DEFAULT_GOALS = _PP.PICKPLACE_DEFAULT_GOALS
+    PICKPLACE_MPC_DEFAULTS = _PP.PICKPLACE_MPC_DEFAULTS
+    PENDULUM_DEFAULT_PARAMS = _PP.PENDULUM_DEFAULT_PARAMS
 
     urdf = C.URDFS["iiwa14"]
     C.require_module("iiwa14", N)
-    runner = ExperimentRunner(urdf)
+    runner = _PP.ExperimentRunner("iiwa14")
     model = runner.model
 
     goals = PICKPLACE_DEFAULT_GOALS[:1] if args.quick else PICKPLACE_DEFAULT_GOALS

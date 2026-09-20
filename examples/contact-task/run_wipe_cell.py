@@ -2,21 +2,17 @@
 
     python run_wipe_cell.py --arm pos   --depth 0.002 --out data/wipe
     python run_wipe_cell.py --arm ucone --depth 0.002 --out data/wipe
-    python run_wipe_cell.py --arm fc    --out data/wipe          # fc modules swapped in!
+    python run_wipe_cell.py --arm fc    --out data/wipe          # the fc module variant
     python run_wipe_cell.py --arm pos --calibrate                # depth sweep, no pkl
 
-The fc arm runs the fc module VARIANT (bsqpN*_iiwa14_fc.so) — no module swap.
---scenarios "0,1,2" (default: all 24).
+The fc arm runs the fc module VARIANT (bsqpN*_iiwa14_fc.so, side by side with the
+defaults) — no module swap. --scenarios "0,1,2" (default: all 24).
 """
 import argparse
 import os
-import sys
 
 import numpy as np
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_HERE, "..", "..", "python"))  # the repo package
-sys.path.insert(0, _HERE)
 import wipe_common as W
 
 
@@ -32,7 +28,7 @@ def build_mpc(arm, scenario, depth):
     mpc = MPC_GATO(pin.buildModelFromUrdf(W.URDF), W.URDF, N=W.N_KNOTS,
                    dt=W.DT, batch_size=1, world=world,
                    variant="fc" if arm == "fc" else None,   # the fc arm runs the fc module variant
-                   # pin pcg: the committed n=24 pool + quiet quotes were
+                   # pin pcg: the n=24 pool of record + quiet quotes were
                    # measured under it (controller default is "auto" since 08-12)
                    linsys="pcg")
     s = mpc.solver

@@ -5,8 +5,10 @@ constant external force is applied at the end effector in the -Z direction. GATO
 runs an "online hypothesize-and-test" batch: M trajectory-optimization problems
 differing only in the assumed external force (sampled on a sphere around the prior
 estimate), and applies the control from the hypothesis whose predicted motion best
-matches the observed state. This batch force-estimation lives in MPC_GATO
-(``update_force_batch`` + ``evaluate_best_trajectory``, auto-enabled for M>3).
+matches the observed state. This is the hypothesis-batch mechanism: MPC_GATO
+wires a ``ForceHypothesisBatch`` (gato.hypotheses, driven by ``ForceEstimator``)
+into the ``MPCController`` for M>3, which programs one wrench guess per batch entry
+and lets reality pick the winner each tick.
 
 We sweep disturbance magnitude (20..80 N) x batch size and record the steady-state
 tracking error and total joint velocity (Fig-5 left), plus the realized EE

@@ -47,19 +47,17 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "python"))
-DATA = ROOT / "examples" / "benchmarks" / "data" / "constraint_eval"
+from _bench import git_provenance, require_quiet_gpu, urdf_path
+
+DATA = Path(__file__).resolve().parent / "data" / "constraint_eval"
 
 # ---- axes (extend here as bindings/problems land) -------------------------
 N_KNOTS = 32
 DT = 0.01
 SIM_DT = 0.001
-PLANTS = {
-    "indy7": dict(urdf=ROOT / "examples" / "indy7_description" / "indy7.urdf",
-                  start="ready"),
-    "iiwa14": dict(urdf=ROOT / "examples" / "iiwa_description" / "iiwa14.urdf",
-                   start="zeros"),
+PLANTS = {   # URDFs come from the registry (_bench.urdf_path)
+    "indy7": dict(start="ready"),
+    "iiwa14": dict(start="zeros"),
 }
 # mechanism -> (setup kwargs); EE variants bind the reach target as a terminal
 # equality through whichever mechanism is active (the CL-1 waves' semantics).
@@ -219,25 +217,6 @@ def all_cells(quick=False):
         cells = [c for c in cells if c.startswith("indy7") and
                  c.endswith(("fig8", "reach"))]
     return cells
-
-
-def provenance():
-    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
-                         text=True).stdout.strip()
-    dirty = bool(subprocess.run(["git", "status", "--porcelain", "--ignore-submodules=untracked"],
-                                cwd=ROOT, capture_output=True, text=True).stdout.strip())
-    return dict(sha=sha, dirty=dirty, time=time.strftime("%Y-%m-%dT%H:%M:%S"))
-
-
-def gpu_load_note():
-    out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used",
-                          "--format=csv,noheader,nounits"], capture_output=True, text=True).stdout
-    util, mem = (int(v) for v in out.strip().split(","))
-    quiet = util <= 5 and mem <= 2000
-    if not quiet:
-        print(f"[warn] GPU busy (util={util}%, mem={mem}MiB): results are "
-              f"deterministic but recorded wall times are NOT quotable", file=sys.stderr)
-    return quiet
 
 
 # ---- problem definitions ---------------------------------------------------
@@ -416,7 +395,7 @@ def run_cell(name, exact=False, bdsv=False):
 
     plant, mech, problem = name.split("-")
     base_mech, params = resolve_mech(mech)
-    urdf = str(PLANTS[plant]["urdf"])
+    urdf = urdf_path(plant)
     # rho=1e-3: f32 bdsv (forced by AL mode, factored by ADMM's inner loop)
     # produces garbage steps on an UNREGULARIZED Schur system (R1 measured:
     # closed-loop cascade at the interface default rho=0.0). Also >= the
@@ -574,8 +553,10 @@ def main():
         return
 
     if args.run:
-        gpu_load_note()
-        prov = provenance()
+        # correctness-class cells (fixed pacing, bit-deterministic): a busy box
+        # only makes the recorded wall times non-quotable, so warn, don't refuse
+        require_quiet_gpu(allow_busy=True)
+        prov = git_provenance()
         cells = args.cells.split(",") if args.cells else all_cells(args.quick)
         if args.only:
             cells = [c for c in cells if args.only in c]

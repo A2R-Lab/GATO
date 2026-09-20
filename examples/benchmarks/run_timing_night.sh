@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# ONE staged quiet-box TIMING night for the GATO stack (Phase 3 of the 2026-07-30
-# plan). Every pre-07-30 tracking/timing number is stale (named-target EE-frame
-# regen + GLASS/GRiD bump + trajfile regen); this runner regenerates the whole
-# quotable set in one serial pass. Legs run SEQUENTIALLY, timing-sensitive first,
-# so a cut-short window still yields the timing numbers; a leg failure is logged
-# and the chain continues (nothing later depends on an earlier leg's success —
-# EXCEPT leg 3way regenerating the trajfiles fig3 loads; its failure is flagged).
+# THE staged quiet-box TIMING night for the GATO stack — the single entry
+# point for a solo GPU slot (drop this one line into a batch queue):
 #
-#   0. rebuild : defensive module rebuild at THIS HEAD (default build/ tree +
-#                incl. the fc/eh variant modules) — all later legs are MODULE-DEP.
+#   examples/benchmarks/run_timing_night.sh
+#
+# Legs run SEQUENTIALLY, timing-sensitive first, so a cut-short window still
+# yields the timing numbers; a leg failure is logged and the chain continues
+# (nothing later depends on an earlier leg's success — EXCEPT leg 3way
+# regenerating the trajfiles fig3 loads; its failure is flagged). Exit 0 only
+# if every leg passed, so a queue can tell success from partial.
+#
+#   0. rebuild : defensive module rebuild at THIS HEAD in build/ (all later
+#                legs are MODULE-DEP; the receipt profile carries the fc/eh
+#                variant modules — ./tools/build.sh --profile receipt).
 #   1. fence   : correctness sanity (MPCGPU run_gates 4/4 + GATO gpu pytest).
 #   2. 3way    : MPCGPU tools/run_3way_iiwa.sh — regenerates trajfiles (EE frame)
 #                + 3-way tracking parity. Feeds fig3's goal inputs.
@@ -29,63 +33,73 @@
 # examples/benchmarks/data/, constraint_eval results.jsonl, paper-figure pkls);
 # quiet-box provenance = this run's SUMMARY (preflight recorded) + git SHA.
 #
-# Usage (repo root, quiet box):  examples/benchmarks/run_timing_night.sh
-#   FORCE=1  skip the GPU-quiet preflight (smoke-testing the plumbing only)
-#   QUICK=1  tiny subsets everywhere (plumbing smoke; numbers are GARBAGE)
-#   JOBS=n   leg-0 rebuild parallelism (default 4 — the quiet-box cap; use 1
-#            when smoke-testing while other agents are on the box)
-#   SKIP_FIGS=1  run the timing legs only, skip the fig5/fig4/fig7 tail
+# ENV (all optional)
+#   PY=path        python to run with (default: the project .venv — the ONLY
+#                  python for this repo; tools/install.sh --test gives it pinocchio)
+#   MPCGPU=path    sibling MPCGPU checkout (default <repo>/../MPCGPU; legs 1-3)
+#   SETTLE=secs    wait up to this long for the GPU to go quiet before starting
+#                  (queues where the previous job lingers; default 600, 0 = off)
+#   FORCE=1        skip the GPU-quiet preflight (plumbing smoke only)
+#   QUICK=1        tiny subsets everywhere (plumbing smoke; numbers are GARBAGE)
+#   JOBS=n         leg-0 rebuild parallelism (default 4 — the RAM cap: each
+#                  module compile peaks ~6-7 GB; use 1 when others are on the box)
+#   SKIP_FIGS=1    run the timing legs only, skip the fig5/fig4/fig7 tail
+#   DRYRUN=1       print the plan and exit without touching the GPU
 set -uo pipefail
-REPO=/home/plancher/Desktop/GATO
-MPCGPU=/home/plancher/Desktop/MPCGPU
-PY=/home/plancher/Desktop/GRiD/.venv/bin/python
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)
+PY=${PY:-$REPO/.venv/bin/python}
+MPCGPU=${MPCGPU:-$(cd "$REPO/.." && pwd)/MPCGPU}
 CEV="examples/benchmarks/constraint_eval.py"
-cd "$REPO" || exit 1
+JOBS=${JOBS:-4}
+SETTLE=${SETTLE:-600}
+# shellcheck source=night_lib.sh
+source "$HERE/night_lib.sh"
+
+# ---- preflight: fail FAST and LOUD on anything that would waste the slot ----
+fatal() { echo "FATAL: $*" >&2; exit 2; }
+[[ -x $PY ]]          || fatal "python not found: $PY (./tools/install.sh --test; or PY=...)"
+[[ -d $MPCGPU ]]      || fatal "MPCGPU not found at $MPCGPU (legs 1-3 need it; MPCGPU=... overrides)"
+[[ -f $REPO/build/CMakeCache.txt ]] || fatal "no configured build tree at $REPO/build (./tools/build.sh --profile receipt)"
+command -v nvidia-smi >/dev/null    || fatal "nvidia-smi not on PATH"
+command -v cmake      >/dev/null    || fatal "cmake not on PATH"
+cd "$REPO" || fatal "cannot cd $REPO"
+"$PY" -c "import gato, pinocchio" 2>/dev/null || fatal "$PY cannot import gato + pinocchio"
+# the eh/fc variant modules are separate side-by-side ABIs: the build tree must
+# be the receipt profile for legs 5 (so-exact) to have anything to run
+grep -q '^GATO_RECEIPT_PROFILE:BOOL=ON' build/CMakeCache.txt \
+  || echo "WARNING: build/ is not the receipt profile (./tools/build.sh --profile receipt) — variant legs may SKIP"
+
+HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DIRTY=$(git status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c . || true)
+cat <<EOF
+=========================================================================
+GATO timing night
+  repo      $REPO @ $HEAD_SHA$([[ ${DIRTY:-0} -gt 0 ]] && echo "  (tree has $DIRTY modified paths)")
+  python    $PY
+  mpcgpu    $MPCGPU
+  jobs      $JOBS      settle  ${SETTLE}s      quick  ${QUICK:-0}      skip_figs  ${SKIP_FIGS:-0}
+  logs      $REPO/examples/benchmarks/night_logs/<UTC stamp>/
+=========================================================================
+EOF
+if [[ "${DRYRUN:-0}" == "1" ]]; then echo "DRYRUN=1 — exiting before any GPU work."; exit 0; fi
+
+# ---- settle (queue stragglers), then the hard quiet-box preflight ----
+night_settle "$SETTLE" || exit 3
 
 STAMP=$(date -u +%Y%m%d_%H%M%S)
 LOGDIR=$REPO/examples/benchmarks/night_logs/$STAMP
 mkdir -p "$LOGDIR"
 SUMMARY=$LOGDIR/SUMMARY.txt
-{ echo "timing night $STAMP (UTC)  HEAD=$(git rev-parse --short HEAD)"
+{ echo "timing night $STAMP (UTC)  HEAD=$HEAD_SHA"
   echo "preflight: $(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader | head -1), load=$(cut -d' ' -f1 /proc/loadavg)"
 } > "$SUMMARY"
-
-# ---- preflight: the box must be QUIET (legs 2-6 are timing runs) ----
-if [[ "${FORCE:-0}" != "1" ]]; then
-  util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1)
-  apps=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | grep -c . || true)
-  load=$(awk '{print int($1)}' /proc/loadavg)
-  if (( util > 5 || apps > 0 || load > 2 )); then
-    echo "ABORT: box not quiet (gpu_util=${util}% compute_apps=${apps} load=${load})." \
-         "FORCE=1 overrides (plumbing smoke only)." | tee -a "$SUMMARY"
-    exit 1
-  fi
-fi
-
-leg() {  # leg <name> <cmd...>  — per-leg log, rc capture, orphan check after
-  local name=$1; shift
-  local log=$LOGDIR/$name.log t0=$SECONDS
-  echo "==== [$name] $(date -u +%H:%M:%S) $*" | tee -a "$SUMMARY"
-  if "$@" >"$log" 2>&1; then
-    echo "[$name] PASS  ($(( (SECONDS-t0)/60 )) min)  log=$log" | tee -a "$SUMMARY"
-  else
-    echo "[$name] FAIL rc=$? ($(( (SECONDS-t0)/60 )) min)  log=$log  <-- review" | tee -a "$SUMMARY"
-  fi
-  # orphan fence: nothing of ours may outlive its leg (GPU must be EMPTY between
-  # timing legs — bench-orchestration trap: pipes/timeouts can orphan children)
-  local orph
-  orph=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | grep -c . || true)
-  if (( orph > 0 )); then
-    echo "[$name] WARNING: $orph compute app(s) still on the GPU post-leg" | tee -a "$SUMMARY"
-    nvidia-smi --query-compute-apps=pid,name --format=csv,noheader >> "$SUMMARY"
-  fi
-}
+night_preflight || exit 3
 
 QUICKQ=(); [[ "${QUICK:-0}" == "1" ]] && QUICKQ=(--quick)
 
 # ---- 0. defensive rebuild at THIS HEAD (all timing legs are MODULE-DEP) ----
-JOBS=${JOBS:-4}
-leg rebuild bash -c "cmake --build build --parallel $JOBS"   # the receipt profile carries the fc/eh variant modules too
+leg rebuild bash -c "cmake --build build --parallel $JOBS"
 
 # ---- 1. correctness fence (~5 min) ----
 leg fence-mpcgpu bash -c "cd $MPCGPU && bash tools/run_gates.sh"
@@ -170,3 +184,13 @@ PYEOF
 } >> "$SUMMARY"
 echo "DONE $(date -u +%H:%M:%S). Summary: $SUMMARY"
 cat "$SUMMARY"
+
+# ---- exit code for the queue: a failed leg is logged and the chain continues
+# by design, so surface it here ----
+fails=$(grep -c '^\[.*\] FAIL'  "$SUMMARY" || true)
+passes=$(grep -c '^\[.*\] PASS' "$SUMMARY" || true)
+echo "legs passed: ${passes:-0}   failed: ${fails:-0}"
+if (( ${passes:-0} == 0 )); then echo "EXIT 1: no leg reported PASS"; exit 1; fi
+if (( ${fails:-0} > 0 )); then echo "EXIT 1: review the per-leg logs in $LOGDIR/"; exit 1; fi
+echo "all legs PASS"
+exit 0

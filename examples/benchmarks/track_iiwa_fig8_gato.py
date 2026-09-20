@@ -1,16 +1,13 @@
 """GATO iiwa14 fig8 tracking on the FAIR shared problem (see iiwa_fig8_shared.py).
 Uses the canonical fig8 (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6), fixed-dt
 pacing, and measures tracking error at the EE frame so it is directly comparable to MPCGPU's
-validate_track and the BatchThneed baseline. Run with the GRiD venv (pinocchio); needs the prebuilt
-bsqpN64_iiwa14 module.
+validate_track and the BatchThneed baseline. Needs the prebuilt bsqpN64_iiwa14 module and a
+python with pinocchio (the project .venv).
 
-  PYTHONPATH=/home/plancher/Desktop/GATO/python \
-  /home/plancher/Desktop/GRiD/.venv/bin/python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time]
+  python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time]
 """
-import sys, os
+import sys
 import numpy as np
-sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import iiwa_fig8_shared as fig8mod
 from gato.mpc_gato import MPC_GATO
 

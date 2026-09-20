@@ -1,4 +1,3 @@
-from gato import SolverParams
 #!/usr/bin/env python3
 """W3.6: go2 (STATE_SIZE=36) pcg-vs-bdsv solve-time crossover over batch size.
 
@@ -17,17 +16,15 @@ medians.
 """
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "python"))
+import gato
+from gato import SolverParams
+from _bench import require_quiet_gpu, urdf_path
 
-import gato  # noqa: E402
-
-URDF = str(REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf")
+URDF = urdf_path("go2")
 NQ, NV, NU, N = 19, 18, 12, 16
 
 
@@ -44,8 +41,11 @@ def main():
     ap.add_argument("--batches", default="1,2,4,8,16,32,64,128,256")
     ap.add_argument("--nsolves", type=int, default=50)
     ap.add_argument("--out", default=None, help="json output path")
+    ap.add_argument("--allow-busy", action="store_true",
+                    help="run under GPU contention (plumbing smoke ONLY)")
     args = ap.parse_args()
     batches = [int(b) for b in args.batches.split(",")]
+    require_quiet_gpu(allow_busy=args.allow_busy)
 
     x = standing_x()
     q_nom = x[:NQ].copy()

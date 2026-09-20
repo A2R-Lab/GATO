@@ -1,3 +1,4 @@
+# ARCHIVED 2026-09-20: pre-migration pinocchio-sim MPC baseline (docs/archaeology.md); superseded by the fair fig3 chain. Not maintained.
 """Pinocchio-sim MPC baseline (Indy7): drives the GATO BSQP solver in a closed loop with a
 Pinocchio RK4 simulator + Pinocchio FK, measuring closed-loop solve time / tracking. Recovered and
 modernized from the pre-migration Fig-3 work (origin/a2rlab03:benchmark_pinocchio.py); see
@@ -7,19 +8,18 @@ import time
 import math
 import numpy as np
 import pinocchio as pin
-import sys
 import os
 from tqdm import tqdm
 import pickle
 
-# Add the gato package to path
-sys.path.append('./python')
-sys.path.append('./python')
 from gato.interface import BSQP
 from gato import SolverParams
+import _paths
+_HERE = _paths.HERE
+_URDF = _paths.load("_bench").urdf_path("indy7")
 
-# output pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
-_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# output pkls land in examples/benchmarks/data/ (with the other recovered benchmark data)
+_DATA_DIR = os.path.join(_paths.EXAMPLES, "benchmarks", "data")
 os.makedirs(_DATA_DIR, exist_ok=True)
 
 np.set_printoptions(precision=3)
@@ -53,7 +53,7 @@ class PinocchioBenchmark:
         # Save configuration
         config = {
             'file_prefix': file_prefix,
-            'urdf_filename': 'examples/indy7_description/indy7.urdf',
+            'urdf_filename': _URDF,
             'batch_size': batch_size,
             'N': self.N,
             'dt': self.dt,
@@ -77,14 +77,14 @@ class PinocchioBenchmark:
         f_ext_resample_std = 0.0 if not self.resample_f_ext else 0.1
         
         self.solver = BSQP(
-            model_path="examples/indy7_description/indy7.urdf",
+            model_path=_URDF,
             batch_size=batch_size,
             N=self.N,
             dt=self.dt, params=SolverParams(max_sqp_iters=max_sqp_iters, max_pcg_iters=max_pcg_iters, pcg_tol=pcg_tol, solve_ratio=1.0, mu=10.0, q_cost=Q_cost, qd_cost=dQ_cost, u_cost=R_cost, N_cost=QN_cost, q_lim_cost=Qpos_cost, rho=0.1),
             plant_type='indy7')
         
         # Load Pinocchio model
-        self.model = pin.buildModelFromUrdf("examples/indy7_description/indy7.urdf")
+        self.model = pin.buildModelFromUrdf(_URDF)
         self.data = self.model.createData()
         
         # Get dimensions
@@ -94,7 +94,7 @@ class PinocchioBenchmark:
         self.nx = self.nq + self.nv
         
         # Load benchmark points
-        self.points = np.load('examples/points1000.npy')[1:]
+        self.points = np.load(os.path.join(_HERE, 'points1000.npy'))[1:]
         
         # Home position (end-effector position at zero configuration)
         self.ee_pos_zero = self.ee_pos(np.zeros(self.nq))

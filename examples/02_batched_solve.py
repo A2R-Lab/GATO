@@ -6,32 +6,31 @@ hyperparameter idea from Case Study 1. Prints the per-instance final merit and
 which member converged best. This is GATO's core differentiator: tens-to-hundreds
 of solves in one block-parallel launch.
 
-Run from the repo root (needs the bsqpN64_indy7 module built):
+Needs the bsqpN64_indy7 module built; runs from any cwd:
     python examples/02_batched_solve.py
 """
-import os
-import sys
+from pathlib import Path
+
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
-from gato.interface import BSQP
+import gato
+from gato import BSQP, SolverParams
 from gato.common import figure8
-from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, SolverParams
+from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
+REPO = Path(__file__).resolve().parents[1]
+URDF = REPO / gato.robot_info("indy7")["urdf"]
 N, DT, M = 64, 0.01, 8
-# one rho per batch member, log-spaced 1e-4..1e1
+# one rho per batch member, log-spaced 1e-4..1e1 (the line search adapts each one per iter)
 rho_batch = np.power(10, np.linspace(-4, 1, M)).astype(np.float32)
-solver = BSQP(model_path=URDF, batch_size=M, N=N, dt=DT, params=SolverParams(max_sqp_iters=10, adapt_rho=True), rho_batch=rho_batch, plant_type="indy7")
+solver = BSQP(URDF, batch_size=M, N=N, dt=DT, params=SolverParams(max_sqp_iters=10),
+              rho_batch=rho_batch, plant_type="indy7")
 
-nx, nu = solver.nx, solver.nu
-x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(nx - len(INDY7_START_CONFIGS["ready"])))).astype(np.float32)
+x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(solver.nv))).astype(np.float32)
 ref = figure8(DT, **FIG8_DEFAULT_PARAMS)[: 6 * N].astype(np.float32)
 
 # all M members share the same problem here; only rho differs across the batch
-x0_B = np.tile(x0, (M, 1))
-ref_B = np.tile(ref, (M, 1))
-res = solver.solve(x0_B, ref_B)
+res = solver.solve(np.tile(x0, (M, 1)), np.tile(ref, (M, 1)))
 
 merits = res.stats.final_merit
 best = int(np.argmin(merits))

@@ -3,13 +3,14 @@
 Committed, runnable scripts that regenerate the data and figures from the GATO paper
 ([arXiv:2510.07625](https://arxiv.org/abs/2510.07625)). Each script regenerates its
 data on the GPU **by default** and re-renders from saved/recovered data with
-`--replot`; `--quick` runs a tiny wiring smoke (not paper numbers). Run everything
-from the **repo root**.
+`--replot`; `--quick` runs a tiny wiring smoke (not paper numbers). The scripts run
+from any cwd.
 
 ```bash
-# EVERYTHING, overnight, on a quiet box (fig3 fair sweeps -> gate runners -> fig5/fig4
-# regen -> full 100-scenario fig7; ~9-10 h; logs+SUMMARY in overnight_logs/<stamp>/)
-examples/paper-figures/run_all_overnight.sh
+# EVERYTHING, overnight, on a quiet box: the staged timing night (rebuild -> gates ->
+# 3-way parity -> fig3 fair sweeps -> constraint-eval timing legs -> fig5/fig4/fig7
+# regen; ~6-7 h; per-leg logs + SUMMARY in examples/benchmarks/night_logs/<stamp>/)
+examples/benchmarks/run_timing_night.sh
 
 # one figure
 python examples/paper-figures/reproduce_fig4_hparam.py            # GPU re-run
@@ -21,18 +22,21 @@ python examples/paper-figures/make_all.py --quick                 # smoke all
 python examples/paper-figures/make_all.py                         # full regen
 ```
 
-Use the GRiD venv for the Python deps (pinocchio etc.): `../GRiD/.venv/bin/python …`.
+Python = the project `.venv` (`./tools/install.sh --test` gives it pinocchio, mujoco,
+scipy); the scripts import the installed `gato` package, no path setup needed.
 
 ## Figures
 
 | Script | Paper | What it does | Status |
 |---|---|---|---|
 | **`reproduce_fig3_fair.py`** | **Fig-3 (both)** | **FAIR iiwa14 fig8 parity harness (2026-07): identical problem for GATO / BatchThneed-CPU / MPCGPU-GPU; left = B∈[1..128] total-time table + GATO speedups at every B; right = GATO N×B heat map (B to 512). THE current data path.** | ✅ (see below) |
-| `reproduce_fig3_scalability.py` | Fig-3 left | Indy7 fig-8 solve time vs batch M (June pipeline) | superseded by `reproduce_fig3_fair.py` — kept for indy7 provenance |
-| `reproduce_fig3_heatmap.py` | Fig-3 right | GATO solve-time heat map over (N, M) (June pipeline) | superseded by `reproduce_fig3_fair.py` |
 | `reproduce_fig4_hparam.py` | Fig-4 (CS1) | iiwa14 online ρ sweep; normalized merit vs SQP iter per batch. **Regenerates by default**; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` | ✅ |
 | `reproduce_fig5_disturbance.py` | Fig-5 (CS2) | Indy7 fig-8 + EE disturbance; tracking err + joint vel vs force, and EE trajectories at 50 N | ✅ |
-| `reproduce_fig7_pickplace.py` | Fig-7 + Table-I (CS3) | iiwa14 pick-place + 15 kg pendulum; success rate + completion-time CDF | ⚠️ **gated** (see below) |
+| `reproduce_fig7_pickplace.py` | Fig-7 + Table-I (CS3) | iiwa14 pick-place + 15 kg pendulum; success rate + completion-time CDF | ✅ runs; success *magnitudes* carry the FE caveat in the script header |
+
+The superseded June indy7 Fig-3 chain (`reproduce_fig3_scalability.py`,
+`reproduce_fig3_heatmap.py`, `benchmark_fig8.py`, the BatchThneed/MPCGPU indy7 runners
+and the Phase-0 pick-place diagnostic) lives in [`../archive/`](../archive/README.md).
 
 Not reproducible in software: **Fig-6** (meshcat sim snapshot) and **Fig-8 / Table-II**
 (physical-hardware pick-place). Documented for completeness only.
@@ -49,14 +53,14 @@ Each `(plant, N)` is a compile-time module `python/gato/bsqpN{N}_{plant}.so`. Bu
 the suite needs in one shot from the repo root:
 
 ```bash
-cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;16;32;64;128" \
-      -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4
+./tools/build.sh --profile receipt      # the attested module set (test/receipt_modules.txt)
 ```
 
 | Figure | Modules |
 |---|---|
-| Fig-3 left / Fig-5 | indy7 N64 |
-| Fig-3 heatmap | indy7 N∈{8,16,32,64,128} |
+| Fig-3 left (fair) | iiwa14 N64 |
+| Fig-3 heatmap (fair) | iiwa14 N∈{8,16,32,64,128} |
+| Fig-5 | indy7 N64 |
 | Fig-4 | iiwa14 N64 |
 | Fig-7 | iiwa14 N16 |
 
@@ -65,7 +69,9 @@ Scripts emit a clear "module not built" error naming the cmake line if a module 
 ## The FAIR Fig-3 path (2026-07, current)
 `reproduce_fig3_fair.py` replaces the June indy7 data path with the parity harness: all
 three solvers solve the IDENTICAL iiwa14 fig8 problem (`examples/benchmarks/
-iiwa_fig8_shared.py` — same goal file, same L7 metric frame, same costs/warm-start) under
+iiwa_fig8_shared.py` — same goal file, same EE metric frame (the URDF "EE" fixed joint,
+since the 2026-07-30 named-target regen; pre-regen L7-frame data is NOT comparable), same
+costs/warm-start) under
 the matched config (SQP=1, PCG≤200 rel 1e-4, ρ=0.01; MPCGPU = `GATO_REG_PATTERN` + native
 exit). Provenance + measured tables: `MPCGPU docs/benchmark_3way_2026-07-06.md`. Data
 generators (each stage is a TIMING run — quiet box, one at a time):
@@ -75,14 +81,13 @@ generators (each stage is a TIMING run — quiet box, one at a time):
 CSVs land in `examples/benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`; the assembler
 (default, no GPU) writes `fig3_fair_scalability.{txt,png}` + `fig3_fair_heatmap.{txt,png}`.
 NOTE the robot delta vs the published figure: the paper used **Indy7**; the fair harness
-is **iiwa14** (all indy7 N-modules are still built if a faithful indy7 rerun is wanted).
+is **iiwa14** (the archived June indy7 chain in `../archive/` is the indy7 provenance).
 
 ## Known caveats (honest reproduction status)
-- **MPCGPU line (old June Fig-3 path):** the stale `mpcgpu_indy7_fig8_N64.csv` predates the
+- **Old June Fig-3 path (archived):** its `mpcgpu_indy7_fig8_N64.csv` predates the
   2026-07-06 terminal-cost fix (MPCGPU kkt.cuh 88c3853) and the fair config — do NOT mix it
-  with fair-path numbers. The fair path times MPCGPU via `tools/time_persolve.sh`.
-- **OSQP CPU bar (old June path):** superseded — the fair path uses the paper's real
-  threaded C++ `BatchThneed` (`baselines/build_cpu_baseline.sh`).
+  with fair-path numbers. The fair path times MPCGPU via `tools/time_persolve.sh` and uses
+  the paper's real threaded C++ `BatchThneed` (`baselines/build_cpu_baseline.sh`) as the CPU arm.
 - **Fig-7 / Table-I (iiwa14 pick-place):** UNBLOCKED 2026-07-07 — the failures were an
   f_ext frame-convention bug (hypothesis wrenches uploaded with swapped [angular;linear]
   halves and a wrong frame chain; fixed in gato.common.world_wrench_to_joint_local et

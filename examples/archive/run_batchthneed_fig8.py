@@ -1,3 +1,4 @@
+# ARCHIVED 2026-09-20: superseded by benchmarks/baselines/track_iiwa_fig8_bt.py (fair BatchThneed arm). Not maintained.
 """Batched-CPU baseline for Fig-3 (the paper's *actual* CPU competitor): pysqpcpu.BatchThneed.
 
 This is the multi-threaded C++ `BatchThneed` — it solves a batch of M
@@ -7,10 +8,10 @@ count, then linear), exactly like the paper's Fig-3 CPU line (~3 ms -> ~30 ms ov
 That is the fair comparison to GATO's batched GPU solve; single-solve x M overstates the CPU.
 
 PREREQUISITE — build the module and set the runtime paths first:
-    baselines/build_cpu_baseline.sh         # builds osqp + osqp-eigen + pysqpcpu (no ROS)
-    source baselines/sqpcpu_env.sh          # LD_LIBRARY_PATH + PYTHONPATH for the .so + deps
+    examples/benchmarks/baselines/build_cpu_baseline.sh   # builds osqp + osqp-eigen + pysqpcpu (no ROS)
+    source examples/benchmarks/baselines/sqpcpu_env.sh    # LD_LIBRARY_PATH + PYTHONPATH for the .so + deps
 Then (TIMING — run on a quiet box; other CPU load skews it):
-    ../GRiD/.venv/bin/python baselines/run_batchthneed_fig8.py --batch-sizes 1,2,4,8,16,32,64,128
+    python examples/archive/run_batchthneed_fig8.py --batch-sizes 1,2,4,8,16,32,64,128
 
 Output: baselines/batchthneed_fig8_results.pkl = list of {batch_size, batched_cpu_ms, ...}
 which reproduce_fig3_scalability.py reads as the batched-CPU line.
@@ -18,13 +19,13 @@ which reproduce_fig3_scalability.py reads as the batched-CPU line.
 import sys, os, time, argparse, pickle
 import numpy as np
 
-# repo root: this file lives at examples/benchmarks/baselines/ (3 levels down)
-G = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-BASELINES = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, G + '/python')
 from gato.common import figure8, rk4
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 from gato import SolverParams
+import _paths
+_bench = _paths.load("_bench")
+
+HERE = _paths.HERE   # results pkl lands next to the archived assembler that reads it
 
 SP = SolverParams().asdict()  # GATO's OWN indy7 fig8 weights, so the CPU solves the identical problem
 
@@ -86,7 +87,7 @@ def run_one(pysqpcpu, urdf, model, N, dt, sim_time, sim_dt, fig8_traj, x_start,
 
 def main():
     p = argparse.ArgumentParser(description="Batched-CPU (BatchThneed) fig8 baseline for Fig-3.")
-    p.add_argument('--urdf', default=G + '/examples/indy7_description/indy7.urdf')
+    p.add_argument('--urdf', default=_bench.urdf_path('indy7'))
     p.add_argument('--N', type=int, default=64)
     p.add_argument('--batch-sizes', default='1,2,4,8,16,32,64,128')
     p.add_argument('--dt', type=float, default=0.01)
@@ -95,7 +96,7 @@ def main():
     p.add_argument('--start-config', default='ready')
     p.add_argument('--max-qp-iters', type=int, default=1)
     p.add_argument('--num-threads', type=int, default=0, help="0 = use all cores (os.cpu_count)")
-    p.add_argument('--out', default=os.path.join(BASELINES, 'batchthneed_fig8_results.pkl'))
+    p.add_argument('--out', default=os.path.join(HERE, 'batchthneed_fig8_results.pkl'))
     args = p.parse_args()
 
     pysqpcpu = _import_pysqpcpu()

@@ -5,29 +5,34 @@ fig8 goal sequence — same per-solve work as the tracking harness, no pinocchio
 loop) so the batch axis measures pure batched-solve latency. At N=64, B=1 matches the
 closed-loop harness config (SQP=1, PCG cap 200 / rel 1e-4, rho 0.01, FIG8 cost weights).
 
+The loop is the real-time-iteration MPC step: MPCController(warm_start="shift") solves from
+the current state on the one-stage-shifted previous solution, and the solver's own predicted
+x_1 becomes the next "measured" state (open loop; the controller's rho reset is OFF so the
+adapted rho carries across solves exactly as the paper-era raw loop did).
+
 One (N, B) row per config; results append to a CSV consumed by
 examples/paper-figures/reproduce_fig3_fair.py (fig3-left = the N=64 row set; the full
-N x B grid is the fig3-right heatmap).
+N x B grid is the fig3-right heatmap). TIMING — quiet box only.
 
-  PYTHONPATH=python /home/plancher/Desktop/GRiD/.venv/bin/python \
-      examples/benchmarks/sweep_batch_iiwa_fig8.py [--N 64] [--batches 1,2,...,512] \
+  python examples/benchmarks/sweep_batch_iiwa_fig8.py [--N 64] [--batches 1,2,...,512] \\
       [--solves 400] [--out examples/benchmarks/data/sweep_fig8_gato.csv]
 """
 import os
 import sys
 import argparse
-import importlib
 import numpy as np
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
-sys.path.insert(0, "/home/plancher/Desktop/GATO/python/gato")
-sys.path.insert(0, HERE)
 import iiwa_fig8_shared as fig8mod
+import gato
+from gato import BSQP, MPCController, SolverParams
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 DT = fig8mod.DT
-nx, nu = 14, 7
-stride = nx + nu
+# the 2026-07-07 benchmark config (== the closed-loop harness / SolverParams defaults),
+# pinned to the paper-era pcg path (the controller default is "auto" since 08-12)
+PARAMS = SolverParams(max_sqp_iters=1, max_pcg_iters=200, pcg_tol=1e-4, mu=10.0,
+                      q_cost=2.0, qd_cost=1e-2, u_cost=2e-6, N_cost=50.0, q_lim_cost=0.01,
+                      rho=1e-2, linsys="pcg")
 
 
 def parse_args():
@@ -45,9 +50,7 @@ def main():
     args = parse_args()
     N = args.N
     batches = [int(b) for b in args.batches.split(",") if b.strip()]
-    try:
-        M = importlib.import_module(f"bsqpN{N}_iiwa14")
-    except ImportError:
+    if ("iiwa14", N) not in gato.available():
         sys.exit(f"ERROR: module bsqpN{N}_iiwa14 not built — cmake with -DKNOTS include {N}, -DPLANT iiwa14.")
 
     model, data = fig8mod.build_model()
@@ -62,25 +65,24 @@ def main():
     print(f"iiwa14 fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config")
     print(f"{'B':>4} {'median_ms':>10} {'p90_ms':>8} {'per_traj_us':>12}")
     for B in batches:
-        solver = M.BSQP_float(B, 1, 200, 1e-4, 1.0, 10.0,
-                              2.0, 1e-2, 2e-6, 50.0, 0.01, 0.0, 0.0, 1e-2)
-        XU = np.zeros((B, N * stride - nu), dtype=np.float32)
-        XU[:, :nx] = x0
-        xcur = np.tile(x0, (B, 1))
+        solver = BSQP(fig8mod.IIWA14_URDF, batch_size=B, N=N, dt=DT, params=PARAMS,
+                      plant_type="iiwa14")
+        nx, stride = solver.nx, solver.nx + solver.nu
+        ctrl = MPCController(solver, warm_start="shift", linsys="pcg",
+                             reset_rho_each_step=False)
+        ctrl.reset(x0)
+        xcur = x0.copy()
         times = []
         for t in range(args.solves):
-            ref = np.tile(goal[6 * t: 6 * (t + N)].astype(np.float32), (B, 1))
-            XU[:, :nx] = xcur
-            res = solver.solve(XU, DT, xcur.copy(), ref)
-            times.append(float(res["sqp_time_us"]))
-            XU = np.asarray(res["XU"], dtype=np.float32)
-            xcur = XU[:, stride:stride + nx].copy()
-            XU = np.concatenate([XU[:, stride:], XU[:, -stride:]], axis=1)  # one-stage shift + dup tail
+            ref = goal[6 * t: 6 * (t + N)].astype(np.float32)
+            r = ctrl.step(xcur, ref)
+            times.append(float(r.solve.solve_time_us))
+            xcur = r.xu_best[stride:stride + nx].copy()   # open loop: the solution's x_1 is the next state
         t = np.asarray(times[10:])  # drop warm-up solves
         med, p90 = np.median(t), np.percentile(t, 90)
         print(f"{B:>4} {med/1000:>10.4f} {p90/1000:>8.4f} {med/B:>12.1f}")
         rows.append((N, B, med / 1000, p90 / 1000, med / B, len(t)))
-        del solver
+        del ctrl, solver
 
     if args.out:
         os.makedirs(os.path.dirname(args.out), exist_ok=True)

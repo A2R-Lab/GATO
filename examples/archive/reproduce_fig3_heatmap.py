@@ -1,3 +1,4 @@
+# ARCHIVED 2026-09-20: superseded by paper-figures/reproduce_fig3_fair.py (N x B heat map). Kept for indy7 provenance; not maintained.
 """Regenerate Fig-3 (right): GATO solve-time heat map over batch M x horizon N.
 
 SUPERSEDED (2026-07) by reproduce_fig3_fair.py (iiwa14 parity harness, matched config,
@@ -8,7 +9,7 @@ M in [1,2,...,512] and trajectory length N in {8,16,32,64,128}, showing GATO can
 hit kHz control rates across a flexible (M, N) envelope (scalability tracks the
 total knot count N*M).
 
-Each (N) row comes from the canonical GATO generator examples/benchmark_fig8.py
+Each (N) row comes from the archived indy7 generator archive/benchmark_fig8.py
 (writes benchmark_fig8_{N}N.pkl). This script ensures those pkls exist (regenerating
 per-N if the module is built) then renders the LogNorm heat map.
 
@@ -18,9 +19,9 @@ renders whatever benchmark_fig8_*.pkl are present. The heat map needs indy7 modu
 for every N in the sweep (build with -DKNOTS="8;16;32;64;128").
 
 Examples::
-    python examples/paper-figures/reproduce_fig3_heatmap.py            # regen all N + plot
-    python examples/paper-figures/reproduce_fig3_heatmap.py --quick    # tiny smoke
-    python examples/paper-figures/reproduce_fig3_heatmap.py --replot   # plot existing pkls
+    python examples/archive/reproduce_fig3_heatmap.py            # regen all N + plot
+    python examples/archive/reproduce_fig3_heatmap.py --quick    # tiny smoke
+    python examples/archive/reproduce_fig3_heatmap.py --replot   # plot existing pkls
 """
 import os
 import glob
@@ -31,15 +32,18 @@ from collections import defaultdict
 
 import numpy as np
 
-import _common as C
+import sys
 
-VENV = os.path.join(os.path.dirname(C.REPO), "GRiD", ".venv", "bin", "python")
-PY = VENV if os.path.exists(VENV) else "python"
+import _paths
+C = _paths.load("_common")
+
+HERE = _paths.HERE
+PY = sys.executable
 
 
 def regen_N(N, batch_sizes, sim_time):
     print(f"[paper-figures] $ benchmark_fig8.py --N {N}")
-    subprocess.run([PY, "examples/benchmarks/benchmark_fig8.py", "--plant", "indy7", "--N", str(N),
+    subprocess.run([PY, os.path.join(HERE, "benchmark_fig8.py"), "--plant", "indy7", "--N", str(N),
                     "--batch-sizes", batch_sizes, "--sim-time", str(sim_time)],
                    cwd=C.REPO, check=True)
 

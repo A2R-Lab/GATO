@@ -26,19 +26,35 @@ Determinism: fixed pacing (pace_by_solve_time=False) + MuJoCo on a fixed binary
 => every cell is bit-reproducible; scenario variation is a deterministic grid
 (wipe direction x stroke length), paired across arms by scenario id.
 
-fc modules cannot co-load with default modules in one process (PyInit name
-collision) — run the ``fc`` arm in its own process against the swapped .so
-(see run_wipe_pool.sh).
+The ``fc`` arm runs the fc module VARIANT (bsqpN*_iiwa14_fc.so, side by side
+with the defaults, loaded with variant="fc"); run_wipe_pool.sh runs one arm per
+process so each pkl carries one module family.
 """
+import importlib.util
 import os
 import pickle
-import subprocess
+import sys
 import time
 
 import numpy as np
 
-URDF = os.path.join(os.path.dirname(__file__), "..", "iiwa_description", "iiwa14.urdf")
-URDF = os.path.abspath(URDF)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_bench():
+    """examples/benchmarks/_bench.py by path (URDF lookup + git provenance)."""
+    if "_bench" in sys.modules:
+        return sys.modules["_bench"]
+    spec = importlib.util.spec_from_file_location(
+        "_bench", os.path.join(_HERE, "..", "benchmarks", "_bench.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_bench"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_bench = _load_bench()
+URDF = _bench.urdf_path("iiwa14")
 
 # ---- task constants (stamped into every pkl) ------------------------------
 F_SET = 25.0          # N, mid of the 20-35 N spike-validated regime
@@ -215,10 +231,8 @@ def compute_metrics(stats, world, traj, t_wipe_start, t_end):
 
 
 def protocol_stamp(arm, scenario, depth, world, solver_params, extra=None):
-    import gato
-    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                         cwd=os.path.dirname(URDF), capture_output=True,
-                         text=True).stdout.strip()
+    prov = _bench.git_provenance()
+    sha = prov["short"] + ("+dirty" if prov["dirty"] else "")
     p = {
         "task": "contact_wipe_v1",
         "arm": arm,

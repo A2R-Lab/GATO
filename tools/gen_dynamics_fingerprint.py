@@ -36,24 +36,18 @@ gpu-proof receipt, so the table is attested alongside the code.
 import hashlib
 import json
 import os
-import sys
 
 import numpy as np
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(REPO, "python"))
-
-from gato.interface import BSQP  # noqa: E402
-from gato.config import (INDY7_START_CONFIGS, IIWA14_START_CONFIGS,  # noqa: E402
+import gato
+from gato.interface import BSQP
+from gato.config import (INDY7_START_CONFIGS, IIWA14_START_CONFIGS,
                          GO2_START_CONFIGS)
-from gato import fingerprint as fp  # noqa: E402
+from gato import fingerprint as fp
 
-URDFS = {
-    "indy7": os.path.join(REPO, "examples", "indy7_description", "indy7.urdf"),
-    "iiwa14": os.path.join(REPO, "examples", "iiwa_description", "iiwa14.urdf"),
-    "go2": os.path.join(REPO, "external", "GRiD", "config", "robot_assets",
-                        "go2.urdf"),
-}
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# URDFs from the registry (repo-relative paths written by tools/regen_grid.py)
+URDFS = {p: os.path.join(REPO, gato.robot_info(p)["urdf"]) for p in ("indy7", "iiwa14", "go2")}
 MODULE_N = {"indy7": 8, "iiwa14": 8, "go2": 16}  # smallest built module per plant
 REST = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"],
         "go2": GO2_START_CONFIGS["standing"]}

@@ -1,37 +1,35 @@
 """Intro example 1: a single GATO trajectory-optimization solve.
 
 Constructs one BSQP solver (batch_size=1) for the Indy7 and solves a single
-figure-8-tracking QP, then prints the solver stats. This is the smallest possible
-use of the core solver object.
+figure-8-tracking problem, then prints the solver stats. This is the smallest
+possible use of the core solver object.
 
-Run from the repo root (needs the bsqpN64_indy7 module built — see README):
+Needs the bsqpN64_indy7 module built (see README); runs from any cwd:
     python examples/01_single_solve.py
 """
-import os
-import sys
+from pathlib import Path
+
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
-from gato.interface import BSQP
+import gato
+from gato import BSQP
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
+REPO = Path(__file__).resolve().parents[1]
+URDF = REPO / gato.robot_info("indy7")["urdf"]   # the registry holds repo-relative URDF paths
 N, DT = 64, 0.01
 
-# build the solver (one problem instance)
-solver = BSQP(model_path=URDF, batch_size=1, N=N, dt=DT, plant_type="indy7")
+# build the solver (one problem instance; the defaults are gato.SolverParams())
+solver = BSQP(URDF, batch_size=1, N=N, dt=DT, plant_type="indy7")
 
-nx, nu = solver.nx, solver.nu
-
-# initial state + a figure-8 EE reference over the horizon
-x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(nx - len(INDY7_START_CONFIGS["ready"])))).astype(np.float32)
+# initial state [q; qd] + a figure-8 EE reference over the horizon
+x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(solver.nv))).astype(np.float32)
 ref = figure8(DT, **FIG8_DEFAULT_PARAMS)[: 6 * N].astype(np.float32)
 
 # batched arrays even for batch_size=1: shape (1, ...)
-x0_B = x0.reshape(1, -1)
-ref_B = ref.reshape(1, -1)
-res = solver.solve(x0_B, ref_B)   # cold start (hold at x0); pass res.xu to warm-start the next call
+res = solver.solve(x0.reshape(1, -1), ref.reshape(1, -1))   # cold start (hold at x0)
+res = solver.solve(x0.reshape(1, -1), ref.reshape(1, -1), xu_warm=res.xu)   # warm-started re-solve
 
 print(f"GATO single solve (Indy7, N={N}):")
 print(f"  GPU solve time : {res.solve_time_us / 1000.0:.3f} ms")

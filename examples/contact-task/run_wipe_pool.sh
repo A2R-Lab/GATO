@@ -14,10 +14,9 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-PY=${PY:-/home/plancher/Desktop/GRiD/.venv/bin/python}
+PY=${PY:-$REPO/.venv/bin/python}     # the project venv (tools/install.sh --test: pinocchio + mujoco)
 DEPTH=${1:-0.002}
 OUT=$HERE/data/wipe_$(date -u +%Y%m%d_%H%M%S)
-PKG=$REPO/python/gato
 
 mkdir -p "$OUT"
 echo "pool -> $OUT  (depth ${DEPTH} m)"

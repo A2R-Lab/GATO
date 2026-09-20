@@ -3,23 +3,32 @@ Same canonical fig8 as GATO/MPCGPU (center = grid-EE = URDF "EE" fixed joint at 
 iiwa14 URDF, EE frame = "EE" (= grid end_effector_pose post-regen), warm-start = zero controls, 1 QP
 iter. Tracking measured at EE from the logged joint configs (same metric as GATO/MPCGPU).
 
-  baselines/build_cpu_baseline.sh /home/plancher/Desktop/GRiD/.venv   # once
-  source baselines/sqpcpu_env.sh                                       # LD_LIBRARY_PATH + PYTHONPATH
-  PYTHONPATH=$PYTHONPATH:/home/plancher/Desktop/GATO/python \
-    /home/plancher/Desktop/GRiD/.venv/bin/python baselines/track_iiwa_fig8_bt.py \
-        [sim_time] [batch] [N] [out_csv]
+  baselines/build_cpu_baseline.sh            # once (default venv: the project .venv)
+  source baselines/sqpcpu_env.sh             # LD_LIBRARY_PATH + PYTHONPATH for pysqpcpu
+  python baselines/track_iiwa_fig8_bt.py [sim_time] [batch] [N] [out_csv]
 """
-import sys, os, time
+import importlib.util
+import os
+import sys
+import time
 import numpy as np
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-BENCH = os.path.dirname(HERE)
-sys.path.insert(0, BENCH)                                   # iiwa_fig8_shared
-sys.path.insert(0, os.path.dirname(BENCH) + "/../python")   # gato (…/GATO/python)
-sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
-import iiwa_fig8_shared as fig8mod
 from gato.common import rk4
 from gato import SolverParams
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_bench():
+    """../_bench.py by path (examples/benchmarks is not a package)."""
+    spec = importlib.util.spec_from_file_location("_bench", os.path.join(os.path.dirname(HERE), "_bench.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_bench"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+fig8mod = _load_bench().import_sibling("iiwa_fig8_shared")
 SP = SolverParams().asdict()  # GATO's own defaults, so the CPU baseline solves the same problem
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0

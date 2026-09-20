@@ -1,49 +1,100 @@
-"""
-Experiment runner for GATO benchmarks and analysis.
-Provides utilities for running batch experiments with different configurations.
-"""
+"""CS3 pick-and-place experiment runner + its constants (Fig-7 / Table-I).
 
+The paper-experiment settings below (solver params, success gates, pendulum
+payload, goal sequence) are experiment config, not solver API — they moved here
+from gato.config/gato.common (2026-07) and from _common.py (2026-09-20). Only
+reproduce_fig7_pickplace.py and the archived Phase-0 diagnostic use them.
+"""
 import numpy as np
 from typing import Dict, List
-import pinocchio as pin
+
+import _common as C
 from gato.config import IIWA14_START_CONFIGS
-from _common import (
-    PICKPLACE_SOLVER_PARAMS,
-    PICKPLACE_MPC_DEFAULTS,
-    PICKPLACE_DEFAULT_GOALS,
-    PENDULUM_DEFAULT_PARAMS,
-)
+
+PICKPLACE_SOLVER_PARAMS = {
+    'max_sqp_iters': 5,
+    'max_pcg_iters': 100,
+    'pcg_tol': 1e-6,
+    'solve_ratio': 1.0,
+    'mu': 10.0,
+    'q_cost': 5.0,
+    'qd_cost': 1e-2,
+    'u_cost': 5e-7,
+    'N_cost': 50.0,
+    'q_lim_cost': 0.0,
+    'vel_lim_cost': 0.0,
+    'ctrl_lim_cost': 0.0,
+    'rho': 0.001
+}
+
+PICKPLACE_MPC_DEFAULTS = {
+    'goal_timeout': 5.0,
+    'goal_threshold': 0.05,
+    'velocity_threshold': 1.0,
+    # Paper-comparable metrics (2026-07-08 gap investigation): the paper's
+    # "total joint velocity < 1.0 rad/s" is read as the Euclidean norm (the L1
+    # sum over 7 joints is materially stricter and capped success), and fixed
+    # pacing makes the completion clock physical task time instead of
+    # cumulative wall time (also makes runs deterministic).
+    'velocity_norm': 2,
+    'pace_by_solve_time': False,
+}
+
+# Pendulum parameter defaults
+PENDULUM_DEFAULT_PARAMS = {
+    'mass': 15.0,           # kg
+    'length': 0.3,          # m
+    'damping': 0.4,         # Nms/rad
+    'initial_angle': np.array([0.3, 0.0, 0.0])  # axis-angle (radians)
+}
+
+# Default pick&place goal sequence (IIWA14 workspace)
+PICKPLACE_DEFAULT_GOALS = [
+    np.array([0.5, -0.1865, 0.5]),
+    np.array([0.5, 0.5, 0.2]),
+    np.array([0.3, 0.3, 0.8]),
+    np.array([0.6, -0.5, 0.2]),
+    np.array([0.0, -0.5, 0.8])
+]
+
+
+def sample_axis_angle(mag_range=(0.0, 0.6)):
+    """Random axis-angle vector (uniform magnitude in mag_range, uniform direction)
+    for the pendulum initial condition."""
+    mag = np.random.uniform(*mag_range)
+    v = np.random.normal(size=3)
+    axis = v / (np.linalg.norm(v) + 1e-12)
+    return axis * mag
+
+
+def sample_pendulum_params(length_range=(0.3, 0.7), damping_range=(0.1, 0.6),
+                           angle_range=(0.0, 0.6), mass=15.0):
+    """Random pendulum configuration for the scenario sweeps: {mass, length,
+    damping, initial_angle} with length/damping/|angle| uniform in their ranges."""
+    return {
+        'mass': mass,
+        'length': np.random.uniform(*length_range),
+        'damping': np.random.uniform(*damping_range),
+        'initial_angle': sample_axis_angle(angle_range)
+    }
 
 
 class ExperimentRunner:
-    """Manages and runs GATO experiments with multiple batch sizes."""
-    
-    def __init__(self, urdf_path: str, model_dir: str = None):
-        """
-        Initialize experiment runner with robot model.
-        
-        Args:
-            urdf_path: Path to robot URDF file
-            model_dir: Directory containing URDF (for mesh loading)
-        """
-        if model_dir is None:
-            model_dir = urdf_path.rsplit('/', 1)[0] + '/'
-            
-        self.urdf_path = urdf_path
-        self.model_dir = model_dir
-        self.model, self.visual_model, self.collision_model = pin.buildModelsFromUrdf(
-            urdf_path, model_dir
-        )
-        
+    """Manages and runs GATO pick-place experiments with multiple batch sizes."""
+
+    def __init__(self, plant: str = 'iiwa14'):
+        """Build the robot model for a registered plant (the paper's CS3a is iiwa14)."""
+        self.plant = plant
+        self.urdf_path, self.model_dir, self.model = C.resolve_model(plant)
         self.results = {}
-        
+
     def run_pickplace_sweep(
         self,
         batch_sizes: List[int] = None,
         N: int = 16,
         dt: float = 0.05,
         sim_dt: float = 0.001,
-        plant_type: str = 'iiwa14',
+        plant_type: str = None,
         goal_sequences: List[List[np.ndarray]] = None,
         pendulum_config: Dict = None,
         solver_params: Dict = None,
@@ -66,9 +117,9 @@ class ExperimentRunner:
         that this success rate climbs with batch size.
 
         Args:
-            batch_sizes: batch sizes to sweep (default config.STANDARD_BATCH_SIZES).
+            batch_sizes: batch sizes to sweep (default _common.STANDARD_BATCH_SIZES).
             N, dt, sim_dt: horizon / MPC step / sim step.
-            plant_type: dynamics plant ('iiwa14' for the paper's CS3a).
+            plant_type: dynamics plant (default: the runner's plant).
             goal_sequences: list of goal-position lists. Default = a single
                 sequence (PICKPLACE_DEFAULT_GOALS). Pass several (e.g. randomized
                 sequences) to get a true multi-trial success *rate* per batch.
@@ -80,10 +131,10 @@ class ExperimentRunner:
             wrench_id: least-squares wrench-identification arm (B=1): dict of
                 OneStepWrenchIdentifier options ({} for defaults). Mutually
                 exclusive with the ForceEstimator batch.
-            fc_config: GATO_CONTACT_FORCES arm — {'cost', 'pin_torque_rows'}
-                passed to MPC_GATO so the solver's own contact-wrench slots
-                explain the payload (the B=1 alternative to the hypothesis
-                batch). None = the ForceEstimator arm of record.
+            fc_config: contact-force arm — {'cost', 'pin_torque_rows'} passed to
+                MPC_GATO so the solver's own contact-wrench slots (the "fc"
+                module variant) explain the payload (the B=1 alternative to the
+                hypothesis batch). None = the ForceEstimator arm of record.
 
         Returns:
             {batch_size: {success_rate, n_reached, n_total, per_sequence:[...],
@@ -92,8 +143,7 @@ class ExperimentRunner:
         from gato.mpc_gato import MPC_GATO
 
         if batch_sizes is None:
-            from _common import STANDARD_BATCH_SIZES
-            batch_sizes = STANDARD_BATCH_SIZES
+            batch_sizes = C.STANDARD_BATCH_SIZES
         if goal_sequences is None:
             goal_sequences = [PICKPLACE_DEFAULT_GOALS]
         if pendulum_config is None:
@@ -102,6 +152,7 @@ class ExperimentRunner:
             solver_params = PICKPLACE_SOLVER_PARAMS
         if mpc_defaults is None:
             mpc_defaults = PICKPLACE_MPC_DEFAULTS
+        plant_type = plant_type or self.plant
 
         nv = self.model.nv
         x_start = np.hstack((IIWA14_START_CONFIGS[start_config], np.zeros(nv)))
@@ -129,6 +180,7 @@ class ExperimentRunner:
                         # explicit caller linsys still wins
                         params=solver_params, linsys="pcg",
                         track_full_stats=True,
+                        variant="fc" if fc_config else None,
                         fc_config=fc_config,
                         wrench_id=wrench_id,
                     )
@@ -172,4 +224,3 @@ class ExperimentRunner:
 
         self.results = results
         return results
-

@@ -8,7 +8,7 @@ Provenance + reproduction for the paper's comparison baselines. The harnesses li
 (GPU, batched) vs **OSQP (CPU)** and **MPCGPU (GPU)** single-solve baselines. Reported speedup
 **18–21× over CPU, 1.4–16× over GPU** as batch grows. So the fair comparison runs ALL THREE on Indy7
 fig8 N=64 (NOT iiwa14 — that robot is only Fig-4/Table-I/hardware). Per-control-step solve time is the
-metric. Assemble with [reproduce_fig3_scalability.py](../examples/paper-figures/reproduce_fig3_scalability.py)
+metric. Assemble with [reproduce_fig3_fair.py](../examples/paper-figures/reproduce_fig3_fair.py) (the June `reproduce_fig3_scalability.py` chain is in `examples/archive/`)
 (`--replot`) once the baselines are collected. NOTE: single-solve OSQP was dropped — BatchThneed (the
 threaded CPU competitor) is faster even at M=1, so OSQP added nothing to the comparison.
 
@@ -44,7 +44,7 @@ timing runs serialized, never concurrent). These are the numbers in the shipped 
 
 **OSQP single-solve DROPPED (2026-06-26, user):** the threaded BatchThneed baseline is faster than
 single-solve OSQP even at M=1 (2.49 ms vs 12.33 ms), so the OSQP line was meaningless. Removed from the
-figure, the `reproduce_fig3_scalability.py` script, and the timing pipeline (`run_osqp_fig8.py` +
+figure, the (now archived) `reproduce_fig3_scalability.py` script, and the timing pipeline (`run_osqp_fig8.py` +
 `osqp_fig8_results.pkl` deleted; the superseded `assemble_fig3.py` assembler deleted with it).
 
 ### ✅ VERIFICATION #1 (2026-06-24): the tracking gap is REAL, not a measurement artifact
@@ -85,7 +85,7 @@ the core count, then linear), exactly the paper's ~3→30 ms over M=1..128.
 - **Runs + scales correctly** (Indy7 fig8 N=64, 24-core box, PROVISIONAL — non-quiet CPU):
   M=1→2.5 ms, M=8→3.2 ms, M=16→3.5 ms, M=64→11.8 ms (vs single-solve×M = 2.5→160 ms). Lands in the
   paper's ballpark. Runner = `baselines/run_batchthneed_fig8.py` → `batchthneed_fig8_results.pkl`;
-  wired into `reproduce_fig3_scalability.py` as the batched-CPU line (single-solve OSQP demoted to a
+  wired into the fig3 script (now `reproduce_fig3_fair.py`) as the batched-CPU line (single-solve OSQP demoted to a
   faint reference). **Final timing → quiet-box pass.** osqp pinned 0.6.3 / osqp-eigen 0.8.1 (the v1.0
   C-API churn breaks osqp-eigen 0.8.x).
 
@@ -190,7 +190,7 @@ Raw artifacts: `baselines/benchmark_fig8_64N.pkl` (GATO), `baselines/osqp_fig8_r
   `f_ext_resample_std` ctor kwargs, added `plant_type='indy7'`). Goal set
   `examples/points1000.npy` recovered from `origin/a2rlab03`.
 - **Run:** build an Indy7 module (e.g. `KNOTS=64 PLANT=indy7`), then
-  `python examples/benchmark_pinocchio.py` from the repo root (writes `data/benchmark_stats*`).
+  `python examples/archive/benchmark_pinocchio.py` (writes `examples/benchmarks/data/benchmark_stats*`).
 - **Status:** construction-validated (solver + model build, goal set loads). Runs on Indy7 (the
   migrated Indy7 dynamics are validated). iiwa14 is blocked by the FD-NaN bug (see archaeology).
 
