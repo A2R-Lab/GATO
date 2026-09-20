@@ -10,7 +10,10 @@ import numpy as np
 
 
 class ForceEstimator:
-    
+    """Fibonacci-sphere external-wrench hypothesis sampler (batch-as-identity):
+    each batch entry rolls out under one candidate wrench; the winner's error
+    drives the sampling radius (the paper's force-estimator MPC demo)."""
+
     def __init__(self, batch_size, initial_radius=10.0, min_radius=1.0, max_radius=100.0,
                  smoothing_factor=0.3, seed=0, alpha=0.5, beta=0.8):
 

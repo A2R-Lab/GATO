@@ -19,6 +19,19 @@ import numpy as np
 from .common import _require_pin
 
 
+def world_wrench_to_gato_slot(model, data, ee_frame_id, q, f_world):
+    """World-axes wrench at the EE frame origin -> GRiD's last-body f_ext slot.
+
+    GRiD's slot is the last body's spatial force in the LAST JOINT's local frame
+    about the joint origin, Featherstone-ordered [angular(3); linear(3)] — verified
+    against pin.aba to 1e-8 (fext_frame_probe 2026-07-07). An older version got
+    both the frame chain and the [linear; angular] ordering wrong, which is why a
+    seeded-truth hypothesis LOST to zero-wrench rollouts (~45% win rate)."""
+    from gato.common import world_wrench_to_joint_local
+    _, Fj = world_wrench_to_joint_local(model, data, q, f_world, ee_frame_id)
+    return np.concatenate([Fj.angular, Fj.linear])
+
+
 class HypothesisBatch(ABC):
     """B parallel hypotheses evaluated by the batched solver each MPC tick."""
 
@@ -100,17 +113,7 @@ class ForceHypothesisBatch(HypothesisBatch):
         return self.estimator.get_stats()
 
     def _world_to_gato(self, q, f_world):
-        """World-axes wrench at the EE frame origin -> GRiD's last-body f_ext slot.
-
-        GRiD's slot is the last body's spatial force in the LAST JOINT's local frame
-        about the joint origin, Featherstone-ordered [angular(3); linear(3)] — verified
-        against pin.aba to 1e-8 (fext_frame_probe 2026-07-07). The old version here got
-        both the frame chain and the [linear; angular] ordering wrong, which is why a
-        seeded-truth hypothesis LOST to zero-wrench rollouts (~45% win rate)."""
-        from gato.common import world_wrench_to_joint_local
-        _, Fj = world_wrench_to_joint_local(self.model, self._data, q, f_world,
-                                            self._ee_frame_id)
-        return np.concatenate([Fj.angular, Fj.linear])
+        return world_wrench_to_gato_slot(self.model, self._data, self._ee_frame_id, q, f_world)
 
 
 class IdentifiedWrenchBatch(HypothesisBatch):
@@ -177,9 +180,4 @@ class IdentifiedWrenchBatch(HypothesisBatch):
         return self.identifier.get_stats()
 
     def _world_to_gato(self, q, f_world):
-        """World-axes wrench at the EE frame origin -> GRiD's last-body f_ext slot.
-        Identical transform to ForceHypothesisBatch (see its docstring)."""
-        from gato.common import world_wrench_to_joint_local
-        _, Fj = world_wrench_to_joint_local(self.model, self._data, q, f_world,
-                                            self._ee_frame_id)
-        return np.concatenate([Fj.angular, Fj.linear])
+        return world_wrench_to_gato_slot(self.model, self._data, self._ee_frame_id, q, f_world)

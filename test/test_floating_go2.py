@@ -126,9 +126,7 @@ def test_sim_forward_vs_pinocchio(model):
 def _kkt_blocks(s, xu, x_s):
     ref = np.zeros(N * 6, dtype=np.float32)
     B = s.batch_size
-    out = s.solver.debug_setup_kkt(np.tile(xu, (B, 1)).astype(np.float32), DT,
-                                   np.tile(x_s, (B, 1)).astype(np.float32),
-                                   np.tile(ref, (B, 1)).astype(np.float32))
+    out = s.debug_setup_kkt(np.tile(xu, (B, 1)), np.tile(x_s, (B, 1)), np.tile(ref, (B, 1)))
     A = np.asarray(out["A"])[0].reshape(N, TS, TS)
     Bm = np.asarray(out["B"])[0].reshape(N, NU, TS)   # col-major per knot
     c = np.asarray(out["c"])[0].reshape(N, TS)

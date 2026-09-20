@@ -10,7 +10,7 @@ and compiles the ``bsqpN{N}_<name>`` pybind modules with CMake. Afterwards
 ``BSQP(model_path=urdf, N=..., plant_type=name)`` just works.
 
 v1 targets a source checkout (the repo's CMakeLists + external/GRiD submodule are
-required); a wheels-only JIT build rides the planned artifact cache.
+required); modules are always built from a source tree (plan D10).
 """
 from __future__ import annotations
 
@@ -153,6 +153,25 @@ GATO_ALGORITHMS = (
 )
 
 
+def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base):
+    """Content key of everything that determines the emitted headers: the URDF
+    bytes, the GRiD submodule commit (the emitter), the consumed algorithm set
+    and the codegen options. gato.build() skips codegen when it is unchanged."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(Path(urdf_path).read_bytes())
+    grid = repo_root() / "external" / "GRiD"
+    try:
+        sha = subprocess.run(["git", "-C", str(grid), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except Exception:
+        sha = "unknown"
+    h.update(sha.encode())
+    h.update(repr((tuple(GATO_ALGORITHMS), ee_frame, collision_res,
+                   tuple(contact_frames) if contact_frames else None, bool(floating_base))).encode())
+    return h.hexdigest()[:16]
+
+
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
             floating_base=False):
@@ -181,9 +200,9 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     map; pass [] to opt out.
 
     floating_base: parse/generate with a quaternion free-flyer root (CL-3;
-    go2 nq=19, nv=18). The solver-side floating path is CL-3 W3.3+ — until it
-    lands, floating headers are codegen/inspection-only (bsqp modules
-    static_assert out).
+    go2 nq=19, nv=18): the modules run the grid_plant SE(3) step/linearization
+    path (SI-EULER integrator, tangent state cost). ee_frame is then the
+    base-pose target frame (go2: imu_joint).
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -299,8 +318,15 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     Ns = [int(n) for n in ([N] if isinstance(N, int) else N)]
 
     root = repo_root()
-    codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
-            contact_frames=contact_frames, floating_base=floating_base)
+    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base)
+    have = load_registry().get(name, {})
+    headers = [root / "gato" / "dynamics" / name / f for f in ("grid.cuh", "limits.cuh")]
+    if have.get("codegen_key") == key and all(h.exists() for h in headers):
+        print(f"[gato.build] {name}: codegen inputs unchanged (URDF, GRiD pin, algorithm set, options) — skipping codegen")
+    else:
+        meta = codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
+                       contact_frames=contact_frames, floating_base=floating_base)
+        _update_registry(name, {**meta, "codegen_key": key})
 
     try:
         import pybind11

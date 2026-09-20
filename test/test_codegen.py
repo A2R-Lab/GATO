@@ -35,7 +35,8 @@ def test_regen_matches_vendored(robot, urdfs, repo_root, tmp_path):
         assert got == want, (
             f"{robot}/{fname} drifted from codegen output — re-run "
             f"tools/regen_grid.py and commit the result")
-    assert load_registry()[robot] == meta, (
+    reg = load_registry()[robot]
+    assert {k: reg.get(k) for k in meta} == meta, (
         f"_registry.json[{robot}] is stale vs codegen metadata — re-run "
         f"tools/regen_grid.py --robot {robot} and commit the result")
 

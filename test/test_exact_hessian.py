@@ -120,9 +120,9 @@ def test_projection_matches_numpy_lambda_zero():
     X, goals, XU0 = _problem(gn, B, N)
     nx, nu, nv = gn.nx, gn.nu, gn.nv
 
-    assert np.count_nonzero(ex.solver.get_lambda()) == 0  # fresh solver: lagged lambda = 0
-    kkt_gn = gn.solver.debug_setup_kkt(XU0.ravel(), gn.dt, X.ravel(), goals.ravel())
-    kkt_ex = ex.solver.debug_setup_kkt(XU0.ravel(), ex.dt, X.ravel(), goals.ravel())
+    assert np.count_nonzero(ex.get_lambda()) == 0  # fresh solver: lagged lambda = 0
+    kkt_gn = gn.debug_setup_kkt(XU0.ravel(), X.ravel(), goals.ravel())
+    kkt_ex = ex.debug_setup_kkt(XU0.ravel(), X.ravel(), goals.ravel())
     Qg = np.asarray(kkt_gn["Q"], dtype=np.float64).reshape(B, N, nx, nx)
     Rg = np.asarray(kkt_gn["R"], dtype=np.float64).reshape(B, N, nu, nu)
     Qe = np.asarray(kkt_ex["Q"]).reshape(B, N, nx, nx)
@@ -156,10 +156,10 @@ def test_contraction_matches_pinocchio_fd():
 
     # populate lagged lambda with a real Schur solve, then rebuild the KKT at XU0
     ex.solver.solve(XU0.ravel(), dt, X.ravel(), goals.ravel())
-    lam = np.asarray(ex.solver.get_lambda(), dtype=np.float64).reshape(B, N + 2, nx)
+    lam = np.asarray(ex.get_lambda(), dtype=np.float64).reshape(B, N + 2, nx)
     assert np.abs(lam).max() > 0
-    kkt_gn = gn.solver.debug_setup_kkt(XU0.ravel(), dt, X.ravel(), goals.ravel())
-    kkt_ex = ex.solver.debug_setup_kkt(XU0.ravel(), dt, X.ravel(), goals.ravel())
+    kkt_gn = gn.debug_setup_kkt(XU0.ravel(), X.ravel(), goals.ravel())
+    kkt_ex = ex.debug_setup_kkt(XU0.ravel(), X.ravel(), goals.ravel())
     Qg = np.asarray(kkt_gn["Q"], dtype=np.float64).reshape(B, N, nx, nx)
     Rg = np.asarray(kkt_gn["R"], dtype=np.float64).reshape(B, N, nu, nu)
     Qe = np.asarray(kkt_ex["Q"]).reshape(B, N, nx, nx)
@@ -188,6 +188,6 @@ def test_contraction_matches_pinocchio_fd():
             checked += 1
     assert checked == 6
     # the contraction must actually matter somewhere (lambda != 0 changes blocks)
-    kkt_ex0 = _mk(plant, N, B, exact=True).solver.debug_setup_kkt(XU0.ravel(), dt, X.ravel(), goals.ravel())
+    kkt_ex0 = _mk(plant, N, B, exact=True).debug_setup_kkt(XU0, X, goals)
     Qe0 = np.asarray(kkt_ex0["Q"]).reshape(B, N, nx, nx)
     assert np.abs(Qe - Qe0).max() > 1e-6

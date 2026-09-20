@@ -188,6 +188,9 @@ uses them). Current scope: fixed-base serial chains. The same path is exposed as
 a CLI for the vendored robots: `python tools/regen_grid.py`. Built modules and
 robot metadata are discoverable via `gato.available()` / `gato.robot_info(name)`.
 
+Constraint layer (limit boxes, EE rows, cones, collision; barrier / ADMM / AL
+mechanisms, measured defaults and provenance): [docs/constraints.md](docs/constraints.md).
+
 ## Tests
 
 ```sh

@@ -32,8 +32,7 @@ def _held(s, plant):
 
 
 def _kkt(s, x0, ref, xu):
-    d = s.solver.debug_setup_kkt(xu[None, :], np.float32(0.01), x0[None, :],
-                                 ref.ravel()[None, :])
+    d = s.debug_setup_kkt(xu[None, :], x0[None, :], ref.ravel()[None, :])
     N, nx = s.N, s.nx
     Q = np.asarray(d["Q"]).reshape(N, nx, nx)
     q = np.asarray(d["q"]).reshape(N, nx)
@@ -132,8 +131,7 @@ def test_per_joint_cost_vectors_kkt(make_solver, smallest_module):
     s0 = make_solver(plant, N, batch_size=1)
     x0, ref, xu = _held(s0, plant)
     Q0, _ = _kkt(s0, x0, ref, xu)
-    d0 = s0.solver.debug_setup_kkt(xu[None, :], np.float32(0.01), x0[None, :],
-                                   ref.ravel()[None, :])
+    d0 = s0.debug_setup_kkt(xu[None, :], x0[None, :], ref.ravel()[None, :])
     R0 = np.asarray(d0["R"]).reshape(N, s0.nu, s0.nu)
 
     nq, na = s0.nq, s0.n_actuated
@@ -145,8 +143,7 @@ def test_per_joint_cost_vectors_kkt(make_solver, smallest_module):
     sv.set_q_pos_cost(wvec)          # per-joint anchor stiffness
     sv.set_q_nom(x0[:nq])
     Qv, _ = _kkt(sv, x0, ref, xu)
-    dv = sv.solver.debug_setup_kkt(xu[None, :], np.float32(0.01), x0[None, :],
-                                   ref.ravel()[None, :])
+    dv = sv.debug_setup_kkt(xu[None, :], x0[None, :], ref.ravel()[None, :])
     Rv = np.asarray(dv["R"]).reshape(N, sv.nu, sv.nu)
 
     for k in range(N - 1):           # terminal knot has no control block

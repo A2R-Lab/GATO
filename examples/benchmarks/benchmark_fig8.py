@@ -17,11 +17,10 @@ sys.path.append('./python')
 from gato.mpc_gato import MPC_GATO
 from gato.common import figure8
 from gato.config import (
-    STANDARD_BATCH_SIZES,
     FIG8_DEFAULT_PARAMS,
     INDY7_START_CONFIGS,
-    BATCH_COLORS
 )
+from _common import STANDARD_BATCH_SIZES, BATCH_COLORS  # examples/paper-figures
 
 
 def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, x_start, model_path=None, plant='indy7'):

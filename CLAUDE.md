@@ -136,6 +136,8 @@ limits.cuh + registry) and compiles the modules in one call (fixed-base serial c
 `<limit>` tags only; `ee_frame` must be a URDF fixed joint). NOTE: it reconfigures the `build/`
 tree for its own (plant, N) request — re-run your usual cmake configure afterwards.
 
+Constraint-layer rulings/provenance (moved out of the docstrings): [`docs/constraints.md`](docs/constraints.md).
+
 **External consumers start at [`docs/consumer_contract.md`](docs/consumer_contract.md)** —
 the conventions cross-repo integrations depend on (EE frame, JOINT_LIMIT_MARGIN, cost
 semantics, xu layout, receipt scope) + the **dynamics fingerprint**

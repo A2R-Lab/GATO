@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 import gato
-from gato.config import STANDARD_BATCH_SIZES
 
 
 def test_import_without_heavy_deps(repo_root):
@@ -50,10 +49,6 @@ def test_registry_schema(repo_root):
         assert meta["nq"] == meta["nv"] > 0
         assert (repo_root / meta["urdf"]).exists()
 
-
-def test_config_batch_sizes():
-    assert STANDARD_BATCH_SIZES and all(
-        isinstance(b, int) and b >= 1 for b in STANDARD_BATCH_SIZES)
 
 
 def test_available_shape():

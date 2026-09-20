@@ -4,10 +4,6 @@ Configuration settings for GATO experiments and benchmarks.
 
 import numpy as np
 
-# Standard batch sizes for experiments
-STANDARD_BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
-EXPERIMENT_BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]  # For interactive experiments
-
 # Figure-8 trajectory parameters
 FIG8_DEFAULT_PARAMS = {
     'A_x': 0.4,           # X amplitude
@@ -135,21 +131,3 @@ class SolverParams:
 
 
 COST_FIELDS = ("q_cost", "qd_cost", "u_cost", "N_cost", "q_lim_cost", "vel_lim_cost", "ctrl_lim_cost")
-
-
-
-# Visualization colors for different batch sizes
-BATCH_COLORS = {
-    1: '#003192',    # Barnard Blue
-    4: '#747474',    # Gray
-    8: '#7030A0',    # Purple
-    16: '#F19759',   # Orange
-    32: '#00693E',   # Dartmouth Green
-    64: '#56B4E9',   # Sky Blue
-    128: '#C90016',  # Harvard Crimson
-    256: '#FF69B4',  # Pink
-    512: '#8B4513',  # Brown
-    1024: '#000000'  # Black
-}
-
-

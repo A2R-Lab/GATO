@@ -92,7 +92,7 @@ class ExperimentRunner:
         from gato.mpc_gato import MPC_GATO
 
         if batch_sizes is None:
-            from .config import STANDARD_BATCH_SIZES
+            from _common import STANDARD_BATCH_SIZES
             batch_sizes = STANDARD_BATCH_SIZES
         if goal_sequences is None:
             goal_sequences = [PICKPLACE_DEFAULT_GOALS]

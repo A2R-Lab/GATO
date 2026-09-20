@@ -18,6 +18,23 @@ import argparse
 
 import numpy as np
 
+# Experiment sweep sizes + the paper's batch-size palette (moved out of the
+# runtime package gato.config on 2026-09-20 — they are figure/experiment config).
+STANDARD_BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+EXPERIMENT_BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]  # interactive experiments
+BATCH_COLORS = {
+    1: '#003192',    # Barnard Blue
+    4: '#747474',    # Gray
+    8: '#7030A0',    # Purple
+    16: '#F19759',   # Orange
+    32: '#00693E',   # Dartmouth Green
+    64: '#56B4E9',   # Sky Blue
+    128: '#C90016',  # Harvard Crimson
+    256: '#FF69B4',  # Pink
+    512: '#8B4513',  # Brown
+    1024: '#000000'  # Black
+}
+
 # --- repo layout -----------------------------------------------------------
 # this file lives at <repo>/examples/paper-figures/_common.py
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -90,8 +107,7 @@ def set_paper_rcParams():
 
 
 def batch_color(batch_size):
-    """Color for a batch size (falls back through config.BATCH_COLORS)."""
-    from gato.config import BATCH_COLORS
+    """Color for a batch size (falls back through BATCH_COLORS)."""
     return BATCH_COLORS.get(int(batch_size), None)
 
 

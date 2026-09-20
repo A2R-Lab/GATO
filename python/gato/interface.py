@@ -330,23 +330,35 @@ class BSQP:
     def set_admm_linsys(self, mode):
         """ADMM inner-loop linear solver: "pcg" (default) | "bdsv_factor".
 
-        "pcg" runs warm-started PCG per ADMM iteration (λ carries across the
-        loop, no factorization); "bdsv_factor" factors the (constant-within-
-        the-loop) Schur matrix once per SQP iteration and re-solves per ADMM
-        iteration. Identical iterates up to linsys tolerance; only affects
-        MECH_ADMM solves.
-
-        Default BOUND "pcg" by the 2026-08-01 quiet-box A/B: 1.4-2.5x faster
-        per solve at identical tracking on every ADMM family (box fig8
-        16.5->6.6 ms indy7 / 18.9->9.7 ms iiwa14; cone 2.4x/2.2x; collision
-        1.6x/1.4x). The trade: PCG's looser inner residual leaves transient
-        box violations ~2-3x higher (same order, still enforced — e.g.
-        3.7e-2 -> 1.0e-1 on fig8 boxes). Pick "bdsv_factor" when tightest
-        transient enforcement matters more than speed.
-        """
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_admm_linsys`)."""
         if mode not in ("bdsv_factor", "pcg"):
             raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')
         self.solver.set_admm_linsys_pcg(mode == "pcg")
+
+    def set_collect_stats(self, on):
+        """Collect per-iteration solver stats (PCG timings via cudaEvents,
+        line-search merits). On by default; MPC loops that do not read
+        SolverStats can switch it off (two event records per SQP iteration)."""
+        self.solver.set_collect_stats(bool(on))
+
+    def set_drho_batch(self, drho_batch, set_as_reset_default=True):
+        """Per-solve trust-region rho ADAPTATION factor (B,) — the multiplier the
+        line search applies on reject/accept (reset_rho restores the default)."""
+        d = np.ascontiguousarray(np.asarray(drho_batch, dtype=np.float32).reshape(self.batch_size))
+        self.solver.set_drho_batch(d, bool(set_as_reset_default))
+
+    def get_lambda(self):
+        """(B, N+2, nx) lagged KKT multipliers λ from the last solve (padded layout)."""
+        return np.asarray(self.solver.get_lambda()).reshape(self.batch_size, self.N + 2, self.nx)
+
+    def debug_setup_kkt(self, xu_B, xcur_B, eepos_goals_B):
+        """Run setup_kkt ONLY on a trajectory and return the assembled KKT blocks
+        {Q, R, q, r, A, B, c} (B, ...) — the way the anchor/exact-Hessian gates
+        pin cost claims directly instead of arguing from solve outcomes."""
+        xu = np.ascontiguousarray(np.asarray(xu_B, dtype=np.float32).reshape(self.batch_size, self.xu_size))
+        x = np.ascontiguousarray(np.asarray(xcur_B, dtype=np.float32).reshape(self.batch_size, self.nx))
+        g = np.ascontiguousarray(np.asarray(eepos_goals_B, dtype=np.float32).reshape(self.batch_size, -1))
+        return self.solver.debug_setup_kkt(xu, self.dt, x, g)
 
     def exact_hessian_available(self):
         """True if the loaded module was compiled with -DGATO_EXACT_HESSIAN=ON."""
@@ -355,18 +367,7 @@ class BSQP:
     def set_exact_hessian(self, on):
         """Toggle the SO-SQP stage-Hessian PSD projection for subsequent solves.
 
-        Per-TASK feature: wins on EE-terminal tasks, neutral-to-worse on
-        full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
-        Raises if the module was built without -DGATO_EXACT_HESSIAN=ON.
-
-        Constraint-mechanism pairing (measured): exact pairs with AL, not ADMM
-        (R2 2026-07-30: un-parks AL-cone both plants; admm_ee diverges). The
-        2026-08-01 ADMM-fold cells extend the rule: exact x cone-ADMM parks
-        BOTH plants (track 0.67-0.78 vs 0.02-0.03 GN) and exact x
-        collision-ADMM parks iiwa14; the one healthy pairing is indy7
-        collision-ADMM (parity with GN, tighter inner residual). Don't
-        combine exact with ADMM row groups by default.
-        """
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_exact_hessian`)."""
         on = bool(on)
         if on and not self.exact_hessian_available():
             raise RuntimeError(
@@ -591,41 +592,28 @@ class BSQP:
 
     def set_admm_merit(self, on=True):
         """R1 ablation toggle: include the AL-form ADMM constraint value
-        y'(g - z) + (rho/2)|g - z|^2 (current row state) in the line-search
-        merit. v1 ADMM's merit is tracking-only, so the line search rejects
-        steps that trade tracking for feasibility (measured: closed-loop MPC
-        parks in conservative basins). Off by default — the exact v1
-        semantics; only read while ADMM mode is active.
+y'(g - z) + (rho/2)|g - z|^2 (current row state) in the line-search
+merit. v1 ADMM's merit is tracking-only, so the line search rejects
+steps that trade tracking for feasibility (measured: closed-loop MPC
+parks in conservative basins). Off by default — the exact v1
+semantics; only read while ADMM mode is active.
 
-        ⚠ R2 measured (2026-07-30): ON + a CONFLICTED cone group DIVERGES
-        (NaN merit, violation blowup to 1e4..1e14 on 3/4 press-family cells);
-        on feasible cells it merely matches OFF. Keep OFF unless the
-        constraint set is known feasible-along-the-path."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_admm_merit`)."""
         self.solver.set_admm_merit(bool(on))
 
     def set_admm_rho_adaptation(self, on=True):
         """OSQP-style ADMM rho adaptation (opt-in; default OFF = bitwise
-        pre-adaptation path). One per-solve SCALAR multiplier on top of every
-        ADMM group's rho baseline (the bound per-group ratios — cone u-block
-        0.01 vs collision Q-block 1.0+ — are preserved), updated once per SQP
-        iteration from the inner loop's final residuals: adapt when
-        r_prim/r_dual is imbalanced by >5x, step by sqrt(ratio), clamp to
-        [1e-2, 1e2] (OSQP's rule). The dual form is unscaled, so rho changes
-        need no y-rescaling; the rho*G'G fold refreshes each SQP iteration.
-        The scale persists across solves (warm rho, like the (z, y) dual warm
-        start); toggling resets it to 1. Telemetry: get_admm_rho_scale().
+pre-adaptation path). One per-solve SCALAR multiplier on top of every
+ADMM group's rho baseline (the bound per-group ratios — cone u-block
+0.01 vs collision Q-block 1.0+ — are preserved), updated once per SQP
+iteration from the inner loop's final residuals: adapt when
+r_prim/r_dual is imbalanced by >5x, step by sqrt(ratio), clamp to
+[1e-2, 1e2] (OSQP's rule). The dual form is unscaled, so rho changes
+need no y-rescaling; the rho*G'G fold refreshes each SQP iteration.
+The scale persists across solves (warm rho, like the (z, y) dual warm
+start); toggling resets it to 1. Telemetry: get_admm_rho_scale().
 
-        MEASURED (2026-08-01 recovery cells, both plants): a clear WIN on
-        collision/Q-block rows — pillars at the bound cc_rho=1.0 tightens
-        iiwa14 cc_viol_max 0.021 -> 0.0031 (beats even the static 5.0
-        binding's 0.0099) and halves indy7's mean violation at flat tracking,
-        inner residual ~5x tighter. Do NOT enable on CONFLICTED cone cells:
-        an irreducible primal residual reads as "under-penalized", the rule
-        adapts UP away from the sharp 0.01 u-block pocket, and the
-        fixed-budget loop destabilizes (press_mild cone@1.0 got worse, not
-        recovered). Rule of thumb: adapt where the imbalance is a SCALE
-        problem (state-block rows), keep the bound static rho where the
-        constraint fights the task."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_admm_rho_adaptation`)."""
         self.solver.set_admm_rho_adaptation(bool(on))
 
     def get_admm_rho_scale(self):
@@ -638,48 +626,10 @@ class BSQP:
                        knot_hi=None, admm_iters=0, equilibrate=False,
                        normalize=True):
         """Append a LIN_U row-group: m rows ``g = C @ u + d`` on the control
-        block (C shape (m, nu), FROZEN at a host-chosen configuration — the
-        cross-term audit's contact-frame rule for config-dependent maps).
+block (C shape (m, nu), FROZEN at a host-chosen configuration — the
+cross-term audit's contact-frame rule for config-dependent maps).
 
-        ``cone=True`` binds SECOND-ORDER-CONE semantics to the row vector
-        (row 0 = axis t, rows 1.. = x-bar; feasible iff ||x-bar|| <= t;
-        lo/hi unused): ADMM z-update = SOC projection (``admm_soc``), AL =
-        conic PHR (dual vector projected onto K each outer update; hard-only),
-        barrier = relaxed barrier on the margin t - ||x-bar||. ``cone=False``
-        keeps interval semantics on the mapped rows (lo/hi required) — the
-        pyramid-facet path.
-
-        ``mech`` is "telemetry" | "barrier" | "admm" | "al" (None = follow the
-        active enable_limit_* mode). Mixing mechanisms across groups composes
-        (e.g. AL boxes + ADMM cone). Call AFTER enable_limit_* — mechanism
-        enables reinstall the canonical groups and drop appended ones.
-        ``rho`` defaults per mechanism, BOUND by the R2 round (2026-07-30,
-        docs/open-tasks/r2_report_2026-07-30.md): admm 0.01 (sharp optimum on
-        the feasible cone cell — 0.002 and 0.05 both park the closed loop),
-        al 1.0 (enforces in the stationary/hard regime; NO al rho tracks AND
-        enforces on transient cells — prefer admm there), barrier 3e-3 (soft
-        fallback; 1e-2 parks). The rho-scale law applies: the fold lands
-        rho * C^T C on the R block, so scale rho DOWN by ||C||^2 when the map
-        is large. Telemetry reports the cone margin violation
-        max(0, ||x-bar|| - t) (interval rows: interval violation).
-
-        ``equilibrate=True`` (interval rows only) rescales each row of
-        (C, d, lo, hi) by 1/||C_i||_2 at enable time — an exact
-        reformulation (same feasible set) that puts the group's rho on
-        unit-norm rows (the TinyMPC-style normalization; the manual
-        rho-scale-law correction becomes automatic). Rejected for cone
-        rows: an SOC couples its rows, so per-row scaling would change
-        the cone — cone rows are instead normalized as a WHOLE map (below).
-
-        ``normalize=True`` (cone rows only): scale the whole (C, d) uniformly
-        by 1/||C||_2 before install. An SOC is invariant under uniform positive
-        scaling, so the feasible set is untouched — but the admm/al fold lands
-        rho * C^T C on the R block, so a large map (e.g. pinv(J^T) with
-        ||C|| ~ 1/sigma_min(J) ~ 6) silently over-regularizes the controls at
-        the bound-default rho (measured 2026-08-09: 2x tracking loss on the
-        wipe task's frozen-pinv cone). The R2 rho defaults are for unit-norm
-        maps; this makes that the installed contract. get_row_groups() returns
-        the NORMALIZED map. Pass normalize=False to install verbatim."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`add_lin_u_rows`)."""
         C = np.ascontiguousarray(np.asarray(C, dtype=np.float32))
         if C.ndim != 2 or C.shape[1] != self.nu:
             raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")
@@ -740,16 +690,10 @@ class BSQP:
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):
         """Cone constraint on a mapped control quantity g = C @ u + d
-        (CL-2 demo surface: e.g. an EE contact-force friction cone with
-        C = S @ pinv(J(q).T), rows [mu*f_n; f_t1; f_t2], frozen at q).
+(CL-2 demo surface: e.g. an EE contact-force friction cone with
+C = S @ pinv(J(q).T), rows [mu*f_n; f_t1; f_t2], frozen at q).
 
-        form="soc": exact second-order cone via add_lin_u_rows(cone=True).
-        form="pyramid": m must be 3; the cone is replaced by ``facets``
-        one-sided linear rows h_j = cos(th_j) g1 + sin(th_j) g2 - s*g0 <= 0
-        riding the ordinary interval machinery (any mechanism, slack toggle
-        included). facet_scale="inscribed" (s = cos(pi/facets), conservative:
-        facet-feasible => cone-feasible) or "circumscribed" (s = 1, outer
-        approximation). Returns the appended group index."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_u_cone`)."""
         C = np.asarray(C, dtype=np.float64)
         m = C.shape[0]
         d = np.zeros(m) if d is None else np.asarray(d, dtype=np.float64).reshape(m)
@@ -773,17 +717,9 @@ class BSQP:
     def set_collision_environment(self, spheres=None, capsules=None,
                                   cuboids=None, planes=None):
         """Upload the runtime obstacle set for the COLLISION clearance rows
-        (CL-2). Lists of tuples, one per obstacle (all in world frame, meters):
+(CL-2). Lists of tuples, one per obstacle (all in world frame, meters):
 
-        - spheres: (x, y, z, r)
-        - capsules: (ax, ay, az, bx, by, bz, r) — segment endpoints + radius
-        - cuboids: (cx, cy, cz, ux, uy, uz, hu, vx, vy, vz, hv, wx, wy, wz, hw)
-          — oriented box: center, then 3 (unit axis, half-extent) pairs
-        - planes: (nx, ny, nz, d) — half-space n·p >= d, n a UNIT normal
-          pointing into FREE space (ground floor at z0: (0, 0, 1, z0))
-
-        Deep-copied to the device; callable between solves. An empty
-        environment makes every clearance +1e30 (rows inert)."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_collision_environment`)."""
         def arr(x, w):
             a = np.ascontiguousarray(np.asarray([] if x is None else x, dtype=np.float32))
             return a.reshape(-1, w) if a.size else np.zeros((0, w), dtype=np.float32)
@@ -793,33 +729,13 @@ class BSQP:
     def enable_collision(self, mech=None, margin=0.02, rho=None, delta=0.05,
                          sigma=0.0, knot_lo=1, admm_iters=0):
         """Append THE collision clearance group (one max): per-sphere rows
-        d_i(q_k) >= margin over knots [knot_lo, N] — d_i = signed clearance of
-        collision sphere i (baked at codegen, ``collision_res``) to the
-        nearest obstacle from set_collision_environment (call that FIRST).
-        The covering spheres are already conservative (inflated by the
-        spherizer), so margin is extra safety on top.
+d_i(q_k) >= margin over knots [knot_lo, N] — d_i = signed clearance of
+collision sphere i (baked at codegen, ``collision_res``) to the
+nearest obstacle from set_collision_environment (call that FIRST).
+The covering spheres are already conservative (inflated by the
+spherizer), so margin is extra safety on top.
 
-        ``mech``: "admm" (linearized one-sided intervals in the inner loop —
-        the transient/MPC recommendation, mirroring the R2 cone verdict; AL
-        under-enforces on transient avoidance even at rho 5), "al" (PHR
-        hinge; +L1 elastic via sigma>0), "barrier" (soft), or "telemetry"
-        (report-only). None follows the active enable_limit_* mode.
-
-        rho defaults: admm 1.0 — BOUND by the 2b pillars round (2026-07-30):
-        clearance rows fold onto the Q block (natural scale O(q_cost)), so
-        the admm rho pocket is WIDE AND FLAT, unlike the cone's sharp
-        u-block pocket at 0.01 — violation drops monotonically over rho
-        0.01..5.0 at flat tracking cost (indy7 2.7mm / iiwa14 21mm sphere-
-        margin violation at 1.0; 5.0 strictly clears both). Raise toward 5
-        for strict clearance; the rho-scale law applies per target block.
-        al 1.0 / barrier 3e-3 as elsewhere.
-        knot_lo >= 1 always: x_0 is data — a start pose in collision would
-        make knot-0 rows unsatisfiable (the R1 windup lesson).
-
-        Telemetry group slot: the clearance group's {max, sum} true violation
-        rides get_row_telemetry() at this group's index (see get_row_groups).
-        Call AFTER enable_limit_* (mechanism enables reinstall the canonical
-        groups, dropping appended ones)."""
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_collision`)."""
         if mech is None:
             mech = self._row_mech or "telemetry"
         if mech not in self._MECHS:
@@ -998,25 +914,28 @@ class BSQP:
         self.set_f_ext_B(np.zeros((self.batch_size, 6)))
 
     def sim_forward(self, xk, uk, sim_dt):
+        """One plant step on the DEVICE integrator for every batch entry:
+        (B, nx) x (B, nu) -> (B, nx) (knot-0 external wrench applies)."""
         xk = np.asarray(xk, dtype=np.float32)
         uk = np.asarray(uk, dtype=np.float32)
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def set_f_ext_B(self, f_ext_B):
-        # The GPU wrench buffer is body-major: 6*NUM_BODIES per (solve, knot). Each
-        # 6-slot is that body's spatial force in its JOINT-LOCAL frame about the joint
-        # origin, Featherstone-ordered [angular(3); linear(3)] (verified vs pin.aba
-        # 2026-07-07). World wrenches must go through
-        # gato.common.world_wrench_to_joint_local and be reordered — see
-        # hypotheses.ForceHypothesisBatch._world_to_gato.
-        #
-        # Accepted shapes (N = knot count; wrench k applies to interval [k, k+1]):
-        #   (B, 6)            per-solve EE wrench, broadcast over knots (historic)
-        #   (B, 6*NUM_BODIES) per-solve body-major, broadcast over knots (historic)
-        #   (B, N, 6)         per-knot EE wrench (scattered into the EE body slot)
-        #   (B, N, 6*NUM_BODIES) per-knot body-major
-        # Always upload a correctly-sized contiguous buffer (a short buffer makes the
-        # upload's cudaMemcpy over-read host memory -> garbage wrench -> NaN dynamics).
+        """Upload the external-wrench band the dynamics see.
+
+        The GPU buffer is body-major: 6*NUM_BODIES per (solve, knot); each 6-slot is
+        that body's spatial force in its JOINT-LOCAL frame about the joint origin,
+        Featherstone-ordered [angular(3); linear(3)] (verified vs pin.aba 2026-07-07).
+        World wrenches go through gato.common.world_wrench_to_joint_local and are
+        reordered — see hypotheses.world_wrench_to_gato_slot.
+
+        Accepted shapes (N = knot count; wrench k applies to interval [k, k+1]):
+          (B, 6)               per-solve EE wrench, broadcast over knots
+          (B, 6*NUM_BODIES)    per-solve body-major, broadcast over knots
+          (B, N, 6)            per-knot EE wrench (scattered into the EE body slot)
+          (B, N, 6*NUM_BODIES) per-knot body-major
+        A correctly-sized contiguous buffer is always uploaded (a short buffer
+        would make the device copy over-read -> garbage wrench -> NaN dynamics)."""
         f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
         nb = self.n_bodies or self.nv
         per_knot = (f_ext_B.ndim == 3)

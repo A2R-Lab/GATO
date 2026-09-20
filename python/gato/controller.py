@@ -17,6 +17,8 @@ from .linsys_autotune import resolve_linsys
 
 @dataclass(frozen=True)
 class StepResult:
+    """One MPC tick's outcome: the ACTUATED control to apply (``u``), the
+    winning trajectory, the raw SolveResult and the warm-startedness signal."""
     u: np.ndarray            # (n_actuated,) first ACTUATED control of the winner — what you apply
     best_id: int             # winning hypothesis index (0 when B==1 / no hypotheses)
     xu_best: np.ndarray      # full winning trajectory (flat) — drivers that play

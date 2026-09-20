@@ -22,6 +22,9 @@ from .worlds import PinocchioWorld
 
 
 class MPC_GATO:
+    """Closed-loop simulation DRIVER (paper experiments): pinocchio-RK4 / MuJoCo
+    world + pacing + task loops around an MPCController. Not the controller —
+    see gato.controller.MPCController / gato.policy.MPCPolicy for your own loop."""
 
     def __init__(
         self,
