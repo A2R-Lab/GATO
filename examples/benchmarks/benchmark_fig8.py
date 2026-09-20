@@ -44,7 +44,7 @@ def run_single_benchmark(model, batch_size, N, dt, sim_time, sim_dt, fig8_traj, 
             # pin the paper-era pcg path: the committed sweep_fig8_*.csv
             # baselines were measured under it (controller default is "auto"
             # since 08-12 — an unpinned run would not be comparable)
-            solver_params={"linsys": "pcg"},
+            linsys="pcg",
         )
         
         # Run simulation

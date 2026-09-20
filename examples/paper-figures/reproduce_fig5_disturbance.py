@@ -38,7 +38,7 @@ def _run_one(model, urdf, M, force_N, sim_time):
                    constant_f_ext=f_ext, track_full_stats=False,
                    # paper numbers were measured under the pcg path (controller
                    # default is "auto" since 08-12)
-                   solver_params={"linsys": "pcg"})
+                   linsys="pcg")
     fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
     x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(model.nv)))
     _, st = mpc.run_mpc_fig8(x0, fig8, sim_dt=0.001, sim_time=sim_time, pace_by_solve_time=False)

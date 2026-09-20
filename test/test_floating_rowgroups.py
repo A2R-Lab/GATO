@@ -23,6 +23,7 @@ import pinocchio as pin   # [test] extra — a missing dep is a broken env, neve
 import pytest
 
 import gato
+from conftest import TEST_PARAMS
 
 # cpu-lane deselects every test here; on a GPU box the go2 N16 module is part
 # of the receipt profile, so gato.BSQP(plant_type="go2") raising is the loud
@@ -70,8 +71,8 @@ def _solver(B, **kw):
     params = dict(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0,
                   q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
     params.update(kw)
-    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT,
-                     plant_type="go2", **params)
+    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT, params=TEST_PARAMS.replace(**params),
+                     plant_type="go2")
 
 
 def _goals_at(model, x, B):

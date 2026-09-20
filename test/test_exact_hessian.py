@@ -91,9 +91,9 @@ def _project(P, eps_scale=1e-5):
 
 
 def _mk(plant, N, B, exact):
-    from conftest import URDFS
-    s = gato.BSQP(model_path=str(URDFS[plant]), batch_size=B, N=N, dt=0.01,
-                  plant_type=plant, max_sqp_iters=4)
+    from conftest import TEST_PARAMS, URDFS
+    s = gato.BSQP(model_path=str(URDFS[plant]), batch_size=B, N=N, dt=0.01, params=TEST_PARAMS.replace(max_sqp_iters=4),
+                  plant_type=plant)
     if exact:
         s.set_exact_hessian(True)
     return s

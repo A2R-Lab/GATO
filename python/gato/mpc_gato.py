@@ -17,7 +17,7 @@ from .estimators import ForceEstimator, OneStepWrenchIdentifier
 from .hypotheses import ForceHypothesisBatch, IdentifiedWrenchBatch
 from .interface import BSQP
 from .common import world_wrench_to_joint_local
-from .config import DEFAULT_SOLVER_PARAMS
+from .config import SolverParams
 from .worlds import PinocchioWorld
 
 
@@ -34,7 +34,10 @@ class MPC_GATO:
         track_full_stats=False,
         plant_type=None,  # None => BSQP auto-detects from model_path
         pendulum_config=None,
-        solver_params=None,
+        params=None,
+        linsys=None,
+        bdsv_threshold=None,
+        reseed_threshold=None,
         fe_seed=0,
         fc_config=None,
         wrench_id=None,
@@ -54,10 +57,11 @@ class MPC_GATO:
             plant_type: Plant identifier selecting the CUDA module (e.g., 'indy7',
                 'iiwa14'). None auto-detects from model_path.
             pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
-            solver_params: overrides merged onto config.DEFAULT_SOLVER_PARAMS.
-                Extra keys 'linsys' and 'bdsv_threshold' pin the linear-system
-                policy for BOTH the solver and the controller (absent -> the
-                wired per-base defaults; see MPCController)
+            params: gato.SolverParams (or a dict of its fields); None = defaults.
+            linsys / bdsv_threshold: the controller's per-step linear-system
+                policy ("pcg"/"bdsv"/"bdsv_first"/"auto"; None = wired per-base
+                default) — also pins the solver's static path. See MPCController.
+            reseed_threshold: MPCController stale-warm-start re-seed (None = off).
             fe_seed: seed for the force-estimator hypothesis sampling
             fc_config: GATO_CONTACT_FORCES modules only — program the solver's
                 contact-wrench slots so the SOLVER explains an unmodeled wrench
@@ -99,35 +103,14 @@ class MPC_GATO:
         self.model.gravity.linear = np.array([0, 0, -9.81])
         self.data = self.model.createData()
 
-        # Initialize solver with configurable parameters
-        solver_cfg = DEFAULT_SOLVER_PARAMS.copy()
-        if solver_params is not None:
-            solver_cfg.update(solver_params)
-
-        self.solver = BSQP(
-            model_path=model_path,
-            batch_size=batch_size,
-            N=N,
-            dt=dt,
-            plant_type=plant_type,
-            max_sqp_iters=solver_cfg['max_sqp_iters'],
-            kkt_tol=solver_cfg['kkt_tol'],
-            max_pcg_iters=solver_cfg['max_pcg_iters'],
-            pcg_tol=solver_cfg['pcg_tol'],
-            solve_ratio=solver_cfg['solve_ratio'],
-            mu=solver_cfg['mu'],
-            q_cost=solver_cfg['q_cost'],
-            qd_cost=solver_cfg['qd_cost'],
-            u_cost=solver_cfg['u_cost'],
-            N_cost=solver_cfg['N_cost'],
-            q_lim_cost=solver_cfg['q_lim_cost'],
-            vel_lim_cost=solver_cfg['vel_lim_cost'],
-            ctrl_lim_cost=solver_cfg['ctrl_lim_cost'],
-            rho=solver_cfg['rho'],
-            linsys=solver_cfg.get('linsys'),
-        )
-
-        self.solver_params = solver_cfg
+        # Solver configuration: ONE source (SolverParams); the controller
+        # policy knobs are explicit arguments, not smuggled through the params.
+        params = SolverParams.from_mapping(params)
+        if linsys is not None and linsys != "auto":
+            params = params.replace(linsys=linsys)   # pin the solver's static path too
+        self.solver = BSQP(model_path=model_path, batch_size=batch_size, N=N, dt=dt,
+                           params=params, plant_type=plant_type)
+        self.params = self.solver.params
 
         self.nq = self.model.nq
         self.nv = self.model.nv
@@ -184,15 +167,10 @@ class MPC_GATO:
             hypotheses = ForceHypothesisBatch(estimator, self.solver_model,
                                               ee_frame=self.solver.ee_frame)
 
-        # 'linsys'/'bdsv_threshold' in solver_params pin the controller's
-        # per-step policy too; None -> the controller's wired per-base default
-        # (fixed-base "auto"@0.1, floating "bdsv" — see MPCController).
-        # 'reseed_threshold' enables the stale-warm-start re-seed.
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
                                         warm_start="shift", reset_rho_each_step=True,
-                                        linsys=solver_cfg.get('linsys'),
-                                        bdsv_threshold=solver_cfg.get('bdsv_threshold'),
-                                        reseed_threshold=solver_cfg.get('reseed_threshold'))
+                                        linsys=linsys, bdsv_threshold=bdsv_threshold,
+                                        reseed_threshold=reseed_threshold)
 
         if world is None:
             self.world = PinocchioWorld(self)

@@ -160,7 +160,6 @@ def parse_int_list(s):
 
 PICKPLACE_SOLVER_PARAMS = {
     'max_sqp_iters': 5,
-    'kkt_tol': 0.0,
     'max_pcg_iters': 100,
     'pcg_tol': 1e-6,
     'solve_ratio': 1.0,

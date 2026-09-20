@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(BENCH) + "/../python")   # gato (…/GATO/pyt
 sys.path.insert(0, "/home/plancher/Desktop/GATO/python")
 import iiwa_fig8_shared as fig8mod
 from gato.common import rk4
-from gato.config import DEFAULT_SOLVER_PARAMS as SP
+from gato import SolverParams
+SP = SolverParams().asdict()  # GATO's own defaults, so the CPU baseline solves the same problem
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
 BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1   # B identical replicas (num_threads=B)

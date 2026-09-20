@@ -108,7 +108,7 @@ def _make_mpc(model, urdf, batch_size, pendulum_config, fe_override=None, solver
         model, model_path=urdf, N=N, dt=DT, batch_size=batch_size,
         plant_type="iiwa14", pendulum_config=pendulum_config,
         # paper-era pcg path (controller default is "auto" since 08-12)
-        solver_params={"linsys": "pcg", **(sp or {})}, track_full_stats=True,
+        params=sp, linsys="pcg", track_full_stats=True,
     )
     if mpc.controller.hypotheses is not None:
         est = mpc.controller.hypotheses.estimator

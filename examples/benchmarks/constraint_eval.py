@@ -248,7 +248,7 @@ def _dq_goal(s, problem):
 
 
 def _start_x(s, plant):
-    from gato.config import INDY7_START_CONFIGS
+    from gato.config import INDY7_START_CONFIGS, SolverParams
     if PLANTS[plant]["start"] == "ready":
         q0 = np.asarray(INDY7_START_CONFIGS["ready"], dtype=np.float64)
     else:
@@ -423,9 +423,8 @@ def run_cell(name, exact=False, bdsv=False):
     # exact-Hessian f32 envelope rho >= 1e-4 (so_sqp_device RESULTS).
     # bdsv=True: force the bdsv linsys — the single-variable control arm for
     # +ex comparisons (exact mode force-switches to bdsv internally).
-    s = gato.BSQP(model_path=urdf, batch_size=1, N=N_KNOTS, dt=DT,
-                  plant_type=plant, rho=1e-3, exact_hessian=exact,
-                  linsys=("bdsv" if bdsv else "pcg"))
+    s = gato.BSQP(model_path=urdf, batch_size=1, N=N_KNOTS, dt=DT, params=SolverParams().replace(rho=1e-3, exact_hessian=exact, linsys=("bdsv" if bdsv else "pcg")),
+                  plant_type=plant)
 
     x0, goal_of, n_steps, ee_target, apply_bounds = build_problem(s, plant, problem)
     q_goal = (x0[:s.nq] + _dq_goal(s, problem)) \
@@ -454,7 +453,7 @@ def run_cell(name, exact=False, bdsv=False):
         s.reset_rho()
         t0 = time.perf_counter()
         res = s.solve(x.astype(np.float32).reshape(1, -1),
-                      window.reshape(1, -1), XU_B=XU)
+                      window.reshape(1, -1), xu_warm=XU)
         rec["solve_us"].append(1e6 * (time.perf_counter() - t0))
 
         xu = np.asarray(res.xu[0], dtype=np.float64)

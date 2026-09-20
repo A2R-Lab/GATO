@@ -16,6 +16,12 @@ from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
 
 pytestmark = pytest.mark.gpu
 
+
+def _warm(prev):
+    """Warm start for the next solve of an outer loop (AL/ADMM: warm-started
+    repeat solves ARE the outer iteration). solve() is stateless since 2026-09-20."""
+    return None if prev is None else prev.xu
+
 START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
 
 # gato/dynamics/plant.cuh JOINT_LIMIT_MARGIN<T>() — limits are TIGHTENED by
@@ -267,8 +273,9 @@ def test_al_enforces_boxes(make_solver, smallest_module):
     base = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     base.enable_limit_telemetry()
     _tighten_qd(base)
+    rb = None
     for _ in range(5):
-        rb = base.solve(X, goals)
+        rb = base.solve(X, goals, xu_warm=_warm(rb))
 
     s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     # rho 1000: 100 was tuned on the N8 cell and leaves a 0.036 rad/s PHR
@@ -277,8 +284,9 @@ def test_al_enforces_boxes(make_solver, smallest_module):
     # enforces to exactly 0 on every N16 cell.
     s.enable_limit_al(rho=1000.0)
     _tighten_qd(s)
+    r = None
     for _ in range(10):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
 
     assert np.isfinite(r.xu).all()
     assert rb.stats.row_max_violation.max() > 10 * VCAP  # the box really binds
@@ -298,16 +306,17 @@ def test_al_holds_binding_optimum(make_solver, smallest_module):
     sad = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     sad.enable_limit_admm(rho=10.0, iters=10)
     _tighten_qd(sad)
+    rad = None
     for _ in range(20):
-        rad = sad.solve(X, goals)
+        rad = sad.solve(X, goals, xu_warm=_warm(rad))
     assert rad.stats.row_max_violation.max() < 1e-3  # fixed-budget residual
 
     sal = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     sal.enable_limit_al(rho=100.0)
     _tighten_qd(sal)
-    ral = sal.solve(X, goals, XU_B=rad.xu.copy())
+    ral = sal.solve(X, goals, xu_warm=rad.xu)
     for _ in range(10):
-        ral = sal.solve(X, goals)
+        ral = sal.solve(X, goals, xu_warm=_warm(ral))
 
     assert ral.stats.row_max_violation.max() < 1e-3
     m_ad = np.asarray(rad.stats.final_merit, dtype=np.float64)
@@ -324,8 +333,9 @@ def test_al_deterministic_and_duals(make_solver, smallest_module):
         s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
         s.enable_limit_al(rho=100.0)
         _tighten_qd(s)
+        r = None
         for _ in range(4):
-            r = s.solve(X, goals)
+            r = s.solve(X, goals, xu_warm=_warm(r))
         return r, s.get_row_duals()
 
     (a, da), (b, db) = run(), run()
@@ -350,12 +360,13 @@ def test_al_no_drift_at_insufficient_rho(make_solver, smallest_module):
     s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     s.enable_limit_al(rho=10.0)  # deliberately modest: may plateau
     _tighten_qd(s)
+    r = None
     for _ in range(2):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
     plateau = r.stats.row_max_violation.max()
     worst = 0.0
     for _ in range(20):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
         worst = max(worst, float(r.stats.row_max_violation.max()))
     assert worst <= max(1.05 * plateau, 1e-4)
 
@@ -381,8 +392,9 @@ def test_soft_toggle_elastic_and_hard_parity(make_solver, smallest_module):
         _tighten_qd(s)
         if sigma is not None:
             s.set_row_group_soft(1, sigma)
+        r = None
         for _ in range(8):
-            r = s.solve(X, goals)
+            r = s.solve(X, goals, xu_warm=_warm(r))
         return s, r
 
     _, a_hard = run_admm(None)
@@ -403,8 +415,9 @@ def test_soft_toggle_elastic_and_hard_parity(make_solver, smallest_module):
     s0 = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     s0.enable_limit_admm(rho=10.0, iters=10)
     _tighten_qd(s0)
+    rad = None
     for _ in range(20):
-        rad = s0.solve(X, goals)
+        rad = s0.solve(X, goals, xu_warm=_warm(rad))
 
     def run_al(sigma):
         s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
@@ -412,9 +425,9 @@ def test_soft_toggle_elastic_and_hard_parity(make_solver, smallest_module):
         _tighten_qd(s)
         if sigma is not None:
             s.set_row_group_soft(1, sigma)
-        r = s.solve(X, goals, XU_B=rad.xu.copy())
+        r = s.solve(X, goals, xu_warm=rad.xu)
         for _ in range(10):
-            r = s.solve(X, goals)
+            r = s.solve(X, goals, xu_warm=_warm(r))
         return s, r
 
     _, r_hard = run_al(None)
@@ -446,8 +459,9 @@ def test_certificate_dual_axes_with_al(make_solver, smallest_module):
     s = make_solver(plant, N, batch_size=B, max_sqp_iters=8)
     s.enable_limit_al(rho=1000.0)  # see test_al_enforces_boxes: 100 is marginal on iiwa14 N16
     _tighten_qd(s)
+    res = None
     for _ in range(6):
-        res = s.solve(X, goals)
+        res = s.solve(X, goals, xu_warm=_warm(res))
     groups = s.get_row_groups()
     d = s.get_row_duals()
 
@@ -522,8 +536,9 @@ def test_ee_equality_al_converges_when_reachable(make_solver, smallest_module):
     s.enable_limit_al(rho=1.0)
     s.enable_ee_terminal_equality(target, rho=1.0)
     first = s.solve(X, goals)
+    r = first
     for _ in range(10):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
 
     assert np.isfinite(r.xu).all()
     assert r.stats.row_max_violation[3].max() < 0.05
@@ -558,8 +573,9 @@ def test_ee_equality_admm_converges_when_reachable(make_solver, smallest_module)
     s.enable_ee_terminal_equality(target, rho=rho)
     assert s.get_row_groups()[3]["mech"] == 2  # MECH_ADMM
     first = s.solve(X, goals)
+    r = first
     for _ in range(10):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
 
     assert np.isfinite(r.xu).all()
     assert r.stats.row_max_violation[3].max() < 0.05
@@ -588,8 +604,9 @@ def test_ee_admm_certificate_and_determinism(make_solver, smallest_module):
         target = _solver_frame_target(s, plant)
         s.enable_limit_admm(rho=10.0, iters=5)
         s.enable_ee_terminal_equality(target, rho=10.0)
+        r = None
         for _ in range(3):
-            r = s.solve(X, goals)
+            r = s.solve(X, goals, xu_warm=_warm(r))
         return s, r
 
     (sa, ra), (sb, rb) = run(), run()
@@ -615,8 +632,9 @@ def test_ee_certificate_and_determinism(make_solver, smallest_module):
         target = _solver_frame_target(s, plant)
         s.enable_limit_al(rho=1.0)
         s.enable_ee_terminal_equality(target, rho=1.0)
+        r = None
         for _ in range(3):
-            r = s.solve(X, goals)
+            r = s.solve(X, goals, xu_warm=_warm(r))
         return s, r
 
     (sa, ra), (sb, rb) = run(), run()
@@ -781,8 +799,9 @@ def test_u_cone_soc_al_enforced(make_solver, smallest_module):
     s.enable_limit_telemetry()
     C, d = _norm_cap_cone(s.nu, cap)
     gi = s.enable_u_cone(C, d, mech="al", rho=1.0)
+    r = None
     for _ in range(8):
-        r = s.solve(X, goals)
+        r = s.solve(X, goals, xu_warm=_warm(r))
     assert np.isfinite(r.xu).all()
     assert r.stats.row_max_violation[gi].max() < 0.05 * cap
 

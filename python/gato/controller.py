@@ -17,7 +17,7 @@ from .linsys_autotune import resolve_linsys
 
 @dataclass(frozen=True)
 class StepResult:
-    u: np.ndarray            # (nu,) first control of the winning trajectory
+    u: np.ndarray            # (n_actuated,) first ACTUATED control of the winner — what you apply
     best_id: int             # winning hypothesis index (0 when B==1 / no hypotheses)
     xu_best: np.ndarray      # full winning trajectory (flat) — drivers that play
                              # multiple knots per solve need all of it
@@ -25,6 +25,7 @@ class StepResult:
     hypo_stats: dict | None  # hypotheses.get_stats() snapshot, or None
     pred_err: float = 0.0    # ‖x_measured − x_predicted‖ (warm-startedness; drives linsys="auto")
     reseeded: bool = False   # this step's warm start was re-seeded to hold-at-x
+    fc: np.ndarray = None    # (n_fc,) the winner's first contact-wrench slots (fc variants; else empty)
 
 
 class MPCController:
@@ -103,6 +104,7 @@ class MPCController:
         if linsys != "auto":
             solver.set_linsys(linsys)
         self.nx, self.nu, self.N = solver.nx, solver.nu, solver.N
+        self.n_actuated, self.n_fc = solver.n_actuated, solver.n_fc
         self.nq, self.nv = solver.nq, solver.nv
         self.batch_size = solver.batch_size
         self._XU = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu),
@@ -209,16 +211,18 @@ class MPCController:
         else:  # "hold"
             self._XU[:, :] = xu_best[None, :]
 
-        u = xu_best[self.nx : self.nx + self.nu].copy()
+        u_full = xu_best[self.nx : self.nx + self.nu]
+        u = u_full[: self.n_actuated].copy()          # torques to apply
+        fc = u_full[self.n_actuated :].copy()         # the solver's contact explanation (fc variants)
         self._x_prev = x
-        self._u_prev = u
+        self._u_prev = u_full.copy()                  # hypothesis scoring uses the full control
         # a PCG cap-out means the last linearization was ill-conditioned for the
         # iterative path — "auto" forces the direct solve on the next step
         self._prev_capout = bool(
             res.stats.pcg_iters.size
             and int(res.stats.pcg_iters.max()) >= self.solver.max_pcg_iters)
         return StepResult(
-            u=u, best_id=best_id, xu_best=xu_best, solve=res,
+            u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
             pred_err=pred_err, reseeded=reseeded,
         )

@@ -21,6 +21,8 @@ import importlib.util
 import numpy as np
 import pytest
 
+from conftest import TEST_PARAMS
+
 pin = pytest.importorskip("pinocchio")
 
 from gato.common import rk4, state_difference, check_floating_state
@@ -181,9 +183,7 @@ def _mpc_standing_run(model, steps=150):
     import gato
     from gato.controller import MPCController
     N, DT = 16, 0.01
-    s = gato.BSQP(model_path=URDF, batch_size=1, N=N, dt=DT, plant_type="go2",
-                  q_cost=5.0, qd_cost=1e-1, u_cost=1e-4, N_cost=25.0,
-                  q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
+    s = gato.BSQP(model_path=URDF, batch_size=1, N=N, dt=DT, params=TEST_PARAMS.replace(q_cost=5.0, qd_cost=1e-1, u_cost=1e-4, N_cost=25.0, q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0), plant_type="go2")
     x = _standing_x().astype(np.float32)
     s.set_q_nom(x[:NQ])
     s.set_q_pos_cost(50.0)
@@ -247,10 +247,8 @@ def test_controller_floating_state_checks_and_pred_err(model):
         pytest.skip("bsqpN16_go2 module not built")
     import gato
     from gato.controller import MPCController
-    s = gato.BSQP(model_path=URDF, batch_size=1, N=16, dt=0.01,
-                  plant_type="go2", q_cost=1.0, qd_cost=1e-2, u_cost=1e-4,
-                  N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0,
-                  ctrl_lim_cost=0.0)
+    s = gato.BSQP(model_path=URDF, batch_size=1, N=16, dt=0.01, params=TEST_PARAMS.replace(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0),
+                  plant_type="go2")
     ctrl = MPCController(s)
     x0 = _standing_x().astype(np.float32)
     with pytest.raises(ValueError):

@@ -16,6 +16,16 @@ if str(REPO / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "python"))
 
 import gato  # noqa: E402
+from gato import SolverParams  # noqa: E402
+
+# The suite's solver configuration. These are the OLD BSQP constructor
+# defaults (pre-2026-09-20): every gate, oracle tolerance and golden npz was
+# established under them, so pinning them here keeps the suite's numerics
+# unchanged while the library default (gato.SolverParams()) is the paper/MPC
+# set. Tests that want the library default say so explicitly.
+TEST_PARAMS = SolverParams(max_sqp_iters=10, max_pcg_iters=100, pcg_tol=1e-4, solve_ratio=1.0,
+                           mu=1.0, rho=1e-3, q_cost=2.0, qd_cost=1e-4, u_cost=1e-6, N_cost=50.0,
+                           q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
 
 HAVE_MODULES = bool(gato.available())
 HAVE_PIN = importlib.util.find_spec("pinocchio") is not None
@@ -62,8 +72,14 @@ def make_solver():
     Construction is pinocchio-free (dims come from the module); tests that
     need FK/oracles import pinocchio themselves (never skip: a missing dep is
     a broken environment, not an expected outcome)."""
-    def _make(plant, N, batch_size=1, **kw):
+    def _make(plant, N, batch_size=1, variant=None, **kw):
         return gato.BSQP(model_path=str(URDFS[plant]), batch_size=batch_size,
-                         N=N, dt=0.01, plant_type=plant, **kw)
+                         N=N, dt=0.01, params=TEST_PARAMS, plant_type=plant,
+                         variant=variant, **kw)
 
     return _make
+
+
+@pytest.fixture(scope="session")
+def test_params():
+    return TEST_PARAMS

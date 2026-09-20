@@ -91,13 +91,17 @@ Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
 import numpy as np
 import gato
 
-# one batched solve: B trajectories in a single GPU launch
+# one batched solve: B trajectories in a single GPU launch. Configuration is
+# ONE object (gato.SolverParams; defaults = the paper/MPC set, max_sqp_iters=1);
+# keyword overrides of its fields are accepted directly.
 solver = gato.BSQP(model_path="examples/indy7_description/indy7.urdf",
-                   batch_size=8, N=32, dt=0.01, plant_type="indy7")
+                   batch_size=8, N=32, dt=0.01, plant_type="indy7",
+                   params=gato.SolverParams(max_sqp_iters=10))
 x0 = np.zeros((8, solver.nx), dtype=np.float32)          # [q, dq] per batch entry
 goals = np.zeros((8, 32 * 6), dtype=np.float32)          # (x,y,z,0,0,0) per knot
 goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
-res = solver.solve(x0, goals)                            # -> SolveResult
+res = solver.solve(x0, goals)                            # -> SolveResult (cold start: hold at x0)
+res = solver.solve(x0, goals, xu_warm=res.xu)            # warm-started from the previous solution
 print(res.u0(0), res.stats.sqp_iters, res.solve_time_us)
 ```
 

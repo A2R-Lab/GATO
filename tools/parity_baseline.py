@@ -24,7 +24,7 @@ if str(REPO / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "python"))
 
 import gato
-from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
+from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS, SolverParams
 
 START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
 URDFS = {
@@ -45,8 +45,7 @@ def _inputs(plant, N, B):
 
 
 def _solver(plant, N, B, **kw):
-    return gato.BSQP(model_path=str(URDFS[plant]), batch_size=B, N=N, dt=0.01,
-                     max_sqp_iters=6, plant_type=plant, **kw)
+    return gato.BSQP(model_path=str(URDFS[plant]), batch_size=B, N=N, dt=0.01, params=SolverParams(max_sqp_iters=6).replace(**kw), plant_type=plant)
 
 
 def _cases():

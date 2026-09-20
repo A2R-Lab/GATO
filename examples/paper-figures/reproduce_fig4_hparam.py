@@ -53,14 +53,9 @@ RECOVERED = "examples/gato_hparam_batch_results.pkl"
 
 def build_solver(urdf, B, q_cost, qd_cost, u_cost, N_cost, max_iters, *, rho_batch=None, rho=1e-3):
     from gato.interface import BSQP
+    from gato import SolverParams
     return BSQP(
-        model_path=urdf, batch_size=B, N=N, dt=DT,
-        max_sqp_iters=max_iters, kkt_tol=0.0, max_pcg_iters=MAX_PCG_ITERS,
-        pcg_tol=PCG_TOL, solve_ratio=1.0, mu=MU,
-        q_cost=q_cost, qd_cost=qd_cost, u_cost=u_cost, N_cost=N_cost,
-        q_lim_cost=Q_LIM_COST, vel_lim_cost=VEL_LIM_COST, ctrl_lim_cost=CTRL_LIM_COST,
-        rho=rho, rho_batch=rho_batch, adapt_rho=True, plant_type="iiwa14",
-    )
+        model_path=urdf, batch_size=B, N=N, dt=DT, params=SolverParams(max_sqp_iters=max_iters, max_pcg_iters=MAX_PCG_ITERS, pcg_tol=PCG_TOL, solve_ratio=1.0, mu=MU, q_cost=q_cost, qd_cost=qd_cost, u_cost=u_cost, N_cost=N_cost, q_lim_cost=Q_LIM_COST, vel_lim_cost=VEL_LIM_COST, ctrl_lim_cost=CTRL_LIM_COST, rho=rho, adapt_rho=True), rho_batch=rho_batch, plant_type="iiwa14")
 
 
 def sample_goal():
@@ -84,9 +79,7 @@ def _curve_for_B(urdf, B, costs, goal, max_iters):
     nx, nu = solver.nx, solver.nu
     x0_B = np.tile(np.zeros(nx, dtype=np.float32), (B, 1))
     ref_B = np.tile(np.tile(goal, N).astype(np.float32), (B, 1))
-    XU_B = np.zeros((B, solver.N * (nx + nu) - nu), dtype=np.float32)
-    XU_B[:, :nx] = x0_B
-    res = solver.solve(x0_B, ref_B, XU_B)
+    res = solver.solve(x0_B, ref_B)
     stats = res.stats
     denom = float(np.min(stats.initial_merit)) if stats.initial_merit.size else np.nan
     curve = _best_curve_from_stats(stats)
@@ -101,9 +94,7 @@ def _curve_adaptive(urdf, costs, goal, rho, max_iters):
     nx, nu = solver.nx, solver.nu
     x1 = np.zeros((1, nx), dtype=np.float32)
     ee1 = np.tile(goal, N).astype(np.float32).reshape(1, -1)
-    XU_B = np.zeros((1, solver.N * (nx + nu) - nu), dtype=np.float32)
-    XU_B[:, :nx] = x1
-    res = solver.solve(x1, ee1, XU_B)
+    res = solver.solve(x1, ee1)
     stats = res.stats
     denom = float(np.min(stats.initial_merit)) if stats.initial_merit.size else np.nan
     curve = _best_curve_from_stats(stats)

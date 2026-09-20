@@ -6,17 +6,40 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .common import _require_pin, _pin_available
+from .common import _require_pin, _pin_available, initialize_warm_start
+from .config import SolverParams, COST_FIELDS
+from .linsys_autotune import resolve_linsys
 
 
-def available():
-    """Discover built solver modules in this package: {(plant, N): filename}."""
+VARIANTS = ("default", "fc", "eh")   # module ABI variants: base / contact forces / exact Hessian
+_MODULE_RE = re.compile(r"bsqpN(\d+)_([A-Za-z0-9]+?)(?:_(fc|eh))?\.")
+
+
+def module_name(plant, N, variant=None):
+    """Import name of a built solver module: bsqpN{N}_{plant}[_{variant}]."""
+    variant = variant or "default"
+    if variant not in VARIANTS:
+        raise ValueError(f"variant must be one of {VARIANTS}, got {variant!r}")
+    return f"bsqpN{N}_{plant}" + ("" if variant == "default" else f"_{variant}")
+
+
+def available(variant="default"):
+    """Discover built solver modules in this package.
+
+    variant="default" (the plain solver), "fc" (contact-force controls) or
+    "eh" (exact Hessian) -> {(plant, N): filename} for that variant;
+    variant="all" -> {(plant, N, variant): filename}."""
     here = os.path.dirname(os.path.abspath(__file__))
     found = {}
     for so in sorted(glob.glob(os.path.join(here, "bsqpN*_*.so"))):
-        m = re.match(r"bsqpN(\d+)_([A-Za-z0-9_]+?)\.", os.path.basename(so))
-        if m:
-            found[(m.group(2), int(m.group(1)))] = os.path.basename(so)
+        m = _MODULE_RE.match(os.path.basename(so))
+        if not m:
+            continue
+        N, plant, var = int(m.group(1)), m.group(2), m.group(3) or "default"
+        if variant == "all":
+            found[(plant, N, var)] = os.path.basename(so)
+        elif var == variant:
+            found[(plant, N)] = os.path.basename(so)
     return found
 
 
@@ -130,45 +153,55 @@ class SolveResult:
 
 
 class BSQP:
-    def __init__(
-        self,
-        model_path,
-        batch_size,
-        N,
-        dt,
-        max_sqp_iters=10,
-        kkt_tol=1e-4,
-        max_pcg_iters=100,
-        pcg_tol=1e-4,
-        solve_ratio=1.0,
-        mu=1.0,
-        q_cost=2.0,
-        qd_cost=1e-4,
-        u_cost=1e-6,
-        N_cost=50.0,
-        q_lim_cost=1e-3,
-        vel_lim_cost=0.0,
-        ctrl_lim_cost=0.0,
-        rho=1e-3,  # trust-region floor: f32 bdsv paths return garbage steps at rho=0 (R1)
-        rho_batch=None,
-        mu_batch=None,
-        pcg_tol_batch=None,
-        adapt_rho=True,
-        # None -> wired per-base default: "pcg" fixed-base, "bdsv" floating.
-        # Explicit "pcg" | "bdsv" | "bdsv_first" always wins (see LINSYS_MODES).
-        linsys=None,
-        plant_type='indy7',  # 'indy7' or 'iiwa14'
-        exact_hessian=False,  # SO-SQP stage-Hessian PSD projection (needs -DGATO_EXACT_HESSIAN=ON build)
-    ):
-        # Dynamically import the correct bsqp_N* module and get the solver class
-        # The modules should be named like 'bsqpN{N}_{plant_type}', e.g., 'bsqpN32_indy7'
-        
+    """Batched SQP trajectory optimizer over one compiled solver module.
+
+    Args:
+        model_path: robot URDF (must be the one the module was codegen'd from).
+        batch_size: number of parallel solves B (runtime; any B >= 1).
+        N: horizon length — selects the module bsqpN{N}_{plant}[_{variant}].
+        dt: knot spacing [s].
+        params: gato.SolverParams (defaults = the paper/MPC set); keyword
+            overrides of its fields may be passed directly (``BSQP(..., mu=5.0)``).
+        plant_type: plant name; None auto-detects from model_path against the
+            built modules / registry.
+        variant: "default" | "fc" (contact-force controls appended to u) |
+            "eh" (exact-Hessian SO-SQP). Variant modules are separate ABIs.
+        rho_batch / mu_batch / pcg_tol_batch: optional per-solve (B,) overrides.
+
+    Construction needs numpy and the module only. pinocchio is loaded lazily
+    by the FK helpers (ee_pos) and the sim/estimator layers (``[test]`` extra).
+
+    Warm start: ``solve(x, ref, xu_warm=None)`` is STATELESS w.r.t. the
+    trajectory — None seeds a hold at x; pass the previous ``SolveResult.xu``
+    (or let MPCController own the shifted warm start) to warm-start. The
+    solver IS stateful across solves in rho adaptation, duals and ADMM state
+    (reset_rho / reset_dual / reset).
+
+    Cost precedence: SolverParams scalars < set_cost_weights (scalars) <
+    set_cost_weights_per_knot (N,3) [ee, qd, u]; per-joint vectors
+    (set_q_pos_cost / set_u_cost_vec) and the fc cost are orthogonal terms.
+
+    Reference layout: ``ref`` is (B, 6N): per knot [x, y, z, 0, 0, 0] — the
+    EE position target (orientation slots are reserved, currently unused).
+    Trajectory layout: ``xu`` is (B, N*(nx+nu) - nu) =
+    [x_0, u_0, x_1, u_1, ..., x_{N-1}] with x = [q; qd].
+    """
+
+    def __init__(self, model_path, batch_size, N, dt, params=None, *,
+                 plant_type=None, variant=None,
+                 rho_batch=None, mu_batch=None, pcg_tol_batch=None, **overrides):
+        params = SolverParams.from_mapping(params)
+        if overrides:
+            params = params.replace(**overrides)   # unknown names raise here
+        self.params = params
+        model_path = str(model_path)
+
         # Auto-detect plant type from model_path if not explicitly specified.
         # Unknown robots are a hard error (a wrong plant silently runs the wrong
         # dynamics with mismatched state size).
         if plant_type is None:
             from .builder import load_registry
-            plants = sorted({p for p, _ in available()} | set(load_registry()))
+            plants = sorted({p for p, _ in available(variant or "default")} | set(load_registry()))
             low = model_path.lower()
             # match the plant name or its alpha prefix (iiwa14 -> "iiwa") in the path
             matches = [p for p in plants
@@ -180,55 +213,43 @@ class BSQP:
                 )
             plant_type = matches[0]
 
-        # Build the module name for the given N and plant
-        module_name = f"gato.bsqpN{N}_{plant_type}"
+        self.variant = variant or "default"
+        mod = module_name(plant_type, N, self.variant)
         try:
-            base = importlib.import_module(module_name)
+            base = importlib.import_module("gato." + mod)
         except ImportError as e:
+            flag = {"fc": " contact_forces=True", "eh": " exact_hessian=True", "default": ""}[self.variant]
             raise ValueError(
-                f"No compiled module for plant={plant_type!r}, N={N} "
-                f"(could not import {module_name}): {e}\n"
-                f"Built modules: {sorted(available()) or 'none'} — build with, e.g.:\n"
-                f"  cmake -S . -B build -DPLANT={plant_type} -DKNOTS={N} && "
-                f"cmake --build build --parallel 4"
+                f"No compiled module for plant={plant_type!r}, N={N}, variant={self.variant!r} "
+                f"(could not import gato.{mod}): {e}\n"
+                f"Built modules: {sorted(available('all')) or 'none'} — build with, e.g.:\n"
+                f"  python -c \"import gato; gato.build('{model_path}', name='{plant_type}', N=[{N}],{flag})\"\n"
+                f"  or: cmake -S . -B build -DMODULES={plant_type}:{N} && cmake --build build --parallel 2"
             )
 
         # batch_size is a runtime constructor argument (one class per precision)
         class_name = "BSQP_float"
         if not hasattr(base, class_name):
             raise ValueError(
-                f"Module {module_name} does not export {class_name} — rebuild the "
+                f"Module {mod} does not export {class_name} — rebuild the "
                 f"solver modules (old per-batch-size builds are incompatible)"
             )
         self.lib = base
         self.solver_class = getattr(base, class_name)
         self.plant_type = plant_type
         # Body-major external-force buffer width is 6*NUM_BODIES per solve (the GPU
-        # d_f_ext_batch_ buffer + set_f_ext_batch upload are sized to this). Exposed
-        # by the module; fall back to the pinocchio nv (== NUM_BODIES for a fixed
-        # serial chain) for older modules that don't export it.
+        # d_f_ext_batch_ buffer + set_f_ext_batch upload are sized to this).
         self.n_bodies = int(getattr(base, "NUM_BODIES", 0))
 
-        self._cost_weights = dict(q_cost=q_cost, qd_cost=qd_cost, u_cost=u_cost,
-                                  N_cost=N_cost, q_lim_cost=q_lim_cost,
-                                  vel_lim_cost=vel_lim_cost, ctrl_lim_cost=ctrl_lim_cost)
+        self._cost_weights = {k: float(getattr(params, k)) for k in COST_FIELDS}
         self.solver = self.solver_class(
-            batch_size,
-            dt,
-            max_sqp_iters,
-            kkt_tol,
-            max_pcg_iters,
-            pcg_tol,
-            solve_ratio,
-            mu,
-            q_cost,
-            qd_cost,
-            u_cost,
-            N_cost,
-            q_lim_cost,
-            vel_lim_cost,
-            ctrl_lim_cost,
-            rho,  # rho
+            batch_size, dt,
+            int(params.max_sqp_iters),
+            0.0,                        # kkt_tol: inert on the device (removed from the public API, plan D13)
+            int(params.max_pcg_iters), float(params.pcg_tol), float(params.solve_ratio), float(params.mu),
+            float(params.q_cost), float(params.qd_cost), float(params.u_cost), float(params.N_cost),
+            float(params.q_lim_cost), float(params.vel_lim_cost), float(params.ctrl_lim_cost),
+            float(params.rho),
         )
         # Dimensions come from the MODULE (NQ/NV/CONTROL_SIZE/... are baked at
         # compile time) — pinocchio is NOT needed to construct or run a solver.
@@ -247,14 +268,12 @@ class BSQP:
         if _pin_available():
             if (self.nq, self.nv) != (self.model.nq, self.model.nv):
                 raise ValueError(
-                    f"module {module_name} has (nq, nv) = ({self.nq}, {self.nv}) but the "
+                    f"module {mod} has (nq, nv) = ({self.nq}, {self.nv}) but the "
                     f"pinocchio model from {model_path!r} has ({self.model.nq}, {self.model.nv}) — "
                     f"wrong URDF or a fixed/floating mismatch")
         # The solver/grid.cuh optimizes the EE-position cost in the frame the module
         # was codegen'd with (fixed_target_name; recorded in the registry, "EE" for
-        # the vendored robots). The last JOINT origin (oMi[njoints-1]) can sit several
-        # cm short of it, so the success metric MUST use the same frame or it reports
-        # spurious tracking error. The frame id is resolved lazily with the model.
+        # the vendored robots). The frame id is resolved lazily with the model.
         self.ee_frame = robot_info(plant_type).get("ee_frame", "EE")
         self.batch_size = batch_size
         self.N = N
@@ -263,44 +282,37 @@ class BSQP:
         self.set_f_ext_B(self.f_ext_B)
 
         self.nx = self.nq + self.nv
-        # Control width comes from the MODULE: on GATO_CONTACT_FORCES builds
-        # CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE (contact-wrench slots appended
-        # after the torques), so nu > nv and every xu stride follows it.
+        # Control width comes from the MODULE: on fc variants CONTROL_SIZE =
+        # ACTUATED_SIZE + FC_SIZE (contact-wrench slots appended after the
+        # torques), so nu > nv and every xu stride follows it.
         self.n_actuated = int(getattr(base, "ACTUATED_SIZE", self.nv))
         self.n_fc = int(getattr(base, "FC_SIZE", 0))
         self.nu = int(getattr(base, "CONTROL_SIZE", self.nv))
-
-        self.XU_B = np.zeros(
-            (self.batch_size, self.N * (self.nx + self.nu) - self.nu),
-            dtype=np.float32,
-        )
+        self.xu_size = self.N * (self.nx + self.nu) - self.nu
 
         # Optional batched hyperparameters
         if rho_batch is not None:
             rho_batch = np.asarray(rho_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_rho_penalty_batch(rho_batch, True)
-        # Control whether line-search adapts rho or keeps per-batch rho fixed
-        self.solver.set_rho_adaptation(bool(adapt_rho))
+        self.solver.set_rho_adaptation(bool(params.adapt_rho))
         if mu_batch is not None:
             mu_batch = np.asarray(mu_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_mu_batch(mu_batch)
         if pcg_tol_batch is not None:
             pcg_tol_batch = np.asarray(pcg_tol_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_pcg_tol_batch(pcg_tol_batch)
-        self.max_pcg_iters = int(max_pcg_iters)
+        self.max_pcg_iters = int(params.max_pcg_iters)
         self.linsys = "pcg"  # the C++ default; set_linsys only calls into the module on change
-        if linsys is None:
-            # Wired defaults (2026-08-12): fixed-base keeps pcg (bit-identical to
-            # the historic default); floating-base modules default to the direct
-            # bdsv solve — the w36 timing sweep had bdsv winning EVERY batch size
-            # on go2 with no crossover, and pcg's iteration-count spread is the
-            # entire solve-time tail there. Revisit per-task via the linsys
-            # autotune once a warm gait workload exists.
-            linsys = "bdsv" if self.floating_base else "pcg"
-        self.set_linsys(linsys)
+        # ONE resolver for both the raw solver and the controller
+        # (linsys_autotune.resolve_linsys): the solver takes the STATIC arm —
+        # "auto" (a per-step controller policy) maps to its warm-body path, pcg.
+        mode, _ = resolve_linsys(self.floating_base, params.linsys, None,
+                                 plant=plant_type, N=N, task_tag=None)
+        self.set_linsys("pcg" if mode == "auto" else mode)
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
+        self._n_appended_groups = 0
         self.exact_hessian = False  # the C++ default
-        if exact_hessian:
+        if params.exact_hessian:
             self.set_exact_hessian(True)
 
     def set_linsys(self, mode):
@@ -313,6 +325,7 @@ class BSQP:
         if mode != self.linsys:
             self.solver.set_linsys_mode(LINSYS_MODES[mode])
             self.linsys = mode
+        self.params = self.params.replace(linsys=mode)
 
     def set_admm_linsys(self, mode):
         """ADMM inner-loop linear solver: "pcg" (default) | "bdsv_factor".
@@ -363,6 +376,7 @@ class BSQP:
         if on != self.exact_hessian:
             self.solver.set_exact_hessian(on)
             self.exact_hessian = on
+        self.params = self.params.replace(exact_hessian=bool(on))
 
     def _heal_floating_warm_start(self, XU_B, xcur_B):
         """Replace warm-start knots whose base quaternion is degenerate by the
@@ -378,21 +392,30 @@ class BSQP:
             if bad.any():
                 XU_B[bad, k * step:k * step + self.nx] = xcur_B[bad]
 
-    def solve(self, xcur_B, eepos_goals_B, XU_B=None):
-        """Solve the batch; returns a SolveResult (also stores xu as the next warm start)."""
-        xcur_B = np.asarray(xcur_B, dtype=np.float32)
-        eepos_goals_B = np.asarray(eepos_goals_B, dtype=np.float32)
-        if XU_B is None:
-            XU_B = self.XU_B
+    def solve(self, xcur_B, eepos_goals_B, xu_warm=None):
+        """Solve the batch from states ``xcur_B`` (B, nx) toward the EE reference
+        ``eepos_goals_B`` (B, 6N) — see the class docstring for both layouts.
+
+        ``xu_warm`` (B, N*(nx+nu)-nu): the warm-start trajectory. None seeds a
+        hold at ``xcur_B`` (a cold start; NOT the previous solution — the solver
+        keeps no trajectory state; pass the last ``SolveResult.xu`` to
+        warm-start, or use MPCController). The caller's array is never
+        modified; ``SolveResult.xu`` is a fresh array.
+        """
+        xcur_B = np.asarray(xcur_B, dtype=np.float32).reshape(self.batch_size, self.nx)
+        eepos_goals_B = np.asarray(eepos_goals_B, dtype=np.float32).reshape(self.batch_size, -1)
+        if xu_warm is None:
+            XU_B = np.stack([initialize_warm_start(xcur_B[b], self.N, self.nx, self.nu)
+                             for b in range(self.batch_size)]).astype(np.float32)
         else:
-            XU_B = np.asarray(XU_B, dtype=np.float32)
+            XU_B = np.array(xu_warm, dtype=np.float32, copy=True).reshape(self.batch_size, self.xu_size)
         XU_B[:, : self.nx] = xcur_B
         if self.floating_base:
             self._heal_floating_warm_start(XU_B, xcur_B)
 
         raw = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
 
-        self.XU_B = np.asarray(raw["XU"], dtype=np.float32)
+        xu = np.array(raw["XU"], dtype=np.float32, copy=True)
         B = self.batch_size
         stats = SolverStats(
             solve_time_us=int(raw["sqp_time_us"]),
@@ -415,7 +438,7 @@ class BSQP:
             admm_r_dual=(np.asarray(raw["admm_r_dual"], dtype=np.float32)
                          if "admm_r_dual" in raw else None),
         )
-        return SolveResult(xu=self.XU_B, solve_time_us=stats.solve_time_us,
+        return SolveResult(xu=xu, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N,
                            n_actuated=self.n_actuated)
 
@@ -429,6 +452,7 @@ class BSQP:
         ``stats.row_{max,sum}_violation`` (group order BOX_Q, BOX_QD, BOX_U).
         Telemetry never touches the solver path — trajectories are bit-identical
         with it on or off. Part of the constraint row-group layer (CL-0)."""
+        self._check_no_appended_groups("enable_limit_telemetry")
         self.solver.enable_limit_telemetry()
         self._row_mech = "telemetry"
 
@@ -439,6 +463,7 @@ class BSQP:
         the constraint layer's soft prior mode. Additive to grid_plant's own
         clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
         comparison. Telemetry (stats.row_*_violation) stays on."""
+        self._check_no_appended_groups("enable_limit_barrier")
         self.solver.enable_limit_barrier(float(mu), float(delta))
         self._row_mech = "barrier"
 
@@ -460,6 +485,7 @@ class BSQP:
         whose (z, y) reinit every solve: a warm-started dual on a row the
         primal may not reach is an unbounded violation integrator (measured).
         stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
+        self._check_no_appended_groups("enable_limit_admm")
         self.solver.enable_limit_admm(float(rho), int(iters))
         self._row_mech = "admm"
 
@@ -486,6 +512,7 @@ class BSQP:
         iiwa14 pickplace spins at 100 rad/s at rho=100, final 5mm at
         rho=1). Higher rho = tighter transients — raise it only within the
         f32 ceiling (rho ~ 1e4 x the block's natural Hessian scale)."""
+        self._check_no_appended_groups("enable_limit_al")
         self.solver.enable_limit_al(float(rho))
         self._row_mech = "al"
 
@@ -507,11 +534,23 @@ class BSQP:
         multiplier winds up through the f32 factor error and diverges."""
         self.solver.enable_ee_terminal_equality(
             np.asarray(target, dtype=np.float32).reshape(3), float(rho))
+        self._n_appended_groups += 1
 
     def disable_row_groups(self):
         """Remove all constraint row-groups (stats lose the row_* fields)."""
         self.solver.disable_row_groups()
         self._row_mech = None
+        self._n_appended_groups = 0
+
+    def _check_no_appended_groups(self, what):
+        # Mechanism enables reinstall the canonical 3 limit groups and would
+        # silently DROP appended groups (EE rows, LIN_U rows, collision) — the
+        # ordering contract is enforced instead of documented: enables first.
+        if self._n_appended_groups:
+            raise RuntimeError(
+                f"{what}() after {self._n_appended_groups} appended row-group(s) would drop them; "
+                "call enable_limit_* BEFORE add_lin_u_rows / enable_ee_terminal_equality / "
+                "enable_collision (or disable_row_groups() first)")
 
     def get_row_groups(self):
         """List of installed row-group descriptors (dicts with kind/block/mech,
@@ -675,6 +714,7 @@ class BSQP:
                                     bool(cone), float(rho), float(delta),
                                     float(sigma), int(knot_lo), int(knot_hi),
                                     int(admm_iters), bool(equilibrate))
+        self._n_appended_groups += 1
 
     def add_fc_box(self, lo, hi, slots=None, **kw):
         """Box rows on contact-force slots (GATO_CONTACT_FORCES builds only):
@@ -791,6 +831,7 @@ class BSQP:
         self.solver.enable_collision(self._MECHS[mech], float(margin), float(rho),
                                      float(delta), float(sigma), int(knot_lo),
                                      int(admm_iters))
+        self._n_appended_groups += 1
 
     def get_collision_row_duals(self):
         """COLLISION-band AL duals: dict of (B, N, n_spheres) arrays
@@ -812,6 +853,7 @@ class BSQP:
                 w[name] = float(val)
         self.solver.set_cost_weights(w["q_cost"], w["qd_cost"], w["u_cost"], w["N_cost"],
                                      w["q_lim_cost"], w["vel_lim_cost"], w["ctrl_lim_cost"])
+        self.params = self.params.replace(**w)   # self.params stays truthful
 
     def set_q_pos_cost(self, weight):
         """Joint-posture nullspace anchor: adds 0.5*weight*||q - q_nom||^2 as a RUNNING
@@ -828,13 +870,12 @@ class BSQP:
         stiffness — tune light joints independently; see set_u_cost_vec for the
         matching effort-side knob and the closed-loop rate-limit story).
         """
-        import numpy as _np
-        w = _np.asarray(weight, dtype=_np.float32)
+        w = np.asarray(weight, dtype=np.float32)
         if w.ndim == 0:
-            self.solver.set_q_pos_cost_vec(_np.empty(0, dtype=_np.float32))  # back to scalar
+            self.solver.set_q_pos_cost_vec(np.empty(0, dtype=np.float32))  # back to scalar
             self.solver.set_q_pos_cost(float(w))
         else:
-            self.solver.set_q_pos_cost_vec(_np.ascontiguousarray(w.reshape(-1)))
+            self.solver.set_q_pos_cost_vec(np.ascontiguousarray(w.reshape(-1)))
 
     def set_u_cost_vec(self, weights=None):
         """Per-joint control effort weights (length n_actuated; None resets to the
@@ -846,20 +887,18 @@ class BSQP:
         loop into a growing Nyquist oscillation (PDDP round-5, 2026-08-02).
         Raising ONLY that joint's effort weight (e.g. [1e-6]*6 + [3e-3]) softens
         its channel without degrading the arm's tracking."""
-        import numpy as _np
         if weights is None:
-            self.solver.set_u_cost_vec(_np.empty(0, dtype=_np.float32))
+            self.solver.set_u_cost_vec(np.empty(0, dtype=np.float32))
         else:
-            w = _np.ascontiguousarray(_np.asarray(weights, dtype=_np.float32).reshape(-1))
+            w = np.ascontiguousarray(np.asarray(weights, dtype=np.float32).reshape(-1))
             self.solver.set_u_cost_vec(w)
 
     def set_q_nom(self, q_nom=None):
         """Posture target for set_q_pos_cost (length-nq array; None resets to zeros)."""
-        import numpy as _np
         if q_nom is None:
-            self.solver.set_q_nom(_np.empty(0, dtype=_np.float32))
+            self.solver.set_q_nom(np.empty(0, dtype=np.float32))
         else:
-            q = _np.ascontiguousarray(_np.asarray(q_nom, dtype=_np.float32).ravel())
+            q = np.ascontiguousarray(np.asarray(q_nom, dtype=np.float32).ravel())
             self.solver.set_q_nom(q)
 
     def set_fc_cost(self, weight):
@@ -896,12 +935,13 @@ class BSQP:
     def set_cost_weights_per_knot(self, knot_weights):
         """Per-knot [ee, qd, u] weight triples, shape (N, 3): overrides the scalar
         q/qd/u/N weights (terminal EE weight = row N-1's ee entry). Enables
-        via-points, terminal-only goals, and horizon masking at runtime."""
+        via-points, terminal-only goals, and horizon masking at runtime.
+        ``None`` clears the table (back to the scalar weights)."""
+        if knot_weights is None:
+            self.solver.clear_cost_weights_per_knot()
+            return
         w = np.ascontiguousarray(np.asarray(knot_weights, dtype=np.float32)).reshape(self.N, 3)
         self.solver.set_cost_weights_per_knot(w)
-
-    def clear_cost_weights_per_knot(self):
-        self.solver.clear_cost_weights_per_knot()
 
     # ---- lazy pinocchio model (FK helpers / sim / estimators / tests) ----
     @property
@@ -950,10 +990,12 @@ class BSQP:
         return np.array(self.data.oMf[self.ee_frame_id].translation)
 
     def reset(self):
+        """Clear all solver state carried across solves: duals (AL/ADMM), the
+        adapted trust-region rho, and the external-force buffer. (Trajectory
+        warm starts are the caller's — see solve().)"""
         self.reset_dual()
         self.reset_rho()  # adapted rho is solver state -> a full reset must clear it too
         self.set_f_ext_B(np.zeros((self.batch_size, 6)))
-        self.XU_B = np.zeros((self.batch_size, self.N * (self.nx + self.nu) - self.nu))
 
     def sim_forward(self, xk, uk, sim_dt):
         xk = np.asarray(xk, dtype=np.float32)

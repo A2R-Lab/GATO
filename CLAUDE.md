@@ -40,10 +40,10 @@ kernels (all in `gato/bsqp/kernels/`):
    stores the NEGATED Schur complement, so the bdsv kernel solves `(−S)λ = (−γ)` (negates in place —
    safe, formSchur rewrites every slot next iteration). Host-side `set_linsys_mode` picks per solve
    (0 = pcg default/bit-identical, 1 = bdsv, 2 = bdsv on SQP iter 0 then pcg); python
-   `BSQP(linsys=...)`, controller `linsys="auto"` switches on `‖x_meas − x_pred‖`. Plan + gates:
+   `SolverParams(linsys=...)`, controller `linsys="auto"` switches on `‖x_meas − x_pred‖`. Plan + gates:
    `docs/open-tasks/hybrid_pcg_bdsv_plan_2026-07-07.md`.
    Optional exact-Hessian (SO-SQP) path: built with `-DGATO_EXACT_HESSIAN=ON` and toggled per
-   solver (`BSQP(exact_hessian=True)` / `set_exact_hessian`), setup_kkt assembles the
+   solver (`SolverParams(exact_hessian=True)` / `set_exact_hessian`, needs the `_eh` variant module), setup_kkt assembles the
    (nx+nu)² stage block, adds the lagged-λ `λᵀ∇²F` contraction (grid `fdsva_so`), and
    PSD-projects it (`glass::psd_project`, eps = 1e-5·(1+max|diag|)). Default builds are
    preprocessor-identical (bitwise). Forces bdsv; needs rho ≥ 1e-4 (f32). Verdict + traps:

@@ -18,6 +18,7 @@ import pinocchio as pin   # [test] extra — a missing dep is a broken env, neve
 import pytest
 
 import gato
+from conftest import TEST_PARAMS
 
 pytestmark = pytest.mark.gpu   # cpu-lane deselects; on a GPU box the module MUST exist
 
@@ -87,10 +88,8 @@ def _retract(model, x, dx):
 
 
 def _solver(B):
-    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT,
-                     plant_type="go2", q_cost=1.0, qd_cost=1e-2, u_cost=1e-4,
-                     N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0,
-                     ctrl_lim_cost=0.0)
+    return gato.BSQP(model_path=str(URDF), batch_size=B, N=N, dt=DT, params=TEST_PARAMS.replace(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0),
+                     plant_type="go2")
 
 
 def test_module_dims(mod):
@@ -103,7 +102,7 @@ def test_module_dims(mod):
 def test_interface_shapes(model):
     s = _solver(2)
     assert s.floating_base and s.nq == NQ and s.nv == NV and s.nx == NX
-    assert s.XU_B.shape == (2, N * XU_STRIDE - NU)
+    assert s.xu_size == N * XU_STRIDE - NU
 
 
 def test_sim_forward_vs_pinocchio(model):

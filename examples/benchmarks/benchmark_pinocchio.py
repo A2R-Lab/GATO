@@ -16,6 +16,7 @@ import pickle
 sys.path.append('./python')
 sys.path.append('./python')
 from gato.interface import BSQP
+from gato import SolverParams
 
 # output pkls land in examples/benchmarks/data/ (next to this script), cwd-independent
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -38,7 +39,6 @@ class PinocchioBenchmark:
         
         # Solver parameters
         max_sqp_iters = 5
-        kkt_tol = 0.0
         max_pcg_iters = 100
         pcg_tol = 1e-6
         Q_cost = 2.0
@@ -80,21 +80,8 @@ class PinocchioBenchmark:
             model_path="examples/indy7_description/indy7.urdf",
             batch_size=batch_size,
             N=self.N,
-            dt=self.dt,
-            max_sqp_iters=max_sqp_iters,
-            kkt_tol=kkt_tol,
-            max_pcg_iters=max_pcg_iters,
-            pcg_tol=pcg_tol,
-            solve_ratio=1.0,
-            mu=10.0,
-            q_cost=Q_cost,
-            qd_cost=dQ_cost,
-            u_cost=R_cost,
-            N_cost=QN_cost,
-            q_lim_cost=Qpos_cost,
-            rho=0.1,
-            plant_type='indy7',
-        )
+            dt=self.dt, params=SolverParams(max_sqp_iters=max_sqp_iters, max_pcg_iters=max_pcg_iters, pcg_tol=pcg_tol, solve_ratio=1.0, mu=10.0, q_cost=Q_cost, qd_cost=dQ_cost, u_cost=R_cost, N_cost=QN_cost, q_lim_cost=Qpos_cost, rho=0.1),
+            plant_type='indy7')
         
         # Load Pinocchio model
         self.model = pin.buildModelFromUrdf("examples/indy7_description/indy7.urdf")

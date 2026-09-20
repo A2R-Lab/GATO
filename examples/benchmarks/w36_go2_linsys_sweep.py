@@ -1,3 +1,4 @@
+from gato import SolverParams
 #!/usr/bin/env python3
 """W3.6: go2 (STATE_SIZE=36) pcg-vs-bdsv solve-time crossover over batch size.
 
@@ -9,7 +10,7 @@ answers which linsys the go2 default should be, per batch regime.
 
 Protocol: displaced actuated posture anchor (real SQP work every solve, the
 liveness-gate config), identical deterministic inputs per (linsys, B);
-kkt_tol=0 + a fresh hold-at-x warm start EVERY solve so each timed solve runs
+a fresh hold-at-x warm start EVERY solve so each timed solve runs
 the full max_sqp_iters of work (a re-used warm start converges in 1 iter and
 measures nothing); 3 warm-up solves then NSOLVES timed; device solve_time_us
 medians.
@@ -53,10 +54,8 @@ def main():
     rows = []
     for linsys in ("pcg", "bdsv"):
         for B in batches:
-            s = gato.BSQP(model_path=URDF, batch_size=B, N=N, dt=0.01,
-                          plant_type="go2", linsys=linsys, kkt_tol=0.0,
-                          q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0,
-                          q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
+            s = gato.BSQP(model_path=URDF, batch_size=B, N=N, dt=0.01, params=SolverParams(linsys=linsys, q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0, q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0),
+                          plant_type="go2")
             s.set_q_nom(q_nom)
             s.set_q_pos_cost(50.0)
             X = np.tile(x, (B, 1)).astype(np.float32)

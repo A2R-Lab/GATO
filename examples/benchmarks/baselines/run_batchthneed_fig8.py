@@ -23,9 +23,10 @@ G = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 BASELINES = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, G + '/python')
 from gato.common import figure8, rk4
-from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS, DEFAULT_SOLVER_PARAMS
+from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+from gato import SolverParams
 
-SP = DEFAULT_SOLVER_PARAMS  # GATO's OWN indy7 fig8 weights, so the CPU solves the identical problem
+SP = SolverParams().asdict()  # GATO's OWN indy7 fig8 weights, so the CPU solves the identical problem
 
 
 def _import_pysqpcpu():

@@ -62,23 +62,79 @@ GO2_START_CONFIGS = {
     ]),
 }
 
-# MPC solver parameters
-DEFAULT_SOLVER_PARAMS = {
-    'max_sqp_iters': 1,
-    'kkt_tol': 0.001,
-    'max_pcg_iters': 200,
-    'pcg_tol': 1e-4,
-    'solve_ratio': 1.0,
-    'mu': 10.0,
-    'q_cost': 2.0,
-    'qd_cost': 1e-2,
-    'u_cost': 2e-6,
-    'N_cost': 50.0,
-    'q_lim_cost': 0.01,
-    'vel_lim_cost': 0.0,
-    'ctrl_lim_cost': 0.0,
-    'rho': 0.01
-}
+# ---------------------------------------------------------------------------
+# SolverParams — THE solver configuration (plan 2.A, 2026-09-20).
+#
+# One default set. These are the values every paper experiment and closed-loop
+# harness ran with (the former config.DEFAULT_SOLVER_PARAMS dict); the old
+# BSQP constructor carried a second, never-exercised default set (mu=1,
+# qd_cost=1e-4, rho=1e-3, max_sqp_iters=10, ...) that disagreed on 8 knobs —
+# it is gone. max_sqp_iters=1 is the real-time-iteration MPC setting: a
+# one-shot solve to convergence should raise it (e.g. params.replace(
+# max_sqp_iters=10)). The public kkt_tol knob was removed: convergence is
+# merit/step based; the device-side KKT check it promised was never wired.
+# ---------------------------------------------------------------------------
+from dataclasses import dataclass, asdict, replace as _dc_replace
+
+
+@dataclass(frozen=True)
+class SolverParams:
+    """BSQP solver configuration. Immutable; derive variants with ``.replace()``.
+
+    SQP / linear system
+        max_sqp_iters: SQP iterations per solve (1 = RTI/MPC; raise for one-shot).
+        max_pcg_iters, pcg_tol: PCG budget / tolerance (pcg and bdsv_first paths).
+        solve_ratio: fraction of the batch that must converge before early exit.
+        mu: merit-function constraint weight.
+        rho: trust-region / regularization floor (> 0: f32 bdsv returns garbage
+            steps at rho=0); adapt_rho lets the line search adapt it per solve.
+        linsys: "pcg" | "bdsv" | "bdsv_first" | None (None = wired default:
+            pcg fixed-base, bdsv floating-base — the static arm of the
+            controller's per-step policy; see gato.linsys_autotune.resolve_linsys).
+    Cost weights (grid_plant tracking cost)
+        q_cost (running EE position), N_cost (terminal EE position), qd_cost,
+        u_cost, and the clamped-log-barrier limit weights q_lim_cost /
+        vel_lim_cost / ctrl_lim_cost. Per-knot and per-joint refinements are
+        runtime setters on BSQP (set_cost_weights_per_knot, set_q_pos_cost,
+        set_u_cost_vec, set_fc_cost/ref) and take precedence over these.
+    exact_hessian: SO-SQP stage-Hessian projection (needs an "eh" variant module).
+    """
+    max_sqp_iters: int = 1
+    max_pcg_iters: int = 200
+    pcg_tol: float = 1e-4
+    solve_ratio: float = 1.0
+    mu: float = 10.0
+    rho: float = 0.01
+    adapt_rho: bool = True
+    linsys: str | None = None
+    q_cost: float = 2.0
+    qd_cost: float = 1e-2
+    u_cost: float = 2e-6
+    N_cost: float = 50.0
+    q_lim_cost: float = 0.01
+    vel_lim_cost: float = 0.0
+    ctrl_lim_cost: float = 0.0
+    exact_hessian: bool = False
+
+    def replace(self, **changes):
+        return _dc_replace(self, **changes)
+
+    def asdict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_mapping(cls, m):
+        """Build from a dict of field overrides (unknown keys are an error)."""
+        if isinstance(m, SolverParams):
+            return m
+        m = dict(m or {})
+        bad = set(m) - set(cls.__dataclass_fields__)
+        if bad:
+            raise TypeError(f"unknown SolverParams field(s): {sorted(bad)}")
+        return cls(**m)
+
+
+COST_FIELDS = ("q_cost", "qd_cost", "u_cost", "N_cost", "q_lim_cost", "vel_lim_cost", "ctrl_lim_cost")
 
 
 

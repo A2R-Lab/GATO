@@ -2,7 +2,8 @@
 
 Audience: anyone driving GATO from outside this repo (closed-loop harnesses,
 other lab solvers, hardware pipelines, comparison benchmarks). Every item here
-has bitten a real integration; the provenance notes say how. Updated 2026-08-02.
+has bitten a real integration; the provenance notes say how. Updated 2026-09-20
+(SolverParams / stateless solve / module variants — see §4).
 
 ## 0. First thing to run: the dynamics fingerprint
 
@@ -44,7 +45,8 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   effective limit. Provenance: this explained an entire experiment matrix of
   "barrier-on always diverges" (PDDP round-2).
 - Barrier weights (`q_lim_cost`, `vel_lim_cost`, `ctrl_lim_cost`) default to
-  {1e-3, 0, 0}: **torque limits are NOT enforced by default** — either enable
+  {0.01, 0, 0} (`gato.SolverParams`): **torque limits are NOT enforced by
+  default** — either enable
   `ctrl_lim_cost`, add box rows, or clamp applied torque driver-side (do the
   last one anyway if your plant is real hardware).
 
@@ -71,14 +73,44 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 
 ## 4. Solve interface
 
-- `solve(xcur_B, eepos_goals_B, XU_B)` — ALL batch-dim arrays; xu layout is
-  `[x_0, u_0, x_1, u_1, ..., x_{N-1}]`, row length `N*(nx+nu) − nu`.
+- **ONE configuration object**: `gato.SolverParams` (frozen dataclass; derive
+  with `.replace(...)`). `BSQP(model_path, batch_size, N, dt, params=...)`, or
+  keyword overrides of its fields. Its defaults are the values every paper
+  experiment ran with (max_sqp_iters=1 = real-time iteration; mu=10, rho=0.01,
+  qd_cost=1e-2, u_cost=2e-6, q_lim_cost=0.01, pcg_tol=1e-4, max_pcg_iters=200).
+  Provenance: until 2026-09-20 the constructor carried a SECOND default set
+  (mu=1, rho=1e-3, max_sqp_iters=10, ...) that no harness ever ran — if you
+  copied constructor defaults, re-check against `SolverParams()`. `kkt_tol`
+  is gone (it never terminated anything; convergence is merit/step based).
+  `solver.params` is always truthful: every `set_*` writes through.
+- **linsys**: `SolverParams.linsys` None = the wired static default (pcg fixed
+  base, bdsv floating base) — the static arm of `MPCController`'s per-step
+  policy ("auto" = pcg warm / bdsv_first cold, same resolver:
+  `gato.linsys_autotune.resolve_linsys`). An explicit mode always wins.
+- `solve(xcur_B, eepos_goals_B, xu_warm=None)` — ALL batch-dim arrays; xu layout
+  is `[x_0, u_0, x_1, u_1, ..., x_{N-1}]`, row length `N*(nx+nu) − nu`.
+  **Stateless in the trajectory**: `xu_warm=None` seeds a hold at `xcur_B`
+  (a cold start — NOT the previous solution); pass the last `SolveResult.xu`
+  to warm-start. Your array is never modified; `SolveResult.xu` is a fresh
+  array. AL/ADMM outer iteration = warm-started repeat solves, so thread
+  `xu_warm` explicitly in such loops. The solver IS stateful in duals, ADMM
+  state and the adapted trust-region rho (`reset_dual/reset_rho/reset`).
+  Provenance: the pre-09-20 solver kept a hidden buffer that aliased the
+  returned `xu` and mutated caller arrays in place.
+- **Module variants** are separate ABIs with their own module names:
+  `bsqpN{N}_{plant}` (default), `_fc` (contact-force controls appended to u),
+  `_eh` (exact Hessian). `BSQP(..., variant="fc")`; `gato.available("fc")`.
+  Row-group ORDER is enforced: `enable_limit_*` before any appended group
+  (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`) or
+  it raises (they used to be dropped silently).
 - **Control width is a MODULE property**: `nu = CONTROL_SIZE` from the module
   (on `GATO_CONTACT_FORCES` builds, `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE`).
   Use `SolveResult.u0()/control_at(k)` for the APPLIED (actuated) control —
   never slice xu by pinocchio's nv.
-- Warm start is yours to manage (`MPCController` shifts by default). Solves
-  are bit-deterministic run-to-run; batch entries are independent.
+- `MPCController.step()` returns `StepResult.u` = the ACTUATED control only
+  (what you apply; `StepResult.fc` carries the contact-wrench slots on fc
+  variants). Solves are bit-deterministic run-to-run; batch entries are
+  independent.
 - The measured state enters as a hard initial-state constraint (x_0 is data;
   don't put state limits at knot 0 — they'd be unsatisfiable under violation).
 
@@ -87,8 +119,9 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 The signed receipt (`gpu-proof.json`, verified in CI) attests the committed
 test suite ON THE DEFAULT BUILD at the fingerprinted sources: default-path
 bitwise parity, determinism, FD gates, the KKT-level cost gates. It does NOT
-attest: non-default builds (exact-Hessian, contact-force — those run scripted
-canary sessions, see `test/expected_skips.txt` for exactly which tests skip),
+attest: whichever variant modules are absent from the receipt profile
+(`test/receipt_modules.txt`; `test/expected_skips.txt` lists exactly which
+tests skip when a variant is not built),
 your driver's closed-loop behavior, or timing. If you depend on a feature,
 check a test exercises it — "the suite is green" is scoped by the suite.
 

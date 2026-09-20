@@ -35,7 +35,7 @@ mpc = MPC_GATO(model=model, N=N, dt=DT, batch_size=1, model_path=fig8mod.IIWA14_
                plant_type='iiwa14', constant_f_ext=None, track_full_stats=True,
                # pin the paper-era pcg path (controller default is "auto" since
                # 08-12; committed baselines were measured under pcg)
-               solver_params={"linsys": "pcg"})
+               linsys="pcg")
 # fixed-dt pacing (advance sim by dt each control step) => goal index == step index, matching MPCGPU's
 # CONST_UPDATE_FREQ and the CPU baseline. This is also the fairest per-solve timing basis.
 _, stats = mpc.run_mpc_fig8(x_start, goal, sim_dt=0.001, sim_time=SIM_TIME, pace_by_solve_time=False)

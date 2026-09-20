@@ -146,9 +146,9 @@ def phase_kernel():
 def child_kernel(n, b):
     import numpy as np
     from gato.interface import BSQP
-    from gato.config import DEFAULT_SOLVER_PARAMS as SP
+    from gato import SolverParams
     solver = BSQP(model_path=URDF, batch_size=b, N=n, dt=0.01, plant_type=PLANT,
-                  **{**SP, "max_sqp_iters": 5, "rho": 1e-3})
+                  params=SolverParams(max_sqp_iters=5, rho=1e-3))
     rng = np.random.default_rng(0)
     x = np.zeros((b, solver.nx), dtype=np.float32)
     x[:, :solver.nq] = rng.uniform(-0.4, 0.4, (b, solver.nq)).astype(np.float32)
@@ -160,8 +160,7 @@ def child_kernel(n, b):
         times, iters = [], []
         for r in range(13):                      # 3 warmup + 10 measured
             solver.solver.reset_dual(); solver.solver.reset_rho()
-            solver.XU_B = np.zeros_like(solver.XU_B)
-            res = solver.solve(x.copy(), g.copy())
+            res = solver.solve(x.copy(), g.copy())   # stateless: cold (hold-at-x) seed each call
             if r >= 3:
                 times += list(res.stats.pcg_times_us)   # one entry per SQP iter
                 iters += list(res.stats.pcg_iters.reshape(-1))
@@ -200,7 +199,7 @@ def child_mpc(mode, tau, perturb_every):
     from gato.mpc_gato import MPC_GATO
     from gato.controller import MPCController
     from gato.common import figure8
-    from gato.config import INDY7_START_CONFIGS, FIG8_DEFAULT_PARAMS
+    from gato.config import INDY7_START_CONFIGS, FIG8_DEFAULT_PARAMS, SolverParams
     N, DT = 64, 0.01
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type=PLANT)

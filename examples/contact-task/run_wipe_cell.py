@@ -25,7 +25,7 @@ def build_mpc(arm, scenario, depth):
     import pinocchio as pin
     from gato.mpc_gato import MPC_GATO
     from gato.worlds import MuJoCoWorld
-    from gato.config import DEFAULT_SOLVER_PARAMS
+    from gato import SolverParams
 
     model, q0, ee, tip, z_s, center = W.ready_press_geometry()
     world = MuJoCoWorld(W.URDF, plane=W.plane_cfg(center, scenario["stroke"]),
@@ -34,7 +34,7 @@ def build_mpc(arm, scenario, depth):
                    dt=W.DT, batch_size=1, world=world,
                    # pin pcg: the committed n=24 pool + quiet quotes were
                    # measured under it (controller default is "auto" since 08-12)
-                   solver_params={"linsys": "pcg"})
+                   linsys="pcg")
     s = mpc.solver
 
     if arm == "fc":
@@ -57,7 +57,7 @@ def build_mpc(arm, scenario, depth):
         raise ValueError(arm)
 
     x0 = np.concatenate([q0, np.zeros(7)])
-    return mpc, model, q0, x0, ee, tip, center, DEFAULT_SOLVER_PARAMS
+    return mpc, model, q0, x0, ee, tip, center, SolverParams().asdict()
 
 
 def run_cell(arm, scenario, depth, outdir=None):

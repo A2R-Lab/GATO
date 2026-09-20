@@ -14,21 +14,13 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 from gato.interface import BSQP
 from gato.common import figure8
-from gato.config import DEFAULT_SOLVER_PARAMS, FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
 URDF = os.path.join(os.path.dirname(__file__), "indy7_description", "indy7.urdf")
 N, DT = 64, 0.01
 
 # build the solver (one problem instance)
-sp = DEFAULT_SOLVER_PARAMS
-solver = BSQP(model_path=URDF, batch_size=1, N=N, dt=DT,
-              max_sqp_iters=sp["max_sqp_iters"], kkt_tol=sp["kkt_tol"],
-              max_pcg_iters=sp["max_pcg_iters"], pcg_tol=sp["pcg_tol"],
-              solve_ratio=sp["solve_ratio"], mu=sp["mu"],
-              q_cost=sp["q_cost"], qd_cost=sp["qd_cost"], u_cost=sp["u_cost"],
-              N_cost=sp["N_cost"], q_lim_cost=sp["q_lim_cost"],
-              vel_lim_cost=sp["vel_lim_cost"], ctrl_lim_cost=sp["ctrl_lim_cost"],
-              rho=sp["rho"], plant_type="indy7")
+solver = BSQP(model_path=URDF, batch_size=1, N=N, dt=DT, plant_type="indy7")
 
 nx, nu = solver.nx, solver.nu
 
@@ -39,10 +31,7 @@ ref = figure8(DT, **FIG8_DEFAULT_PARAMS)[: 6 * N].astype(np.float32)
 # batched arrays even for batch_size=1: shape (1, ...)
 x0_B = x0.reshape(1, -1)
 ref_B = ref.reshape(1, -1)
-XU_B = np.zeros((1, N * (nx + nu) - nu), dtype=np.float32)
-XU_B[:, :nx] = x0_B
-
-res = solver.solve(x0_B, ref_B, XU_B)
+res = solver.solve(x0_B, ref_B)   # cold start (hold at x0); pass res.xu to warm-start the next call
 
 print(f"GATO single solve (Indy7, N={N}):")
 print(f"  GPU solve time : {res.solve_time_us / 1000.0:.3f} ms")

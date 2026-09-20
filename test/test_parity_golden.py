@@ -10,7 +10,12 @@ test/golden/<plant>_N<N>_<case>.npz.
 Re-baseline (only with a documented numeric change — say why in the commit):
     GATO_GOLDEN_REBASELINE=1 pytest test/test_parity_golden.py
 The goldens were first captured at GRiD bc9c4d7 / GLASS 78329b6 (2026-09-20)
-so the Wave-1 pin bump is measured against them (plan D6).
+so the Wave-1 pin bump is measured against them (plan D6) — bit-identical at
+GRiD 3af782e / GLASS e83b086.
+Re-baselined 2026-09-20 (Wave 2.A): BSQP.solve() became stateless and its cold
+seed is hold-at-x (initialize_warm_start) instead of the old all-zeros
+trajectory buffer; indy7 (non-zero start config) cases changed, iiwa14/go2
+were bit-identical (their start states make the two seeds coincide).
 """
 import os
 from pathlib import Path
@@ -19,6 +24,7 @@ import numpy as np
 import pytest
 
 import gato
+from conftest import TEST_PARAMS
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
 
 pytestmark = pytest.mark.gpu
@@ -60,7 +66,7 @@ def _make(plant, N, urdfs):
     if plant == "go2":
         import test_floating_rowgroups as fr
         return fr._solver(1)
-    return gato.BSQP(model_path=str(urdfs[plant]), batch_size=1, N=N, dt=0.01, plant_type=plant)
+    return gato.BSQP(model_path=str(urdfs[plant]), batch_size=1, N=N, dt=0.01, params=TEST_PARAMS, plant_type=plant)
 
 
 def _cases():
