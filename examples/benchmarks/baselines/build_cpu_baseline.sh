@@ -17,6 +17,11 @@
 #   so NO ROS and NO source pinocchio build are needed.)
 set -euo pipefail
 
+# The sqpcpu baseline is an OPT-IN submodule (update = none in .gitmodules: its
+# pinned fig3-fair commit is on a private fork, plan D14) — initialise it here.
+git -C "$(git rev-parse --show-toplevel)" submodule update --init --checkout examples/benchmarks/baselines/sqpcpu
+
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SQPCPU="$REPO/baselines/sqpcpu"
 DEPS="$SQPCPU/deps"

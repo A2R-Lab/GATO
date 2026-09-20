@@ -33,7 +33,9 @@ GPU, cmake) and tells you exactly what's missing.
 ./tools/install.sh --all      #   + examples + test + dev
 ```
 
-The lean default is all you need to generate code, build the solver, and run
+(The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is an
+opt-in submodule initialised by its own build script — the recursive clone
+skips it.) The lean default is all you need to generate code, build the solver, and run
 `gato.BSQP` (numpy + the built module). Pinocchio and MuJoCo are needed only by
 the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
 test suite — `--test` pulls exactly those in; `--examples` adds torch and the
