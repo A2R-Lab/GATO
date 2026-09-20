@@ -31,8 +31,6 @@ class PyBSQP {
             : batch_size_(batch_size),
               solver_(batch_size, dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
         {
-                setL2PersistingAccess(1.0);
-
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_reference_traj_batch_, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T)));
@@ -67,7 +65,7 @@ class PyBSQP {
                 }
         }
 
-        py::dict solve(py::array_t<T> xu_traj_batch, T timestep, py::array_t<T> x_s_batch, py::array_t<T> reference_traj_batch)
+        py::dict solve(py::array_t<T, py::array::c_style | py::array::forcecast> xu_traj_batch, T timestep, py::array_t<T, py::array::c_style | py::array::forcecast> x_s_batch, py::array_t<T, py::array::c_style | py::array::forcecast> reference_traj_batch)
         {
                 py::buffer_info xu_buf = xu_traj_batch.request();
                 py::buffer_info xs_buf = x_s_batch.request();
@@ -186,7 +184,7 @@ class PyBSQP {
                 return py::dict(result);
         }
 
-        void set_f_ext_batch(py::array_t<T> f_ext_batch)
+        void set_f_ext_batch(py::array_t<T, py::array::c_style | py::array::forcecast> f_ext_batch)
         {
                 py::buffer_info f_ext_buf = f_ext_batch.request();
                 check_size(f_ext_buf, (size_t)6 * grid::NUM_BODIES * batch_size_, "f_ext_batch");
@@ -194,42 +192,42 @@ class PyBSQP {
         }
 
         // per-knot wrench band: (B, KNOT_POINTS, 6*NUM_BODIES) flattened
-        void set_f_ext_knot_batch(py::array_t<T> f_ext_knot_batch)
+        void set_f_ext_knot_batch(py::array_t<T, py::array::c_style | py::array::forcecast> f_ext_knot_batch)
         {
                 py::buffer_info buf = f_ext_knot_batch.request();
                 check_size(buf, (size_t)6 * grid::NUM_BODIES * KNOT_POINTS * batch_size_, "f_ext_knot_batch");
                 solver_.set_f_ext_knot_batch(static_cast<T*>(buf.ptr));
         }
 
-        void set_rho_penalty_batch(py::array_t<T> rho_batch, bool set_as_reset_default = true)
+        void set_rho_penalty_batch(py::array_t<T, py::array::c_style | py::array::forcecast> rho_batch, bool set_as_reset_default = true)
         {
                 py::buffer_info buf = rho_batch.request();
                 check_size(buf, batch_size_, "rho_batch");
                 solver_.set_rho_penalty_batch(static_cast<T*>(buf.ptr), set_as_reset_default);
         }
 
-        void set_drho_batch(py::array_t<T> drho_batch, bool set_as_reset_default = true)
+        void set_drho_batch(py::array_t<T, py::array::c_style | py::array::forcecast> drho_batch, bool set_as_reset_default = true)
         {
                 py::buffer_info buf = drho_batch.request();
                 check_size(buf, batch_size_, "drho_batch");
                 solver_.set_drho_batch(static_cast<T*>(buf.ptr), set_as_reset_default);
         }
 
-        void set_mu_batch(py::array_t<T> mu_batch)
+        void set_mu_batch(py::array_t<T, py::array::c_style | py::array::forcecast> mu_batch)
         {
                 py::buffer_info buf = mu_batch.request();
                 check_size(buf, batch_size_, "mu_batch");
                 solver_.set_mu_batch(static_cast<T*>(buf.ptr));
         }
 
-        void set_pcg_tol_batch(py::array_t<T> eps_batch)
+        void set_pcg_tol_batch(py::array_t<T, py::array::c_style | py::array::forcecast> eps_batch)
         {
                 py::buffer_info buf = eps_batch.request();
                 check_size(buf, batch_size_, "pcg_tol_batch");
                 solver_.set_pcg_tol_batch(static_cast<T*>(buf.ptr));
         }
 
-        py::array_t<T> sim_forward(py::array_t<T> xk, py::array_t<T> uk, T dt)
+        py::array_t<T> sim_forward(py::array_t<T, py::array::c_style | py::array::forcecast> xk, py::array_t<T, py::array::c_style | py::array::forcecast> uk, T dt)
         {
                 py::buffer_info xk_buf = xk.request();
                 py::buffer_info uk_buf = uk.request();
@@ -251,7 +249,7 @@ class PyBSQP {
         void enable_limit_barrier(T mu, T delta) { solver_.enable_limit_barrier(mu, delta); }
         void enable_limit_admm(T rho, uint32_t iters) { solver_.enable_limit_admm(rho, iters); }
         void enable_limit_al(T rho) { solver_.enable_limit_al(rho); }
-        void enable_ee_terminal_equality(py::array_t<T> target, T rho)
+        void enable_ee_terminal_equality(py::array_t<T, py::array::c_style | py::array::forcecast> target, T rho)
         {
                 py::buffer_info buf = target.request();
                 if (buf.size != 3) { throw py::value_error("enable_ee_terminal_equality: target must be xyz (3 elements)"); }
@@ -323,7 +321,7 @@ class PyBSQP {
         // flat (n, k) float arrays per primitive: spheres (n,4) {x,y,z,r};
         // capsules (n,7) {a(3),b(3),r}; cuboids (n,15) {c(3),u(3),hu,v(3),hv,
         // w(3),hw}; planes (n,4) {n_unit(3),d} — geometry-header layouts
-        void set_collision_environment(py::array_t<T> spheres, py::array_t<T> capsules, py::array_t<T> cuboids, py::array_t<T> planes)
+        void set_collision_environment(py::array_t<T, py::array::c_style | py::array::forcecast> spheres, py::array_t<T, py::array::c_style | py::array::forcecast> capsules, py::array_t<T, py::array::c_style | py::array::forcecast> cuboids, py::array_t<T, py::array::c_style | py::array::forcecast> planes)
         {
                 auto check = [](py::buffer_info& b, py::ssize_t w, const char* nm) {
                         if (b.size == 0) return (py::ssize_t)0;
@@ -352,7 +350,7 @@ class PyBSQP {
                 return out;
         }
 
-        void set_row_group_bounds(int32_t g, py::array_t<T> lo, py::array_t<T> hi)
+        void set_row_group_bounds(int32_t g, py::array_t<T, py::array::c_style | py::array::forcecast> lo, py::array_t<T, py::array::c_style | py::array::forcecast> hi)
         {
                 py::buffer_info blo = lo.request(), bhi = hi.request();
                 std::vector<gato::rows::RowGroupDesc<T>> h_groups(gato::rows::MAX_ROW_GROUPS);
@@ -408,7 +406,7 @@ class PyBSQP {
         bool exact_hessian() const { return solver_.exact_hessian(); }
 
         // debug/test: KKT setup only (no solve) on the given trajectory + block readback
-        py::dict debug_setup_kkt(py::array_t<T> xu_traj_batch, T timestep, py::array_t<T> x_s_batch, py::array_t<T> reference_traj_batch)
+        py::dict debug_setup_kkt(py::array_t<T, py::array::c_style | py::array::forcecast> xu_traj_batch, T timestep, py::array_t<T, py::array::c_style | py::array::forcecast> x_s_batch, py::array_t<T, py::array::c_style | py::array::forcecast> reference_traj_batch)
         {
                 py::buffer_info xu_buf = xu_traj_batch.request();
                 py::buffer_info xs_buf = x_s_batch.request();
@@ -453,7 +451,7 @@ class PyBSQP {
         // col-major buffers): dqdd_dfc (NQ, 6*NUM_CONTACT_FRAMES), dqdd_dq /
         // dqdd_dq_corr (NQ, NQ). dqdd_dq holds f_ext FIXED; dqdd_dq_corr is the
         // dfext/dq chain term (total = dqdd_dq + dqdd_dq_corr).
-        py::dict debug_contact_dynamics(py::array_t<T> q, py::array_t<T> qd, py::array_t<T> u, py::array_t<T> fc)
+        py::dict debug_contact_dynamics(py::array_t<T, py::array::c_style | py::array::forcecast> q, py::array_t<T, py::array::c_style | py::array::forcecast> qd, py::array_t<T, py::array::c_style | py::array::forcecast> u, py::array_t<T, py::array::c_style | py::array::forcecast> fc)
         {
 #ifdef GRID_HAS_CONTACT_FRAMES
                 constexpr py::ssize_t NQ = gato::plant::NQ;
@@ -526,7 +524,7 @@ class PyBSQP {
                 if (buf.size != (py::ssize_t)grid::NUM_JOINTS) throw std::runtime_error("q_pos_cost_vec must have NUM_JOINTS entries (or be empty to reset)");
                 solver_.set_q_pos_cost_vec(static_cast<T*>(buf.ptr));
         }
-        void set_q_nom(py::array_t<T> q_nom)
+        void set_q_nom(py::array_t<T, py::array::c_style | py::array::forcecast> q_nom)
         {
                 auto buf = q_nom.request();
                 if (buf.size == 0) { solver_.set_q_nom(nullptr); return; }  // empty -> reset to zeros
@@ -534,7 +532,7 @@ class PyBSQP {
                 solver_.set_q_nom(static_cast<T*>(buf.ptr));
         }
 
-        void set_cost_weights_per_knot(py::array_t<T> knot_weights)
+        void set_cost_weights_per_knot(py::array_t<T, py::array::c_style | py::array::forcecast> knot_weights)
         {
                 py::buffer_info buf = knot_weights.request();
                 if (static_cast<size_t>(buf.size) != 3 * KNOT_POINTS) {
