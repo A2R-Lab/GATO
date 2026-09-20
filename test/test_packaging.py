@@ -82,3 +82,21 @@ def test_bsqp_constructs_and_solves_without_pinocchio(repo_root, smallest_module
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert "OK" in out.stdout
+
+
+@pytest.mark.parametrize("fname,expect", [
+    ("bsqpN8_testbot_indy7.cpython-312-x86_64-linux-gnu.so", ("testbot_indy7", 8, "default")),
+    ("bsqpN16_indy7_fc.cpython-312-x86_64-linux-gnu.so", ("indy7", 16, "fc")),
+    ("bsqpN16_iiwa14_eh.cpython-312-x86_64-linux-gnu.so", ("iiwa14", 16, "eh")),
+    ("bsqpN16_go2.cpython-312-x86_64-linux-gnu.so", ("go2", 16, "default")),
+])
+def test_module_filename_parsing(fname, expect):
+    """available()'s parser: plant names may carry underscores (gato.build names
+    are identifiers), and the fc/eh variant suffix is split off — 2026-09-20 the
+    variant-aware regex dropped underscore plants (caught by the build dogfood)."""
+    from gato.interface import _MODULE_RE, module_name
+    m = _MODULE_RE.match(fname)
+    assert m is not None
+    plant, N, var = m.group(2), int(m.group(1)), m.group(3) or "default"
+    assert (plant, N, var) == expect
+    assert fname.startswith(module_name(plant, N, var) + ".")

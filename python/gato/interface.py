@@ -12,7 +12,8 @@ from .linsys_autotune import resolve_linsys
 
 
 VARIANTS = ("default", "fc", "eh")   # module ABI variants: base / contact forces / exact Hessian
-_MODULE_RE = re.compile(r"bsqpN(\d+)_([A-Za-z0-9]+?)(?:_(fc|eh))?\.")
+# plant names are identifiers (underscores allowed); the variant suffix is split off lazily
+_MODULE_RE = re.compile(r"bsqpN(\d+)_([A-Za-z0-9_]+?)(?:_(fc|eh))?\.")
 
 
 def module_name(plant, N, variant=None):
