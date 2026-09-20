@@ -46,7 +46,7 @@ enum Kind : int32_t {
                      // are bounded via user LIN_U rows instead; no terminal control)
         EE_POS = 3,  // g_i = ee_pos_i(q_k), i < 3 (block X; equality when lo == hi).
                      // NOT a selection row: needs a block-COOPERATIVE FK eval
-                     // (gato::plant::eePos[Grad]) — handled at dedicated sites,
+                     // (gato::plant::ee_pos[Grad]) — handled at dedicated sites,
                      // never through the per-thread eval_row switch. v1:
                      // terminal knot, MECH_AL / MECH_TELEMETRY, single EE (ee 0).
         LIN_U = 4,   // g_i = C[i,:]·u_k + d_i (block U, host-supplied map; CL-2).
@@ -60,7 +60,7 @@ enum Kind : int32_t {
                      // parameterization per the CL-0 cross-term audit.
         COLLISION = 5,  // g_i = d_i(q_k): per-sphere min environment clearance
                      // (block X; CL-2 collision half). Cooperative evaluator
-                     // (gato::plant::collisionDist[Grad] over grid_collision::)
+                     // (gato::plant::collision_dist[Grad] over grid_collision::)
                      // at dedicated sites like EE_POS — never the per-thread
                      // eval_row switch. n_rows = plant::NCC and MAY EXCEED
                      // MAX_ROWS_PER_GROUP: bounds are UNIFORM one-sided
@@ -220,7 +220,7 @@ __device__ __forceinline__ T eval_row_dir(const RowGroupDesc<T>& grp, const T* d
 
 // ---- EE_POS rows (cooperative FK evaluator sites) ------------------------
 //
-// EE rows evaluate through gato::plant::eePos[Grad] (block-cooperative,
+// EE rows evaluate through gato::plant::ee_pos[Grad] (block-cooperative,
 // caller-scratch), so they cannot ride the per-thread selection paths. The
 // helpers below own the scratch carving; every consumer kernel adds
 // EE_ROWS_SCRATCH_CT (value sites) or EE_ROWS_GRAD_SCRATCH_CT (fold site)
@@ -265,7 +265,7 @@ __device__ __forceinline__ const T* ee_eval_pose(const T* xu_k, T* s_scratch, co
 {
         T* s_pose = s_scratch;
         T* s_arena = align16_ptr<T>(s_pose + 6 * gato::plant::NEE);
-        gato::plant::eePos<T>(s_pose, xu_k, s_arena, d_robot_model);
+        gato::plant::ee_pos<T>(s_pose, xu_k, s_arena, d_robot_model);
         return s_pose;
 }
 
@@ -296,7 +296,7 @@ __device__ void apply_ee_row_grad_hess(const RowGroupDesc<T>* __restrict__ group
                 T* s_gr = s_grad + 6 * NQ * gato::plant::NEE;
                 T* s_h = s_gr + MAX_ROWS_PER_GROUP;
                 T* s_arena = align16_ptr<T>(s_h + MAX_ROWS_PER_GROUP);
-                gato::plant::eePosGrad<T>(s_pose, s_grad, xu_k, s_arena, d_robot_model);
+                gato::plant::ee_pos_grad<T>(s_pose, s_grad, xu_k, s_arena, d_robot_model);
 
                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                         const T g = s_pose[i];
@@ -369,7 +369,7 @@ __device__ __noinline__ T ee_row_cost_value(const RowGroupDesc<T>* __restrict__ 
 
 // ---- COLLISION rows (cooperative clearance evaluator sites) --------------
 //
-// Clearance rows evaluate through gato::plant::collisionDist[Grad]
+// Clearance rows evaluate through gato::plant::collision_dist[Grad]
 // (block-cooperative, caller-scratch), like the EE rows above. n_rows =
 // plant::NCC exceeds MAX_ROWS_PER_GROUP, so bounds are uniform (margin =
 // grp.lo[0], hi = +inf) and dual/slack state uses collision_row_state_index.
@@ -432,7 +432,7 @@ __device__ __noinline__ void apply_collision_row_grad_hess(const RowGroupDesc<T>
                 T* s_gr = s_ddist + NS * NQ;
                 T* s_h = s_gr + NS;
                 T* s_arena = align16_ptr<T>(s_h + NS);
-                gato::plant::collisionDistGrad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
+                gato::plant::collision_dist_grad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
 
                 const T margin = grp.lo[0];
                 for (int32_t i = rank; i < NS; i += size) {
@@ -488,7 +488,7 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
                 T* s_dist = s_scratch;
                 T* s_arena = align16_ptr<T>(s_dist + NS);
-                gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
+                gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                 const T margin = grp.lo[0];
                 for (int32_t i = 0; i < NS; i++) {
                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
@@ -866,7 +866,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
                         T* s_arena = align16_ptr<T>(s_dist + gato::plant::NCC);
                         for (int32_t k = 0; k < n_knots; k++) {
                                 const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
-                                gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
+                                gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         s_viol[k * grp.n_rows + i] = glass::interval_violation<T>(s_dist[i], grp.lo[0], grp.hi[0]);
                                 }
@@ -911,17 +911,17 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void rowGroupTelemetryBatchedKern
 }
 
 template<typename T>
-__host__ size_t getRowGroupTelemetrySMemSize()
+__host__ size_t get_row_group_telemetry_smem_size()
 {
         return sizeof(T) * (KNOT_POINTS * TELEMETRY_MAX_ROWS + rowgroup_eval_scratch_ct<T>());
 }
 
 template<typename T>
-__host__ void rowGroupTelemetryBatched(uint32_t batch_size, T* d_telemetry, const RowGroupDesc<T>* d_groups, int32_t n_groups, const T* d_xu_traj_batch, const void* d_GRiD_mem,
+__host__ void row_group_telemetry_batched(uint32_t batch_size, T* d_telemetry, const RowGroupDesc<T>* d_groups, int32_t n_groups, const T* d_xu_traj_batch, const void* d_GRiD_mem,
                                        const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
         if (n_groups <= 0) return;
-        rowGroupTelemetryBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, getRowGroupTelemetrySMemSize<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
+        rowGroupTelemetryBatchedKernel<T><<<batch_size, ROWGROUP_THREADS, get_row_group_telemetry_smem_size<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
                                                                                                                (const grid::robotModel<T>*)d_GRiD_mem, env);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
@@ -998,7 +998,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
                         for (int32_t k = 0; k < n_knots; k++) {
                                 const int32_t knot = grp.knot_lo + k;
                                 const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                gato::plant::collisionDist<T>(s_dist, xu_k, s_arena, d_robot_model, env);  // all threads
+                                gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);  // all threads
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
                                         T a = d_lam_lo[idx] + grp.mu * (margin - s_dist[i]);
@@ -1065,7 +1065,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void alDualUpdateBatchedKernel(T*
 }
 
 template<typename T>
-__host__ void alDualUpdateBatched(uint32_t batch_size, T* d_lam_hi_batch, T* d_lam_lo_batch, T* d_prev_viol_batch, const T* d_telemetry, const T* d_xu_traj_batch,
+__host__ void al_dual_update_batched(uint32_t batch_size, T* d_lam_hi_batch, T* d_lam_lo_batch, T* d_prev_viol_batch, const T* d_telemetry, const T* d_xu_traj_batch,
                                   const RowGroupDesc<T>* d_groups, int32_t n_groups, const void* d_GRiD_mem,
                                   const grid_collision::Environment<T>& env = grid_collision::Environment<T>{})
 {
@@ -1086,7 +1086,7 @@ __host__ void alDualUpdateBatched(uint32_t batch_size, T* d_lam_hi_batch, T* d_l
 // Fixed base: ACTUATED_SIZE == NQ, identical to the historic install.
 
 template<typename T>
-__global__ void initLimitRowGroupsKernel(RowGroupDesc<T>* d_groups, int32_t mech, T mu, T delta)
+__global__ void init_limit_row_groups_kernel(RowGroupDesc<T>* d_groups, int32_t mech, T mu, T delta)
 {
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;

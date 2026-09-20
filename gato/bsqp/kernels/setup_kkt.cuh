@@ -21,7 +21,7 @@ using namespace gato::constants;
 // The COLLISION fold carve overlays this region when it fits — every s_temp
 // consumer is DEAD by the time the row-group folds run (both branches).
 template<typename T>
-__host__ __device__ constexpr uint32_t setupKKTTempMemCt()
+__host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
 {
 #if GATO_FLOATING_STEP
         // floating: the linearization scratch is the grid step-gradient arena
@@ -59,12 +59,12 @@ struct SetupKktSmem {
         static constexpr uint32_t R_dummy = q_last + STATE_SIZE;            // throwaway terminal R
         static constexpr uint32_t r_dummy = R_dummy + CONTROL_SIZE_SQ;
         static constexpr uint32_t temp_terminal = r_dummy + CONTROL_SIZE;
-        static constexpr uint32_t temp_ct = setupKKTTempMemCt<T>();
+        static constexpr uint32_t temp_ct = setup_kkt_temp_mem_ct<T>();
         static constexpr uint32_t total = temp_terminal + temp_ct;         // >= temp + temp_ct
 };
 
 template<typename T>
-__host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
+__host__ __device__ constexpr uint32_t setup_kkt_base_smem_ct()
 {
         return SetupKktSmem<T>::total;
 }
@@ -82,7 +82,7 @@ __host__ __device__ constexpr uint32_t setupKKTBaseSMemCt()
 // contraction and the glass::psd_project scratch during the projection
 // (the SO tensors are dead by projection time, so the regions alias)
 template<typename T>
-__host__ __device__ inline uint32_t setupKKTExactHessSMemCt()
+__host__ __device__ inline uint32_t setup_kkt_exact_hess_smem_ct()
 {
         const uint32_t proj_ct = (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
         const uint32_t so_ct = gato::plant::exactHessianSO_TempMemCt<T>();
@@ -90,12 +90,12 @@ __host__ __device__ inline uint32_t setupKKTExactHessSMemCt()
 }
 
 // running knot: assemble P = [[Q, 0], [0, R]] (column-major, nx+nu), add the
-// lagged-lambda exact-Hessian term lam^T d2F (plant.cuh exactHessianContraction
+// lagged-lambda exact-Hessian term lam^T d2F (plant.cuh exact_hessian_contraction
 // — fills the diagonal blocks AND the qu/qv cross blocks), project, scatter the
 // diagonal blocks back. Entry: s_Q_k/s_R_k writes barrier-visible. Exit: ends
 // on a barrier.
 template<typename T, unsigned INTEGRATOR_TYPE>
-__device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, const T* s_xux_k, const T* d_lambda_kp1, T dt, void* d_GRiD_mem, T* s_eh)
+__device__ __noinline__ void project_stage_block_exact(T* s_Q_k, T* s_R_k, const T* s_xux_k, const T* d_lambda_kp1, T dt, void* d_GRiD_mem, T* s_eh)
 {
         constexpr uint32_t P_DIM = STATE_S_CONTROL;
         T*                 s_P = s_eh;
@@ -111,7 +111,7 @@ __device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, const T*
                 s_P[i] = v;
         }
         __syncthreads();
-        gato::plant::exactHessianContraction<T, INTEGRATOR_TYPE>(s_P, s_xux_k, d_lambda_kp1, dt, s_union, d_GRiD_mem);  // ends on a barrier
+        gato::plant::exact_hessian_contraction<T, INTEGRATOR_TYPE>(s_P, s_xux_k, d_lambda_kp1, dt, s_union, d_GRiD_mem);  // ends on a barrier
         // eps = 1e-5 * (1 + max|diag|). ABS per the prototype's _eps_for: a
         // curvature-dominated negative diagonal must still give a POSITIVE
         // floor (a raw max went negative here and produced an indefinite
@@ -145,7 +145,7 @@ __device__ __noinline__ void projectStageBlockExact(T* s_Q_k, T* s_R_k, const T*
 // terminal knot: the stage block IS Q_last (no control) — project in place.
 // Entry: s_Q_last writes barrier-visible. Exit: ends on a barrier.
 template<typename T>
-__device__ __noinline__ void projectTerminalBlockExact(T* s_Q_last, T* s_eh)
+__device__ __noinline__ void project_terminal_block_exact(T* s_Q_last, T* s_eh)
 {
         T maxdiag = static_cast<T>(0);  // eps floor on max|diag| (see the stage helper)
         for (uint32_t j = 0; j < STATE_SIZE; j++) {
@@ -222,7 +222,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         T*                  s_temp = s_mem + L::temp;
 #if USE_EXACT_HESSIAN
         // past BOTH branch layouts (running s_temp AND the terminal Q_last..r_dummy+s_temp chain)
-        T* s_eh = s_mem + setupKKTBaseSMemCt<T>();
+        T* s_eh = s_mem + setup_kkt_base_smem_ct<T>();
 #endif
         // COLLISION fold carve: every s_temp consumer is DEAD by fold time, so
         // the carve OVERLAYS the temp tail when it fits (floating: the step-
@@ -233,13 +233,13 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         // dereferenced when a COLLISION group is active (host sized it then).
         constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
         T* s_cc;
-        if constexpr (cc_ct <= setupKKTTempMemCt<T>()) {
-                s_cc = s_mem + (setupKKTBaseSMemCt<T>() - setupKKTTempMemCt<T>());
+        if constexpr (cc_ct <= setup_kkt_temp_mem_ct<T>()) {
+                s_cc = s_mem + (setup_kkt_base_smem_ct<T>() - setup_kkt_temp_mem_ct<T>());
         } else {
 #if USE_EXACT_HESSIAN
-                s_cc = s_mem + setupKKTBaseSMemCt<T>() + (exact_hessian ? setupKKTExactHessSMemCt<T>() : 0);
+                s_cc = s_mem + setup_kkt_base_smem_ct<T>() + (exact_hessian ? setup_kkt_exact_hess_smem_ct<T>() : 0);
 #else
-                s_cc = s_mem + setupKKTBaseSMemCt<T>();
+                s_cc = s_mem + setup_kkt_base_smem_ct<T>();
 #endif
         }
 
@@ -247,18 +247,18 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
         for (uint32_t knot_idx = blockIdx.x; knot_idx < KNOT_POINTS - 1; knot_idx += gridDim.x) {
 
                 // Input pointers
-                T* d_xu_traj_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
-                T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
-                T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
+                T* d_xu_traj_k = get_offset_xu<T>(d_xu_traj_batch, solve_idx, knot_idx);
+                T* d_reference_traj_k = get_offset_reference_traj<T>(d_reference_traj_batch, solve_idx, knot_idx);
+                T* d_f_ext = get_offset_wrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
                 // Output pointers
-                T* d_Q_k = getOffsetStateSq<T>(d_Q_batch, solve_idx, knot_idx);
-                T* d_R_k = getOffsetControlSq<T>(d_R_batch, solve_idx, knot_idx);
-                T* d_q_k = getOffsetState<T>(d_q_batch, solve_idx, knot_idx);
-                T* d_r_k = getOffsetControl<T>(d_r_batch, solve_idx, knot_idx);
-                T* d_A_k = getOffsetStateSq<T>(d_A_batch, solve_idx, knot_idx);
-                T* d_B_k = getOffsetStatePControl<T>(d_B_batch, solve_idx, knot_idx);
-                T* d_c_k = getOffsetState<T>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
+                T* d_Q_k = get_offset_state_sq<T>(d_Q_batch, solve_idx, knot_idx);
+                T* d_R_k = get_offset_control_sq<T>(d_R_batch, solve_idx, knot_idx);
+                T* d_q_k = get_offset_state<T>(d_q_batch, solve_idx, knot_idx);
+                T* d_r_k = get_offset_control<T>(d_r_batch, solve_idx, knot_idx);
+                T* d_A_k = get_offset_state_sq<T>(d_A_batch, solve_idx, knot_idx);
+                T* d_B_k = get_offset_state_p_control<T>(d_B_batch, solve_idx, knot_idx);
+                T* d_c_k = get_offset_state<T>(d_c_batch, solve_idx, knot_idx + 1);  // c_k+1 = e_k
 
                 // per-knot weight override (nullptr -> the scalar weights)
                 const T ee_w_k  = d_knot_cost_weights ? d_knot_cost_weights[knot_idx * 3 + 0] : q_cost;
@@ -286,7 +286,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                 if (knot_idx < KNOT_POINTS - 2) {
 
                         // running knot k: EE weight q_cost, at state x_k = s_xux_k.
-                        gato::plant::trackingCostGradHess<T>(
+                        gato::plant::tracking_cost_grad_hess<T>(
                             s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
@@ -300,7 +300,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         s_temp       = s_mem + L::temp_terminal;
 
                         // running knot k: EE weight q_cost, at state x_k.
-                        gato::plant::trackingCostGradHess<T>(
+                        gato::plant::tracking_cost_grad_hess<T>(
                             s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k,
                             s_Q_k, s_q_k, s_R_k, s_r_k, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
@@ -310,7 +310,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         // the OLD _lastblock used x_k + q_cost here, so N_cost had no effect).
                         // R block discarded (the terminal state has no control).
                         T* s_xkp1 = s_xux_k + XU_KNOT_STRIDE;  // stored-format x_{k+1}
-                        gato::plant::trackingCostGradHess<T>(
+                        gato::plant::tracking_cost_grad_hess<T>(
                             s_xkp1, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE],
                             s_Q_last, s_q_last, s_R_dummy, s_r_dummy, s_temp, d_robotModel,
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_kp1, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
@@ -321,7 +321,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                                 gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, /*has_control=*/false, admm_rho_scale);
                                 // EE_POS rows (cooperative FK; dense J^T J fold — v1 installs
                                 // them terminal-only, so this is their single fold site).
-                                // s_temp is free here (trackingCostGradHess above is done) and
+                                // s_temp is free here (tracking_cost_grad_hess above is done) and
                                 // trackingCostGradHess_TempMemCt >= the EE grad carve.
                                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();  // s_Q_last/s_q_last selection writes above
@@ -337,8 +337,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
                         // c_0 = x_0 ⊖ x_s (d_x_s is STORED format, XU_STATE_SIZE stride;
                         // fixed base: plain subtract, floating: manifold difference)
-                        T* d_c_0 = getOffsetState<T>(d_c_batch, solve_idx, 0);
-                        T* d_xu_0 = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
+                        T* d_c_0 = get_offset_state<T>(d_c_batch, solve_idx, 0);
+                        T* d_xu_0 = get_offset_xu<T>(d_xu_traj_batch, solve_idx, 0);
 #if GATO_FLOATING_STEP
                         gato::plant::state_difference<T>(d_c_0, /*from=*/d_x_s_batch + solve_idx * XU_STATE_SIZE, /*to=*/d_xu_0);
 #else
@@ -347,14 +347,14 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
                         __syncthreads();
 
 #if USE_EXACT_HESSIAN
-                        if (exact_hessian) { projectTerminalBlockExact<T>(s_Q_last, s_eh); }
+                        if (exact_hessian) { project_terminal_block_exact<T>(s_Q_last, s_eh); }
 #endif
                         glass::copy<T, STATE_SIZE_SQ>(s_Q_last, d_Q_k + STATE_SIZE_SQ);
                         glass::copy<T, STATE_SIZE>(s_q_last, d_q_k + STATE_SIZE);
                 }
 
                 // constraint row-groups fold into this knot's cost blocks
-                // (both branches: trackingCostGradHess ended on a barrier, and the
+                // (both branches: tracking_cost_grad_hess ended on a barrier, and the
                 // copies below need one after our strided diagonal writes)
                 if (n_row_groups > 0) {
                         gato::rows::apply_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_R_k, s_r_k, /*has_control=*/true, admm_rho_scale);
@@ -368,8 +368,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 
 #if USE_EXACT_HESSIAN
                 if (exact_hessian) {
-                        const T* d_lambda_kp1 = getOffsetStatePadded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
-                        projectStageBlockExact<T, INTEGRATOR_TYPE>(s_Q_k, s_R_k, s_xux_k, d_lambda_kp1, timestep, d_GRiD_mem, s_eh);
+                        const T* d_lambda_kp1 = get_offset_state_padded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
+                        project_stage_block_exact<T, INTEGRATOR_TYPE>(s_Q_k, s_R_k, s_xux_k, d_lambda_kp1, timestep, d_GRiD_mem, s_eh);
                 }
 #endif
                 glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
@@ -380,13 +380,13 @@ __global__ __launch_bounds__(KKT_THREADS) void setupKKTSystemBatchedKernel(T*   
 }
 
 template<typename T>
-__host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_collision = 0)
+__host__ size_t get_setup_kkt_system_batched_smem_size(int exact_hessian = 0, int has_collision = 0)
 {
-        size_t size = sizeof(T) * setupKKTBaseSMemCt<T>();
+        size_t size = sizeof(T) * setup_kkt_base_smem_ct<T>();
 #if USE_EXACT_HESSIAN
         // runtime-sized: the exact carve is only requested when the toggle is on,
         // so exact builds running the GN path keep the small launch (occupancy)
-        if (exact_hessian) { size += sizeof(T) * setupKKTExactHessSMemCt<T>(); }
+        if (exact_hessian) { size += sizeof(T) * setup_kkt_exact_hess_smem_ct<T>(); }
 #else
         (void)exact_hessian;
 #endif
@@ -395,14 +395,14 @@ __host__ size_t getSetupKKTSystemBatchedSMemSize(int exact_hessian = 0, int has_
         // overlays (see the kernel's s_cc placement) does the launch grow
         if (has_collision) {
                 constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
-                constexpr uint32_t tail_ct = setupKKTTempMemCt<T>();
+                constexpr uint32_t tail_ct = setup_kkt_temp_mem_ct<T>();
                 size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : 0u);
         }
         return size;
 }
 
 template<typename T>
-__host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr)
+__host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
@@ -410,7 +410,7 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
 #endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
-        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian, has_collision);
+        size_t s_mem_size = get_setup_kkt_system_batched_smem_size<T>(exact_hessian, has_collision);
         // the exact / collision carves can exceed the 48KB default dynamic-smem
         // ceiling — opt the kernel in once (harmless when already under).
         // FAIL LOUD on both the attribute set and the launch: an over-ceiling

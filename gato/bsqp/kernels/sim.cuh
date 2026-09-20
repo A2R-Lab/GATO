@@ -47,7 +47,7 @@ void simForwardBatchedKernel(
     // states are STORED format (XU_STATE_SIZE == STATE_SIZE on fixed base)
     T *d_xkp1 = d_xkp1_batch + solve_idx * XU_STATE_SIZE;
     // sim_forward rolls the CURRENT step: knot 0's wrench
-    T *d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, 0);
+    T *d_f_ext = get_offset_wrench<T>(d_f_ext_batch, solve_idx, 0);
 
     extern __shared__ T s_mem[];
     T *s_xkp1 = s_mem + SimSmem<T>::xkp1;

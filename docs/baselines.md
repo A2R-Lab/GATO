@@ -247,11 +247,11 @@ Average/Std/Min/Max/Median/Q1/Q3 solve times). Config: iiwa14, N=32, PCG, 20 SQP
 **Status — BUILD ✅, RUNTIME ✅ on sm_120 (ported 2026-06-22, branch `fix/sm120-runtime-smem`).**
 The illegal-access was two genuine shared-memory sizing bugs (silently absorbed on sm_75/86/89,
 fatal on Blackwell's tighter bounds), **not** a cooperative-launch/occupancy issue:
-1. **Plant `forwardDynamics` split `s_XITemp` at twice the XImats offset** (`iiwa14_plant.cuh`
+1. **Plant `forward_dynamics` split `s_XITemp` at twice the XImats offset** (`iiwa14_plant.cuh`
    `[1008]`→`[504]`, `indy7_plant.cuh` `[864]`→`[432]`) — pushing `forward_dynamics_inner`'s scratch
    ~500 floats past the `FD_DYNAMIC_SHARED_MEM_COUNT=1444` budget. (Matches each plant's own
-   `forwardDynamicsAndGradient` s_vaf offset and the canonical `grid::forward_dynamics_device`.)
-   This was the `compute_merit_kernel` crash (merit calls `integratorError`→`forwardDynamics`).
+   `forward_dynamics_and_gradient` s_vaf offset and the canonical `grid::forward_dynamics_device`.)
+   This was the `compute_merit_kernel` crash (merit calls `integratorError`→`forward_dynamics`).
 2. **`end_effector_positions_kernel` launched with no dynamic-smem argument** (`mpcsim.cuh:172/216/323`,
    `mpcsim_n.cuh:168/234`) — the kernel uses `extern __shared__` (`EE_POS_SHARED_MEM_COUNT` floats);
    the grid host wrapper passes that size, these launches did not. This was the second crash at

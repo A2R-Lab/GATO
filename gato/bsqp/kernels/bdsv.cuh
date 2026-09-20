@@ -81,18 +81,18 @@ __global__ __launch_bounds__(BDSV_THREADS) void solveBDSVBatchedKernel(uint32_t*
 
         // s_mem: [s_r | s_z | warp-dot scratch] for the converged-start guard; after the
         // guard r/z are dead and the front of s_mem is reused as bdsv's 2·SS² staging
-        // scratch (getSolveBDSVBatchedSMemSize takes the max of the two footprints).
+        // scratch (get_solve_bdsv_batched_smem_size takes the max of the two footprints).
         extern __shared__ T s_mem[];
         T* s_r   = s_mem;
         T* s_z   = s_r + VEC;
         T* s_scr = s_z + VEC;
         __shared__ T s_rho;
 
-        T*       d_S_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
-        const T* d_M_inv_matrix = getOffsetBlockRowPadded<T>(d_M_inv_batch, solve_idx, 0);
-        // getOffsetStatePadded points to the start of data; back up one block to the padding start.
-        const T* d_b_vector = getPaddedVector<T>(d_b_batch, solve_idx);
-        T*       d_x_vector = getPaddedVector<T>(d_x_batch, solve_idx);
+        T*       d_S_matrix = get_offset_block_row_padded<T>(d_A_batch, solve_idx, 0);
+        const T* d_M_inv_matrix = get_offset_block_row_padded<T>(d_M_inv_batch, solve_idx, 0);
+        // get_offset_state_padded points to the start of data; back up one block to the padding start.
+        const T* d_b_vector = get_padded_vector<T>(d_b_batch, solve_idx);
+        T*       d_x_vector = get_padded_vector<T>(d_x_batch, solve_idx);
 
         // ---- converged-start guard (must run BEFORE the destructive negate/factor) ----
         glass::set_const<T, 2 * VEC>(static_cast<T>(0), s_r);  // zero r,z incl. pads
@@ -128,7 +128,7 @@ __global__ __launch_bounds__(BDSV_THREADS) void solveBDSVBatchedKernel(uint32_t*
 }
 
 template<typename T>
-__host__ size_t getSolveBDSVBatchedSMemSize()
+__host__ size_t get_solve_bdsv_batched_smem_size()
 {
         // guard phase: 2 padded vectors + warp-dot scratch; factor/solve phase: 2·SS² staging
         const size_t guard_bytes = (2 * (size_t)VEC_SIZE_PADDED + (BDSV_THREADS + 31) / 32) * sizeof(T);
@@ -136,11 +136,11 @@ __host__ size_t getSolveBDSVBatchedSMemSize()
 }
 
 template<typename T>
-__host__ void solveBDSVBatched(uint32_t batch_size, T* d_lambda_batch, SchurSystem<T> schur, int32_t* d_kkt_converged_batch, uint32_t* d_iterations)
+__host__ void solve_bdsv_batched(uint32_t batch_size, T* d_lambda_batch, SchurSystem<T> schur, int32_t* d_kkt_converged_batch, uint32_t* d_iterations)
 {
         dim3           grid(batch_size);
         dim3           thread_block(BDSV_THREADS);
-        const uint32_t s_mem_size = getSolveBDSVBatchedSMemSize<T>();
+        const uint32_t s_mem_size = get_solve_bdsv_batched_smem_size<T>();
 
         solveBDSVBatchedKernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_kkt_converged_batch);
@@ -193,7 +193,7 @@ __global__ __launch_bounds__(BDSV_THREADS) void factorBDSVBatchedKernel(int32_t*
 
         extern __shared__ T s_mem[];
 
-        T* d_S_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
+        T* d_S_matrix = get_offset_block_row_padded<T>(d_A_batch, solve_idx, 0);
 
         // negate the strips in place: (−S) is SPD (stored S is the negated Schur)
         for (uint32_t i = rank; i < BLOCK_ROW_SIZE * KNOT_POINTS; i += size) { d_S_matrix[i] = -d_S_matrix[i]; }
@@ -233,32 +233,32 @@ __global__ __launch_bounds__(BDSV_THREADS) void solveBDSVFactoredBatchedKernel(u
 
         extern __shared__ T s_mem[];
 
-        const T* d_S_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
-        const T* d_rhs_vector = getPaddedVector<T>(d_rhs_batch, solve_idx);
-        T*       d_x_vector = getPaddedVector<T>(d_x_batch, solve_idx);
+        const T* d_S_matrix = get_offset_block_row_padded<T>(d_A_batch, solve_idx, 0);
+        const T* d_rhs_vector = get_padded_vector<T>(d_rhs_batch, solve_idx);
+        T*       d_x_vector = get_padded_vector<T>(d_x_batch, solve_idx);
 
         bdsv_seed_and_solve<T>(d_S_matrix, d_rhs_vector, d_x_vector, s_mem);   // x ← −rhs, then solve
         if (rank == 0) { d_iterations[solve_idx] = 1; }
 }
 
 template<typename T>
-__host__ size_t getFactorBDSVBatchedSMemSize()
+__host__ size_t get_factor_bdsv_batched_smem_size()
 {
         return glass::bdsv_scratch_bytes<T, STATE_SIZE>();
 }
 
 template<typename T>
-__host__ size_t getSolveBDSVFactoredBatchedSMemSize()
+__host__ size_t get_solve_bdsv_factored_batched_smem_size()
 {
         return glass::bdsv_scratch_bytes<T, STATE_SIZE>();
 }
 
 template<typename T>
-__host__ void factorBDSVBatched(uint32_t batch_size, SchurSystem<T> schur, int32_t* d_factor_status, const int32_t* d_kkt_converged_batch)
+__host__ void factor_bdsv_batched(uint32_t batch_size, SchurSystem<T> schur, int32_t* d_factor_status, const int32_t* d_kkt_converged_batch)
 {
         dim3           grid(batch_size);
         dim3           thread_block(BDSV_THREADS);
-        const uint32_t s_mem_size = getFactorBDSVBatchedSMemSize<T>();
+        const uint32_t s_mem_size = get_factor_bdsv_batched_smem_size<T>();
 
         factorBDSVBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
@@ -268,11 +268,11 @@ __host__ void factorBDSVBatched(uint32_t batch_size, SchurSystem<T> schur, int32
 // schur.d_gamma_batch for the plain Schur solve, or the ADMM iteration's own
 // RHS buffer for factor-reuse solves.
 template<typename T>
-__host__ void solveBDSVFactoredBatched(uint32_t batch_size, T* d_x_batch, SchurSystem<T> schur, const T* d_rhs_batch, const int32_t* d_factor_status, uint32_t* d_iterations)
+__host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, SchurSystem<T> schur, const T* d_rhs_batch, const int32_t* d_factor_status, uint32_t* d_iterations)
 {
         dim3           grid(batch_size);
         dim3           thread_block(BDSV_THREADS);
-        const uint32_t s_mem_size = getSolveBDSVFactoredBatchedSMemSize<T>();
+        const uint32_t s_mem_size = get_solve_bdsv_factored_batched_smem_size<T>();
 
         solveBDSVFactoredBatchedKernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

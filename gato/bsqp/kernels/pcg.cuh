@@ -37,16 +37,16 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
         }
 
         // glass::pcg manages its own shared layout within s_mem (5 padded vectors +
-        // warp-dot scratch + 5 static scalars). getSolvePCGBatchedSMemSize() stays >=
+        // warp-dot scratch + 5 static scalars). get_solve_pcg_batched_smem_size() stays >=
         // glass::pcg_scratch_bytes (now returns bytes; GATO sizes its own smem, so unaffected).
         extern __shared__ T s_mem[];
 
         // get S, P_inv, b, x pointers for this batch element (padded vectors).
-        const T* d_A_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
-        const T* d_M_inv_matrix = getOffsetBlockRowPadded<T>(d_M_inv_batch, solve_idx, 0);
-        // getOffsetStatePadded points to the start of data; back up one block to the padding start.
-        const T* d_b_vector = getPaddedVector<T>(d_b_batch, solve_idx);
-        T* d_x_vector = getPaddedVector<T>(d_x_batch, solve_idx);
+        const T* d_A_matrix = get_offset_block_row_padded<T>(d_A_batch, solve_idx, 0);
+        const T* d_M_inv_matrix = get_offset_block_row_padded<T>(d_M_inv_batch, solve_idx, 0);
+        // get_offset_state_padded points to the start of data; back up one block to the padding start.
+        const T* d_b_vector = get_padded_vector<T>(d_b_batch, solve_idx);
+        T* d_x_vector = get_padded_vector<T>(d_x_batch, solve_idx);
 
         // Block-wide preconditioned CG (GLASS). S (=d_A) / P_inv (=d_M_inv) are the same
         // [L|D|R] row-major block-tridiagonal strips that glass::bdmv consumes internally;
@@ -60,18 +60,18 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
 }
 
 template<typename T>
-__host__ size_t getSolvePCGBatchedSMemSize()
+__host__ size_t get_solve_pcg_batched_smem_size()
 {
         // exact glass::pcg contract: 5 padded vectors + warp-dot scratch (5 scalars are static)
         return glass::pcg_scratch_bytes<T, STATE_SIZE, KNOT_POINTS>(PCG_THREADS);
 }
 
 template<typename T>
-__host__ void solvePCGBatched(uint32_t batch_size, T* d_lambda_batch, SchurSystem<T> schur, T* d_epsilon_batch, uint32_t max_pcg_iters, int32_t* d_kkt_converged_batch, uint32_t* d_iterations)
+__host__ void solve_pcg_batched(uint32_t batch_size, T* d_lambda_batch, SchurSystem<T> schur, T* d_epsilon_batch, uint32_t max_pcg_iters, int32_t* d_kkt_converged_batch, uint32_t* d_iterations)
 {
         dim3           grid(batch_size);
         dim3           thread_block(PCG_THREADS);
-        const uint32_t s_mem_size = getSolvePCGBatchedSMemSize<T>();
+        const uint32_t s_mem_size = get_solve_pcg_batched_smem_size<T>();
 
         solvePCGBatchedKernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_epsilon_batch, max_pcg_iters, d_kkt_converged_batch);

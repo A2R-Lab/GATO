@@ -142,7 +142,7 @@ namespace plant {
         // (Minv @ X)[r, c] with Minv stored SYMMETRIC-UPPER (GRiD layout): the
         // one product all three Jacobian compositions below use (dq/du/dfc).
         template<typename T>
-        __device__ __forceinline__ T minvSymUpperDot(const T* s_Minv, const T* x_col, int r)
+        __device__ __forceinline__ T minv_sym_upper_dot(const T* s_Minv, const T* x_col, int r)
         {
                 T val = static_cast<T>(0);
 #pragma unroll
@@ -161,7 +161,7 @@ namespace plant {
         // (temp = the caller's ordinary scratch region, reused sequentially — safe:
         // strictly-ordered inner calls, same pattern as contact_debug.cuh).
         template<typename T>
-        __device__ void buildContactFext(T* s_fext, const T* s_fc, const T* s_q,
+        __device__ void build_contact_fext(T* s_fext, const T* s_fc, const T* s_q,
                                          T* s_XmatsHom, T* s_temp,
                                          grid::robotModel<T>* d_robotModel, const T* d_f_ext_band)
         {
@@ -190,7 +190,7 @@ namespace plant {
         // __noinline__: cicc-cliff guard (this body lands in the setup_kkt TU).
 
         template<typename T>
-        __device__ __noinline__ void addContactChainCorrection(T* s_df_du, T* s_dfext_dq, T* s_dtau_dq,
+        __device__ __noinline__ void add_contact_chain_correction(T* s_df_du, T* s_dfext_dq, T* s_dtau_dq,
                                                                const T* s_fc, const T* s_dtau_dfext,
                                                                const T* s_Minv, const T* s_q, const T* s_XmatsHom,
                                                                int* s_topology_helpers, T* s_temp)
@@ -215,14 +215,14 @@ namespace plant {
                 // dqdd/dq += -Minv (SYMMETRIC_UPPER) @ dtau_dq_corr
                 for (int ind = tid; ind < NQ * NQ; ind += nth) {
                         const int r = ind % NQ, c = ind / NQ;
-                        s_df_du[ind] -= minvSymUpperDot<T>(s_Minv, s_dtau_dq + c * NQ, r);
+                        s_df_du[ind] -= minv_sym_upper_dot<T>(s_Minv, s_dtau_dq + c * NQ, r);
                 }
                 __syncthreads();
         }
 #endif
 
         template<typename T>
-        __device__ void forwardDynamics(T* s_qdd, T* s_q, T* s_qd, T* s_u, T* s_XITemp, void* d_dynMem_const, T* d_f_ext = nullptr)
+        __device__ void forward_dynamics(T* s_qdd, T* s_q, T* s_qd, T* s_u, T* s_XITemp, void* d_dynMem_const, T* d_f_ext = nullptr)
         {
                 // TOPOLOGY_HELPERS_COUNT == 0 for fixed serial chains; the inners never
                 // dereference a zero-count helper buffer, so a null pointer is safe.
@@ -235,7 +235,7 @@ namespace plant {
                 // FC_PERSIST_COUNT below).
                 T* s_XmatsHom = &s_XITemp[grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT];
                 T* s_fext = s_XmatsHom + grid::XHOM_T_COUNT;
-                buildContactFext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp,
+                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp,
                                     (grid::robotModel<T>*)d_dynMem_const, d_f_ext);
                 d_f_ext = s_fext;
 #endif
@@ -254,7 +254,7 @@ namespace plant {
         }
 
         template<typename T, bool INCLUDE_DU = true>
-        __device__ void forwardDynamicsAndGradient(T* s_df_du, T* s_qdd, const T* s_q, const T* s_qd, const T* s_u, T* s_temp_in, void* d_dynMem_const, T* d_f_ext = nullptr)
+        __device__ void forward_dynamics_and_gradient(T* s_df_du, T* s_qdd, const T* s_q, const T* s_qd, const T* s_u, T* s_temp_in, void* d_dynMem_const, T* d_f_ext = nullptr)
         {
                 T*                   s_XITemp = s_temp_in;
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
@@ -276,7 +276,7 @@ namespace plant {
                 T* s_dtau_dfc   = s_dfext_dfc + FEXT_COUNT * FC;  // NQ x FC,  [k + NQ*c]
                 T* s_dfext_dq   = s_dtau_dfc + NQ * FC;           // 6NB x NQ, [row + 6NB*v]
                 T* s_dtau_dq    = s_dfext_dq + FEXT_COUNT * NQ;   // NQ x NQ,  [v*NQ + k]
-                buildContactFext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, d_robotModel, d_f_ext);
+                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, d_robotModel, d_f_ext);
                 d_f_ext = s_fext;
 #endif
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -300,7 +300,7 @@ namespace plant {
                 for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 2 * NQ * NQ; ind += blockDim.x * blockDim.y) {
                         int row = ind % NQ;
                         int dc_col_offset = ind - row;
-                        s_df_du[ind] = -minvSymUpperDot<T>(s_Minv, s_dc_du + dc_col_offset, row);
+                        s_df_du[ind] = -minv_sym_upper_dot<T>(s_Minv, s_dc_du + dc_col_offset, row);
                         if (INCLUDE_DU && ind < NQ * NQ) {
                                 int col = ind / NQ;
                                 int index = (row <= col) * (col * NQ + row) + (row > col) * (row * NQ + col);
@@ -337,13 +337,13 @@ namespace plant {
                                 __syncthreads();
                                 for (int ind = tid; ind < NQ * FC; ind += nth) {  // -Minv (sym-upper) @ dtau_dfc
                                         int r = ind % NQ; int c = ind / NQ;
-                                        s_df_du[3 * NQ * NQ + ind] = -minvSymUpperDot<T>(s_Minv, s_dtau_dfc + c * NQ, r);
+                                        s_df_du[3 * NQ * NQ + ind] = -minv_sym_upper_dot<T>(s_Minv, s_dtau_dfc + c * NQ, r);
                                 }
                                 __syncthreads();
                         }
                         // W2: fold the dfext/dq chain term into the A-block (dqdd/dq) — applies
                         // to the dq columns, so it is NOT gated on INCLUDE_DU.
-                        addContactChainCorrection<T>(s_df_du, s_dfext_dq, s_dtau_dq, &s_u[NU], s_dtau_dfext,
+                        add_contact_chain_correction<T>(s_df_du, s_dfext_dq, s_dtau_dq, &s_u[NU], s_dtau_dfext,
                                                      s_Minv, s_q, s_XmatsHom, s_topology_helpers, s_temp);
                 }
 #endif
@@ -359,7 +359,7 @@ namespace plant {
         // Exact-Hessian (SO-SQP) lambda^T d2a/dz2 contraction  [USE_EXACT_HESSIAN]
         // ===================================================================
 
-        // Shared elements for exactHessianContraction: w (NQ) + the all-smem
+        // Shared elements for exact_hessian_contraction: w (NQ) + the all-smem
         // grid::fdsva_so_device arena (qdd + Minv + df_du + df2 + idsva_so +
         // XImats + the SO temp pool, whose element count == the per-timestep SO
         // workspace band the generated TIER_LITE path would use instead).
@@ -397,7 +397,7 @@ namespace plant {
         //
         // __noinline__: cicc-cliff guard (this lands in the setup_kkt TU).
         template<typename T, unsigned INTEGRATOR_TYPE = 2>
-        __device__ __noinline__ void exactHessianContraction(T* s_P, const T* s_xux, const T* d_lambda_kp1, T dt, T* s_so, void* d_dynMem_const)
+        __device__ __noinline__ void exact_hessian_contraction(T* s_P, const T* s_xux, const T* d_lambda_kp1, T dt, T* s_so, void* d_dynMem_const)
         {
                 constexpr int PDIM = NX + NU;
                 constexpr int NQ2 = NQ * NQ;
@@ -485,7 +485,7 @@ namespace plant {
         // or N_cost (terminal). u_cost=0 (+ caller's mu_u=0) disables the control reg/barrier
         // on the terminal value knot. s_eePos_traj is the 6-wide reference (only xyz used).
         template<typename T>
-        __device__ void buildTrackingCostBuffers(
+        __device__ void build_tracking_cost_buffers(
             T* s_Q, T* s_R, T* s_W, T* s_x_des, T* s_u_des, T* s_ee_des,
             T* s_q_lo, T* s_q_hi, T* s_qd_lo, T* s_qd_hi, T* s_u_lo, T* s_u_hi,
             const T* s_eePos_traj, T qd_cost, T u_cost, T ee_weight,
@@ -523,7 +523,7 @@ namespace plant {
         // is_terminal picks N_cost EE weight + drops the control reg/barrier (matches GATO's
         // per-knot terminal handling). s_temp >= trackingCostValue_TempMemCt().
         template<typename T>
-        __device__ T trackingCostValue(
+        __device__ T tracking_cost_value(
             const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
             T q_cost, T qd_cost, T u_cost, T N_cost,
@@ -543,7 +543,7 @@ namespace plant {
                 const T ee_w = is_terminal ? N_cost : q_cost;
                 const T u_w  = is_terminal ? static_cast<T>(0) : u_cost;        // terminal knot: no control reg
                 const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost; // terminal knot: no ctrl barrier
-                buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
+                build_tracking_cost_buffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
                                             s_eePos_traj, qd_cost, u_w, ee_w, q_pos_cost, d_q_nom,
                                             is_terminal ? nullptr : d_u_cost_vec, d_q_pos_w_vec);
@@ -578,7 +578,7 @@ namespace plant {
         // s_x) or N_cost (terminal, at state x_{k+1} — see _lastblock rewire / PR #17).
         // For a terminal R-less call, pass throwaway s_rk/s_Rk. s_temp >= trackingCostGradHess_TempMemCt().
         template<typename T>
-        __device__ void trackingCostGradHess(
+        __device__ void tracking_cost_grad_hess(
             const T* s_x, const T* s_u, const T* s_eePos_traj,
             T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
@@ -604,7 +604,7 @@ namespace plant {
                 T* s_scratch = s_eePosGrad + 6 * NQ * NEE;
 #endif
 
-                buildTrackingCostBuffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
+                build_tracking_cost_buffers<T>(s_Q, s_R, s_W, s_x_des, s_u_des, s_ee_des,
                                             s_q_lo, s_q_hi, s_qd_lo, s_qd_hi, s_u_lo, s_u_hi,
                                             s_eePos_traj, qd_cost, u_cost, ee_weight, q_pos_cost, d_q_nom,
                                             d_u_cost_vec, d_q_pos_w_vec);
@@ -672,7 +672,7 @@ namespace plant {
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
         {
-                // W(3) + eePos(6*NEE) + Q_diag(2*NV) + x_des(NX) + max(EE value
+                // W(3) + ee_pos(6*NEE) + Q_diag(2*NV) + x_des(NX) + max(EE value
                 // arena incl. topology ints, the tangent state-cost value
                 // scratch (54), the per-slot partial buffer 3*NU)
                 constexpr unsigned arena =
@@ -687,7 +687,7 @@ namespace plant {
         template<typename T>
         __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
         {
-                // W(3) + eePos(6*NEE) + J(6*NV*NEE) + Q_diag(2*NV) + x_des(NX)
+                // W(3) + ee_pos(6*NEE) + J(6*NV*NEE) + Q_diag(2*NV) + x_des(NX)
                 // + max(EE gradient arena, tangent state-cost GN scratch (90))
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
@@ -705,7 +705,7 @@ namespace plant {
         // (quat xyzw ⇒ slot 6 = 1): the log-map must stay finite even at
         // zero weight (0 * NaN = NaN). Strided, no trailing sync.
         template<typename T>
-        __device__ __forceinline__ void buildTangentStateCostInputs(
+        __device__ __forceinline__ void build_tangent_state_cost_inputs(
             T* s_Q, T* s_x_des, T qd_cost, T q_pos_cost,
             const T* d_q_nom, const T* d_q_pos_w_vec, int tid, int nth)
         {
@@ -727,7 +727,7 @@ namespace plant {
         // VALUE (same signature as the fixed adapter). s_x is the STORED state
         // [q(NQ); qd(NV)]; s_u the actuated control.
         template<typename T>
-        __device__ T trackingCostValue(
+        __device__ T tracking_cost_value(
             const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
             T q_cost, T qd_cost, T u_cost, T N_cost,
@@ -749,7 +749,7 @@ namespace plant {
                 const T u_w  = is_terminal ? static_cast<T>(0) : u_cost;
                 const T mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost;
                 for (int r = tid; r < 3; r += nth) { s_W[r] = ee_w; }
-                buildTangentStateCostInputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
+                build_tangent_state_cost_inputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
                                                d_q_nom, d_q_pos_w_vec, tid, nth);
                 __syncthreads();
                 __shared__ T s_out[1];
@@ -794,7 +794,7 @@ namespace plant {
         // GRAD+HESS (same signature as the fixed adapter). Outputs TANGENT
         // blocks: s_Qk 2NV×2NV col-major, s_qk 2NV, s_Rk NU×NU, s_rk NU.
         template<typename T>
-        __device__ void trackingCostGradHess(
+        __device__ void tracking_cost_grad_hess(
             const T* s_x, const T* s_u, const T* s_eePos_traj,
             T* s_Qk, T* s_qk, T* s_Rk, T* s_rk, T* s_temp,
             const grid::robotModel<T>* d_robotModel,
@@ -819,7 +819,7 @@ namespace plant {
                 for (int i = tid; i < NU * NU; i += nth) { s_Rk[i] = static_cast<T>(0); }
                 for (int i = tid; i < NU; i += nth) { s_rk[i] = static_cast<T>(0); }
                 for (int r = tid; r < 3; r += nth) { s_W[r] = ee_weight; }
-                buildTangentStateCostInputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
+                build_tangent_state_cost_inputs<T>(s_Q, s_x_des, qd_cost, q_pos_cost,
                                                d_q_nom, d_q_pos_w_vec, tid, nth);
                 __syncthreads();
                 // tangent EE gradient adds into the zeroed dq block (ACCUMULATE:
@@ -840,7 +840,7 @@ namespace plant {
                 // tangent preset (GRiD ASK 3): exact-J_diff gradient + GN hessian
                 // ACCUMULATEd onto the zeroed/EE-GN blocks. Base rows weight 0
                 // today — base-pose tracking is a weight change (see
-                // buildTangentStateCostInputs). Both calls end on a barrier.
+                // build_tangent_state_cost_inputs). Both calls end on a barrier.
                 grid_plant::quadratic_state_cost_tangent_gradient<T, /*ACCUMULATE=*/true>(s_qk, s_x, s_x_des, s_Q, s_arena);
                 grid_plant::quadratic_state_cost_tangent_hessian<T, /*ACCUMULATE=*/true, /*GAUSS_NEWTON=*/true>(s_Qk, s_x, s_x_des, s_Q, s_arena);
                 // barrier terms (actuated-only) + u reg
@@ -878,7 +878,7 @@ namespace plant {
         // Thin forwards to the generated grid_plant::ee_pos[_gradient]
         // (GRiD ASK 2, landed 2026-08-13): caller-scratch, no cost coupling,
         // arena carved by the emitted code itself. s_scratch must be
-        // 16B-aligned and hold >= eePos[Grad]_TempMemCt() elements.
+        // 16B-aligned and hold >= ee_pos[Grad]_TempMemCt() elements.
         // Outputs: s_pose = 6*NEE (position = rows 0..2 per EE);
         // s_grad = 6*NV*NEE, layout [6*NV*ee + 6*vi + row] (J_p = rows 0..2;
         // tangent d/dv convention — NV == NQ on fixed base).
@@ -908,7 +908,7 @@ namespace plant {
         // (nullptr on fixed serial chains, count 0 — pointer values identical
         // there).
         template<typename T, unsigned TOTAL_T_CT>
-        __device__ __forceinline__ void eeCarve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers, unsigned char** s_linalg_smem)
+        __device__ __forceinline__ void ee_carve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers, unsigned char** s_linalg_smem)
         {
                 using namespace grid;
                 *s_XmatsHom = s_scratch;
@@ -924,13 +924,13 @@ namespace plant {
         }
 
         template<typename T>
-        __device__ void eePos(T* s_pose, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        __device__ void ee_pos(T* s_pose, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
                 grid_plant::ee_pos<T>(s_pose, s_q, s_scratch, d_robotModel);
         }
 
         template<typename T>
-        __device__ void eePosGrad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        __device__ void ee_pos_grad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
                 grid_plant::ee_pos_gradient<T>(s_pose, s_grad, s_q, s_scratch, d_robotModel);
         }
@@ -940,7 +940,7 @@ namespace plant {
         // adapters over the generated grid_collision:: family — the generated
         // *_device wrappers carve `extern __shared__` FROM OFFSET 0, which
         // would alias any consumer kernel's own dynamic-smem layout (same
-        // reason eePos/eePosGrad exist above). Layout mirrors
+        // reason ee_pos/ee_pos_grad exist above). Layout mirrors
         // grid::multi_target_position[_gradient]_device exactly.
         //
         // d_i(q) = signed clearance of collision sphere i to the NEAREST
@@ -974,14 +974,14 @@ namespace plant {
                        + (unsigned)(grid::MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() / sizeof(T));
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned mtPosArenaCt()
+        __host__ __device__ constexpr unsigned mt_pos_arena_ct()
         {
                 return mtPos_T_Ct<T>()
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
                        + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned mtPosGradArenaCt()
+        __host__ __device__ constexpr unsigned mt_pos_grad_arena_ct()
         {
                 return mtPosGrad_T_Ct<T>()
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
@@ -992,27 +992,27 @@ namespace plant {
         __host__ __device__ constexpr unsigned collisionDist_TempMemCt()
         {
                 // FK arena + sphere pos/radii + normals + align slop
-                return mtPosArenaCt<T>() + 3 * NCC + NCC + 3 * NCC + 16 / sizeof(T) + 1;
+                return mt_pos_arena_ct<T>() + 3 * NCC + NCC + 3 * NCC + 16 / sizeof(T) + 1;
         }
         template<typename T>
         __host__ __device__ constexpr unsigned collisionDistGrad_TempMemCt()
         {
                 // FK arena + pos/radii/normals + dp/dq batch (NV tangent columns)
-                return mtPosGradArenaCt<T>() + 3 * NCC + NCC + 3 * NCC + 3 * NV * NCC + 16 / sizeof(T) + 1;
+                return mt_pos_grad_arena_ct<T>() + 3 * NCC + NCC + 3 * NCC + 3 * NV * NCC + 16 / sizeof(T) + 1;
         }
 
         // s_dist: NCC per-sphere clearances. s_q is the STORED configuration
         // (quaternion layout on floating base). ALL threads must call (barriers).
         template<typename T>
-        __device__ void collisionDist(T* s_dist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
+        __device__ void collision_dist(T* s_dist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
                                       const grid_collision::Environment<T>& env)
         {
                 using namespace grid;
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
                 unsigned char* s_linalg_smem;
-                eeCarve<T, mtPos_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
-                T* s_pos = s_scratch + mtPosArenaCt<T>();
+                ee_carve<T, mtPos_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                T* s_pos = s_scratch + mt_pos_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
@@ -1030,15 +1030,15 @@ namespace plant {
         // multi-target gradient is NV-columned — fixed base NV == NQ).
         // ALL threads must call.
         template<typename T>
-        __device__ void collisionDistGrad(T* s_dist, T* s_ddist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
+        __device__ void collision_dist_grad(T* s_dist, T* s_ddist, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel,
                                           const grid_collision::Environment<T>& env)
         {
                 using namespace grid;
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
                 unsigned char* s_linalg_smem;
-                eeCarve<T, mtPosGrad_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
-                T* s_pos = s_scratch + mtPosGradArenaCt<T>();
+                ee_carve<T, mtPosGrad_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                T* s_pos = s_scratch + mt_pos_grad_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 T* s_normal = s_r + NCC;
                 T* s_pos_grad = s_normal + 3 * NCC;

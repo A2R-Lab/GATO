@@ -20,7 +20,7 @@ using namespace gato::constants;
 // cost-value and integrator-error scratch). The COLLISION value carve overlays
 // this region when it fits — s_temp is dead between those two consumers.
 template<typename T>
-__host__ __device__ constexpr size_t computeMeritTempMemCt()
+__host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
 {
         constexpr size_t a = gato::plant::trackingCostValue_TempMemCt<T>();
 #if GATO_FLOATING_STEP
@@ -41,11 +41,11 @@ struct MeritSmem {
         static constexpr size_t xux_k = 0;
         static constexpr size_t reference_traj_k = xux_k + constants::XUX_SIZE;
         static constexpr size_t temp = reference_traj_k + constants::EE_POS_SIZE;
-        static constexpr size_t total = temp + computeMeritTempMemCt<T>();
+        static constexpr size_t total = temp + compute_merit_temp_mem_ct<T>();
 };
 
 template<typename T>
-__host__ __device__ constexpr size_t computeMeritBaseSMemCt()
+__host__ __device__ constexpr size_t compute_merit_base_smem_ct()
 {
         return MeritSmem<T>::total;
 }
@@ -108,10 +108,10 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         T*                  s_temp = s_mem + MeritSmem<T>::temp;
 
 
-        T* d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, knot_idx);
-        T* d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, knot_idx);
+        T* d_xu_k = get_offset_xu<T>(d_xu_traj_batch, solve_idx, knot_idx);
+        T* d_dz_k = get_offset_dz<T>(d_dz_batch, solve_idx, knot_idx);
         T* d_x_initial_k = d_x_initial_batch + solve_idx * XU_STATE_SIZE;  // STORED format
-        T* d_f_ext = getOffsetWrench<T>(d_f_ext_batch, solve_idx, knot_idx);
+        T* d_f_ext = get_offset_wrench<T>(d_f_ext_batch, solve_idx, knot_idx);
 
         // line-search trial step: s_xux_k = d_xu_k ⊞ alpha * d_dz_k
         // (fixed base: plain axpby; floating: per-knot state retract + control
@@ -133,7 +133,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                 }
         }
 
-        T* d_reference_traj_k = getOffsetReferenceTraj<T>(d_reference_traj_batch, solve_idx, knot_idx);
+        T* d_reference_traj_k = get_offset_reference_traj<T>(d_reference_traj_batch, solve_idx, knot_idx);
         glass::copy<T, constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
         __syncthreads();
 
@@ -148,7 +148,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         // cost function (grid_plant::tracking_cost via the adapter; terminal knot picks
         // N_cost EE weight + drops the control reg/barrier, matching the old trackingcost).
         cost_k =
-            plant::trackingCostValue<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
+            plant::tracking_cost_value<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_reference_traj_k, s_temp, d_robot_model, ee_w_k, qd_w_k, u_w_k, eeN_w, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref);
         __syncthreads();
 
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's
@@ -162,7 +162,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                 cost_k += gato::rows::row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, /*has_control=*/(knot_idx < KNOT_POINTS - 1), d_z_admm, d_y_admm, admm_rho_scale);
                 // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
                 // value — the fold linearizes, the merit must not). s_temp is free
-                // between trackingCostValue and the constraint-error section, and
+                // between tracking_cost_value and the constraint-error section, and
                 // trackingCostValue_TempMemCt >= the EE value carve.
                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
@@ -176,8 +176,8 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                 // fixed-base arenas) extends the host-sized launch.
                 if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
-                        constexpr size_t tail_ct = computeMeritTempMemCt<T>();
-                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + computeMeritBaseSMemCt<T>();
+                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
+                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T>();
                         __syncthreads();
                         cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
@@ -192,8 +192,8 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
                 constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
 #endif
         } else {
-                d_xu_k = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
-                d_dz_k = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
+                d_xu_k = get_offset_xu<T>(d_xu_traj_batch, solve_idx, 0);
+                d_dz_k = get_offset_dz<T>(d_dz_batch, solve_idx, 0);
 #if GATO_FLOATING_STEP
                 // trial x_0 = xu_0 ⊞ α·dz_0, then the TANGENT gap to the stored
                 // initial state: |x_0^trial ⊟ x_s|_1
@@ -224,7 +224,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
         __syncthreads();
 
         // per-knot partial write (one block owns one slot — no atomics). The
-        // final merit is summed in FIXED knot order by reduceMeritPartialsKernel:
+        // final merit is summed in FIXED knot order by reduce_merit_partials_kernel:
         // the old atomicAdd accumulation summed in schedule order, whose ±1ulp
         // run-to-run jitter could flip line-search ties and break trajectory
         // bit-determinism (the 2026-08-01 P4.4 class) — two-pass is exact.
@@ -239,7 +239,7 @@ computeMeritBatchedKernel(T* __restrict__       d_merit_partial_batch,  // per-(
 // Converged solves are skipped — their d_merit_batch slots stay untouched,
 // mirroring the merit kernel's own converged-skip (line search skips them too).
 template<typename T>
-__global__ void reduceMeritPartialsKernel(T* __restrict__ d_merit_batch,
+__global__ void reduce_merit_partials_kernel(T* __restrict__ d_merit_batch,
                                           const T* __restrict__ d_merit_partial_batch,
                                           uint32_t n_slots,
                                           uint32_t num_alphas,
@@ -255,21 +255,21 @@ __global__ void reduceMeritPartialsKernel(T* __restrict__ d_merit_batch,
 }
 
 template<typename T>
-__host__ size_t getComputeMeritBatchedSMemSize(int has_collision = 0)
+__host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0)
 {
-        size_t size = sizeof(T) * computeMeritBaseSMemCt<T>();
+        size_t size = sizeof(T) * compute_merit_base_smem_ct<T>();
         // runtime-sized: only when a COLLISION group is registered (host-known)
         // AND its carve exceeds the dead s_temp tail it overlays in the kernel
         if (has_collision) {
                 constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
-                constexpr size_t tail_ct = computeMeritTempMemCt<T>();
+                constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
                 size += sizeof(T) * (cc_ct > tail_ct ? cc_ct - tail_ct : (size_t)0);
         }
         return size;
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void computeMeritBatched(uint32_t                    batch_size,
+__host__ void compute_merit_batched(uint32_t                    batch_size,
                                   const int32_t*              d_kkt_converged_batch,  // nullptr => no converged-skip (initial merit)
                                   const T*                    d_knot_cost_weights,    // nullptr => scalar weights
                                   T*                          d_merit_batch,
@@ -305,7 +305,7 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
         dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
-        size_t s_mem_size = getComputeMeritBatchedSMemSize<T>(has_collision);
+        size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision);
         // mirror setup_kkt: opt in past the 48KB default once, FAIL LOUD on both
         // the attribute set and the launch (silent launch failures leave the
         // merit buffers unwritten while the line search "runs")
@@ -351,5 +351,5 @@ __host__ void computeMeritBatched(uint32_t                    batch_size,
                                                                                     d_admm_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
         const uint32_t n_slots = batch_size * NumAlphas;
-        reduceMeritPartialsKernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch);
+        reduce_merit_partials_kernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch);
 }

@@ -91,7 +91,7 @@ class BSQP {
         }
 
         // Per-KNOT wrench upload: solve-major then knot-major, 6*NUM_BODIES per knot
-        // (layout matches getOffsetWrench). Wrench k applies to dynamics interval
+        // (layout matches get_offset_wrench). Wrench k applies to dynamics interval
         // [k, k+1] (setup_kkt linearization + merit integrator error); sim_forward
         // uses knot 0's wrench. CL-3 prep: forces-as-controls will write this band
         // per-knot from the contact-wrench decision variables.
@@ -151,7 +151,7 @@ class BSQP {
         void enable_limit_telemetry()
         {
                 if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
-                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
+                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
                 admm_active_ = false;
@@ -169,7 +169,7 @@ class BSQP {
         {
                 if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(delta > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_barrier: delta must be > 0"); }
-                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
+                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
                 admm_active_ = false;
@@ -189,7 +189,7 @@ class BSQP {
                 if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
                 if (iters < 1) { throw std::invalid_argument("enable_limit_admm: iters must be >= 1"); }
-                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
+                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
                 admm_active_ = true;
@@ -214,7 +214,7 @@ class BSQP {
         {
                 if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_al: rho must be > 0"); }
-                rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
+                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
                 gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMemset(d_lam_lo_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
                 reset_al_prev_viol();
@@ -550,7 +550,7 @@ class BSQP {
         // multiplier on top of the bound per-group rho baselines (grp.mu — the
         // R2/2b block-scale ratios between groups are preserved), updated once
         // per SQP iteration from the inner loop's final (r_prim, r_dual)
-        // (kernels/admm.cuh admmAdaptRhoScaleBatched: adapt when imbalanced
+        // (kernels/admm.cuh admm_adapt_rho_scale_batched: adapt when imbalanced
         // > 5x, step sqrt(ratio), clamp [1e-2, 1e2]). The dual form is
         // UNSCALED so a rho change needs no y-rescaling, and the rho*G^T*G
         // fold refreshes in the next setup_kkt — the scale is consumed at
@@ -690,7 +690,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -728,7 +728,7 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(d_qd, h_qd, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_u, h_u, NQ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_fc, h_fc, NFCW * sizeof(T), cudaMemcpyHostToDevice));
-                gato::debugContactDynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
+                gato::debug_contact_dynamics<T>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
                                               d_dqdd_dfc_adapter, d_dqdd_dq_adapter,
                                               d_q, d_qd, d_u, d_fc, d_GRiD_mem_);
                 gpuErrchk(cudaMemcpy(h_qdd, d_qdd, NQ * sizeof(T), cudaMemcpyDeviceToHost));
@@ -780,7 +780,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_pcg_iterations_, 0, sizeof(uint32_t) * batch_size_));
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
-                computeMeritBatched<T, 1>(
+                compute_merit_batched<T, 1>(
                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
@@ -789,16 +789,16 @@ class BSQP {
                 // on a row the primal may not satisfy is an unbounded violation
                 // integrator (measured; kernels/admm.cuh header)
                 if (admm_active_ && admm_needs_init_) {
-                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/false, h_env_);
+                        rows::admm_init_state_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/false, h_env_);
                         admm_needs_init_ = false;
                 } else if (admm_active_ && admm_has_eq_rows_) {
-                        rows::admmInitStateBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/true, h_env_);
+                        rows::admm_init_state_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/true, h_env_);
                 }
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setupKKTSystemBatched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
-                        formSchurSystemBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
+                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                        form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
                         if (admm_active_) {
@@ -809,17 +809,17 @@ class BSQP {
                                 // iteration from the preserved base copies (+ the ADMM term).
                                 gpuErrchk(cudaMemcpyAsync(d_q_base_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
-                                if (!admm_linsys_pcg_) { factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
+                                if (!admm_linsys_pcg_) { factor_bdsv_batched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
-                                        rows::admmGradientBatched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
-                                        computeGammaBatched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                        rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
+                                        compute_gamma_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                                         if (admm_linsys_pcg_) {
-                                                solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                                solve_pcg_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
                                         } else {
-                                                solveBDSVFactoredBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
+                                                solve_bdsv_factored_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
                                         }
-                                        computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
-                                        rows::admmProjectDualBatched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
+                                        compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                        rows::admm_project_dual_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
                                 }
                                 // NOTE: ADMM mode is fixed-budget by design (approximately-hard):
                                 // the pcg_iters==0 SQP early-exit is guarded on !admm_active_
@@ -844,12 +844,12 @@ class BSQP {
                                 // search fails), bdsv descends normally — 2026-07-30 probe.
                                 const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_ || exact_hessian_;
                                 if (use_bdsv) {
-                                        solveBDSVBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                        solve_bdsv_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
                                 } else {
-                                        solvePCGBatched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                        solve_pcg_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
                                 }
                                 if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_stop_event_)); }
-                                computeDzBatched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                         }
 
                         // convergence signal: PCG iteration counts (pinned staging + event —
@@ -893,10 +893,10 @@ class BSQP {
                         // its duals update once per solve, after the SQP loop.
                         const bool admm_merit = admm_active_ && admm_merit_term_;
                         if (admm_merit) {
-                                computeMeritBatched<T, 1>(
+                                compute_merit_batched<T, 1>(
                                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         }
-                        computeMeritBatched<T, NUM_ALPHAS>(
+                        compute_merit_batched<T, NUM_ALPHAS>(
                             batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
@@ -905,7 +905,7 @@ class BSQP {
                         // converged solution off feasibility (measured: viol 0 -> ~1.0
                         // wandering over 30 warm solves; frozen: exactly 0 throughout).
                         const int adapt = (adapt_rho_ && !al_active_) ? 1 : 0;
-                        lineSearchAndUpdateBatched<T, NUM_ALPHAS>(
+                        line_search_and_update_batched<T, NUM_ALPHAS>(
                             batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_);
 
                         // stage line-search stats into per-iteration pinned slots; read once
@@ -922,7 +922,7 @@ class BSQP {
                         // fold, gradient, projection, and merit stay mutually consistent
                         // within every SQP iteration.
                         if (admm_active_ && admm_rho_adapt_) {
-                                rows::admmAdaptRhoScaleBatched<T>(batch_size_, d_admm_rho_scale_batch_, d_admm_resid_, d_kkt_converged_batch_);
+                                rows::admm_adapt_rho_scale_batched<T>(batch_size_, d_admm_rho_scale_batch_, d_admm_resid_, d_kkt_converged_batch_);
                         }
                 }
 
@@ -935,7 +935,7 @@ class BSQP {
                 // row-group telemetry on the RETURNED trajectory (off the solver path;
                 // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
                 if (n_row_groups_ > 0) {
-                        rows::rowGroupTelemetryBatched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch, d_GRiD_mem_, h_env_);
+                        rows::row_group_telemetry_batched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch, d_GRiD_mem_, h_env_);
                         // AL outer dual update ONCE per solve, on the FINAL trajectory
                         // (rowgroups.cuh). The whole solve is the inner minimization —
                         // per-SQP-iteration updates diverge (a damped/rejected step is
@@ -947,7 +947,7 @@ class BSQP {
                         // telemetry kernel (same stream) — it reads the fresh per-group
                         // violations for the true-violation acceptance gate.
                         if (al_active_) {
-                                rows::alDualUpdateBatched<T>(batch_size_, d_lam_hi_, d_lam_lo_, d_al_prev_viol_, d_row_telemetry_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, h_env_);
+                                rows::al_dual_update_batched<T>(batch_size_, d_lam_hi_, d_lam_lo_, d_al_prev_viol_, d_row_telemetry_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, h_env_);
                         }
                         gpuErrchk(cudaDeviceSynchronize());
                 }
@@ -1118,7 +1118,7 @@ class BSQP {
 
                 gpuErrchk(cudaFree(d_lambda_batch_));
                 gpuErrchk(cudaFree(d_dz_batch_));
-		gpuErrchk(cudaFree(d_dz_zero_));
+        	gpuErrchk(cudaFree(d_dz_zero_));
                 gpuErrchk(cudaFree(d_kkt_converged_batch_));
                 gpuErrchk(cudaFree(d_merit_initial_batch_));
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
@@ -1165,7 +1165,7 @@ class BSQP {
         SchurSystem<T>      schur_system_batch_;
         T*                  d_lambda_batch_;
         T*                  d_dz_batch_;
-	T*       d_dz_zero_;
+        T*       d_dz_zero_;
         // PCG
         uint32_t* d_pcg_iterations_;
         // Merit
@@ -1212,7 +1212,7 @@ class BSQP {
         bool     admm_needs_init_ = false;
         bool     admm_has_eq_rows_ = false;
         uint32_t admm_iters_ = 10;
-	bool     admm_merit_term_ = false;  // set_admm_merit (R1 ablation)
+        bool     admm_merit_term_ = false;  // set_admm_merit (R1 ablation)
 
         // AL/PHR duals (rowgroups.cuh MECH_AL; al_active_ == false -> inert)
         T*   d_lam_hi_;

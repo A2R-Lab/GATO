@@ -226,9 +226,9 @@ int main()
 
     SchurSystem<float> schur{dS, dP, db};
 
-    const size_t smem_mono = getSolveBDSVBatchedSMemSize<float>();
-    const size_t smem_factor = getFactorBDSVBatchedSMemSize<float>();
-    const size_t smem_fsolve = getSolveBDSVFactoredBatchedSMemSize<float>();
+    const size_t smem_mono = get_solve_bdsv_batched_smem_size<float>();
+    const size_t smem_factor = get_factor_bdsv_batched_smem_size<float>();
+    const size_t smem_fsolve = get_solve_bdsv_factored_batched_smem_size<float>();
 
     // ---------- reference: monolithic kernel on the PD problems ----------
     std::vector<float> x_mono((size_t)B * NPAD);
@@ -236,7 +236,7 @@ int main()
     {
         CHECK_CUDA(cudaMemcpy(dS, hS_all.data(), hS_all.size() * sizeof(float), cudaMemcpyHostToDevice));
         CHECK_CUDA(cudaMemset(dx, 0, (size_t)B * NPAD * sizeof(float)));
-        solveBDSVBatched<float>(B, dx, schur, dconv, dit);
+        solve_bdsv_batched<float>(B, dx, schur, dconv, dit);
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
         CHECK_CUDA(cudaMemcpy(x_mono.data(), dx, x_mono.size() * sizeof(float), cudaMemcpyDeviceToHost));

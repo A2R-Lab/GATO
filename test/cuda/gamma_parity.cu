@@ -109,7 +109,7 @@ int main()
     CHECK_CUDA(cudaMemset(schur.d_gamma_batch, 0, (size_t)B * NPAD * sizeof(float)));
 
     // reference: formSchur (also leaves Q^-1/R^-1 in kkt.d_Q/d_R)
-    formSchurSystemBatched<float>(B, schur, kkt, d_rho, d_conv);
+    form_schur_system_batched<float>(B, schur, kkt, d_rho, d_conv);
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
     std::vector<float> gamma_ref((size_t)B * NPAD);
@@ -119,7 +119,7 @@ int main()
     std::vector<float> got((size_t)B * NPAD), ref_bits;
     for (uint32_t threads : {32u, 64u, 128u}) {
         CHECK_CUDA(cudaMemset(schur.d_gamma_batch, 0, (size_t)B * NPAD * sizeof(float)));
-        computeGammaBatchedKernel<float><<<dim3(K, B), threads, getComputeGammaBatchedSMemSize<float>()>>>(
+        computeGammaBatchedKernel<float><<<dim3(K, B), threads, get_compute_gamma_batched_smem_size<float>()>>>(
             schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch,
             kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_conv);
         CHECK_CUDA(cudaGetLastError());

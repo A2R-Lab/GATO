@@ -113,8 +113,8 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
         // Only proceed with trajectory update if line search was successful
         if (s_ls_success) {
                 const T step_size = s_step_size;
-                T*      d_xu_traj = getOffsetXU<T>(d_xu_traj_batch, solve_idx, 0);
-                T*      d_dz = getOffsetDz<T>(d_dz_batch, solve_idx, 0);
+                T*      d_xu_traj = get_offset_xu<T>(d_xu_traj_batch, solve_idx, 0);
+                T*      d_dz = get_offset_dz<T>(d_dz_batch, solve_idx, 0);
                 if constexpr (!FLOATING_BASE) {
 #pragma unroll
                         for (uint32_t i = threadIdx.x; i < TRAJ_SIZE; i += blockDim.x) { d_xu_traj[i] += step_size * d_dz[i]; }
@@ -136,7 +136,7 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void lineSearchAndUpdateBatche
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void lineSearchAndUpdateBatched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch)
+__host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch)
 {
         dim3 grid(batch_size);
         dim3 thread_block(LINE_SEARCH_THREADS);

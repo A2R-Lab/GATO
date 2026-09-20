@@ -86,7 +86,7 @@ __host__ __device__ constexpr uint32_t stepValueFloating_TempMemCt()
 // the ACTUATED tail, so the 6 base slots are zeroed. u slot at 2*NQ mirrors
 // the generated kernels' q/qd/u packing. No trailing sync — callers barrier.
 template<typename T>
-__device__ __forceinline__ void loadStateAndFullControl(T* s_q_qd_u, const T* s_x, const T* s_u_act)
+__device__ __forceinline__ void load_state_and_full_control(T* s_q_qd_u, const T* s_x, const T* s_u_act)
 {
         constexpr int NXi = (int)gato::constants::XU_STATE_SIZE;  // NQ+NV
         constexpr int NUi = (int)gato::constants::ACTUATED_SIZE;
@@ -117,7 +117,7 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
         // TIER_SHARED layout; s_q_qd_u packs [q; qd] with u_full at +2*NQ)
         const auto a = grid::integrator_du_arena<T>::carve(s_temp);
 
-        loadStateAndFullControl<T>(a.s_q_qd_u, s_xux, s_xux + XU_STATE_SIZE);
+        load_state_and_full_control<T>(a.s_q_qd_u, s_xux, s_xux + XU_STATE_SIZE);
         __syncthreads();
 
         grid_plant::plant_step_gradient_and_value<T, grid_integrator<INTEGRATOR_TYPE>(),
@@ -152,7 +152,7 @@ __device__ __forceinline__ void sim_step_floating(
         const auto a = grid::integrator_arena<T>::carve(s_temp);
         const grid::robotModel<T>* d_robotModel = (const grid::robotModel<T>*)d_dynMem_const;
 
-        loadStateAndFullControl<T>(a.s_q_qd_u, s_x, s_u_act);
+        load_state_and_full_control<T>(a.s_q_qd_u, s_x, s_u_act);
         __syncthreads();
         grid::load_update_XImats_helpers<T>(a.s_XImats, a.s_q_qd_u, a.s_topology_helpers,
                                             (grid::robotModel<T>*)d_robotModel, a.s_temp);

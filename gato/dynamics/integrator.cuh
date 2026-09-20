@@ -206,9 +206,9 @@ __device__ void sim_step(T* s_xkp1, T* s_xk, T* s_uk, T* s_temp, void* d_dynMem_
         T* s_extra_temp = s_temp + STATE_SIZE / 2;
 
         if (d_f_ext == nullptr) {
-                forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+                forward_dynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
         } else {
-                forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
+                forward_dynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
         }
         __syncthreads();
         integrator_inner(s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt);
@@ -228,9 +228,9 @@ __device__ T compute_integrator_error(T* s_xuk, T* s_xkp1, T* s_temp, void* d_dy
         T* s_extra_temp = s_err + STATE_SIZE / 2;
 
         if (d_f_ext == nullptr) {
-                forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+                forward_dynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
         } else {
-                forwardDynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
+                forward_dynamics<T>(s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
         }
         integrator_error_inner<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_err, s_qkp1, s_qdkp1, s_q, s_qd, s_qdd, dt, s_extra_temp);
         __syncthreads();
@@ -251,9 +251,9 @@ __device__ __forceinline__ void compute_linearized_dynamics(T* s_xux, T* s_Ak, T
         T* s_extra_temp = s_dqdd + STATE_SIZE / 2 * (STATE_SIZE + CONTROL_SIZE);
 
         if (d_f_ext == nullptr) {  // no external wrench
-                forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+                forward_dynamics_and_gradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
         } else {
-                forwardDynamicsAndGradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
+                forward_dynamics_and_gradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
         }
 
         if (COMPUTE_INTEGRATOR_ERROR) {

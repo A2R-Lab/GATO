@@ -49,7 +49,7 @@ __global__ void eeProbeKernel(T* d_pose, T* d_J, T* d_Qinc, T* d_qinc,
         T* s_pose = s_scratch;
         T* s_grad = s_pose + 6 * gato::plant::NEE;
         T* s_arena = rows::align16_ptr<T>(s_grad + 6 * NQ * gato::plant::NEE + 2 * rows::MAX_ROWS_PER_GROUP);
-        gato::plant::eePosGrad<T>(s_pose, s_grad, d_xu, s_arena, drm);
+        gato::plant::ee_pos_grad<T>(s_pose, s_grad, d_xu, s_arena, drm);
         for (uint32_t i = threadIdx.x; i < 6 * gato::plant::NEE; i += blockDim.x) d_pose[i] = s_pose[i];
         for (uint32_t i = threadIdx.x; i < 6u * NQ; i += blockDim.x) d_J[i] = s_grad[i];
         __syncthreads();

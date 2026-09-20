@@ -30,7 +30,7 @@ Each `(plant, N)` module is a pybind extension `bsqpN{N}_{plant}`. One SQP itera
 kernels (all in `gato/bsqp/kernels/`):
 
 1. **`setup_kkt.cuh`** — per knot: linearize dynamics (`grid_plant::compute_linearized_dynamics`
-   → A,B,c) + build the cost gradient/Hessian blocks (`grid_plant::trackingCostGradHess` →
+   → A,B,c) + build the cost gradient/Hessian blocks (`grid_plant::tracking_cost_grad_hess` →
    Q,q,R,r). Terminal block uses `x_{k+1}` + `N_cost` (PR #17 fix).
 2. **`schur_linsys.cuh`** — form the Schur complement system (`formSchurSystemBatchedKernel1/2`):
    invert Q_k/Q_kp1/R_k (`glass::invertMatrix` fused), build S (block-tridiagonal) + Pinv + gamma.
@@ -49,7 +49,7 @@ kernels (all in `gato/bsqp/kernels/`):
    preprocessor-identical (bitwise). Forces bdsv; needs rho ≥ 1e-4 (f32). Verdict + traps:
    `docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md`.
 4. **`schur_linsys.cuh::computeDzBatchedKernel`** — recover the primal step `dz` from λ.
-5. **`merit.cuh` / `line_search.cuh`** — evaluate the merit (`grid_plant::trackingCostValue` +
+5. **`merit.cuh` / `line_search.cuh`** — evaluate the merit (`grid_plant::tracking_cost_value` +
    `compute_integrator_error`), pick a step.
 6. **`sim.cuh`** — roll the chosen control forward (`grid_plant::sim_step`).
 
