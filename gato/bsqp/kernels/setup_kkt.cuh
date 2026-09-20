@@ -398,7 +398,7 @@ __host__ void setupKKTSystemBatched(uint32_t batch_size, KKTSystem<T> kkt, Probl
 #endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
-        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian, has_collision);  // TODO: why is MPCGPU launched with 2 * s_mem_size ?
+        size_t s_mem_size = getSetupKKTSystemBatchedSMemSize<T>(exact_hessian, has_collision);
         // the exact / collision carves can exceed the 48KB default dynamic-smem
         // ceiling — opt the kernel in once (harmless when already under).
         // FAIL LOUD on both the attribute set and the launch: an over-ceiling

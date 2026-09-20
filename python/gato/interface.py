@@ -243,9 +243,8 @@ class BSQP:
 
         self._cost_weights = {k: float(getattr(params, k)) for k in COST_FIELDS}
         self.solver = self.solver_class(
-            batch_size, dt,
+            batch_size,
             int(params.max_sqp_iters),
-            0.0,                        # kkt_tol: inert on the device (removed from the public API, plan D13)
             int(params.max_pcg_iters), float(params.pcg_tol), float(params.solve_ratio), float(params.mu),
             float(params.q_cost), float(params.qd_cost), float(params.u_cost), float(params.N_cost),
             float(params.q_lim_cost), float(params.vel_lim_cost), float(params.ctrl_lim_cost),

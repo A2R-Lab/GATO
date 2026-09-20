@@ -14,7 +14,6 @@ typedef float T;
 
 constexpr uint32_t NUM_ALPHAS = 8;
 
-// constexpr float RHO = 1e-8;
 constexpr float RHO_INIT = 1e-3;
 constexpr float RHO_FACTOR = 1.2;
 constexpr float RHO_MIN = 1e-8;

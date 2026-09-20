@@ -146,6 +146,20 @@ __device__ __forceinline__ const T* getOffsetStatePadded(const T* batch, uint32_
         return batch + solve_idx * VEC_SIZE_PADDED + (knot_idx + 1) * STATE_SIZE;
 }
 
+// the whole padded (KNOT_POINTS + 2) * STATE_SIZE vector of one solve, pads included
+// (what glass::pcg / bdsv consume) — replaces the "getOffsetStatePadded(..., 0) - STATE_SIZE" idiom
+template<typename T>
+__device__ __forceinline__ T* getPaddedVector(T* batch, uint32_t solve_idx)
+{
+        return batch + solve_idx * VEC_SIZE_PADDED;
+}
+
+template<typename T>
+__device__ __forceinline__ const T* getPaddedVector(const T* batch, uint32_t solve_idx)
+{
+        return batch + solve_idx * VEC_SIZE_PADDED;
+}
+
 template<typename T>
 __device__ __forceinline__ T* getOffsetBlockRowPadded(T* batch, uint32_t solve_idx, uint32_t knot_idx)
 {

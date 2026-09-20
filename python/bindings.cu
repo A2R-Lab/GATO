@@ -13,9 +13,7 @@ template<typename T>
 class PyBSQP {
       public:
         PyBSQP(const uint32_t batch_size,
-               const T        dt,
                const uint32_t max_sqp_iters,
-               const T        kkt_tol,
                const uint32_t max_pcg_iters,
                const T        pcg_tol,
                const T        solve_ratio,
@@ -29,7 +27,7 @@ class PyBSQP {
                const T        ctrl_lim_cost,
                const T        rho)
             : batch_size_(batch_size),
-              solver_(batch_size, dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
+              solver_(batch_size, max_sqp_iters, max_pcg_iters, pcg_tol, solve_ratio, mu, q_cost, qd_cost, u_cost, N_cost, q_lim_cost, vel_lim_cost, ctrl_lim_cost, rho)
         {
                 gpuErrchk(cudaMalloc(&d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_x_s_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T)));
@@ -624,7 +622,7 @@ class PyBSQP {
 // Register the runtime-batch-size PyBSQP class for the given precision type
 #define REGISTER_BSQP_CLASS(Type)                                                                                                                                                                  \
         py::class_<PyBSQP<Type>>(m, "BSQP_" #Type, py::module_local()) /* every module defines the same C++ type; a global registration collides when two solver modules load in one process */                                                                                                                                                 \
-            .def(py::init<const uint32_t, const Type, const uint32_t, const Type, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, \
+            .def(py::init<const uint32_t, const uint32_t, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, \
                           const Type, const Type, const Type>())                                                                                                                                    \
             .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
             .def("reset_dual", &PyBSQP<Type>::reset_dual)                                                                                                                                          \

@@ -139,6 +139,20 @@ namespace plant {
                 cudaFree((grid::robotModel<T>*)d_dynMem_const);
         }
 
+        // (Minv @ X)[r, c] with Minv stored SYMMETRIC-UPPER (GRiD layout): the
+        // one product all three Jacobian compositions below use (dq/du/dfc).
+        template<typename T>
+        __device__ __forceinline__ T minvSymUpperDot(const T* s_Minv, const T* x_col, int r)
+        {
+                T val = static_cast<T>(0);
+#pragma unroll
+                for (int col = 0; col < NQ; col++) {
+                        const int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
+                        val += s_Minv[index] * x_col[col];
+                }
+                return val;
+        }
+
 #if GATO_CONTACT_FORCES
         // CL-3a: map the per-knot contact wrench decision variables (the fc tail of the
         // control slice, world-aligned [n; f] per contact frame) to the body-major
@@ -174,6 +188,7 @@ namespace plant {
         // rate, not fixed points (defects use exact rollouts). dfext_dq is LINEAR in f_c
         // ⇒ identically zero at f_c = 0, so zero-wrench trajectories are unchanged.
         // __noinline__: cicc-cliff guard (this body lands in the setup_kkt TU).
+
         template<typename T>
         __device__ __noinline__ void addContactChainCorrection(T* s_df_du, T* s_dfext_dq, T* s_dtau_dq,
                                                                const T* s_fc, const T* s_dtau_dfext,
@@ -200,13 +215,7 @@ namespace plant {
                 // dqdd/dq += -Minv (SYMMETRIC_UPPER) @ dtau_dq_corr
                 for (int ind = tid; ind < NQ * NQ; ind += nth) {
                         const int r = ind % NQ, c = ind / NQ;
-                        T val = static_cast<T>(0);
-#pragma unroll
-                        for (int col = 0; col < NQ; col++) {
-                                const int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
-                                val += s_Minv[index] * s_dtau_dq[c * NQ + col];
-                        }
-                        s_df_du[ind] -= val;
+                        s_df_du[ind] -= minvSymUpperDot<T>(s_Minv, s_dtau_dq + c * NQ, r);
                 }
                 __syncthreads();
         }
@@ -291,14 +300,7 @@ namespace plant {
                 for (int ind = threadIdx.x + threadIdx.y * blockDim.x; ind < 2 * NQ * NQ; ind += blockDim.x * blockDim.y) {
                         int row = ind % NQ;
                         int dc_col_offset = ind - row;
-                        // account for the fact that Minv is an SYMMETRIC_UPPER triangular matrix
-                        T val = static_cast<T>(0);
-#pragma unroll
-                        for (int col = 0; col < NQ; col++) {
-                                int index = (row <= col) * (col * NQ + row) + (row > col) * (row * NQ + col);
-                                val += s_Minv[index] * s_dc_du[dc_col_offset + col];
-                        }
-                        s_df_du[ind] = -val;
+                        s_df_du[ind] = -minvSymUpperDot<T>(s_Minv, s_dc_du + dc_col_offset, row);
                         if (INCLUDE_DU && ind < NQ * NQ) {
                                 int col = ind / NQ;
                                 int index = (row <= col) * (col * NQ + row) + (row > col) * (row * NQ + col);
@@ -335,13 +337,7 @@ namespace plant {
                                 __syncthreads();
                                 for (int ind = tid; ind < NQ * FC; ind += nth) {  // -Minv (sym-upper) @ dtau_dfc
                                         int r = ind % NQ; int c = ind / NQ;
-                                        T val = static_cast<T>(0);
-#pragma unroll
-                                        for (int col = 0; col < NQ; col++) {
-                                                int index = (r <= col) * (col * NQ + r) + (r > col) * (r * NQ + col);
-                                                val += s_Minv[index] * s_dtau_dfc[c * NQ + col];
-                                        }
-                                        s_df_du[3 * NQ * NQ + ind] = -val;
+                                        s_df_du[3 * NQ * NQ + ind] = -minvSymUpperDot<T>(s_Minv, s_dtau_dfc + c * NQ, r);
                                 }
                                 __syncthreads();
                         }

@@ -14,13 +14,12 @@ int main()
     uint32_t N = 16;
     uint32_t batch_size = 16;
     uint32_t max_sqp_iters = 10;
-    T        kkt_tol = 1e-3;
     uint32_t max_pcg_iters = 100;
     T        pcg_tol = 1e-3;
     T        solve_ratio = 1.0;
     T        mu = 1.0;
 
-    BSQP<T> bsqp(batch_size, dt, max_sqp_iters, kkt_tol, max_pcg_iters, pcg_tol, solve_ratio, mu, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    BSQP<T> bsqp(batch_size, max_sqp_iters, max_pcg_iters, pcg_tol, solve_ratio, mu, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
     // Generate synthetic reference trajectory data instead of loading from file
     std::vector<T> reference_traj(6 * N * batch_size, 0.0);

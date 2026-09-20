@@ -62,7 +62,7 @@ def main():
     print(f"iiwa14 fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config")
     print(f"{'B':>4} {'median_ms':>10} {'p90_ms':>8} {'per_traj_us':>12}")
     for B in batches:
-        solver = M.BSQP_float(B, DT, 1, 1e-5, 200, 1e-4, 1.0, 10.0,
+        solver = M.BSQP_float(B, 1, 200, 1e-4, 1.0, 10.0,
                               2.0, 1e-2, 2e-6, 50.0, 0.01, 0.0, 0.0, 1e-2)
         XU = np.zeros((B, N * stride - nu), dtype=np.float32)
         XU[:, :nx] = x0

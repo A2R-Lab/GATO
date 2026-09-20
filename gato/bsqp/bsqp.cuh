@@ -32,7 +32,7 @@ template<typename T>
 class BSQP {
       public:
         explicit BSQP(uint32_t batch_size)
-            : batch_size_(batch_size), dt_(0.01), max_sqp_iters_(5), kkt_tol_(0.0001), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0),
+            : batch_size_(batch_size), max_sqp_iters_(5), max_pcg_iters_(100), pcg_tol_(1e-5), solve_ratio_(1.0), mu_(10.0),
               q_cost_(1.0), qd_cost_(1e-3), u_cost_(1e-6), N_cost_(50.0), q_lim_cost_(1e-3), vel_lim_cost_(0.0), ctrl_lim_cost_(0.0),
               q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)),
               rho_(1e-3), adapt_rho_(true)
@@ -41,8 +41,10 @@ class BSQP {
                 initBatchedHyperparams();
         }
 
-        BSQP(uint32_t batch_size, T dt, uint32_t max_sqp_iters, T kkt_tol, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
-            : batch_size_(batch_size), dt_(dt), max_sqp_iters_(max_sqp_iters), kkt_tol_(kkt_tol), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
+        // dt is a per-solve input (ProblemInputs::timestep); there is no KKT
+        // tolerance — convergence is merit/step based (the old kkt_tol arg was inert).
+        BSQP(uint32_t batch_size, uint32_t max_sqp_iters, uint32_t max_pcg_iters, T pcg_tol, T solve_ratio, T mu, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, T rho)
+            : batch_size_(batch_size), max_sqp_iters_(max_sqp_iters), max_pcg_iters_(max_pcg_iters), pcg_tol_(pcg_tol), solve_ratio_(solve_ratio), mu_(mu), q_cost_(q_cost), qd_cost_(qd_cost),
               u_cost_(u_cost), N_cost_(N_cost), q_lim_cost_(q_lim_cost), vel_lim_cost_(vel_lim_cost), ctrl_lim_cost_(ctrl_lim_cost), q_pos_cost_(0.0), fc_cost_(gato::constants::FC_SIZE > 0 ? static_cast<T>(1e-2) : static_cast<T>(0)), rho_(rho), adapt_rho_(true)
         {
                 allocateMemory();
@@ -72,12 +74,15 @@ class BSQP {
         void set_f_ext_batch(T* h_f_ext_batch)
         {
                 constexpr size_t WPS = 6 * grid::NUM_BODIES;   // wrench elements per (solve, knot)
-                std::vector<T>   staged(WPS * KNOT_POINTS * batch_size_);
+                const size_t     n = WPS * KNOT_POINTS * batch_size_;
+                // pinned staging (allocated once): the per-step MPC path (hypothesis
+                // batches / wrench-ID) uploads every tick — no per-call vector, no
+                // pageable copy
                 for (uint32_t b = 0; b < batch_size_; b++) {
-                        for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(staged.data() + (b * KNOT_POINTS + k) * WPS, h_f_ext_batch + b * WPS, WPS * sizeof(T)); }
+                        for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(h_f_ext_staging_ + (b * KNOT_POINTS + k) * WPS, h_f_ext_batch + b * WPS, WPS * sizeof(T)); }
                 }
-                gpuErrchk(cudaMemcpy(d_f_ext_batch_, staged.data(), staged.size() * sizeof(T), cudaMemcpyHostToDevice));
-                f_ext_nonzero_ = any_nonzero(staged.data(), staged.size());
+                gpuErrchk(cudaMemcpy(d_f_ext_batch_, h_f_ext_staging_, n * sizeof(T), cudaMemcpyHostToDevice));
+                f_ext_nonzero_ = any_nonzero(h_f_ext_staging_, n);
         }
 
         // Per-KNOT wrench upload: solve-major then knot-major, 6*NUM_BODIES per knot
@@ -140,6 +145,7 @@ class BSQP {
         // historic offsets.
         void enable_limit_telemetry()
         {
+                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
                 gpuErrchk(cudaDeviceSynchronize());
                 n_row_groups_ = 3;
@@ -156,6 +162,7 @@ class BSQP {
         // Telemetry still reports each group's true violation per solve.
         void enable_limit_barrier(T mu, T delta)
         {
+                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(delta > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_barrier: delta must be > 0"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
                 gpuErrchk(cudaDeviceSynchronize());
@@ -174,6 +181,7 @@ class BSQP {
         // y there is an unbounded violation integrator (kernels/admm.cuh).
         void enable_limit_admm(T rho, uint32_t iters)
         {
+                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
                 if (iters < 1) { throw std::invalid_argument("enable_limit_admm: iters must be >= 1"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
@@ -199,6 +207,7 @@ class BSQP {
         // the solve() dispatch comments).
         void enable_limit_al(T rho)
         {
+                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_al: rho must be > 0"); }
                 rows::initLimitRowGroupsKernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
                 gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
@@ -791,8 +800,8 @@ class BSQP {
                                 // MECH_ADMM inner loop (kernels/admm.cuh): the rho*G^T*G fold is
                                 // already in Q/R (setup_kkt), so the Schur matrix is CONSTANT
                                 // across the loop -> factor once, re-solve per iteration with a
-                                // rebuilt gamma. computeDz destroys q/r each iteration; the
-                                // gradient kernel rebuilds them from the preserved base copies.
+                                // rebuilt gamma. The gradient kernel rebuilds q/r each
+                                // iteration from the preserved base copies (+ the ADMM term).
                                 gpuErrchk(cudaMemcpyAsync(d_q_base_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 if (!admm_linsys_pcg_) { factorBDSVBatched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
@@ -840,9 +849,8 @@ class BSQP {
 
                         // convergence signal: PCG iteration counts (pinned staging + event —
                         // a pageable-destination copy here would silently serialize the host).
-                        // NOTE: the old max|q|/max|c| KKT check was dead (commented out); its
-                        // ~1MB/iter q/c device->host traffic is gone. kkt_tol_ is currently
-                        // unused — a device-side KKT check is backlogged.
+                        // There is no KKT-residual check: convergence is "PCG took no
+                        // steps" per solve, then the merit line search.
                         gpuErrchk(cudaMemcpyAsync(h_pcg_iters_, d_pcg_iterations_, sizeof(uint32_t) * batch_size_, cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaEventRecord(sync_event_));
                         gpuErrchk(cudaEventSynchronize(sync_event_));
@@ -948,8 +956,6 @@ class BSQP {
                         }
                 }
                 auto sqp_end_time = std::chrono::high_resolution_clock::now();
-                gpuErrchk(cudaMemset(d_sqp_iters_B_, 0, batch_size_ * sizeof(uint32_t)));
-                gpuErrchk(cudaMemset(d_all_kkt_converged_, 0, sizeof(int32_t)));
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 gpuErrchk(cudaMemcpyAsync(d_drho_batch_, h_drho_batch_init_.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
@@ -973,12 +979,12 @@ class BSQP {
         {
                 h_rho_penalty_batch_init_.assign(batch_size_, static_cast<T>(rho_));
                 h_drho_batch_init_.assign(batch_size_, static_cast<T>(1.0));
-                h_mu_batch_init_.assign(batch_size_, static_cast<T>(mu_));
-                h_pcg_tol_batch_init_.assign(batch_size_, static_cast<T>(pcg_tol_));
+                const std::vector<T> mu_init(batch_size_, static_cast<T>(mu_));
+                const std::vector<T> tol_init(batch_size_, static_cast<T>(pcg_tol_));
                 gpuErrchk(cudaMemcpy(d_rho_penalty_batch_, h_rho_penalty_batch_init_.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaMemcpy(d_drho_batch_, h_drho_batch_init_.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_mu_batch_, h_mu_batch_init_.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_pcg_tol_batch_, h_pcg_tol_batch_init_.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_mu_batch_, mu_init.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_pcg_tol_batch_, tol_init.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 gpuErrchk(cudaDeviceSynchronize());
         }
 
@@ -1033,16 +1039,15 @@ class BSQP {
                 // per-knot [ee,qd,u] cost-weight triples (optional override)
                 gpuErrchk(cudaMalloc(&d_knot_cost_weights_, 3 * KNOT_POINTS * sizeof(T)));
 
-                gpuErrchk(cudaMalloc(&d_sqp_iters_B_, BI));
                 gpuErrchk(cudaMalloc(&d_pcg_iterations_, BI));
                 gpuErrchk(cudaMalloc(&d_step_size_batch_, BT));
-                gpuErrchk(cudaMalloc(&d_all_kkt_converged_, sizeof(int32_t)));
                 gpuErrchk(cudaMalloc(&d_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMalloc(&d_rho_penalty_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_drho_batch_, BT));
 
                 gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
                 gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
+                gpuErrchk(cudaMallocHost(&h_f_ext_staging_, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
 
                 // Batched hyperparameters
                 gpuErrchk(cudaMalloc(&d_mu_batch_, BT));
@@ -1114,11 +1119,10 @@ class BSQP {
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_));
                 gpuErrchk(cudaFree(d_merit_partial_batch_));
-                gpuErrchk(cudaFree(d_sqp_iters_B_));
                 gpuErrchk(cudaFree(d_pcg_iterations_));
                 gpuErrchk(cudaFree(d_step_size_batch_));
-                gpuErrchk(cudaFree(d_all_kkt_converged_));
                 gpuErrchk(cudaFree(d_f_ext_batch_));
+                gpuErrchk(cudaFreeHost(h_f_ext_staging_));
                 if (d_q_nom_) { gpuErrchk(cudaFree(d_q_nom_)); d_q_nom_ = nullptr; }
                 if (d_fc_ref_) { gpuErrchk(cudaFree(d_fc_ref_)); d_fc_ref_ = nullptr; }
                 if (d_u_cost_vec_) { gpuErrchk(cudaFree(d_u_cost_vec_)); d_u_cost_vec_ = nullptr; }
@@ -1166,10 +1170,9 @@ class BSQP {
         T* d_merit_partial_batch_;  // per-(solve,alpha,knot) merit partials (deterministic two-pass)
         // Line search
         T*        d_step_size_batch_;
-        int32_t*  d_all_kkt_converged_;
         int32_t*  d_kkt_converged_batch_;
-        uint32_t* d_sqp_iters_B_;
         T*        d_f_ext_batch_;
+        T*        h_f_ext_staging_;         // pinned, 6*NUM_BODIES*K*B (set_f_ext_batch)
         bool      f_ext_nonzero_ = false;   // band starts memset-0; uploads maintain this
 
         T*             d_rho_penalty_batch_;
@@ -1177,11 +1180,9 @@ class BSQP {
         std::vector<T> h_drho_batch_init_;
         T*             d_drho_batch_;
 
-        // Batched hyperparameters
+        // Batched hyperparameters (seeded from mu_ / pcg_tol_ at construction)
         T*             d_mu_batch_;
-        std::vector<T> h_mu_batch_init_;
         T*             d_pcg_tol_batch_;
-        std::vector<T> h_pcg_tol_batch_init_;
 
         // per-knot cost weights (optional)
         T*   d_knot_cost_weights_;
@@ -1239,11 +1240,8 @@ class BSQP {
         T*          h_ls_step_size_;
         cudaEvent_t sync_event_;
         cudaEvent_t pcg_start_event_, pcg_stop_event_;
-        float       pcg_time_us_;
         uint32_t*   h_sqp_iters_B_;
-        T           dt_;
         uint32_t    max_sqp_iters_;
-        T           kkt_tol_;
         uint32_t    max_pcg_iters_;
         T           pcg_tol_;
         T           solve_ratio_;

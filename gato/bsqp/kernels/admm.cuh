@@ -95,6 +95,21 @@ __device__ __forceinline__ T eval_row_stepped(const RowGroupDesc<T>& grp, const 
         return eval_row<T>(grp, xu_k, i) + eval_row_dir<T>(grp, dz_k, i);
 }
 
+// One ADMM row commit shared by every row kind: y += rho*(w - z), store z,
+// and the |primal| / |dual| residual pair. w = linearized row value, z = the
+// projected auxiliary. Same statements as the four former inline copies.
+template<typename T>
+__device__ __forceinline__ void admm_commit_row(T w, T z, uint32_t idx, T rho, T* __restrict__ d_z, T* __restrict__ d_y, T& dp, T& dd)
+{
+        const T z_prev = d_z[idx];
+        d_y[idx] += rho * (w - z);
+        d_z[idx] = z;
+        dp = w - z;
+        if (dp < 0) dp = -dp;
+        dd = rho * (z - z_prev);
+        if (dd < 0) dd = -dd;
+}
+
 // ---- z/y (re)initialization ---------------------------------------------
 // z = clip(sel(x_warm), lo, hi), y = 0 — a neutral start: with y = 0 and
 // z = sel(x) (feasible x) the first gradient modification vanishes.
@@ -391,16 +406,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
                                         T w = s_dist[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_ddist[i * NQ + qi] * dz_k[qi]; }
-                                        const T z_prev = d_z[idx];
                                         const T z = admm_z_update<T>(w + d_y[idx] / rho, margin, grp.hi[0], rho, grp.sigma);
-                                        d_y[idx] += rho * (w - z);
-                                        d_z[idx] = z;
-                                        T dp = w - z;
-                                        if (dp < 0) dp = -dp;
-                                        T dd = rho * (z - z_prev);
-                                        if (dd < 0) dd = -dd;
-                                        s_prim[e] = dp;
-                                        s_dual[e] = dd;
+                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
                                 }
                                 __syncthreads();  // scratch reused next knot; writes visible below
                         }
@@ -420,16 +427,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
                                         T w = s_pose[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_grad[6 * qi + i] * dz_k[qi]; }
-                                        const T z_prev = d_z[idx];
                                         const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
-                                        d_y[idx] += rho * (w - z);
-                                        d_z[idx] = z;
-                                        T dp = w - z;
-                                        if (dp < 0) dp = -dp;
-                                        T dd = rho * (z - z_prev);
-                                        if (dd < 0) dd = -dd;
-                                        s_prim[e] = dp;
-                                        s_dual[e] = dd;
+                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
                                 }
                                 __syncthreads();  // scratch reused next knot; writes visible below
                         }
@@ -453,15 +452,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                         // toward the projection (interval-formula analogue:
                                         // z = (rho*v + sigma*Pi(v))/(rho+sigma); hard = Pi(v))
                                         const T z = (grp.sigma > static_cast<T>(0)) ? (rho * v[i] + grp.sigma * p[i]) / (rho + grp.sigma) : p[i];
-                                        const T z_prev = d_z[idx];
-                                        d_y[idx] += rho * (w[i] - z);
-                                        d_z[idx] = z;
-                                        T dp = w[i] - z;
-                                        if (dp < 0) dp = -dp;
-                                        T dd = rho * (z - z_prev);
-                                        if (dd < 0) dd = -dd;
-                                        s_prim[k * m + i] = dp;
-                                        s_dual[k * m + i] = dd;
+                                        admm_commit_row<T>(w[i], z, idx, rho, d_z, d_y, s_prim[k * m + i], s_dual[k * m + i]);
                                 }
                         }
                 } else {
@@ -473,16 +464,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admmProjectDualBatchedKernel(T* 
                                 const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
 
                                 const T w = eval_row_stepped<T>(grp, xu_k, dz_k, (uint32_t)i);
-                                const T z_prev = d_z[idx];
                                 const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
-                                d_y[idx] += rho * (w - z);
-                                d_z[idx] = z;
-                                T dp = w - z;
-                                if (dp < 0) dp = -dp;
-                                T dd = rho * (z - z_prev);
-                                if (dd < 0) dd = -dd;
-                                s_prim[e] = dp;
-                                s_dual[e] = dd;
+                                admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
                         }
                 }
                 __syncthreads();

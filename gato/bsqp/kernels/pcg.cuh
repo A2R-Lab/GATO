@@ -41,8 +41,8 @@ __global__ __launch_bounds__(PCG_THREADS) void solvePCGBatchedKernel(uint32_t* _
         const T* d_A_matrix = getOffsetBlockRowPadded<T>(d_A_batch, solve_idx, 0);
         const T* d_M_inv_matrix = getOffsetBlockRowPadded<T>(d_M_inv_batch, solve_idx, 0);
         // getOffsetStatePadded points to the start of data; back up one block to the padding start.
-        const T* d_b_vector = getOffsetStatePadded<T>(d_b_batch, solve_idx, 0) - STATE_SIZE;
-        T* d_x_vector = getOffsetStatePadded<T>(d_x_batch, solve_idx, 0) - STATE_SIZE;
+        const T* d_b_vector = getPaddedVector<T>(d_b_batch, solve_idx);
+        T* d_x_vector = getPaddedVector<T>(d_x_batch, solve_idx);
 
         // Block-wide preconditioned CG (GLASS). S (=d_A) / P_inv (=d_M_inv) are the same
         // [L|D|R] row-major block-tridiagonal strips that glass::bdmv consumes internally;
