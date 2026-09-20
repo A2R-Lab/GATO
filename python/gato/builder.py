@@ -265,7 +265,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
-          floating_base=False):
+          floating_base=False, contact_forces=False, exact_hessian=False):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -282,9 +282,17 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         collision_res / contact_frames: see codegen() — collision sphere
             spacing (enables the grid_collision clearance rows) and CL-3
             contact-frame baking.
+        contact_forces / exact_hessian: build the "fc" (contact-force controls
+            appended to u) or "eh" (exact-Hessian SO-SQP) module VARIANT
+            instead of the default — a separate ABI with its own module name
+            (bsqpN{N}_{name}_fc / _eh), loaded with BSQP(..., variant=...).
     Returns: list of built (name, N) pairs.
     """
     name = name or Path(urdf_path).stem
+    if contact_forces and exact_hessian:
+        raise ValueError("contact_forces and exact_hessian are separate module variants — build one at a time")
+    variant = "fc" if contact_forces else ("eh" if exact_hessian else "default")
+    suffix = "" if variant == "default" else f"_{variant}"
     if not name.isidentifier():
         raise ValueError(f"plant name {name!r} must be a valid identifier "
                          f"(it becomes the module suffix); pass name= explicitly")
@@ -309,7 +317,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     cfg = ["cmake", "-S", str(root), "-B", str(build_dir),
            "-DCMAKE_BUILD_TYPE=Release", "-DGATO_BUILD_DEMO=OFF",
            "-DGATO_RECEIPT_PROFILE=OFF",
-           f"-DMODULES={name}:{','.join(map(str, Ns))}",
+           f"-DMODULES={name}:{','.join(map(str, Ns))}:{variant}",
            f"-DPython3_EXECUTABLE={sys.executable}",
            f"-Dpybind11_DIR={pybind11_dir}"]
     if arch:
@@ -320,10 +328,10 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     built = []
     for n in Ns:
-        sos = list(_PKG_DIR.glob(f"bsqpN{n}_{name}.*.so")) + \
-              [p for p in [_PKG_DIR / f"bsqpN{n}_{name}.so"] if p.exists()]
+        sos = list(_PKG_DIR.glob(f"bsqpN{n}_{name}{suffix}.*.so")) + \
+              [p for p in [_PKG_DIR / f"bsqpN{n}_{name}{suffix}.so"] if p.exists()]
         if not sos:
-            raise RuntimeError(f"build reported success but bsqpN{n}_{name}.so "
+            raise RuntimeError(f"build reported success but bsqpN{n}_{name}{suffix}.so "
                                f"did not land in {_PKG_DIR}")
         built.append((name, n))
     return built

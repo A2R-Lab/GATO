@@ -8,7 +8,7 @@
 # EXCEPT leg 3way regenerating the trajfiles fig3 loads; its failure is flagged).
 #
 #   0. rebuild : defensive module rebuild at THIS HEAD (default build/ tree +
-#                build_eh/ exact modules) — all later legs are MODULE-DEP.
+#                incl. the fc/eh variant modules) — all later legs are MODULE-DEP.
 #   1. fence   : correctness sanity (MPCGPU run_gates 4/4 + GATO gpu pytest).
 #   2. 3way    : MPCGPU tools/run_3way_iiwa.sh — regenerates trajfiles (EE frame)
 #                + 3-way tracking parity. Feeds fig3's goal inputs.
@@ -17,7 +17,7 @@
 #                2026-08-01) vs bdsv-factor-reuse (_lbdsv cells),
 #                box/cone/collision ADMM families.
 #   5. so_cost : SO-SQP per-iter cost — +bdsv control arm on default modules,
-#                then .so-swap build_eh exact modules, +ex arm, restore.
+#                then the +ex arm on the eh variant modules.
 #   6. r2quote : quiet-box solve_us re-runs of the R2/2b bound-default cells
 #                (cone family on press/press_mild, collision family on pillars).
 #   7. figs    : fig5 (~1 min) + fig4 (~85 min) + fig7 (~200 min) — statistics
@@ -85,7 +85,7 @@ QUICKQ=(); [[ "${QUICK:-0}" == "1" ]] && QUICKQ=(--quick)
 
 # ---- 0. defensive rebuild at THIS HEAD (all timing legs are MODULE-DEP) ----
 JOBS=${JOBS:-4}
-leg rebuild bash -c "cmake --build build --parallel $JOBS && { [[ -d build_eh ]] && cmake --build build_eh --parallel $JOBS || true; }"
+leg rebuild bash -c "cmake --build build --parallel $JOBS"   # the receipt profile carries the fc/eh variant modules too
 
 # ---- 1. correctness fence (~5 min) ----
 leg fence-mpcgpu bash -c "cd $MPCGPU && bash tools/run_gates.sh"
@@ -107,36 +107,15 @@ AB_CELLS+=",indy7-cc_admm_lbdsv-pillars,iiwa14-cc_admm_lbdsv-pillars"
 [[ "${QUICK:-0}" == "1" ]] && AB_CELLS="indy7-cc_admm-pillars,indy7-cc_admm_lbdsv-pillars"
 leg ablinsys "$PY" "$CEV" --run --cells "$AB_CELLS"
 
-# ---- 5. SO-SQP per-iter cost (+bdsv control vs +ex exact, .so-swap) ----
+# ---- 5. SO-SQP per-iter cost (+bdsv control vs +ex exact, eh variant modules) ----
 SO_CELLS="indy7-al-reach,iiwa14-al-reach,indy7-cone_soc_al-press_mild,iiwa14-cone_soc_al-press_mild"
 [[ "${QUICK:-0}" == "1" ]] && SO_CELLS="indy7-al-reach"
 leg so-control "$PY" "$CEV" --run --cells "$SO_CELLS" --bdsv
-GATO_PKG=$REPO/python/gato
-EH_MODS=$REPO/build_eh/modules
-if [[ -d "$EH_MODS" ]]; then
-  SWAP_BAK=$LOGDIR/so_swap_bak && mkdir -p "$SWAP_BAK"
-  swap_ok=1
-  for so in "$EH_MODS"/*.so; do
-    b=$(basename "$so")
-    sha256sum "$GATO_PKG/$b" > "$SWAP_BAK/$b.sha" || swap_ok=0
-    cp -p "$GATO_PKG/$b" "$SWAP_BAK/$b" && cp -p "$so" "$GATO_PKG/$b" || swap_ok=0
-  done
-  if (( swap_ok )); then
-    leg so-exact "$PY" "$CEV" --run --cells "$SO_CELLS" --exact
-  else
-    echo "[so-exact] SKIP: .so swap failed — default modules NOT touched further" | tee -a "$SUMMARY"
-  fi
-  # restore + verify (the R2 discipline: sha256-checked restore, always runs)
-  for so in "$EH_MODS"/*.so; do
-    b=$(basename "$so"); cp -p "$SWAP_BAK/$b" "$GATO_PKG/$b"
-  done
-  if ( cd "$SWAP_BAK" && sha256sum -c ./*.sha --quiet ); then
-    echo "[so-restore] default modules restored, sha256 VERIFIED" | tee -a "$SUMMARY"
-  else
-    echo "[so-restore] FAIL: restored .so sha256 MISMATCH — rebuild build/ before trusting later legs" | tee -a "$SUMMARY"
-  fi
+# exact Hessian = the eh module VARIANT (bsqpN*_{plant}_eh.so, side by side — no .so swap)
+if compgen -G "$REPO/python/gato/bsqpN*_indy7_eh.*.so" > /dev/null; then
+  leg so-exact "$PY" "$CEV" --run --cells "$SO_CELLS" --exact
 else
-  echo "[so-exact] SKIP: no build_eh/modules (build with -DGATO_EXACT_HESSIAN=ON first)" | tee -a "$SUMMARY"
+  echo "[so-exact] SKIP: no eh variant modules (./tools/build.sh --profile receipt)" | tee -a "$SUMMARY"
 fi
 
 # ---- 6. R2/2b bound-default solve_us quotes (quiet-box re-runs) ----

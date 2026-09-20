@@ -7,8 +7,10 @@
 #   test/run_gpu_proof.sh refuses to sign when any of these is missing from
 #   python/gato/ — a missing module turns its tests into skips, which prove nothing.
 #
-# Contact-force (fc) arm modules live in build_fc/modules until variant naming
-# lands (plan Wave 2.A); they are gated by expected_skips.txt, not listed here.
+# Module VARIANTS (third column; omitted = default): fc = contact-force
+# controls, eh = exact Hessian. They are separate ABIs with their own module
+# names (bsqpN16_indy7_fc.so) and live side by side in python/gato/ — the
+# receipt attests them too, so their gates never skip on the attested run.
 indy7 8
 indy7 16
 indy7 32
@@ -22,3 +24,7 @@ iiwa14 46
 iiwa14 64
 iiwa14 128
 go2 16
+indy7 16 fc
+iiwa14 16 fc
+indy7 16 eh
+iiwa14 16 eh

@@ -613,8 +613,13 @@ class PyBSQP {
 #error "GATO_PLANT_NAME must be defined (plant name token for the module name)"
 #endif
 
-#define MODULE_NAME_HELPER(knot, plant) bsqpN##knot##_##plant
-#define MODULE_NAME(knot, plant) MODULE_NAME_HELPER(knot, plant)
+// bsqpN{N}_{plant}[_{variant}]: GATO_MODULE_VARIANT is "" (default), _fc or _eh —
+// variant modules are separate ABIs and live side by side in python/gato/.
+#ifndef GATO_MODULE_VARIANT
+#define GATO_MODULE_VARIANT
+#endif
+#define MODULE_NAME_HELPER(knot, plant, variant) bsqpN##knot##_##plant##variant
+#define MODULE_NAME(knot, plant, variant) MODULE_NAME_HELPER(knot, plant, variant)
 
 // Register the runtime-batch-size PyBSQP class for the given precision type
 #define REGISTER_BSQP_CLASS(Type)                                                                                                                                                                  \
@@ -671,7 +676,7 @@ class PyBSQP {
             .def("get_collision_row_duals", &PyBSQP<Type>::get_collision_row_duals)                                                                                          \
             .def("get_collision_admm_state", &PyBSQP<Type>::get_collision_admm_state)
 
-PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME), m)
+PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), m)
 {
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)

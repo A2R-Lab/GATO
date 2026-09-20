@@ -52,9 +52,10 @@ then exit 1; fi
 
 # Refuse to sign with a partial module set (test/receipt_modules.txt = D12 profile).
 missing=()
-while read -r plant knot; do
+while read -r plant knot variant; do
     [[ -z "${plant}" || "${plant}" == \#* ]] && continue
-    compgen -G "python/gato/bsqpN${knot}_${plant}.*.so" > /dev/null || missing+=("bsqpN${knot}_${plant}")
+    suffix=""; [[ -n "${variant}" && "${variant}" != "default" ]] && suffix="_${variant}"
+    compgen -G "python/gato/bsqpN${knot}_${plant}${suffix}.*.so" > /dev/null || missing+=("bsqpN${knot}_${plant}${suffix}")
 done < test/receipt_modules.txt
 if (( ${#missing[@]} )); then
     echo "ERROR: receipt module set incomplete — missing: ${missing[*]}" >&2

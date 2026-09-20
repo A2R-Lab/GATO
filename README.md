@@ -74,7 +74,12 @@ cmake --build build --parallel 2                                  # each TU pull
 - `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
   attests (`test/receipt_modules.txt`).
 
-Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
+Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}[_{variant}].so`.
+**Variants** are separate ABIs that live side by side: `_fc` (contact-force
+controls appended to `u`; `-DGATO_CONTACT_FORCES=ON`, `./tools/build.sh --variant fc`,
+`gato.build(..., contact_forces=True)`, `-DMODULES="iiwa14:16:fc"`) and `_eh`
+(exact-Hessian SO-SQP; `GATO_EXACT_HESSIAN`). Load one with
+`gato.BSQP(..., variant="fc")`; list them with `gato.available("fc")`.
 
 ### Requirements
 

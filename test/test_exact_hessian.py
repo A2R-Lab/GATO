@@ -6,8 +6,8 @@ GN blocks read from the DEVICE (exact-off debug_setup_kkt), d2a from central
 finite differences of pinocchio's computeABADerivatives (f64), projection via
 np.linalg.eigh with the same eps = 1e-6*(1+maxdiag) clip.
 
-Skips unless a built module was compiled with -DGATO_EXACT_HESSIAN=ON (canary
-workflow: build_eh/ + .so swap; the default receipt suite skips these).
+Runs on the "eh" module VARIANT (bsqpN{N}_{plant}_eh, part of the receipt
+profile); skips only where no eh module is built.
 """
 import numpy as np
 import pytest
@@ -20,19 +20,12 @@ pin = pytest.importorskip("pinocchio")
 
 
 def _exact_combo():
-    import importlib
-    for plant, N in sorted(gato.available()):
-        try:
-            mod = importlib.import_module(f"gato.bsqpN{N}_{plant}")
-        except ImportError:
-            continue
-        if getattr(mod, "EXACT_HESSIAN_AVAILABLE", False):
-            return plant, N
-    return None
+    combos = sorted(gato.available("eh"))
+    return min(combos, key=lambda k: k[1]) if combos else None
 
 
 COMBO = _exact_combo()
-needs_exact = pytest.mark.skipif(COMBO is None, reason="no module built with -DGATO_EXACT_HESSIAN=ON")
+needs_exact = pytest.mark.skipif(COMBO is None, reason="no eh variant module built (gato.build(..., exact_hessian=True))")
 
 
 def _fd_d2a(model, data, q, v, tau, h=1e-5):
@@ -93,7 +86,7 @@ def _project(P, eps_scale=1e-5):
 def _mk(plant, N, B, exact):
     from conftest import TEST_PARAMS, URDFS
     s = gato.BSQP(model_path=str(URDFS[plant]), batch_size=B, N=N, dt=0.01, params=TEST_PARAMS.replace(max_sqp_iters=4),
-                  plant_type=plant)
+                  plant_type=plant, variant="eh")
     if exact:
         s.set_exact_hessian(True)
     return s

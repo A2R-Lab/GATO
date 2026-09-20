@@ -5,8 +5,7 @@
     python run_wipe_cell.py --arm fc    --out data/wipe          # fc modules swapped in!
     python run_wipe_cell.py --arm pos --calibrate                # depth sweep, no pkl
 
-The fc arm REQUIRES the build_fc modules on the package path (run_wipe_pool.sh
-does the swap dance); pos/ucone run on default modules. Scenario selection via
+The fc arm runs the fc module VARIANT (bsqpN*_iiwa14_fc.so) — no module swap.
 --scenarios "0,1,2" (default: all 24).
 """
 import argparse
@@ -32,15 +31,13 @@ def build_mpc(arm, scenario, depth):
                         timestep=W.SIM_DT, record_contact=True)
     mpc = MPC_GATO(pin.buildModelFromUrdf(W.URDF), W.URDF, N=W.N_KNOTS,
                    dt=W.DT, batch_size=1, world=world,
+                   variant="fc" if arm == "fc" else None,   # the fc arm runs the fc module variant
                    # pin pcg: the committed n=24 pool + quiet quotes were
                    # measured under it (controller default is "auto" since 08-12)
                    linsys="pcg")
     s = mpc.solver
 
     if arm == "fc":
-        if s.n_fc == 0:
-            raise RuntimeError("fc arm needs the build_fc modules on the package "
-                               "path (run via run_wipe_pool.sh)")
         s.set_fc_cost(1e-2)
         s.set_fc_ref(W.fc_reference())
         s.enable_u_cone(W.fc_cone_rows(s.nu, s.n_actuated),

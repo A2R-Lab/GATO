@@ -7,6 +7,8 @@
 #   PLANT=indy7 KNOTS=32 ./tools/build.sh    # subset of the module matrix
 #   MODULES="indy7:8,16;go2:16" ./tools/build.sh   # explicit per-plant horizons
 #   ./tools/build.sh --profile receipt       # exactly test/receipt_modules.txt (what the receipt attests)
+#   ./tools/build.sh --variant fc            # fc (contact-force) or eh (exact-Hessian) variant modules
+#                                            #  (bsqpN{N}_{plant}_fc.so, side by side with the defaults)
 #   ARCH=86 ./tools/build.sh                 # override CUDA arch (default: native)
 #   JOBS=6  ./tools/build.sh                 # parallel jobs (default 4 — each TU
 #                                            #  pulls the large grid.cuh, ~RAM-bound)
@@ -19,10 +21,12 @@ VENV_PY="${REPO_ROOT}/.venv/bin/python"
 JOBS="${JOBS:-4}"
 
 PROFILE=""
+VARIANT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --clean) echo "Cleaning build directory: ${BUILD_DIR}"; rm -rf "${BUILD_DIR}"; shift ;;
     --profile) PROFILE="$2"; shift 2 ;;
+    --variant) VARIANT="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -40,6 +44,12 @@ fi
 [[ -n "${KNOTS:-}" ]] && CMAKE_ARGS+=(-DKNOTS="${KNOTS}")
 [[ -n "${ARCH:-}" ]]  && CMAKE_ARGS+=(-DCMAKE_CUDA_ARCHITECTURES="${ARCH}")
 [[ -n "${MODULES:-}" ]] && CMAKE_ARGS+=(-DMODULES="${MODULES}")
+case "${VARIANT}" in
+  "")  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=OFF -DGATO_EXACT_HESSIAN=OFF) ;;
+  fc)  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=ON -DGATO_EXACT_HESSIAN=OFF) ;;
+  eh)  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=OFF -DGATO_EXACT_HESSIAN=ON) ;;
+  *) echo "unknown --variant '${VARIANT}' (fc|eh)" >&2; exit 2 ;;
+esac
 case "${PROFILE}" in
   "")       CMAKE_ARGS+=(-DGATO_RECEIPT_PROFILE=OFF) ;;
   receipt)  CMAKE_ARGS+=(-DGATO_RECEIPT_PROFILE=ON) ;;

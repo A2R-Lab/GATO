@@ -9,6 +9,8 @@ shapes — a uniform per-knot upload must be bit-identical to the broadcast.
 import numpy as np
 import pytest
 
+import gato
+
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
 
 pytestmark = pytest.mark.gpu
@@ -177,17 +179,23 @@ def test_wrong_per_knot_shape_raises(make_solver, smallest_module):
 
 
 # ---------------------------------------------------------------------------
-# CL-3a contact-force builds (GATO_CONTACT_FORCES=1): the contact wrench f_c is
-# the tail of every control (CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE). These
-# gates SKIP on default builds (n_fc == 0) — run the suite against the
-# build_fc modules (.so-swap) to engage them.
+# CL-3a contact-force modules (the "fc" VARIANT, bsqpN{N}_{plant}_fc): the
+# contact wrench f_c is the tail of every control (CONTROL_SIZE =
+# ACTUATED_SIZE + FC_SIZE). The receipt profile builds them, so these gates
+# run on the attested suite; they skip only where no fc module is built.
 # ---------------------------------------------------------------------------
 
-def _fc_solver(make_solver, smallest_module, B=1, **kw):
-    plant, N = smallest_module
-    s = make_solver(plant, N, batch_size=B, **kw)
-    if s.n_fc == 0:
-        pytest.skip("default build (no fc slots) — run against build_fc modules")
+def _fc_combo():
+    combos = [k for k in gato.available("fc") if k[0] in START]
+    if not combos:
+        pytest.skip("no fc variant module built (gato.build(..., contact_forces=True))")
+    return min(combos, key=lambda k: k[1])
+
+
+def _fc_solver(make_solver, smallest_module=None, B=1, **kw):
+    plant, N = _fc_combo()
+    s = make_solver(plant, N, batch_size=B, variant="fc", **kw)
+    assert s.n_fc > 0
     return plant, N, s
 
 
@@ -237,12 +245,10 @@ def test_fc_adapter_dq_zero_wrench_bitwise(make_solver, smallest_module):
 def test_fc_solve_finite_deterministic(make_solver, smallest_module):
     """fc-build solve with regularized fc slots: finite, run-twice bitwise,
     and fc_traj has the fc-build shape."""
-    plant, N = smallest_module
+    plant, N = _fc_combo()
     xus = []
     for _ in range(2):
-        s = make_solver(plant, N, batch_size=2)
-        if s.n_fc == 0:
-            pytest.skip("default build (no fc slots) — run against build_fc modules")
+        s = make_solver(plant, N, batch_size=2, variant="fc")
         s.set_fc_cost(1e-3)
         X, goals = _inputs(plant, N, B=2)
         r = s.solve(X, goals)
@@ -293,7 +299,7 @@ def test_fc_ref_zero_is_bitwise_noop(make_solver, smallest_module):
     X, goals = _inputs(plant, N, B=1)
     xus = []
     for ref in ("unset", "zeros", "reset"):
-        s = make_solver(plant, N, batch_size=1)
+        s = make_solver(plant, N, batch_size=1, variant="fc")
         if ref == "zeros":
             s.set_fc_ref(np.zeros(s.n_fc))
         elif ref == "reset":
@@ -369,7 +375,7 @@ def test_mpc_gato_fc_config_needs_fc_build(urdfs, smallest_module):
     mpc = _mpc_gato(urdfs, plant, N)
     if mpc.solver.n_fc:
         pytest.skip("fc build — the raise is the default-build contract")
-    with pytest.raises(RuntimeError, match="GATO_CONTACT_FORCES"):
+    with pytest.raises(RuntimeError, match="fc module variant"):
         _mpc_gato(urdfs, plant, N, fc_config={"cost": 1e-2, "pin_torque_rows": True})
 
 

@@ -1,23 +1,6 @@
-# Tests the default-build receipt is ALLOWED to skip (gpu-proof verify
-# --expected-skips). Keep this list minimal and justified.
+# Tests the receipt run is ALLOWED to skip (gpu-proof verify --expected-skips).
 #
-# Exact-Hessian oracle tests: need a module compiled with
-# -DGATO_EXACT_HESSIAN=ON (canary workflow: build_eh/ + .so swap into
-# python/gato). The attested default modules compile the path out, so these
-# skip on the receipt run; they are exercised in the exact-build canary
-# sessions (docs/open-tasks/so_sqp_device/RESULTS_2026-07-30.md).
-test/test_exact_hessian.py::test_projection_matches_numpy_lambda_zero
-test/test_exact_hessian.py::test_contraction_matches_pinocchio_fd
-#
-# Contact-force (CL-3a) gates: need a module compiled with
-# -DGATO_CONTACT_FORCES=ON (canary workflow: build_fc/ + .so swap into
-# python/gato, scripted — the fc gate runner). The attested default modules
-# have FC_SIZE == 0, so these skip on the receipt run; they are exercised in
-# the fc-build gate sessions (docs/open-tasks/cl3a_contact_forces_2026-08-02.md).
-test/test_f_ext.py::test_fc_adapter_matches_oracle
-test/test_f_ext.py::test_fc_adapter_dq_carries_chain_term
-test/test_f_ext.py::test_fc_adapter_dq_zero_wrench_bitwise
-test/test_f_ext.py::test_fc_solve_finite_deterministic
-test/test_f_ext.py::test_fc_box_pin_zeroes_fc
-test/test_f_ext.py::test_fc_ref_zero_is_bitwise_noop
-test/test_f_ext.py::test_fc_ref_pulls_fc_toward_reference
+# EMPTY since 2026-09-20: the receipt profile (test/receipt_modules.txt)
+# builds the fc and eh module VARIANTS side by side with the defaults, so the
+# contact-force and exact-Hessian gates run on the attested suite. A skip on
+# the receipt run is a broken environment, not an expected outcome.

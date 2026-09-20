@@ -33,6 +33,7 @@ class MPC_GATO:
         constant_f_ext=None,
         track_full_stats=False,
         plant_type=None,  # None => BSQP auto-detects from model_path
+        variant=None,     # "fc" for contact-force modules (fc_config), "eh" exact Hessian
         pendulum_config=None,
         params=None,
         linsys=None,
@@ -109,7 +110,7 @@ class MPC_GATO:
         if linsys is not None and linsys != "auto":
             params = params.replace(linsys=linsys)   # pin the solver's static path too
         self.solver = BSQP(model_path=model_path, batch_size=batch_size, N=N, dt=dt,
-                           params=params, plant_type=plant_type)
+                           params=params, plant_type=plant_type, variant=variant)
         self.params = self.solver.params
 
         self.nq = self.model.nq
@@ -188,9 +189,9 @@ class MPC_GATO:
         """Program the solver's contact-wrench slots from an fc_config dict."""
         if self.solver.n_fc == 0:
             raise RuntimeError(
-                "fc_config requires a GATO_CONTACT_FORCES module, but this plant "
-                "has no fc slots (n_fc == 0) — rebuild with -DGATO_CONTACT_FORCES=ON "
-                "and install the build_fc modules before running the fc arm.")
+                "fc_config requires the fc module variant (MPC_GATO(..., variant=\"fc\")), "
+                "but this plant has no fc slots (n_fc == 0) — build it with gato.build(..., contact_forces=True) "
+                "and pass variant=\"fc\".")
         cost = cfg.get('cost')
         if cost is not None:
             self.solver.set_fc_cost(float(cost))

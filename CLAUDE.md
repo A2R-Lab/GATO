@@ -69,8 +69,10 @@ the dynamics, the B-block gains the dqdd/dfc columns, and the A-block carries th
 wrench rotates with the arm and dropping the term leaves an inexact Jacobian (it is
 ~1.5× the whole fixed-f_ext gradient at 1 N and ~14× at 10 N on iiwa14; linear in f_c, so
 zero-wrench trajectories are bitwise unchanged). Default builds are
-preprocessor-identical (bitwise). Build to a separate dir (`build_fc/`, the build_eh
-pattern) — modules bake the flag. Python reads the module attrs CONTROL_SIZE/
+preprocessor-identical (bitwise). fc is a module VARIANT (`bsqpN{N}_{plant}_fc.so`,
+built side by side with the defaults: `-DMODULES="iiwa14:16:fc"` / `--variant fc` /
+`gato.build(..., contact_forces=True)`; loaded with `BSQP(..., variant="fc")`; no
+.so-swap). Python reads the module attrs CONTROL_SIZE/
 ACTUATED_SIZE/FC_SIZE: `SolveResult.u0/control_at` return ACTUATED control only,
 `fc_at/fc_traj` the wrench slots; `add_fc_box` pins/caps fc slots via LIN_U rows.
 ⚠ fc_cost defaults to 1e-2 on fc builds — 0 makes fc a free wrench actuator and the

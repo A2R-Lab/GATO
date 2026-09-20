@@ -424,7 +424,7 @@ def run_cell(name, exact=False, bdsv=False):
     # bdsv=True: force the bdsv linsys — the single-variable control arm for
     # +ex comparisons (exact mode force-switches to bdsv internally).
     s = gato.BSQP(model_path=urdf, batch_size=1, N=N_KNOTS, dt=DT, params=SolverParams().replace(rho=1e-3, exact_hessian=exact, linsys=("bdsv" if bdsv else "pcg")),
-                  plant_type=plant)
+                  plant_type=plant, variant=("eh" if exact else None))   # exact Hessian = the eh module variant
 
     x0, goal_of, n_steps, ee_target, apply_bounds = build_problem(s, plant, problem)
     q_goal = (x0[:s.nq] + _dq_goal(s, problem)) \
