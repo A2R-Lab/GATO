@@ -283,9 +283,13 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         ) from e
 
     build_dir = Path(build_dir) if build_dir else root / "build"
+    # Explicit module list, and the receipt profile forced OFF: both are CACHE
+    # variables in the shared build tree, so a previous `--profile receipt`
+    # configure would otherwise silently override this request.
     cfg = ["cmake", "-S", str(root), "-B", str(build_dir),
            "-DCMAKE_BUILD_TYPE=Release", "-DGATO_BUILD_DEMO=OFF",
-           f"-DPLANT={name}", f"-DKNOTS={';'.join(map(str, Ns))}",
+           "-DGATO_RECEIPT_PROFILE=OFF",
+           f"-DMODULES={name}:{','.join(map(str, Ns))}",
            f"-DPython3_EXECUTABLE={sys.executable}",
            f"-Dpybind11_DIR={pybind11_dir}"]
     if arch:
