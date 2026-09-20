@@ -10,20 +10,26 @@ The linearization gate follows the verify-analytic-vs-FD rule: the device
 tangent A|B blocks are checked against central finite differences of the
 pinocchio step map, differenced/retracted on the manifold.
 """
-import importlib.util
+import importlib
 from pathlib import Path
 
 import numpy as np
+import pinocchio as pin   # [test] extra — a missing dep is a broken env, never a skip
 import pytest
 
-pytestmark = pytest.mark.gpu
-
-pin = pytest.importorskip("pinocchio")
-if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-    pytest.skip("bsqpN16_go2 module not built", allow_module_level=True)
-
 import gato
-import gato.bsqpN16_go2 as mod
+
+pytestmark = pytest.mark.gpu   # cpu-lane deselects; on a GPU box the module MUST exist
+
+
+@pytest.fixture(scope="module")
+def mod():
+    """The go2 N16 module — part of the receipt profile (test/receipt_modules.txt),
+    so its absence on a GPU box is a FAILURE, not a skip (no per-robot gating)."""
+    try:
+        return importlib.import_module("gato.bsqpN16_go2")
+    except ImportError as e:
+        pytest.fail(f"bsqpN16_go2 not built (./tools/build.sh --profile receipt): {e}")
 
 REPO = Path(__file__).resolve().parents[1]
 URDF = REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf"
@@ -87,7 +93,7 @@ def _solver(B):
                      ctrl_lim_cost=0.0)
 
 
-def test_module_dims():
+def test_module_dims(mod):
     assert (mod.NQ, mod.NV) == (NQ, NV)
     assert mod.FLOATING_BASE
     assert mod.CONTROL_SIZE == NU and mod.ACTUATED_SIZE == NU

@@ -16,19 +16,18 @@ slot maps (rowgroups.cuh stored_*_index / tangent_*_index). Gates:
 - collision clearance rows: a far obstacle reports exactly zero violation,
   a bubble intersecting the trunk reports positive; deterministic.
 """
-import importlib.util
 from pathlib import Path
 
 import numpy as np
+import pinocchio as pin   # [test] extra — a missing dep is a broken env, never a skip
 import pytest
 
-pytestmark = pytest.mark.gpu
-
-pin = pytest.importorskip("pinocchio")
-if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-    pytest.skip("bsqpN16_go2 module not built", allow_module_level=True)
-
 import gato
+
+# cpu-lane deselects every test here; on a GPU box the go2 N16 module is part
+# of the receipt profile, so gato.BSQP(plant_type="go2") raising is the loud
+# failure we want (no per-robot gating, no module-level skip).
+pytestmark = pytest.mark.gpu
 
 REPO = Path(__file__).resolve().parents[1]
 URDF = REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf"
