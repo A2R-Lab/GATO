@@ -27,35 +27,50 @@ GPU, cmake) and tells you exactly what's missing.
 
 ```sh
 ./tools/install.sh            # lean: codegen + build deps + submodules + regen grid.cuh
-./tools/install.sh --examples #   + runtime to run the MPC/benchmark examples (torch, pinocchio, viz)
-./tools/install.sh --dev      #   + test tooling (pytest)
-./tools/install.sh --all      #   + examples + dev
+./tools/install.sh --examples #   + runtime to run the MPC/benchmark examples (torch, pinocchio, mujoco, viz)
+./tools/install.sh --test     #   + full test-suite deps (pinocchio, mujoco, scipy, gymnasium)
+./tools/install.sh --dev      #   + test tooling (pytest, pytest-gpu-proof)
+./tools/install.sh --all      #   + examples + test + dev
 ```
 
-The lean default is all you need to generate code and build the solver. The
-heavy runtime (torch, pinocchio, Qt/meshcat viz) is only pulled in by
-`--examples`. Then activate and build:
+The lean default is all you need to generate code, build the solver, and run
+`gato.BSQP` (numpy + the built module). Pinocchio and MuJoCo are needed only by
+the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
+test suite — `--test` pulls exactly those in; `--examples` adds torch and the
+viz stack. Then activate and build:
 
 ```sh
 source .venv/bin/activate
 ./tools/build.sh              # incremental; --clean to reconfigure; PLANT=/KNOTS=/ARCH= to subset
 ```
 
-Docker remains available as an **optional** fallback for reproducible builds
-(`./tools/docker.sh` — a thin image that wraps the same `tools/install.sh`).
+Docker (`./tools/docker.sh`) is an **optional prerequisites image** — CUDA
+toolkit, CMake, Python — that drops you into a shell with the repo mounted; you
+then run the same `tools/install.sh` + `tools/build.sh` inside it. It does not
+build GATO for you.
+
+**Distribution:** GATO is installed from a source tree only (a recursive clone,
+or the sdist — both carry the full CMake tree). The pure-python wheel holds the
+`gato` package without solver modules; there is no binary wheel (modules are
+GPU-arch/CUDA/ABI-specific CMake products). See `test/test_distribution_artifacts.py`.
 
 ### Build Options
 
 You can control which Python extension modules are built by selecting plant models and horizon lengths at CMake configure time:
 
 ```sh
-mkdir -p build && cd build
-cmake -DPLANT="indy7;iiwa14" -DKNOTS="8;32;128" ..
-cmake --build . --parallel
+cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;32;128"   # PLANT x KNOTS cross-product
+cmake -S . -B build -DMODULES="indy7:8,32;go2:16"                # explicit per-plant horizons
+cmake -S . -B build -DGATO_RECEIPT_PROFILE=ON                     # exactly test/receipt_modules.txt
+cmake --build build --parallel 2                                  # each TU pulls the large grid.cuh (RAM-bound)
 ```
 
-- `PLANT`: semicolon-separated list of plant targets (`indy7`, `iiwa14`).
-- `KNOTS`: semicolon-separated list of horizon lengths.
+- `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `go2`).
+- `KNOTS`: semicolon-separated horizon lengths — crossed with EVERY plant, so
+  use `MODULES` when plants differ (go2 is **N16-only**; longer floating-base
+  horizons are compile blowups).
+- `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
+  attests (`test/receipt_modules.txt`).
 
 Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}.so`.
 
@@ -170,15 +185,17 @@ pytest -m "gpu and not slow"  # GPU: smoke solves, determinism, shapes, controll
 pytest                        # everything (slow adds codegen diff + a build dogfood)
 ```
 
-There is also a standalone single-block PCG-vs-CPU harness in
-[test/cuda/](test/cuda/) (build command in the file header).
+There are also standalone single-block kernel harnesses in
+[test/cuda/](test/cuda/) (build commands in the file headers).
 
 **GPU CI** uses [pytest-gpu-proof](https://github.com/A2R-Lab/pytest-gpu-proof):
 the full suite runs on a real GPU via `./test/run_gpu_proof.sh`, which emits a
 **signed receipt** (`gpu-proof.json`) binding the git SHA, a source fingerprint,
 and per-test outcomes; a CPU-only GitHub Action verifies the signature against
-the signer's public GitHub keys on every push (no cloud GPUs). The same workflow
-also runs the host-only test tier directly in CI.
+the signer's public GitHub keys on pushes to `main`/`cleanup-modernization`,
+pull requests and a weekly cron (receipts expire after 30 days). The same
+workflow runs the host-only tier in CI with the full `[test]` deps, and fails
+on ANY host-tier skip. Sign receipts from the project `.venv` (`--test --dev`).
 
 ## Reproducing the paper
 

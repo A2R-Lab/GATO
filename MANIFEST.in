@@ -1,0 +1,10 @@
+# sdist = a BUILDABLE source tree (plan D10): everything CMake needs to build
+# the solver modules, plus tests. Built .so modules are never packaged.
+include CMakeLists.txt LICENSE README.md CLAUDE.md
+recursive-include gato *.cuh *.h *.cu
+recursive-include python *.cu
+recursive-include tools *.py *.sh
+recursive-include test *.py *.txt *.yaml *.cu *.cuh *.json
+recursive-include examples/indy7_description *
+recursive-include examples/iiwa_description *
+global-exclude *.so *.pyc __pycache__

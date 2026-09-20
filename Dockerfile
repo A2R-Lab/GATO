@@ -1,6 +1,6 @@
-# Optional container build — the primary install path is HOST-NATIVE
-# (./tools/install.sh + ./tools/build.sh, see README). Use this only for a
-# reproducible environment; it just wraps the same install script.
+# Optional PREREQUISITES image — CUDA toolkit + CMake + Python and a shell with
+# the repo mounted. It does NOT install or build GATO: run ./tools/install.sh
+# and ./tools/build.sh inside the container exactly as on a host (README).
 #
 #   docker build -t gato .
 #   docker run --gpus all -it -v $PWD:/workspace gato

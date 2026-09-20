@@ -111,19 +111,23 @@ migrated to `glass::`.
 
 ## Build & run
 
-Modules are built by CMake as a `(PLANT × KNOTS)` matrix → `bsqpN{knot}_{plant}.so`:
+Modules are built by CMake as a `(PLANT × KNOTS)` matrix, or an explicit `-DMODULES="indy7:8,16;go2:16"`
+list (go2 is N16-ONLY — never cross it with the arm horizons), or `-DGATO_RECEIPT_PROFILE=ON` =
+exactly `test/receipt_modules.txt` (what `run_gpu_proof.sh` preflights) → `bsqpN{knot}_{plant}.so`:
 
 ```bash
 cmake -S . -B build -DKNOTS=64 -DPLANT=indy7 -DCMAKE_BUILD_TYPE=Release \
       -DPython3_EXECUTABLE=$PWD/.venv/bin/python \
       -Dpybind11_DIR=$($PWD/.venv/bin/python -m pybind11 --cmakedir) \
       -DCMAKE_CUDA_ARCHITECTURES=120
-cmake --build build --parallel 4      # cap jobs: each TU pulls the large grid.cuh
+cmake --build build --parallel 2      # cap jobs: each TU pulls the large grid.cuh (go2 ~7 GB)
 ```
 
 `tools/install.sh` sets up a project-local `.venv` + submodules + regen. `KNOTS`/`PLANT` accept
-semicolon lists. Use the GRiD venv (`../GRiD/.venv`) for anything needing pinocchio (the GATO venv
-is the lean codegen/build set).
+semicolon lists. The project `.venv` is the ONLY python for this repo: `./tools/install.sh --test --dev`
+gives it pinocchio + mujoco + scipy + gymnasium + pytest-gpu-proof, which is what `test/run_gpu_proof.sh`
+requires (it refuses a python missing them — a skip-laden receipt fails CI). Do NOT sign receipts
+from other repos' venvs.
 
 New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE")` runs codegen (grid.cuh +
 limits.cuh + registry) and compiles the modules in one call (fixed-base serial chains with bounded
