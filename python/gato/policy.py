@@ -25,8 +25,13 @@ class TrajectoryReference:
         return self.traj[6 * off: 6 * (off + self.N)]
 
     def done(self, t):
-        """True once the window start would run past the end of the trajectory."""
-        return int(t / self.dt_knot) >= self.traj.size / 6 - 6 * self.N
+        """True once the window start would run past the last full horizon.
+
+        Units are KNOTS on both sides: the trajectory holds ``size // 6`` knots
+        and the last valid window starts at knot ``size // 6 - N`` (the same
+        clamp ``window()`` uses); ``done`` fires one knot after that.
+        """
+        return int(t / self.dt_knot) > self.traj.size // 6 - self.N
 
 
 class GoalReference:

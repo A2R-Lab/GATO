@@ -57,10 +57,11 @@ def smallest_module():
 
 @pytest.fixture
 def make_solver():
-    """Factory: fresh BSQP for a (plant, N) with example-01 default params."""
-    if not HAVE_PIN:
-        pytest.skip("pinocchio required to construct BSQP")
+    """Factory: fresh BSQP for a (plant, N) with example-01 default params.
 
+    Construction is pinocchio-free (dims come from the module); tests that
+    need FK/oracles import pinocchio themselves (never skip: a missing dep is
+    a broken environment, not an expected outcome)."""
     def _make(plant, N, batch_size=1, **kw):
         return gato.BSQP(model_path=str(URDFS[plant]), batch_size=batch_size,
                          N=N, dt=0.01, plant_type=plant, **kw)

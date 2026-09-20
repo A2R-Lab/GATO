@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .common import _require_pin
+from .common import _require_pin, _pin_available
 
 
 def available():
@@ -230,48 +230,45 @@ class BSQP:
             ctrl_lim_cost,
             rho,  # rho
         )
-        pin = _require_pin()
-        # floating-base modules (CL-3): the stored state carries the free-flyer
-        # q [p; quat xyzw] — mirror it in the pinocchio model so nq/nv/nx and
-        # every oracle computation match the module. The module attrs are the
-        # source of truth; the registry flag only selects the pin root joint.
+        # Dimensions come from the MODULE (NQ/NV/CONTROL_SIZE/... are baked at
+        # compile time) — pinocchio is NOT needed to construct or run a solver.
+        # The pinocchio model is built lazily (self.model / self.data) by the
+        # FK helpers (ee_pos), the sim/estimator layers and the tests; when it
+        # IS available the module/URDF dimension cross-check below runs.
         self.floating_base = bool(getattr(base, "FLOATING_BASE", False))
-        if self.floating_base:
-            self.model = pin.buildModelFromUrdf(model_path, pin.JointModelFreeFlyer())
-        else:
-            self.model = pin.buildModelFromUrdf(model_path)
-        if hasattr(base, "NQ") and (int(base.NQ), int(base.NV)) != (self.model.nq, self.model.nv):
-            raise ValueError(
-                f"module {module_name} has (nq, nv) = ({int(base.NQ)}, {int(base.NV)}) but the "
-                f"pinocchio model from {model_path!r} has ({self.model.nq}, {self.model.nv}) — "
-                f"wrong URDF or a fixed/floating mismatch")
-        self.data = self.model.createData()
+        self.model_path = model_path
+        self._model = None
+        self._data = None
+        self._ee_frame_id = None
+        if hasattr(base, "NQ"):
+            self.nq, self.nv = int(base.NQ), int(base.NV)
+        else:  # pre-CL-3 modules did not export the state layout: fall back to pinocchio
+            self.nq, self.nv = self.model.nq, self.model.nv
+        if _pin_available():
+            if (self.nq, self.nv) != (self.model.nq, self.model.nv):
+                raise ValueError(
+                    f"module {module_name} has (nq, nv) = ({self.nq}, {self.nv}) but the "
+                    f"pinocchio model from {model_path!r} has ({self.model.nq}, {self.model.nv}) — "
+                    f"wrong URDF or a fixed/floating mismatch")
         # The solver/grid.cuh optimizes the EE-position cost in the frame the module
         # was codegen'd with (fixed_target_name; recorded in the registry, "EE" for
         # the vendored robots). The last JOINT origin (oMi[njoints-1]) can sit several
         # cm short of it, so the success metric MUST use the same frame or it reports
-        # spurious tracking error. Resolve the frame id once; fall back to the last
-        # joint only if the URDF lacks the frame.
+        # spurious tracking error. The frame id is resolved lazily with the model.
         self.ee_frame = robot_info(plant_type).get("ee_frame", "EE")
-        if self.model.existFrame(self.ee_frame):
-            self.ee_frame_id = self.model.getFrameId(self.ee_frame)
-        else:
-            self.ee_frame_id = None
         self.batch_size = batch_size
         self.N = N
         self.dt = dt
         self.f_ext_B = np.zeros((self.batch_size, 6), dtype=np.float32)
         self.set_f_ext_B(self.f_ext_B)
 
-        self.nx = self.model.nq + self.model.nv
+        self.nx = self.nq + self.nv
         # Control width comes from the MODULE: on GATO_CONTACT_FORCES builds
         # CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE (contact-wrench slots appended
         # after the torques), so nu > nv and every xu stride follows it.
-        self.n_actuated = int(getattr(base, "ACTUATED_SIZE", self.model.nv))
+        self.n_actuated = int(getattr(base, "ACTUATED_SIZE", self.nv))
         self.n_fc = int(getattr(base, "FC_SIZE", 0))
-        self.nu = int(getattr(base, "CONTROL_SIZE", self.model.nv))
-        self.nq = self.model.nq
-        self.nv = self.model.nv
+        self.nu = int(getattr(base, "CONTROL_SIZE", self.nv))
 
         self.XU_B = np.zeros(
             (self.batch_size, self.N * (self.nx + self.nu) - self.nu),
@@ -906,6 +903,35 @@ class BSQP:
     def clear_cost_weights_per_knot(self):
         self.solver.clear_cost_weights_per_knot()
 
+    # ---- lazy pinocchio model (FK helpers / sim / estimators / tests) ----
+    @property
+    def model(self):
+        """pinocchio Model for model_path (built on first use; needs the [test] extra)."""
+        if self._model is None:
+            pin = _require_pin()
+            if self.floating_base:
+                # floating-base modules (CL-3): the stored state carries the
+                # free-flyer q [p; quat xyzw] — mirror it in the pin model so
+                # nq/nv/nx and every oracle computation match the module.
+                self._model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())
+            else:
+                self._model = pin.buildModelFromUrdf(self.model_path)
+        return self._model
+
+    @property
+    def data(self):
+        if self._data is None:
+            self._data = self.model.createData()
+        return self._data
+
+    @property
+    def ee_frame_id(self):
+        """Frame id of the codegen'd EE target frame, or None if the URDF lacks it."""
+        if self._ee_frame_id is None:
+            m = self.model
+            self._ee_frame_id = m.getFrameId(self.ee_frame) if m.existFrame(self.ee_frame) else -1
+        return None if self._ee_frame_id == -1 else self._ee_frame_id
+
     def ee_pos(self, q, frame="ee"):
         """EE position via pinocchio FK.
 
@@ -950,7 +976,7 @@ class BSQP:
         # Always upload a correctly-sized contiguous buffer (a short buffer makes the
         # upload's cudaMemcpy over-read host memory -> garbage wrench -> NaN dynamics).
         f_ext_B = np.asarray(f_ext_B, dtype=np.float32)
-        nb = self.n_bodies or self.model.nv
+        nb = self.n_bodies or self.nv
         per_knot = (f_ext_B.ndim == 3)
         if per_knot:
             if f_ext_B.shape[:2] != (self.batch_size, self.N):

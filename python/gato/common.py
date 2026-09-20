@@ -6,19 +6,26 @@ Shared functions used by both benchmark scripts and notebooks.
 import numpy as np
 
 
+def _pin_available():
+    """True if pinocchio is importable (the solver itself never needs it)."""
+    import importlib.util
+    return importlib.util.find_spec("pinocchio") is not None
+
+
 def _require_pin():
     """Import pinocchio on first use, with an actionable error.
 
-    The base install is numpy-only; pinocchio is only needed by the model/EE
-    metric layers (BSQP model loading, rk4, MPC_GATO) and ships in the
-    [examples] extra.
+    The base install is numpy-only and constructs/runs BSQP without it;
+    pinocchio is needed by the FK/EE-metric layers (BSQP.ee_pos, rk4,
+    MPC_GATO, the worlds/estimators) and ships in the [test] and [examples]
+    extras.
     """
     try:
         import pinocchio as pin
     except ImportError as e:
         raise ImportError(
             "pinocchio is required for this feature (robot model / EE metrics / sim); "
-            "install it with: pip install -e '.[examples]'"
+            "install it with: pip install -e '.[test]' (or '.[examples]')"
         ) from e
     return pin
 

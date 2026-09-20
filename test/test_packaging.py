@@ -4,6 +4,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 import gato
 from gato.config import STANDARD_BATCH_SIZES
 
@@ -57,3 +60,30 @@ def test_available_shape():
     for (plant, N), fname in gato.available().items():
         assert isinstance(plant, str) and isinstance(N, int) and N >= 2
         assert fname.startswith(f"bsqpN{N}_{plant}.")
+
+
+@pytest.mark.gpu
+def test_bsqp_constructs_and_solves_without_pinocchio(repo_root, smallest_module, urdfs):
+    """The lean install promise: BSQP needs numpy + the built module only.
+    Pinocchio is poisoned in a subprocess; construction, one solve and the
+    module-derived dims must all work (FK helpers are the only pin users)."""
+    plant, N = smallest_module
+    code = (
+        "import sys\n"
+        "sys.modules['pinocchio'] = None\n"
+        f"sys.path.insert(0, {str(repo_root / 'python')!r})\n"
+        "import numpy as np, gato\n"
+        f"s = gato.BSQP(model_path={str(urdfs[plant])!r}, batch_size=1, N={N}, dt=0.01, plant_type={plant!r})\n"
+        "assert (s.nq, s.nv, s.nx, s.nu) == (s.lib.NQ, s.lib.NV, s.lib.NQ + s.lib.NV, s.lib.CONTROL_SIZE)\n"
+        "x = np.zeros((1, s.nx), np.float32); ref = np.zeros((1, 6 * s.N), np.float32); ref[:, 2::6] = 0.5\n"
+        "r = s.solve(x, ref)\n"
+        "assert np.isfinite(r.xu).all()\n"
+        "try:\n"
+        "    s.ee_pos(x[0, :s.nq]); raise SystemExit('ee_pos must need pinocchio')\n"
+        "except ImportError as e:\n"
+        "    assert 'pinocchio' in str(e)\n"
+        "print('OK')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert "OK" in out.stdout
