@@ -8,10 +8,11 @@
 	branch = main
 [submodule "baselines/sqpcpu"]
 	path = examples/benchmarks/baselines/sqpcpu
-	url = https://github.com/EmreAdabag/sqpcpu
-	# OPT-IN research baseline (paper Fig-3 CPU arm). The pinned commit carries
-	# the fair-comparison patches (fig3-fair-sigma) and is NOT on the upstream
-	# URL — it lives on a private fork (plan D14). `update = none` keeps it out of
-	# `git submodule update --init --recursive` / tools/install.sh so the public
-	# clone works; build_cpu_baseline.sh initialises it explicitly (needs access).
-	update = none
+	url = https://github.com/A2R-Lab/sqpcpu.git
+	branch = fig3-fair-sigma
+	# Paper Fig-3 CPU baseline: A2R-Lab/sqpcpu is the public FORK of
+	# EmreAdabag/sqpcpu; branch fig3-fair-sigma carries the fair-comparison
+	# patches GATO pins (optional OSQP sigma, one-stage time-shift warm start).
+	# Plan D14 resolved 2026-09-21: the recursive clone / tools/install.sh fetch it
+	# like every other submodule; build_cpu_baseline.sh compiles it (osqp +
+	# osqp-eigen into a local prefix). Development copy: A2R-Lab/sqpcpu-dev.

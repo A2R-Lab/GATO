@@ -25,8 +25,10 @@ PREFIX="$DEPS/install"
 VENV="${1:-$REPO/.venv}"
 PY="$VENV/bin/python"
 
-# The sqpcpu baseline is an OPT-IN submodule (update = none in .gitmodules: its
-# pinned fig3-fair commit is on a private fork, plan D14) — initialise it here.
+# The sqpcpu baseline submodule (A2R-Lab/sqpcpu = the public fork of
+# EmreAdabag/sqpcpu; the fig3-fair pin is on its fig3-fair-sigma branch; plan D14
+# resolved 2026-09-21). A recursive clone already has it; this
+# covers a lean checkout that skipped submodules.
 git -C "$REPO" submodule update --init --checkout examples/benchmarks/baselines/sqpcpu
 
 [ -x "$PY" ] || { echo "ERROR: venv python not found at $PY (pass VENV_DIR as arg 1)"; exit 1; }

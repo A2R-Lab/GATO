@@ -2,6 +2,13 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-21 — D14: the Fig-3 CPU baseline pin is public
+
+- `examples/benchmarks/baselines/sqpcpu` now points at `A2R-Lab/sqpcpu` (the public
+  fork of EmreAdabag/sqpcpu), branch `fig3-fair-sigma` = upstream master + the two
+  fair-comparison commits GATO pins. The `update = none` opt-in gating is gone: a plain
+  recursive clone and `tools/install.sh` fetch it like every other submodule.
+
 ## 2026-09-20 — CL-4 groundwork: gait oracle, per-knot row masks, per-knot fc reference
 
 - `gato.gait.GaitSchedule`: the fixed-gait ORACLE (trot/bound/pace/walk/stand; period,
