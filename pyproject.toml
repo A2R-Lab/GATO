@@ -64,6 +64,7 @@ examples = [
 dev = [
     "pytest",
     "pytest-xdist",
+    "build>=1.0",              # test_distribution_artifacts runs `python -m build` (sdist/wheel gates)
     "pytest-gpu-proof==0.4.0", # signed GPU-CI receipts (schema 3; pinned, see test/gpu-proof-policy.yaml)
     "pyyaml",                  # test/gpu-proof-policy.yaml
 ]
