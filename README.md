@@ -275,6 +275,9 @@ mechanisms, measured defaults and provenance): [docs/constraints.md](docs/constr
 
 ## Tests
 
+The suite needs the `[test]` and `[dev]` extras (`./tools/install.sh --test --dev`): a missing
+dependency is a broken environment, never a skip (`test_floating_*` import pinocchio at collection).
+
 ```sh
 pytest -m "not gpu"           # host-only: packaging, math, codegen determinism
 pytest -m "gpu and not slow"  # GPU: smoke solves, determinism, shapes, controller
