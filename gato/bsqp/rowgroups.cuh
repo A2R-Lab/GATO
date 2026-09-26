@@ -74,6 +74,15 @@ enum Kind : int32_t {
                      // point — constant within one QP/ADMM inner loop by
                      // construction; relinearized per SQP iteration (see the
                      // plant.cuh adapter note; pairs-ABI = fallback).
+        CONTACT_POS = 6,  // g_i = p_f(q_k)[axis] - tgt[k][i], i = 3f + axis over the
+                     // NCF baked contact frames (block X; CL-4 §1.3). Cooperative
+                     // evaluator (gato::plant::contact_pos[_grad] over GRiD's
+                     // contact_frame_positions surface) at dedicated sites like
+                     // EE_POS — but folded at EVERY active knot (stance feet stay
+                     // put per knot), with a PER-KNOT target table (tgt) and the
+                     // interval [lo, hi] on the RESIDUAL: stance = lo == hi == 0,
+                     // swing clearance = one-sided z rows. n_rows = 3*NCF fits the
+                     // dense per-group slots (state, masks, bounds all per row).
 };
 
 __device__ __forceinline__ bool is_selection_kind(int32_t kind)
@@ -147,6 +156,12 @@ struct RowGroupDesc {
         // tick by the gait schedule (set_row_group_mask); ADMM re-inits z/y on
         // every mask write.
         uint64_t active[KNOT_POINTS];
+        // Per-knot TARGET table (CONTACT_POS only; unread by other kinds): row i's
+        // reference at knot k is tgt[k * MAX_ROWS_PER_GROUP + i] and the row value
+        // is the residual p_i(q_k) - tgt. Written by add_contact_pos_group /
+        // set_row_group_targets (a foothold frozen at touchdown, a swing curve
+        // sampled per knot); zero = the raw world position.
+        T       tgt[KNOT_POINTS * MAX_ROWS_PER_GROUP];
 };
 static_assert(MAX_ROWS_PER_GROUP <= 64, "row-activity mask packs one row per bit");
 
@@ -541,6 +556,196 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
         return total;
 }
 
+// ---- CONTACT_POS rows (cooperative contact-frame position sites; CL-4) ----
+//
+// g_i(q_k) = p_i(q_k) - tgt[k][i] for the NCF baked contact frames (i = 3f +
+// axis, n_rows = 3*NCF), through gato::plant::contact_pos[_grad] (GRiD's
+// contact_frame_positions surface, 2026-09-26). The interval [lo_i, hi_i]
+// binds the RESIDUAL: stance feet pin with lo == hi == 0, a swing clearance is
+// a one-sided z row, and the per-knot target table lets ONE group hold a
+// different point per knot (a foothold frozen at touchdown, a swing curve).
+// Unlike EE_POS (terminal-only) these fold at EVERY active knot, like the
+// clearance rows. Jacobian layout from GRiD: s_J[3*NV*f + 3*vi + axis] — the
+// tangent [v_lin; omega; joints] chart, i.e. the KKT tangent blocks' own chart
+// (NQ == NV on fixed base). Consumers size the dedicated cooperative carve
+// (coop_rows[_grad]_scratch_ct) when a COLLISION or CONTACT_POS group is
+// registered (host-known flag); the ADMM/telemetry/dual kernels fold it into
+// their unconditional rowgroup_eval[_grad]_scratch_ct.
+
+constexpr int32_t CONTACT_ROWS = 3 * gato::plant::NCF;
+static_assert(CONTACT_ROWS <= (int32_t)MAX_ROWS_PER_GROUP, "CONTACT_POS rows (3 per contact frame) must fit one row group");
+
+template<typename T>
+__host__ __device__ constexpr uint32_t contact_rows_scratch_ct()
+{
+        // positions + residual + aligned eval arena (+16B slop for the align-up)
+        return 2 * CONTACT_ROWS + gato::plant::contactPos_TempMemCt<T>() + 16 / sizeof(T) + 1;
+}
+
+template<typename T>
+__host__ __device__ constexpr uint32_t contact_rows_grad_scratch_ct()
+{
+        // positions + residual + jacobian + per-row (gr, h) scalars + aligned eval arena
+        return 2 * CONTACT_ROWS + CONTACT_ROWS * (uint32_t)constants::NV + 2 * MAX_ROWS_PER_GROUP + gato::plant::contactPosGrad_TempMemCt<T>() + 16 / sizeof(T) + 1;
+}
+
+// the dedicated cooperative carve setup_kkt / merit size when a COLLISION or
+// CONTACT_POS group is registered: the two kinds fold sequentially at the same
+// site (never overlapping), so one region sized for the larger serves both
+template<typename T>
+__host__ __device__ constexpr uint32_t coop_rows_scratch_ct()
+{
+        return collision_rows_scratch_ct<T>() > contact_rows_scratch_ct<T>() ? collision_rows_scratch_ct<T>() : contact_rows_scratch_ct<T>();
+}
+template<typename T>
+__host__ __device__ constexpr uint32_t coop_rows_grad_scratch_ct()
+{
+        return collision_rows_grad_scratch_ct<T>() > contact_rows_grad_scratch_ct<T>() ? collision_rows_grad_scratch_ct<T>() : contact_rows_grad_scratch_ct<T>();
+}
+
+// any CONTACT_POS group active at `knot`?
+template<typename T>
+__device__ __forceinline__ bool has_contact_rows(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups, int32_t knot)
+{
+        for (int32_t gi = 0; gi < n_groups; gi++) {
+                const RowGroupDesc<T>& grp = groups[gi];
+                if (grp.kind == CONTACT_POS && knot >= grp.knot_lo && knot < grp.knot_hi) return true;
+        }
+        return false;
+}
+
+// J_i[vi] of row i = 3f + axis in GRiD's [3*NV*f + 3*vi + axis] layout
+__host__ __device__ __forceinline__ int32_t contact_J_index(int32_t i, int32_t vi)
+{
+        return 3 * (int32_t)constants::NV * (i / 3) + 3 * vi + (i % 3);
+}
+
+// residual g = p(q_k) - tgt[k] into s_scratch; returns the residual pointer.
+// ALL threads call (barriers inside the FK); ends on a barrier.
+template<typename T>
+__device__ __forceinline__ const T* contact_eval(const RowGroupDesc<T>& grp, int32_t knot, const T* xu_k, T* s_scratch, const grid::robotModel<T>* d_robot_model)
+{
+        T* s_pos = s_scratch;
+        T* s_g = s_pos + CONTACT_ROWS;
+        T* s_arena = align16_ptr<T>(s_g + CONTACT_ROWS);
+        gato::plant::contact_pos<T>(s_pos, xu_k, s_arena, d_robot_model);  // ends on a barrier
+        for (int32_t i = threadIdx.x; i < CONTACT_ROWS; i += blockDim.x) { s_g[i] = s_pos[i] - grp.tgt[knot * (int32_t)MAX_ROWS_PER_GROUP + i]; }
+        __syncthreads();
+        return s_g;
+}
+
+// residual + Jacobian (+ the callers' per-row scalar slots gr/h after J).
+// ALL threads call; ends on a barrier.
+template<typename T>
+__device__ __forceinline__ void contact_eval_grad(const RowGroupDesc<T>& grp, int32_t knot, const T* xu_k, T* s_scratch, const grid::robotModel<T>* d_robot_model,
+                                                  T*& s_g, T*& s_J, T*& s_gr, T*& s_h)
+{
+        T* s_pos = s_scratch;
+        s_g = s_pos + CONTACT_ROWS;
+        s_J = s_g + CONTACT_ROWS;
+        s_gr = s_J + CONTACT_ROWS * (int32_t)constants::NV;
+        s_h = s_gr + MAX_ROWS_PER_GROUP;
+        T* s_arena = align16_ptr<T>(s_h + MAX_ROWS_PER_GROUP);
+        gato::plant::contact_pos_grad<T>(s_pos, s_J, xu_k, s_arena, d_robot_model);  // ends on a barrier
+        for (int32_t i = threadIdx.x; i < CONTACT_ROWS; i += blockDim.x) { s_g[i] = s_pos[i] - grp.tgt[knot * (int32_t)MAX_ROWS_PER_GROUP + i]; }
+        __syncthreads();
+}
+
+// GN fold of CONTACT_POS rows at one knot into the state cost blocks (dense on
+// the tangent q half: q += sum_i gr_i J_i, Q += sum_i h_i J_i^T J_i). Scalars
+// per mechanism exactly like the EE fold (ADMM folds the constant rho*J^T*J
+// only; masked-off rows contribute nothing). ALL threads call; ends on a
+// barrier. __noinline__ like the collision fold (the setup_kkt TU cicc cliff).
+template<typename T>
+__device__ __noinline__ void apply_contact_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
+                                                         int32_t knot, const T* xu_k,
+                                                         const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
+                                                         T* s_Q, T* s_q, T* s_scratch,
+                                                         const grid::robotModel<T>* d_robot_model,
+                                                         T admm_rho_scale = static_cast<T>(1))
+{
+        constexpr int32_t NVi = (int32_t)constants::NV;
+        const uint32_t rank = threadIdx.x;
+        const uint32_t size = blockDim.x;
+        for (int32_t gi = 0; gi < n_groups; gi++) {
+                const RowGroupDesc<T>& grp = groups[gi];
+                if (grp.kind != CONTACT_POS) continue;
+                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM) continue;
+                if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+
+                T *s_g, *s_J, *s_gr, *s_h;
+                contact_eval_grad<T>(grp, knot, xu_k, s_scratch, d_robot_model, s_g, s_J, s_gr, s_h);
+
+                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                        const T g = s_g[i];
+                        if (grp.mech == MECH_ADMM) {
+                                s_gr[i] = static_cast<T>(0);
+                                s_h[i] = grp.mu * admm_rho_scale;
+                        } else if (!row_on<T>(grp, knot, i)) {
+                                s_gr[i] = static_cast<T>(0);
+                                s_h[i] = static_cast<T>(0);
+                        } else if (grp.mech == MECH_AL) {
+                                const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                glass::al_interval_grad_hess<T>(g, grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma, s_gr[i], s_h[i]);
+                        } else {
+                                s_gr[i] = glass::relaxed_barrier_interval_grad<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                                s_h[i] = glass::relaxed_barrier_interval_hess<T>(g, grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        }
+                }
+                __syncthreads();
+
+                for (int32_t e = rank; e < NVi * NVi; e += size) {
+                        const int32_t qi = e / NVi, qj = e % NVi;
+                        T acc = static_cast<T>(0);
+                        for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_h[i] * s_J[contact_J_index(i, qi)] * s_J[contact_J_index(i, qj)]; }
+                        s_Q[qi * constants::STATE_SIZE + qj] += acc;
+                }
+                for (int32_t qi = rank; qi < NVi; qi += size) {
+                        T acc = static_cast<T>(0);
+                        for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_gr[i] * s_J[contact_J_index(i, qi)]; }
+                        s_q[qi] += acc;
+                }
+                __syncthreads();
+        }
+}
+
+// scalar CONTACT_POS row cost of one knot (merit seam; mirrors
+// apply_contact_row_grad_hess exactly). ALL threads call (cooperative FK);
+// the serial sum itself is uniform.
+template<typename T>
+__device__ __noinline__ T contact_row_cost_value(const RowGroupDesc<T>* __restrict__ groups, int32_t n_groups,
+                                                 int32_t knot, const T* xu_k,
+                                                 const T* __restrict__ d_lam_hi, const T* __restrict__ d_lam_lo,
+                                                 T* s_scratch, const grid::robotModel<T>* d_robot_model,
+                                                 const T* __restrict__ d_z_admm = nullptr,
+                                                 const T* __restrict__ d_y_admm = nullptr,
+                                                 T admm_rho_scale = static_cast<T>(1))
+{
+        T total = static_cast<T>(0);
+        for (int32_t gi = 0; gi < n_groups; gi++) {
+                const RowGroupDesc<T>& grp = groups[gi];
+                if (grp.kind != CONTACT_POS) continue;
+                const bool admm_term = grp.mech == MECH_ADMM && d_z_admm != nullptr;
+                if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && !admm_term) continue;
+                if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+                const T* s_g = contact_eval<T>(grp, knot, xu_k, s_scratch, d_robot_model);
+                for (int32_t i = 0; i < grp.n_rows; i++) {
+                        if (!row_on<T>(grp, knot, i)) continue;
+                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                        if (admm_term) {
+                                const T r = s_g[i] - d_z_admm[idx];
+                                total += d_y_admm[idx] * r + static_cast<T>(0.5) * grp.mu * admm_rho_scale * r * r;
+                        } else if (grp.mech == MECH_AL) {
+                                total += glass::al_interval_value<T>(s_g[i], grp.lo[i], grp.hi[i], d_lam_hi[idx], d_lam_lo[idx], grp.mu, grp.sigma);
+                        } else {
+                                total += glass::relaxed_barrier_interval_value<T>(s_g[i], grp.lo[i], grp.hi[i], grp.mu, grp.delta);
+                        }
+                }
+                __syncthreads();  // s_scratch reused by the next group / the caller
+        }
+        return total;
+}
+
 // ---- mechanism cost contributions (the setup_kkt/merit seam) -------------
 //
 // Box rows have selection Jacobians, so the GN contribution is DIAGONAL on the
@@ -863,13 +1068,13 @@ constexpr uint32_t TELEMETRY_MAX_ROWS = (uint32_t)gato::plant::NCC > MAX_ROWS_PE
 template<typename T>
 __host__ __device__ constexpr uint32_t rowgroup_eval_scratch_ct()
 {
-        return ee_rows_scratch_ct<T>() > collision_rows_scratch_ct<T>() ? ee_rows_scratch_ct<T>() : collision_rows_scratch_ct<T>();
+        return ee_rows_scratch_ct<T>() > coop_rows_scratch_ct<T>() ? ee_rows_scratch_ct<T>() : coop_rows_scratch_ct<T>();
 }
 
 template<typename T>
 __host__ __device__ constexpr uint32_t rowgroup_eval_grad_scratch_ct()
 {
-        return ee_rows_grad_scratch_ct<T>() > collision_rows_grad_scratch_ct<T>() ? ee_rows_grad_scratch_ct<T>() : collision_rows_grad_scratch_ct<T>();
+        return ee_rows_grad_scratch_ct<T>() > coop_rows_grad_scratch_ct<T>() ? ee_rows_grad_scratch_ct<T>() : coop_rows_grad_scratch_ct<T>();
 }
 
 template<typename T>
@@ -915,6 +1120,16 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_
                                 gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
                                 for (int32_t i = rank; i < grp.n_rows; i += size) {
                                         s_viol[k * grp.n_rows + i] = knot_on<T>(grp, grp.knot_lo + k) ? glass::interval_violation<T>(s_dist[i], grp.lo[0], grp.hi[0]) : static_cast<T>(0);
+                                }
+                                __syncthreads();
+                        }
+                } else if (grp.kind == CONTACT_POS) {
+                        // cooperative contact-frame residual per active knot
+                        for (int32_t k = 0; k < n_knots; k++) {
+                                const T* xu_k = d_xu + (size_t)(grp.knot_lo + k) * constants::XU_KNOT_STRIDE;
+                                const T* s_g = contact_eval<T>(grp, grp.knot_lo + k, xu_k, s_ee_scratch, d_robot_model);
+                                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                        s_viol[k * grp.n_rows + i] = row_on<T>(grp, grp.knot_lo + k, i) ? glass::interval_violation<T>(s_g[i], grp.lo[i], grp.hi[i]) : static_cast<T>(0);
                                 }
                                 __syncthreads();
                         }
@@ -1084,6 +1299,8 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                         const T* s_pose = nullptr;
                         if (grp.kind == EE_POS) {
                                 s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);  // all threads
+                        } else if (grp.kind == CONTACT_POS) {
+                                s_pose = contact_eval<T>(grp, knot, xu_k, s_ee_scratch, d_robot_model);  // residual rows
                         }
                         const bool soft = grp.sigma > static_cast<T>(0);
                         for (int32_t i = rank; i < grp.n_rows; i += size) {
@@ -1093,7 +1310,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                                         d_lam_lo[idx] = static_cast<T>(0);
                                         continue;
                                 }
-                                const T g = (grp.kind == EE_POS) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
+                                const T g = (s_pose != nullptr) ? s_pose[i] : eval_row<T>(grp, xu_k, (uint32_t)i);
                                 if (glass::al_is_eq_row<T>(grp.lo[i], grp.hi[i])) {
                                         T a = d_lam_hi[idx] + grp.mu * (g - grp.hi[i]);
                                         if (soft) {  // elastic multiplier bound |lam| <= sigma
@@ -1116,7 +1333,7 @@ __global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kerne
                                         }
                                 }
                         }
-                        if (grp.kind == EE_POS) { __syncthreads(); }  // s_ee_scratch reused next knot
+                        if (s_pose != nullptr) { __syncthreads(); }  // s_ee_scratch reused next knot
                 }
         }
 }

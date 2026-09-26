@@ -279,6 +279,30 @@ class PyBSQP {
                                         bhi.size ? static_cast<T*>(bhi.ptr) : nullptr, cone, rho, delta, sigma, knot_lo, knot_hi, admm_iters, equilibrate);
         }
 
+        // CONTACT_POS rows (CL-4 §1.3): 3*NUM_CONTACT_FRAMES residual rows
+        // p_f(q_k) - tgt_k on the state block; lo/hi (n_rows, empty = 0 = equality),
+        // tgt (KNOT_POINTS x n_rows, empty = zeros). Returns the group index.
+        int32_t add_contact_pos_group(int32_t mech,
+                                      py::array_t<T, py::array::c_style | py::array::forcecast> lo,
+                                      py::array_t<T, py::array::c_style | py::array::forcecast> hi,
+                                      py::array_t<T, py::array::c_style | py::array::forcecast> tgt,
+                                      T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters)
+        {
+                constexpr py::ssize_t R = (py::ssize_t)gato::rows::CONTACT_ROWS;
+                py::buffer_info blo = lo.request(), bhi = hi.request(), bt = tgt.request();
+                if (blo.size != 0 && blo.size != R) { throw py::value_error("add_contact_pos_group: lo must be empty or length " + std::to_string(R)); }
+                if (bhi.size != 0 && bhi.size != R) { throw py::value_error("add_contact_pos_group: hi must be empty or length " + std::to_string(R)); }
+                if (bt.size != 0 && bt.size != (py::ssize_t)KNOT_POINTS * R) { throw py::value_error("add_contact_pos_group: targets must be empty or (KNOT_POINTS, " + std::to_string(R) + ")"); }
+                return solver_.add_contact_pos_group(mech, blo.size ? static_cast<T*>(blo.ptr) : nullptr, bhi.size ? static_cast<T*>(bhi.ptr) : nullptr,
+                                                     bt.size ? static_cast<T*>(bt.ptr) : nullptr, rho, delta, sigma, knot_lo, knot_hi, admm_iters);
+        }
+        // per-knot target table of one group ((KNOT_POINTS, n_rows), row-major)
+        void set_row_group_targets(int32_t g, py::array_t<T, py::array::c_style | py::array::forcecast> tgt)
+        {
+                py::buffer_info bt = tgt.request();
+                solver_.set_row_group_targets(g, static_cast<T*>(bt.ptr), (size_t)bt.size);
+        }
+
         // per-solve row-state pair, dense row_state_index layout
         // (B, MAX_ROW_GROUPS, KNOT_POINTS, MAX_ROWS_PER_GROUP) per array:
         // AL duals {lam_hi, lam_lo} / ADMM state {z, y}
@@ -392,6 +416,12 @@ class PyBSQP {
                         py::array_t<uint64_t> act({(py::ssize_t)KNOT_POINTS});
                         memcpy(act.request().ptr, grp.active, KNOT_POINTS * sizeof(uint64_t));
                         d["active"] = act;
+                        if (grp.kind == gato::rows::CONTACT_POS) {
+                                py::array_t<T> tg({(py::ssize_t)KNOT_POINTS, (py::ssize_t)grp.n_rows});
+                                T* dst = static_cast<T*>(tg.request().ptr);
+                                for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(dst + (size_t)k * grp.n_rows, grp.tgt + (size_t)k * gato::rows::MAX_ROWS_PER_GROUP, (size_t)grp.n_rows * sizeof(T)); }
+                                d["tgt"] = tg;
+                        }
                         if (grp.kind == gato::rows::LIN_U) {
                                 py::array_t<T> Cm({(py::ssize_t)grp.n_rows, (py::ssize_t)CONTROL_SIZE});
                                 py::array_t<T> dv({(py::ssize_t)grp.n_rows});
@@ -675,6 +705,8 @@ class PyBSQP {
             .def("get_row_duals", &PyBSQP<Type>::get_row_duals)                                                                                                                                        \
             .def("get_admm_state", &PyBSQP<Type>::get_admm_state)                                                                                                                                      \
             .def("set_row_group_mask", &PyBSQP<Type>::set_row_group_mask)                                                                                                                                \
+            .def("add_contact_pos_group", &PyBSQP<Type>::add_contact_pos_group, py::arg("mech"), py::arg("lo"), py::arg("hi"), py::arg("tgt"), py::arg("rho"), py::arg("delta"), py::arg("sigma"), py::arg("knot_lo"), py::arg("knot_hi"), py::arg("admm_iters")) \
+            .def("set_row_group_targets", &PyBSQP<Type>::set_row_group_targets, py::arg("g"), py::arg("tgt")) \
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
             .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \

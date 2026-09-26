@@ -173,6 +173,22 @@ world's split follows the centre of mass, so the solver plans for an imagined sp
 and tips over (weight shift / foot lift need contact-consistency rows: next arc).
 `python examples/07_go2_floating.py --fc` runs the standing recipe.
 
+**Foot position rows and the gait oracle** (CL-4): `add_contact_pos_rows` puts
+per-knot residual rows `p_f(q_k) - tgt_k` on every baked contact frame (on-device
+FK over GRiD's `contact_frame_positions` surface) — an equality per knot pins a
+stance foot where it touched down, a one-sided z row is a swing clearance, and a
+per-knot target table (`set_row_group_targets`) tracks a swing curve. The gait is
+GIVEN, never discovered: `gato.gait.GaitSchedule` (trot/bound/pace/walk/stand,
+period, duty, phase offsets) rolls the stance mask over the horizon and
+`GaitProgrammer` writes it into the solver every tick — swing-foot wrench pins,
+per-knot normal-force reference, stance-masked friction cones (`install_cones`) and,
+with `install_foot_rows`, the stance/swing foot rows (`apply(t, q)`). Operating
+point: the rows fold onto the Q block against the standing costs, so solver-level
+enforcement needs AL rho ~1e3 (ADMM ~1e2; rho 10 is dominated) — verified solver-only
+(feet held < 1 mm, a 3 cm foot lift in the horizon, `test_contact_rows.py`). In the
+closed loop that stiffness breaks the SQP's line search (the stand sags), so the
+S2/S3 walking gates are open work (`docs/constraints.md`, CL-4 plan).
+
 ### Same robot? The dynamics fingerprint
 
 Before comparing controllers across simulators, run

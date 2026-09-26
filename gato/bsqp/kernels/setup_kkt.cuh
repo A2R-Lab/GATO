@@ -239,8 +239,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
         // past the device smem ceiling and it FAILED SILENTLY, 2026-08-11).
         // Only when it exceeds the tail (small fixed-base arenas) does it sit
         // past the base (+ the exact carve when that is live); only
-        // dereferenced when a COLLISION group is active (host sized it then).
-        constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
+        // dereferenced when a COLLISION / CONTACT_POS group is active (host sized
+        // it then; one region for both — they fold sequentially, never overlap).
+        constexpr uint32_t cc_ct = gato::rows::coop_rows_grad_scratch_ct<T>();
         T* s_cc;
         if constexpr (cc_ct <= L::tail_ct) {
                 s_cc = s_mem + L::temp_terminal;   // past the terminal chain: never aliases a live block
@@ -345,6 +346,12 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                                         __syncthreads();
                                         gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, env, admm_rho_scale);
                                 }
+                                // CONTACT_POS rows (CL-4): per-knot contact-frame residuals,
+                                // same dedicated carve (the folds never overlap)
+                                if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                        __syncthreads();
+                                        gato::rows::apply_contact_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, admm_rho_scale);
+                                }
                         }
 
                         // c_0 = x_0 ⊖ x_s (d_x_s is STORED format, XU_STATE_SIZE stride;
@@ -376,6 +383,11 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                                 gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, env, admm_rho_scale);
                         }
+                        // CONTACT_POS rows fold at EVERY active knot too (stance feet
+                        // stay put per knot); both folds end on a barrier
+                        if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                                gato::rows::apply_contact_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, admm_rho_scale);
+                        }
                 }
 
 #if USE_EXACT_HESSIAN
@@ -402,11 +414,12 @@ __host__ size_t get_setup_kkt_system_batched_smem_size(int exact_hessian = 0, in
 #else
         (void)exact_hessian;
 #endif
-        // runtime-sized like the exact carve: only when a COLLISION group is
-        // registered (host-known) AND its carve exceeds the dead s_temp tail it
-        // overlays (see the kernel's s_cc placement) does the launch grow
+        // runtime-sized like the exact carve: only when a COLLISION / CONTACT_POS
+        // group is registered (host-known: the coop flag) AND the shared carve
+        // exceeds the dead s_temp tail it overlays (see the kernel's s_cc
+        // placement) does the launch grow
         if (has_collision) {
-                constexpr uint32_t cc_ct = gato::rows::collision_rows_grad_scratch_ct<T>();
+                constexpr uint32_t cc_ct = gato::rows::coop_rows_grad_scratch_ct<T>();
                 constexpr uint32_t tail_ct = SetupKktSmem<T>::tail_ct;
                 size += sizeof(T) * (cc_ct > tail_ct ? cc_ct : 0u);   // dedicated carve past `total`
         }

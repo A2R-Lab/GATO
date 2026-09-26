@@ -764,6 +764,71 @@ cross-term audit's contact-frame rule for config-dependent maps).
         C[2, self.n_actuated + fy] = 1.0
         return self.enable_u_cone(C, mech=mech, rho=rho, form=form, **kw)
 
+    # ---- contact-frame POSITION rows (CL-4 §1.3) ------------------------------
+    @property
+    def n_contact_rows(self):
+        """3 rows per baked contact frame (the CONTACT_POS group width)."""
+        return 3 * len(self.contact_frames)
+
+    def contact_positions(self, q):
+        """(n_frames, 3) world positions of the baked contact frames (pinocchio
+        FK of the frame origins — the points the device rows and the fc wrench
+        act on), in ``contact_frames`` order."""
+        return np.stack([self.ee_pos(q, frame=f) for f in self.contact_frames])
+
+    def _contact_targets(self, targets):
+        n = self.n_contact_rows
+        if targets is None:
+            return np.zeros((self.N, n), dtype=np.float32)
+        t = np.asarray(targets, dtype=np.float32)
+        if t.shape == (n,) or t.shape == (len(self.contact_frames), 3):
+            t = np.tile(t.reshape(1, n), (self.N, 1))
+        return np.ascontiguousarray(t.reshape(self.N, n))
+
+    def add_contact_pos_rows(self, targets=None, lo=0.0, hi=0.0, mech=None, rho=None,
+                             delta=0.05, sigma=0.0, knot_lo=0, knot_hi=None, admm_iters=0):
+        """Append a CONTACT_POS row-group: for every baked contact frame f and
+        knot k, three rows g = p_f(q_k) - tgt_k[f] (world xyz of the frame
+        origin, on-device FK over GRiD's contact_frame_positions surface) with
+        the interval ``lo <= g <= hi`` on the RESIDUAL. Defaults pin the frames
+        to their targets (lo == hi == 0, an equality per knot); a one-sided z
+        row (lo = clearance, hi = inf, other rows masked off) is a swing
+        clearance. ``targets`` is (N, n_rows), (n_frames, 3) or (n_rows,) (the
+        latter two broadcast over knots; None = zeros = the raw position).
+        Rows fold at EVERY knot of [knot_lo, knot_hi) (default: the whole
+        horizon) — mask (knot, foot) rows per tick with set_row_group_mask and
+        retarget with set_row_group_targets; knot 0 is the measured state, so
+        mask it off unless the target is exactly the measured foot position.
+        Returns the group index. Mechanism defaults follow enable_collision
+        (rows fold onto the Q block: admm rho 1.0)."""
+        if not self.contact_frames:
+            raise RuntimeError("this plant bakes no contact frames (regen with contact_frames=[...])")
+        if mech is None:
+            mech = self._row_mech or "telemetry"
+        if mech not in self._MECHS:
+            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
+        if rho is None:
+            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 1.0, "al": 1.0}[mech]
+        n = self.n_contact_rows
+        lo_a = np.ascontiguousarray((np.full(n, lo) if np.ndim(lo) == 0 else np.asarray(lo)).astype(np.float32).reshape(n))
+        hi_a = np.ascontiguousarray((np.full(n, hi) if np.ndim(hi) == 0 else np.asarray(hi)).astype(np.float32).reshape(n))
+        if knot_hi is None:
+            knot_hi = self.N
+        gi = self.solver.add_contact_pos_group(self._MECHS[mech], lo_a, hi_a, self._contact_targets(targets),
+                                               float(rho), float(delta), float(sigma), int(knot_lo), int(knot_hi),
+                                               int(admm_iters))
+        self._n_appended_groups += 1
+        return int(gi)
+
+    def set_row_group_targets(self, g, targets):
+        """Per-knot target table of CONTACT_POS group ``g``: (N, n_rows),
+        (n_frames, 3) or (n_rows,) (broadcast over knots). ADMM z/y re-init
+        on the next solve (the residual moved)."""
+        groups = self.get_row_groups()
+        if g < 0 or g >= len(groups) or int(groups[g]["kind"]) != 6:
+            raise ValueError(f"row group {g} is not a CONTACT_POS group")
+        self.solver.set_row_group_targets(int(g), self._contact_targets(targets))
+
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):
         """Cone constraint on a mapped control quantity g = C @ u + d

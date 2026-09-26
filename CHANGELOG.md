@@ -2,6 +2,30 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-26 — CL-4: contact-frame POSITION rows (stance/swing feet), solver-level gates
+
+- Row kind `CONTACT_POS` (`BSQP.add_contact_pos_rows`, `set_row_group_targets`,
+  `contact_positions`): per-knot residual rows `p_f(q_k) - tgt_k` on the baked contact
+  frames over GRiD's new `contact_frame_positions[_gradient]` surface, folded at every
+  active knot (AL / relaxed barrier / ADMM / telemetry), with a per-knot target table on
+  the row-group descriptor and the CL-4 masks selecting (knot, foot) rows. The dedicated
+  cooperative carve of setup_kkt / merit is shared with the collision rows (sized when
+  either kind is registered; defaults untouched — goldens bitwise).
+- `GaitProgrammer.install_foot_rows`: a stance group (footholds frozen at touchdown, at
+  ground height) and a swing group (swing-curve tracking to the planned landing);
+  `apply(t, q)` retargets and re-masks both every tick beside the fc pins and the fn
+  reference. Default AL rho 100 (loop-stable; see below).
+- Gates (test_contact_rows.py): device residual == pinocchio, per-knot target table,
+  AL/ADMM move an arm EE to a violated target within 3 mm on the active knots only,
+  masks select knots, go2 keeps its feet < 1 mm under a lateral goal, solver-only S3
+  (FR lifts ~3 cm at knot 12 with the stance feet held), programmer plumbing.
+- OPEN (measured, CL-4 plan §7): the closed loop. The stiffness that holds feet within
+  mm (AL rho 1e3) makes the loop's SQP reject every line-search step on 26/150 ticks of a
+  static stand (base sags 4 cm); every ADMM variant collapses; AL rho 100 stands with a
+  1.8 cm residual. S2 weight shift / S3 lift-a-foot closed-loop gates are not shipped.
+- `pyproject`: mujoco pinned `<3.14` (3.14.0 segfaults inside MjSpec compile of the go2
+  URDF with the welded root; CI cpu-lane at 2b03a38, reproduced locally 6/6).
+
 ## 2026-09-26 — GRiD pin 3af782e → 5904dbd (contact-frame positions), GLASS e83b086 → 8ce68a2
 
 - GRiD `modernizing-tests` tip: the contact-frame position surface GATO asked for on

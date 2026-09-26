@@ -179,6 +179,21 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T
                         }
                         continue;
                 }
+                if (grp.kind == CONTACT_POS) {
+                        // cooperative contact-frame residual per knot; z = clip(g(x_warm))
+                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* s_g = contact_eval<T>(grp, knot, xu_k, s_ee_scratch, d_robot_model);
+                                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                        T z = s_g[i];
+                                        if (z > grp.hi[i]) z = grp.hi[i];
+                                        if (z < grp.lo[i]) z = grp.lo[i];
+                                        d_z[row_state_index(gi, knot, i)] = z;
+                                }
+                                __syncthreads();  // s_ee_scratch reused next knot
+                        }
+                        continue;
+                }
                 if (grp.kind == EE_POS) {
                         // cooperative FK per knot (barriers inside — ALL threads)
                         for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
@@ -289,6 +304,25 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                         for (int32_t qi = rank; qi < NQ; qi += size) {
                                 T acc = static_cast<T>(0);
                                 for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_ddist[i * NQ + qi]; }
+                                d_q_k[qi] += acc;
+                        }
+                        __syncthreads();
+                        continue;
+                }
+                if (grp.kind == CONTACT_POS) {
+                        // cooperative residual + J, then the dense J^T scatter onto the
+                        // tangent q half (same carve as apply_contact_row_grad_hess;
+                        // s_mod in the gr slot)
+                        T *s_g, *s_J, *s_mod, *s_h;
+                        contact_eval_grad<T>(grp, (int32_t)knot_idx, d_xu_k, s_ee_scratch, d_robot_model, s_g, s_J, s_mod, s_h);
+                        for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                const uint32_t idx = row_state_index(gi, knot_idx, i);
+                                s_mod[i] = row_on<T>(grp, (int32_t)knot_idx, i) ? d_y[idx] - rho * (d_z[idx] - s_g[i]) : static_cast<T>(0);
+                        }
+                        __syncthreads();
+                        for (int32_t qi = rank; qi < NQ; qi += size) {
+                                T acc = static_cast<T>(0);
+                                for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_J[contact_J_index(i, qi)]; }
                                 d_q_k[qi] += acc;
                         }
                         __syncthreads();
@@ -412,6 +446,26 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                         T w = s_dist[i];
                                         for (int32_t qi = 0; qi < NQ; qi++) { w += s_ddist[i * NQ + qi] * dz_k[qi]; }
                                         const T z = admm_z_update<T>(w + d_y[idx] / rho, margin, grp.hi[0], rho, grp.sigma);
+                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
+                                }
+                                __syncthreads();  // scratch reused next knot; writes visible below
+                        }
+                } else if (grp.kind == CONTACT_POS) {
+                        // linearized step value w = g(x) + J*dz_q on the residual rows;
+                        // cooperative contact_eval_grad per knot, then the identical
+                        // clip / dual update / residual writes
+                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
+                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
+                                T *s_g, *s_J, *s_gr, *s_h;
+                                contact_eval_grad<T>(grp, knot, xu_k, s_ee_scratch, d_robot_model, s_g, s_J, s_gr, s_h);
+                                for (int32_t i = rank; i < grp.n_rows; i += size) {
+                                        const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
+                                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
+                                        if (!row_on<T>(grp, knot, i)) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
+                                        T w = s_g[i];
+                                        for (int32_t qi = 0; qi < NQ; qi++) { w += s_J[contact_J_index(i, qi)] * dz_k[qi]; }
+                                        const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
                                         admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
                                 }
                                 __syncthreads();  // scratch reused next knot; writes visible below

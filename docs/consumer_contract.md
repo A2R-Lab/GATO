@@ -101,7 +101,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   `bsqpN{N}_{plant}` (default), `_fc` (contact-force controls appended to u),
   `_eh` (exact Hessian). `BSQP(..., variant="fc")`; `gato.available("fc")`.
   Row-group ORDER is enforced: `enable_limit_*` before any appended group
-  (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`) or
+  (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`, `add_contact_pos_rows`) or
   it raises (they used to be dropped silently).
 - **Control width is a MODULE property**: `nu = CONTROL_SIZE` from the module
   (on `GATO_CONTACT_FORCES` builds, `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE`).

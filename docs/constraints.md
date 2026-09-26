@@ -306,3 +306,50 @@ Telemetry group slot: the clearance group's {max, sum} true violation
 rides get_row_telemetry() at this group's index (see get_row_groups).
 Call AFTER enable_limit_* (mechanism enables reinstall the canonical
 groups, dropping appended ones).
+
+## `add_contact_pos_rows(targets, lo, hi, mech, rho, delta, sigma, knot_lo, knot_hi, admm_iters)`
+
+CONTACT_POS row-group (CL-4 §1.3, 2026-09-26): for every baked contact frame f
+(`contact_frames`: the go2 feet, an arm's EE) and every knot k of
+`[knot_lo, knot_hi)` three rows `g = p_f(q_k) - tgt_k[f]` — the world position
+of the contact ORIGIN (the point the fc wrench acts about) from on-device FK
+over GRiD's `contact_frame_positions[_gradient]` surface, with the interval
+`lo <= g <= hi` on the RESIDUAL. Defaults `lo = hi = 0` pin the frames to their
+targets (an equality per knot); `lo = clearance, hi = inf` on a z row (the
+others masked off) is a swing clearance. `targets` is `(N, n_rows)`,
+`(n_frames, 3)` or `(n_rows,)` (broadcast over knots; None = zeros = the raw
+position). Unlike the terminal-only EE row, these fold at EVERY active knot
+(the dense J^T J Gauss-Newton term on the tangent q block, like the collision
+rows; ADMM linearizes per knot in its inner loop). The per-knot target table
+(`get_row_groups()[g]["tgt"]`, `set_row_group_targets`) lets one group hold a
+different point per knot: a foothold frozen at touchdown, a swing curve.
+Mask (knot, foot) rows with `set_row_group_mask` — knot 0 is the measured state,
+so leave it masked off unless the target IS the measured foot position (the
+AL multiplier would otherwise wind up on rows no step can change, the
+limit-box lesson). Mechanism defaults follow `enable_collision` (the rows fold
+onto the Q block: admm rho 1.0, al rho 1.0; the go2 foot gates run AL rho 10).
+Returns the group index.
+
+Measured (2026-09-26). The AL outer loop converges/freezes after the first
+solve on these rows, so they act as PENALTIES — rho sets the residual: on the
+gentle indy7 scenario (tracking = stay, target 2 cm up) |p - tgt| is 2.3 cm at
+rho 10, 1.3 cm at rho 100, 0.8 mm at rho 1e3 (the terminal `EE_POS` AL row does
+not move the EE at all there); ADMM projects per inner iteration and reaches the
+same at rho ~1e2. The telemetry residual at the measured state equals pinocchio's
+frame position to < 2e-4 (f32 FK); on go2 fc the feet stay < 1 mm under a lateral
+imu goal and a solver-only foot lift (FR +3 cm from knot 4, wrench pinned, fn on
+three feet) reaches ~3 cm at AL rho 1e3 with the stance feet held < 1 cm. The
+merit's row term is exact against the duals and residuals (zero-dual and dual
+checks agree to 1e-6). CLOSED LOOP (OPEN, CL-4 plan §7): the stiffness the rows
+need to hold feet within mm breaks the loop's SQP — on the static stand with
+stance rows AL rho 1e3 rejects every line-search step on 26/150 ticks and the base
+sags 4 cm, every ADMM variant collapses, AL rho 100 keeps the stand with a 1.8 cm
+residual; the S2 (weight shift) / S3 (lift-a-foot) closed-loop gates are not
+shipped yet.
+
+## `set_row_group_targets(g, targets)`
+
+Per-knot target table of a CONTACT_POS group (`(N, n_rows)`, `(n_frames, 3)` or
+`(n_rows,)`); ADMM z/y re-initialize on the next solve because the residual
+moved. `GaitProgrammer.apply(t, q)` writes it every tick (stance targets
+frozen at touchdown, swing targets along `GaitSchedule.swing_curve`).

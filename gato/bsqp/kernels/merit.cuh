@@ -176,11 +176,21 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // the trailing barrier; only the excess over the temp tail (small
                 // fixed-base arenas) extends the host-sized launch.
                 if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
-                        constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
+                        constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
                         constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
                         T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T>();
                         __syncthreads();
                         cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm, admm_rho_scale);
+                        __syncthreads();
+                }
+                // CONTACT_POS rows: true nonlinear contact-frame residual at the
+                // CANDIDATE state, the same shared cooperative carve (CL-4)
+                if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                        constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
+                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
+                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T>();
+                        __syncthreads();
+                        cost_k += gato::rows::contact_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
                 }
         }
@@ -261,8 +271,8 @@ __host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0)
         size_t size = sizeof(T) * compute_merit_base_smem_ct<T>();
         // runtime-sized: only when a COLLISION group is registered (host-known)
         // AND its carve exceeds the dead s_temp tail it overlays in the kernel
-        if (has_collision) {
-                constexpr size_t cc_ct = gato::rows::collision_rows_scratch_ct<T>();
+        if (has_collision) {   // the coop flag: a COLLISION or CONTACT_POS group is registered
+                constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
                 constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
                 // the kernel places the dedicated carve PAST the base layout, so the
                 // whole carve is extra (not just its excess over the tail — the old

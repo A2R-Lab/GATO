@@ -32,7 +32,7 @@ dependencies = [
 examples = [
     "torch>=2.6.0",
     "pin>=3.4.0",
-    "mujoco>=3.2",              # gato.worlds MuJoCoWorld + test_worlds/test_floating_worlds
+    "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root; CI cpu-lane 2026-09-26, reproduced locally 6/6) — re-test on the next release              # gato.worlds MuJoCoWorld + test_worlds/test_floating_worlds
     "scipy>=1.15.2",
     "matplotlib>=3.10.1",
     "seaborn>=0.13.2",
@@ -58,7 +58,7 @@ dev = [
 # test can skip silently; run_gpu_proof.sh refuses a python that lacks it.
 test = [
     "pin>=3.4.0",
-    "mujoco>=3.2",
+    "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root; CI cpu-lane 2026-09-26, reproduced locally 6/6) — re-test on the next release
     "scipy>=1.15.2",
     "gymnasium>=0.29",
 ]

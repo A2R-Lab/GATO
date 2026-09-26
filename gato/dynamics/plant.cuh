@@ -34,6 +34,7 @@ namespace plant {
         inline constexpr int NU          = (grid::NUM_POS == grid::NUM_VEL)
                                                ? grid::NUM_JOINTS : (grid::NUM_VEL - 6);
         inline constexpr int NEE         = grid::NUM_EES;          // end-effector count
+        inline constexpr int NCF         = grid::NUM_CONTACT_FRAMES; // baked contact frames (feet / the arm EE)
         inline constexpr int EE_POS_SIZE = 6;                      // pose size (xyz + orientation)
 
         // Shared-memory extents of the grid:: inner buffers this adapter carves by hand.
@@ -923,6 +924,30 @@ namespace plant {
                        + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
         }
 
+        // Contact-frame positions (CL-4 §1.3, GRiD contact_frame_positions surface
+        // 2026-09-26): world positions of the NCF baked contact ORIGINS (the points
+        // f_ext_body takes the wrench about) and their 3 x NV tangent Jacobians,
+        // layout s_dpos[3*NV*f + 3*vi + axis] in the [v_lin; omega; joints] LOCAL
+        // chart on a floating base — the KKT tangent chart. Caller-scratch like
+        // ee_pos: 16B-aligned, >= contactPos[Grad]_TempMemCt() elements. The
+        // emitted *_COUNT is the documented contract of the plant wrappers (the
+        // shared-tier arena incl. the topology ints + alignment slack — the
+        // wrappers hard-carve that layout whatever GRID_DEFAULT_RESOURCE_TIER
+        // says, so the tier-dependent BYTES sizer is NOT the right bound); the
+        // constexpr linalg bytes pad rides along as for the EE pair.
+        template<typename T>
+        __host__ __device__ constexpr unsigned contactPos_TempMemCt()
+        {
+                return (unsigned)grid::CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT
+                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned contactPosGrad_TempMemCt()
+        {
+                return (unsigned)grid::CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
+                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+        }
+
         // Carve helper for the remaining hand-carved inner compositions (the
         // collision multi-target FK below — no upstream raw multi-target
         // evaluator exists; the EE pair moved to grid_plant::ee_pos*):
@@ -955,6 +980,20 @@ namespace plant {
         __device__ void ee_pos_grad(T* s_pose, T* s_grad, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
         {
                 grid_plant::ee_pos_gradient<T>(s_pose, s_grad, s_q, s_scratch, d_robotModel);
+        }
+
+        // s_pos: 3*NCF world positions; s_dpos: 3*NV*NCF tangent Jacobian (see the
+        // sizers above). s_q is the STORED configuration. ALL threads call (barriers).
+        template<typename T>
+        __device__ void contact_pos(T* s_pos, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        {
+                grid_plant::contact_frame_positions<T>(s_pos, s_q, s_scratch, d_robotModel);
+        }
+
+        template<typename T>
+        __device__ void contact_pos_grad(T* s_pos, T* s_dpos, const T* s_q, T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        {
+                grid_plant::contact_frame_positions_gradient<T>(s_pos, s_dpos, s_q, s_scratch, d_robotModel);
         }
 
         // ===================================================================

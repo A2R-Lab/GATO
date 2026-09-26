@@ -237,7 +237,11 @@ class BSQP {
                 al_active_ = false;
                 admm_has_eq_rows_ = false;
                 has_collision_ = false;  // env stays uploaded (re-enable is cheap)
+                has_contact_rows_ = false;
         }
+        // the shared cooperative carve (setup_kkt / merit) is sized when a
+        // COLLISION or CONTACT_POS group is registered
+        int32_t coop_carve_flag() const { return (has_collision_ || has_contact_rows_) ? 1 : 0; }
         int32_t num_row_groups() const { return n_row_groups_; }
         bool    admm_active() const { return admm_active_; }
         bool    al_active() const { return al_active_; }
@@ -493,6 +497,97 @@ class BSQP {
                 gpuErrchk(cudaMemcpy(reinterpret_cast<char*>(d_row_groups_ + g) + offsetof(rows::RowGroupDesc<T>, active), h_active,
                                      KNOT_POINTS * sizeof(uint64_t), cudaMemcpyHostToDevice));
                 if (admm_active_) { admm_needs_init_ = true; }
+                // NO AL acceptance-state reset here: a closed loop rewrites masks and
+                // targets EVERY tick, and resetting the PHR safeguard per tick lets the
+                // stance-row duals ramp rho*g on millimetre residuals until the base
+                // sags (measured 2026-09-26 S3 loop: -5 cm / tipped at rho 1e3).
+        }
+
+        // Append a CONTACT_POS row-group (CL-4 §1.3): rows::CONTACT_ROWS residual
+        // rows g = p_f(q_k) - tgt_k (world position of baked contact frame f,
+        // on-device FK) on the state block over [knot_lo, knot_hi), per-row
+        // interval [lo, hi] on the RESIDUAL (nullptr = 0 = equality) and a
+        // per-knot target table (KNOT_POINTS x CONTACT_ROWS row-major; nullptr =
+        // zeros). Folds at EVERY active knot through the shared cooperative
+        // carve (has_contact_rows_ sizes it like has_collision_). Mask (knot,
+        // foot) rows with set_row_group_mask, retarget with
+        // set_row_group_targets. Returns the group index.
+        int32_t add_contact_pos_group(int32_t mech, const T* h_lo, const T* h_hi, const T* h_tgt, T rho, T delta, T sigma, int32_t knot_lo, int32_t knot_hi, uint32_t admm_iters)
+        {
+                if (n_row_groups_ >= (int32_t)rows::MAX_ROW_GROUPS) { throw std::invalid_argument("add_contact_pos_group: row-group table full"); }
+                if (mech != rows::MECH_TELEMETRY && !(rho > static_cast<T>(0))) { throw std::invalid_argument("add_contact_pos_group: rho must be > 0"); }
+                if (mech == rows::MECH_BARRIER_RELAXED && !(delta > static_cast<T>(0))) { throw std::invalid_argument("add_contact_pos_group: delta must be > 0"); }
+                if (knot_hi > (int32_t)KNOT_POINTS) knot_hi = KNOT_POINTS;
+                if (knot_lo < 0 || knot_lo >= knot_hi) { throw std::invalid_argument("add_contact_pos_group: bad knot range"); }
+                constexpr int32_t m = rows::CONTACT_ROWS;
+
+                rows::RowGroupDesc<T> h_grp;
+                memset(&h_grp, 0, sizeof(h_grp));
+                h_grp.kind = rows::CONTACT_POS;
+                h_grp.block = rows::BLOCK_X;
+                h_grp.mech = mech;
+                h_grp.n_rows = m;
+                h_grp.knot_lo = knot_lo;
+                h_grp.knot_hi = knot_hi;
+                h_grp.mu = rho;
+                h_grp.delta = delta;
+                h_grp.sigma = sigma;
+                h_grp.cone = 0;
+                rows::set_mask_all(h_grp.active);
+                bool any_eq = false;
+                for (int32_t i = 0; i < m; i++) {
+                        h_grp.lo[i] = h_lo ? h_lo[i] : static_cast<T>(0);
+                        h_grp.hi[i] = h_hi ? h_hi[i] : static_cast<T>(0);
+                        if (h_grp.lo[i] == h_grp.hi[i]) any_eq = true;
+                }
+                if (h_tgt != nullptr) {
+                        for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(h_grp.tgt + (size_t)k * rows::MAX_ROWS_PER_GROUP, h_tgt + (size_t)k * m, (size_t)m * sizeof(T)); }
+                }
+                const int32_t gi = n_row_groups_;
+                gpuErrchk(cudaMemcpy(d_row_groups_ + gi, &h_grp, sizeof(h_grp), cudaMemcpyHostToDevice));
+                n_row_groups_ += 1;
+                has_contact_rows_ = true;
+
+                // stale dual state from a prior configuration in this slot: zero the
+                // group's strided slice across the batch (as add_lin_u_group)
+                const size_t grp_off = (size_t)gi * KNOT_POINTS * rows::MAX_ROWS_PER_GROUP;
+                const size_t grp_w = (size_t)KNOT_POINTS * rows::MAX_ROWS_PER_GROUP * sizeof(T);
+                gpuErrchk(cudaMemset2D(d_lam_hi_ + grp_off, rows::TOTAL_ROW_STATE_SIZE * sizeof(T), 0, grp_w, batch_size_));
+                gpuErrchk(cudaMemset2D(d_lam_lo_ + grp_off, rows::TOTAL_ROW_STATE_SIZE * sizeof(T), 0, grp_w, batch_size_));
+
+                if (mech == rows::MECH_ADMM) {
+                        admm_active_ = true;
+                        admm_needs_init_ = true;
+                        if (admm_iters > 0) admm_iters_ = admm_iters;
+                        if (any_eq) admm_has_eq_rows_ = true;
+                }
+                if (mech == rows::MECH_AL) {
+                        if (!al_active_) {
+                                al_active_ = true;
+                                reset_al_prev_viol();
+                        }
+                }
+                return gi;
+        }
+
+        // Per-knot target table of a CONTACT_POS group (KNOT_POINTS x n_rows,
+        // row-major, n = its element count). ADMM z re-clips against the moved
+        // residual, so its state reinitializes next solve.
+        void set_row_group_targets(int32_t g, const T* h_tgt, size_t n)
+        {
+                if (g < 0 || g >= n_row_groups_) { throw std::invalid_argument("set_row_group_targets: group index out of range"); }
+                rows::RowGroupDesc<T> h_grp;
+                gpuErrchk(cudaMemcpy(&h_grp, d_row_groups_ + g, sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+                if (h_grp.kind != rows::CONTACT_POS) { throw std::invalid_argument("set_row_group_targets: not a CONTACT_POS group"); }
+                if (n != (size_t)KNOT_POINTS * (size_t)h_grp.n_rows) { throw std::invalid_argument("set_row_group_targets: expected KNOT_POINTS x n_rows targets"); }
+                std::vector<T> table((size_t)KNOT_POINTS * rows::MAX_ROWS_PER_GROUP, static_cast<T>(0));
+                for (uint32_t k = 0; k < KNOT_POINTS; k++) { memcpy(table.data() + (size_t)k * rows::MAX_ROWS_PER_GROUP, h_tgt + (size_t)k * h_grp.n_rows, (size_t)h_grp.n_rows * sizeof(T)); }
+                gpuErrchk(cudaMemcpy(reinterpret_cast<char*>(d_row_groups_ + g) + offsetof(rows::RowGroupDesc<T>, tgt), table.data(), table.size() * sizeof(T), cudaMemcpyHostToDevice));
+                if (admm_active_) { admm_needs_init_ = true; }
+                // NO AL acceptance-state reset here: a closed loop rewrites masks and
+                // targets EVERY tick, and resetting the PHR safeguard per tick lets the
+                // stance-row duals ramp rho*g on millimetre residuals until the base
+                // sags (measured 2026-09-26 S3 loop: -5 cm / tipped at rho 1e3).
         }
 
         // Override one group's interval bounds in place (n_rows each; lo == hi
@@ -715,7 +810,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -818,7 +913,7 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 compute_merit_batched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
@@ -834,7 +929,7 @@ class BSQP {
 
                 // SQP Loop
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
-                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
@@ -931,10 +1026,10 @@ class BSQP {
                         const bool admm_merit = admm_active_ && admm_merit_term_;
                         if (admm_merit) {
                                 compute_merit_batched<T, 1>(
-                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         }
                         compute_merit_batched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, has_collision_ ? 1 : 0, h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -1265,6 +1360,7 @@ class BSQP {
         T*   d_env_cuboids_ = nullptr;
         T*   d_env_planes_ = nullptr;
         bool has_collision_ = false;
+        bool has_contact_rows_ = false;   // a CONTACT_POS group is registered (CL-4)
 
         void free_collision_environment()
         {

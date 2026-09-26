@@ -152,10 +152,11 @@ class GaitProgrammer:
     """Writes a GaitSchedule into an fc-build BSQP every tick: the swing-foot fc
     pins (one all-slot ``add_fc_box(0, 0)`` group, masked per knot), the per-knot
     fn reference (mg / n_stance up on stance feet), and, when cone groups were
-    installed through ``install_cones``, the stance-only cone masks. The
-    stance-foot POSITION rows (CL-4 §1.3) attach here once the contact-frame
-    position surface lands. Everything is data on the solver; no solve is
-    issued. ``pin_mech``/``cone_mech`` default to AL / ADMM-SOC.
+    installed through ``install_cones``, the stance-only cone masks, and, when
+    ``install_foot_rows`` was called, the foot POSITION rows (CL-4 §1.3): stance
+    knots pin each foot to the foothold frozen at its touchdown, swing knots
+    track the swing curve toward the planned landing. Everything is data on
+    the solver; no solve is issued. ``pin_mech`` defaults to AL.
     """
 
     def __init__(self, solver, schedule, mg, pin_mech="al", pin_moments=True):
@@ -168,6 +169,9 @@ class GaitProgrammer:
         # all-slot pin group; the per-tick mask selects (knot, foot) swing slots
         self.pin_group = solver.add_fc_box(0.0, 0.0, mech=pin_mech)
         self.cone_groups = []
+        self.stance_group = self.swing_group = None
+        self.foothold = self.lift = self._prev_stance = None
+        self.foothold_planner = None   # callable(f, p_now (n_feet,3), t) -> landing xyz; None = land where it lifted
         self.t = None
 
     def install_cones(self, mu, mech="al", rho=10.0, **kw):
@@ -180,8 +184,65 @@ class GaitProgrammer:
                             for f in range(self.schedule.n_feet)]
         return self.cone_groups
 
-    def apply(self, t):
-        """Program the horizon starting at time t. Returns the (N, n_feet) stance mask."""
+    def install_foot_rows(self, mech="al", rho=100.0, sigma=0.0, swing=True, swing_rho=None, swing_sigma=None):
+        """Foot POSITION rows (CL-4 §1.3) on the baked contact frames: a STANCE
+        group (equality residual, masked to stance knots, target = the foothold
+        frozen at touchdown) and, with ``swing``, a SWING group (masked to swing
+        knots, target = the swing curve from the lift-off point to the planned
+        landing; soft through ``swing_sigma``). Knot 0 is the measured state and
+        is never constrained. ``apply(t, q)`` then needs the current configuration.
+
+        rho (measured 2026-09-26, S1 standing costs: posture anchor 50): the rows
+        fold onto the Q block, so solver-level enforcement needs AL rho ~1e3
+        (solver-only foot lift: rho 10 sags -0.7 cm, rho 100 lifts 0.9 of 3 cm,
+        rho 1e3 lifts 3.0 cm with the stance feet held < 1 cm; ADMM 100: 1.3 cm).
+        IN THE CLOSED LOOP that stiffness breaks the SQP: on the static stand
+        with stance rows, AL rho 1e3 rejects every line-search step on 26 of 150
+        ticks and the base sags 4 cm; every ADMM variant collapses; AL rho 100
+        keeps the stand (residual 1.8 cm). The default is therefore the
+        loop-stable rho 100 — the S2/S3 closed-loop gates are OPEN (CL-4 plan §7)."""
+        self.stance_group = self.solver.add_contact_pos_rows(mech=mech, rho=rho, sigma=sigma)
+        self.swing_group = (self.solver.add_contact_pos_rows(mech=mech, rho=swing_rho if swing_rho is not None else rho,
+                                                             sigma=swing_sigma if swing_sigma is not None else sigma)
+                            if swing else None)
+        self.foothold = self.lift = self._prev_stance = None
+        return self.stance_group, self.swing_group
+
+    def _foot_targets(self, t, q, stance):
+        """(N, n_feet, 3) stance targets and swing targets from the world state."""
+        sched, N, nf = self.schedule, self.schedule.N, self.schedule.n_feet
+        p = self.solver.contact_positions(np.asarray(q, dtype=np.float64))   # (n_feet, 3) now
+        st_now = sched.stance(t)
+        if self.foothold is None:                       # first tick: every foot's reference is where it is
+            self.foothold, self.lift, self._prev_stance = p.copy(), p.copy(), st_now.copy()
+        rising = st_now & ~self._prev_stance
+        # touchdown: freeze where the foot IS in the plane, at the height it LEFT
+        # from (the ground): the schedule's touchdown and the foot's real landing
+        # differ by the tracking lag, and a foothold frozen a few mm in the air
+        # keeps the stance rows holding that foot above the plane while the fc
+        # explanation says it pushes — the base sags onto that corner (S3, 2026-09-26)
+        self.foothold[rising] = np.concatenate([p[rising][:, :2], self.lift[rising][:, 2:3]], axis=1)
+        self.lift[~st_now & self._prev_stance] = p[~st_now & self._prev_stance]       # lift-off: remember
+        self._prev_stance = st_now.copy()
+        sw = sched.swing_window(t)                      # (N, n_feet) swing progress
+        tgt_st = np.zeros((N, nf, 3)); tgt_sw = np.zeros((N, nf, 3))
+        for f in range(nf):
+            lift = self.lift[f] if not st_now[f] else p[f]
+            land = (np.asarray(self.foothold_planner(f, p, t), dtype=np.float64) if self.foothold_planner is not None
+                    else self.foothold[f])
+            col = stance[:, f]
+            # the current stance (until the first swing knot) keeps the frozen foothold;
+            # a stance that begins inside the window lands at the planned foothold
+            k_swing = int(np.argmax(~col)) if (~col).any() else N
+            tgt_st[:k_swing, f] = self.foothold[f]
+            tgt_st[k_swing:, f] = land
+            tgt_sw[:, f] = sched.swing_curve(lift, land, sw[:, f])
+        return tgt_st, tgt_sw
+
+    def apply(self, t, q=None):
+        """Program the horizon starting at time t (``q`` = the current stored
+        configuration, required once foot rows are installed). Returns the
+        (N, n_feet) stance mask."""
         sched, s = self.schedule, self.solver
         stance = sched.window(t)                              # (N, n_feet)
         pins = sched.fc_pin_mask(t)                           # (N, 6 n_feet): swing slots pinned
@@ -192,5 +253,17 @@ class GaitProgrammer:
         s.set_fc_ref(sched.fn_ref_window(t, self.mg).astype(np.float32))
         for f, g in enumerate(self.cone_groups):
             s.set_row_group_mask(g, stance[:, f])
+        if self.stance_group is not None:
+            if q is None:
+                raise ValueError("apply(t, q): the foot rows need the current configuration")
+            tgt_st, tgt_sw = self._foot_targets(t, q, stance)
+            N = sched.N
+            m_st = np.repeat(stance, 3, axis=1); m_st[0, :] = False       # knot 0 is data
+            s.set_row_group_targets(self.stance_group, tgt_st.reshape(N, -1))
+            s.set_row_group_mask(self.stance_group, m_st)
+            if self.swing_group is not None:
+                m_sw = np.repeat(~stance, 3, axis=1); m_sw[0, :] = False
+                s.set_row_group_targets(self.swing_group, tgt_sw.reshape(N, -1))
+                s.set_row_group_mask(self.swing_group, m_sw)
         self.t = t
         return stance
