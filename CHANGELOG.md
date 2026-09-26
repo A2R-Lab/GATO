@@ -2,6 +2,22 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-26 — GRiD pin 3af782e → 5904dbd (contact-frame positions), GLASS e83b086 → 8ce68a2
+
+- GRiD `modernizing-tests` tip: the contact-frame position surface GATO asked for on
+  2026-09-20 (`grid_plant::contact_frame_positions[_gradient]`, world positions of the
+  baked contact origins + tangent Jacobians, receipt-covered upstream @8aac88e) and the raw
+  `grid_plant::multi_target_position[_gradient]` evaluators (GATO nit 2). The three plants
+  are regenerated (`tools/regen_grid.py`); `gato.build` idempotency key recorded for go2.
+  GLASS moved by docs/figures only (headers byte-identical).
+- iiwa14 goldens RE-BASELINED: URDFParser 29d3d78 no longer rationalizes transform
+  coefficients, so iiwa14's emitted transforms carry ±1.6e-15 terms the old parser snapped
+  to 0 (indy7/go2: bit-identical). The golden problems are unconverged 10-iteration solves
+  that amplify any ULP change to O(1) (a 1e-7 input nudge moves xu by ~1%), so the drift was
+  attributed with the referee gates (dynamics fingerprint, f_ext, exact Hessian, row groups
+  vs the pinocchio-pinned tables: 54 passed) and a clean compute-sanitizer memcheck of
+  iiwa14 N8 + both go2 modules. Sensitivity note in test_parity_golden.py.
+
 ## 2026-09-21 — D14: the Fig-3 CPU baseline pin is public
 
 - `examples/benchmarks/baselines/sqpcpu` now points at `A2R-Lab/sqpcpu` (the public

@@ -134,6 +134,30 @@ inline void gpuAssert(cudaError_t code, const char *file, const int line, bool a
 #define gpuErrchkKernel() {gpuErrchk(cudaPeekAtLastError()); gpuErrchk(cudaDeviceSynchronize());}
 #endif
 
+// ─── library-safe initialization contract (init_*_checked / free_robotModel_checked) ───
+// Host-only fault-injection seams: define BEFORE including this header to intercept
+// every allocation/copy the checked initializers make (tests); default = the bare call.
+#ifndef GRID_CUDA_CALL
+#define GRID_CUDA_CALL(expr) (expr)
+#endif
+#ifndef GRID_HOST_ALLOC
+#define GRID_HOST_ALLOC(expr) (expr)
+#endif
+__host__ inline cudaError_t grid_fail(const char **failed_op, const char *op, cudaError_t code){
+    if (failed_op != nullptr && *failed_op == nullptr) { *failed_op = op; }
+    return code;
+}
+__host__ inline void grid_cleanup_free(void *p, const char *op, cudaError_t *first_cleanup_code, const char **first_cleanup_op){
+    if (p == nullptr) { return; }
+    cudaError_t e = GRID_CUDA_CALL(cudaFree(p));
+    if (e != cudaSuccess && first_cleanup_code != nullptr && *first_cleanup_code == cudaSuccess) {
+        *first_cleanup_code = e; if (first_cleanup_op != nullptr) { *first_cleanup_op = op; }
+    }
+}
+__host__ inline void grid_legacy_check(cudaError_t e, const char *op, const char *file, const int line){
+    if (e != cudaSuccess) { fprintf(stderr, "GRiD: %s failed: ", op ? op : "initialization"); gpuAssert(e, file, line); }
+}
+
 template <typename T, int M, int N>
 __host__ __device__
 void printMat(T *A, int lda){
@@ -493,62 +517,62 @@ namespace grid {
     #define GRID_GENERATED_NUM_JOINTS 6
     #define GRID_GENERATED_NUM_EES 1
     
-    template <typename T> __host__ __device__ inline size_t INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(594, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(594, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T> __host__ __device__ inline size_t KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(648, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(1512, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(648, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(1512, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool FD_PARAMETER_GRADIENT_Y_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(906, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(906, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DQDD_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DTAU_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DQ_SLAB_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MINV_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(804, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(822, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(564, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(888, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MINV_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(804, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(822, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(564, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(888, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_MINV_F_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(864, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(864, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_DU_D_QDD_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_DU_DAB_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr int INTEGRATOR_DU_INNER_LEVEL() { return (TIER == TIER_SHARED) ? 0 : (TIER == TIER_LITE) ? 0 : 2; }
-    template <typename T> __host__ __device__ inline size_t GRID_INTEGRATOR_GRADIENT_DAB_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(432); }
-    template <typename T> __host__ __device__ inline size_t GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(648); }
-    template <typename T> __host__ __device__ inline size_t INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(576, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T> __host__ __device__ inline size_t MINV_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(978, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T> __host__ __device__ inline size_t FORWARD_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_INTEGRATOR_GRADIENT_DAB_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(432); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(648); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(576, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t MINV_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(978, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
             ? grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>())
             : grid_shared_arena_bytes<T>(432, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(582); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t ABA_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(528, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t CRBA_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ABA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(528, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
     template <typename T> __host__ __device__ constexpr size_t GRID_EE_LINALG_SHARED_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(290, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T> __host__ __device__ inline size_t END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(172, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(338, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(338, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(134, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(614, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(614, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(398, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T> __host__ __device__ inline size_t INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t COM_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(798, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(798, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(582, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t CCRBA_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(825, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(825, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(609, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t ENERGY_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(786, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(786, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(570, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(290, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(172, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(338, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(338, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(134, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(614, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(614, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(398, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t COM_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(798, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(798, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(582, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(825, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(825, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(609, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ENERGY_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(786, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(786, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(570, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool COM_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool CCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool ENERGY_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(855, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(855, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(639, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(855, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(855, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(639, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool CMM_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(1029, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(1029, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else                                 return grid_shared_arena_bytes<T>(597, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1029, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1029, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(597, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_OUTPUT_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT); else                                 return grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT); else                                 return grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED)    return grid_shared_arena_bytes<T>(5400, TOPOLOGY_HELPERS_COUNT); else if constexpr (TIER == TIER_LITE) return grid_shared_arena_bytes<T>(5400, TOPOLOGY_HELPERS_COUNT); else                                 return grid_shared_arena_bytes<T>(570, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(4416, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5400, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5400, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(570, TOPOLOGY_HELPERS_COUNT); }
     // Per-tier scratch sizes for fdsva_so_contract (inline-CUDA users only — the host launchers always use TIER_SHARED).
     // At TIER_SHARED the 4*NV^3 inner scratch lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing shared memory for the caller's outer kernel.
     // fdsva_so_contract scratch sizing, keyed on the INNER's placement choice
@@ -620,22 +644,22 @@ namespace grid {
             : grid_shared_arena_bytes<T>(432, TOPOLOGY_HELPERS_COUNT);
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(3102); }
-    template <typename T> __host__ __device__ inline size_t GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(1980); }
-    template <typename T> __host__ __device__ inline size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3102); }
-    template <typename T> __host__ __device__ inline size_t GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(108); }
-    template <typename T> __host__ __device__ inline size_t GRID_FDSVA_SO_SPILL_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
-    template <typename T> __host__ __device__ inline size_t GRID_WORKSPACE_BYTES_PER_TIMESTEP() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP<T>(); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(1980); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3102); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(108); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_WORKSPACE_BYTES_PER_TIMESTEP() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP<T>(); }
     template <typename T> __host__ __device__ inline gridSharedTier GRID_INVERSE_DYNAMICS_GRADIENT_SHARED_TIER() { return static_cast<gridSharedTier>(GRID_INVERSE_DYNAMICS_GRADIENT_SHARED_TIER_VALUE); }
     template <typename T> __host__ __device__ inline gridSharedTier GRID_FORWARD_DYNAMICS_GRADIENT_SHARED_TIER() { return static_cast<gridSharedTier>(GRID_FORWARD_DYNAMICS_GRADIENT_SHARED_TIER_VALUE); }
-    template <typename T> __host__ __device__ inline size_t GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
-    template <typename T> __host__ __device__ inline size_t GRID_DCCRBA_J_OFFSET_BYTES() { return GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>() + sizeof(T) * static_cast<size_t>(216); }
-    template <typename T> __host__ __device__ inline size_t GRID_MINV_F_WORKSPACE_OFFSET_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t GRID_ABA_COLD_OFFSET_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_TEMP_OFFSET_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_D2XHOM_OFFSET_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_D2EETEMP_OFFSET_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ inline size_t GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES() { return GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>(); }
-    template <typename T> __host__ __device__ inline size_t GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_TEMP_OFFSET_BYTES() { return GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES<T>() + (GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_DXHOM ? sizeof(T) * static_cast<size_t>(DXHOM_T_COUNT) : 0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_DCCRBA_J_OFFSET_BYTES() { return GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>() + sizeof(T) * static_cast<size_t>(216); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_MINV_F_WORKSPACE_OFFSET_BYTES() { return static_cast<size_t>(0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_ABA_COLD_OFFSET_BYTES() { return static_cast<size_t>(0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_TEMP_OFFSET_BYTES() { return static_cast<size_t>(0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_D2XHOM_OFFSET_BYTES() { return static_cast<size_t>(0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_END_EFFECTOR_POSE_HESSIAN_WORKSPACE_D2EETEMP_OFFSET_BYTES() { return static_cast<size_t>(0); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES() { return GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>(); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_TEMP_OFFSET_BYTES() { return GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES<T>() + (GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_DXHOM ? sizeof(T) * static_cast<size_t>(DXHOM_T_COUNT) : 0); }
     template <typename T> __host__ __device__ inline bool grid_selected_shared_memory_fits() { return INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= GRID_CUDA_TARGET_SHARED_MEM_BYTES && FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= GRID_CUDA_TARGET_SHARED_MEM_BYTES && (!GRID_GENERATES_D2EE || END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= GRID_CUDA_TARGET_SHARED_MEM_BYTES) && (!GRID_GENERATES_IDSVA_SO_BODY_FRAME || IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= GRID_CUDA_TARGET_SHARED_MEM_BYTES) && (!GRID_GENERATES_FDSVA_SO || FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= GRID_CUDA_TARGET_SHARED_MEM_BYTES); }
     // __forceinline__ used throughout the xhom helper chain so ptxas folds these into the
     // inner kernels at all opt levels. For fixed-base the body of grid_q_index_affects_joint is
@@ -677,8 +701,10 @@ namespace grid {
         T *d_XImats;
         int *d_topology_helpers;
     };
+    struct grid_device_pool_t;  // defined with the allocator below
     template <typename T, gridDataKind KIND = GRID_DATA_ALL>
     struct gridData {
+        grid_device_pool_t *pool;  // the allocator this arena was carved from (W04-B B1/K1); the default pool unless init_gridData_checked was given one
         // GPU INPUTS
         T *d_q_qd_u;
         T *d_q_qd;
@@ -766,7 +792,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 78329b66d88f5cf0353b1e02750bddedb0a27da2
+    // Pinned commit: e83b0861fcc274989a89a8f7e63bb6f19445e5c0
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -788,12 +814,25 @@ namespace grid {
      * dependency-free; the `GroupBarrier` twin is only compiled when a caller
      * includes `<cooperative_groups.h>` via `glass-cgrps.cuh`.
      *
-     * Uniformity rule (project-wide): every public op takes `bool TRAILING_SYNC=true`
-     * and ends on `if constexpr (TRAILING_SYNC) bar.sync();`, so the result is valid
-     * for ALL threads by default. Callers that own the following barrier pass
-     * `false` to elide it. For ops that already ended on a barrier this is
-     * byte-identical; for the elementwise/reduce-tail ops it adds a strictly-safer
-     * trailing barrier.
+     * UNIFORM TRAILING_SYNC CONTRACT (retrofit completed 2026-08-12): every
+     * block-scope public op takes `bool TRAILING_SYNC = true`. At the default the
+     * op ends on a barrier, so its result is valid for ALL threads on return —
+     * always safe to compose. A caller that owns the following barrier (or feeds
+     * a consumer that opens with one) passes `false`:
+     *   - where the tail barrier is SEPARABLE (the L1/reduce families, gemm/gemv,
+     *     trsv/trsm/trmv, posv/potrs, potrf, inv/inv_dense, syev/eig_clamp,
+     *     eigh/psd_project, pcg, bdmv, …) it is genuinely elided;
+     *   - where the last barrier is FUSED into the final algorithm step
+     *     (ldlt/ldlt_solve, getrf, inv_pivoted — pivoted/multi-exit control flow)
+     *     the parameter is accepted but is a documented NO-OP: uniform interface,
+     *     no pretended perf win (each such op says so at its declaration).
+     * One deliberate exception: the compile-time single-RHS `posv<T,N>`/
+     * `potrs<T,N>` carry no third template parameter (it would be ambiguous
+     * against the `<T,N,NRHS>` multi-RHS overloads) — the elidable compile-time
+     * spelling is the NRHS=1 multi-RHS form.
+     * The knob is block-scope only: `warp::`/`thread::` tiers have no block
+     * barrier to elide (warp ops are lockstep/shuffle-based; the ThreadBarrier
+     * sync is already a no-op).
      */
     struct BlockBarrier {
         __device__ __forceinline__ uint32_t rank() const {
@@ -816,6 +855,12 @@ namespace grid {
         __device__ __forceinline__ uint32_t size() const { return 1u; }
         __device__ __forceinline__ void sync() const { }
     };
+    
+    // Flat block rank/size — THE prologue for every public block-face op. One
+    // definition instead of the hand-written threadIdx arithmetic at each site
+    // (233 copies removed 2026-08-11); identical instructions after inlining.
+    __device__ __forceinline__ uint32_t flat_rank() { return BlockBarrier{}.rank(); }
+    __device__ __forceinline__ uint32_t flat_size() { return BlockBarrier{}.size(); }
     
     // ─────────────────────────────────────────────────────────────────────────────
     // ct_size — compile-time size carrier for the factor/solve `*_impl` bodies.
@@ -894,6 +939,83 @@ namespace grid {
     // END GLASS src/base/flags.cuh
     
     // BEGIN GLASS src/base/L1/reduce.cuh
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // shfl_detail — THE warp shuffle ladders (shared by every reduction-family
+    // header; one definition replaces ~40 former inline copies, audit 2026-08-11).
+    // `fold*` = __shfl_down (lane 0 holds the result); `butterfly*` = __shfl_xor
+    // (every lane holds the result; fixed pattern → deterministic).
+    // ═══════════════════════════════════════════════════════════════════════
+    namespace shfl_detail {
+        // op functors (plain structs, NOT device lambdas — extended-lambda must
+        // never become a required consumer flag for a header-only library)
+        struct MaxOp { template <typename T> __device__ __forceinline__ T operator()(T a, T b) const { return (b > a) ? b : a; } };
+        struct MinOp { template <typename T> __device__ __forceinline__ T operator()(T a, T b) const { return (b < a) ? b : a; } };
+    
+        template <typename T>
+        __device__ __forceinline__ T fold_sum(T v) {
+            for (int off = 16; off > 0; off >>= 1) v += __shfl_down_sync(0xffffffffu, v, off);
+            return v;
+        }
+        template <typename T, typename Op>
+        __device__ __forceinline__ T fold(T v, Op op) {
+            for (int off = 16; off > 0; off >>= 1) {
+                const T o = __shfl_down_sync(0xffffffffu, v, off);
+                v = op(v, o);
+            }
+            return v;
+        }
+        template <typename T>
+        __device__ __forceinline__ T butterfly_sum(T v) {
+            for (int off = 16; off > 0; off >>= 1) v += __shfl_xor_sync(0xffffffffu, v, off);
+            return v;
+        }
+        template <typename T, typename Op>
+        __device__ __forceinline__ T butterfly(T v, Op op) {
+            for (int off = 16; off > 0; off >>= 1) {
+                const T o = __shfl_xor_sync(0xffffffffu, v, off);
+                v = op(v, o);
+            }
+            return v;
+        }
+    
+        // ── bounded folds: legal for a PARTIAL warp of k contiguous active lanes
+        // 0..k-1 (any 1 <= k <= 32). The sync mask names exactly the active
+        // lanes, and the guard discards shuffle results whose source lane is not
+        // active (undefined values never enter the sum). k == 32 routes through
+        // the exact full-warp ladder above, so multiple-of-32 launches remain
+        // bit-identical to the historical path. These are what make the block
+        // `_fast` family — and therefore `pcg` — legal at ANY thread count.
+        __device__ __forceinline__ unsigned lanes_mask(uint32_t k) {
+            return (k >= 32u) ? 0xffffffffu : ((1u << k) - 1u);
+        }
+        // active-lane count of the warp holding flat rank `rank` in a block of
+        // `size` threads: 32 for every warp except a ragged last one.
+        __device__ __forceinline__ uint32_t warp_active(uint32_t rank, uint32_t size) {
+            const uint32_t rem = size - (rank & ~31u);
+            return (rem < 32u) ? rem : 32u;
+        }
+        template <typename T>
+        __device__ __forceinline__ T fold_sum_bounded(T v, uint32_t lane, uint32_t k) {
+            if (k == 32u) return fold_sum(v);
+            const unsigned mask = (1u << k) - 1u;
+            for (int off = 16; off > 0; off >>= 1) {
+                const T o = __shfl_down_sync(mask, v, off);
+                if (lane + off < k) v += o;
+            }
+            return v;
+        }
+        template <typename T, typename Op>
+        __device__ __forceinline__ T fold_bounded(T v, Op op, uint32_t lane, uint32_t k) {
+            if (k == 32u) return fold(v, op);
+            const unsigned mask = (1u << k) - 1u;
+            for (int off = 16; off > 0; off >>= 1) {
+                const T o = __shfl_down_sync(mask, v, off);
+                if (lane + off < k) v = op(v, o);
+            }
+            return v;
+        }
+    }
     
     /**
      * @brief Sum reduction: `x[0] = Σ x[i]` (in-place, destructive).
@@ -1007,24 +1129,25 @@ namespace grid {
      * @tparam T  Scalar type (e.g. `float`, `double`).
      * @param n          Number of elements.
      * @param x          In/out vector of length `n`; the sum lands in `x[0]`.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`.
      */
     // warp-shuffle + inter-warp reduce; s_scratch: ceil(blockDim/32)*sizeof(T); result in x[0]
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void reduce_fast(uint32_t n, T *x, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T val = static_cast<T>(0);
         for (uint32_t i = rank; i < n; i += size) val += x[i];
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
         uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
         if (lane == 0) s_scratch[warp] = val;
         __syncthreads();
         uint32_t nw = (size + 31) / 32;
         if (rank < 32) {
             val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
             if (rank == 0) x[0] = val;
         }
         if constexpr (TRAILING_SYNC) __syncthreads();
@@ -1039,23 +1162,24 @@ namespace grid {
      * @tparam T  Scalar type (e.g. `float`, `double`).
      * @tparam N  Number of elements (compile-time constant).
      * @param x          In/out vector of length `N`; the sum lands in `x[0]`.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`.
      */
     template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void reduce_fast(T *x, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T val = static_cast<T>(0);
         for (uint32_t i = rank; i < N; i += size) val += x[i];
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
         uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
         if (lane == 0) s_scratch[warp] = val;
         __syncthreads();
         uint32_t nw = (size + 31) / 32;
         if (rank < 32) {
             val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
             if (rank == 0) x[0] = val;
         }
         if constexpr (TRAILING_SYNC) __syncthreads();
@@ -1086,24 +1210,25 @@ namespace grid {
      *
      * @tparam T  Scalar type (e.g. `float`, `double`).
      * @param partial    This thread's contribution to the block sum.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp);
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`;
      *                   on return `s_scratch[0]` holds the total.
      * @return The block-wide total `Σ partial`, identical on every thread.
      */
     template <typename T, bool TRAILING_SYNC = true>
     __device__ T reduce_fast(T partial, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T val = partial;
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
         uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
         if (lane == 0) s_scratch[warp] = val;
         __syncthreads();
         uint32_t nw = (size + 31) / 32;
         if (rank < 32) {
             val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
             if (rank == 0) s_scratch[0] = val;
         }
         __syncthreads();
@@ -1128,22 +1253,21 @@ namespace grid {
      *
      * @tparam T  Scalar type (e.g. `float`, `double`).
      * @param partial    This thread's contribution to the block min.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp);
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`;
      *                   on return `s_scratch[0]` holds the minimum.
      * @return The block-wide minimum, identical on every thread.
      */
     template <typename T, bool TRAILING_SYNC = true>
     __device__ T reduce_fast_min(T partial, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         uint32_t nw = (size + 31) / 32;
         T val = partial;
-        for (int off = 16; off > 0; off >>= 1) {
-            T other = __shfl_down_sync(0xffffffff, val, off);
-            val = (other < val) ? other : val;
-        }
         uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_bounded(val, shfl_detail::MinOp{}, lane,
+                                        shfl_detail::warp_active(rank, size));
         if (lane == 0) s_scratch[warp] = val;
         __syncthreads();
         if (rank < 32) {
@@ -1151,10 +1275,8 @@ namespace grid {
             // sentinel: min is idempotent, so re-folding a value already in the set
             // cannot change the result, and it needs no type-specific +inf.
             val = s_scratch[(rank < nw) ? rank : 0];
-            for (int off = 16; off > 0; off >>= 1) {
-                T other = __shfl_down_sync(0xffffffff, val, off);
-                val = (other < val) ? other : val;
-            }
+            val = shfl_detail::fold_bounded(val, shfl_detail::MinOp{}, rank,
+                                            (size < 32u) ? size : 32u);
             if (rank == 0) s_scratch[0] = val;
         }
         __syncthreads();
@@ -1162,6 +1284,154 @@ namespace grid {
         if constexpr (TRAILING_SYNC) __syncthreads();
         return total;
     }
+    
+    
+    
+    /**
+     * @brief Fixed 32-way pairwise tree reduce of a register array (returns the sum in p[0]).
+     *
+     * Combines 32 partials in the EXACT pairwise grouping that `glass::warp::reduce`
+     * produces in lane 0 (a `__shfl_down_sync` tree with offsets 16,8,4,2,1), so a
+     * serial caller (e.g. a sub-warp fallback below 32 threads) matches the
+     * full-warp caller bit-for-bit. This is the shared primitive that lets the
+     * contraction-parallel `*_reduced` engines stay thread-count invariant across the
+     * 32-thread boundary. NumPy equivalent: `np.sum(p)` (different rounding).
+     *
+     * @tparam T  Scalar type.
+     * @param p  In/out array of 32 partials; on return `p[0]` holds the total (p is clobbered).
+     * @return The sum of `p[0..31]`.
+     */
+    template <typename T>
+    __device__ __forceinline__ T reduced_tree32(T p[32])
+    {
+        #pragma unroll
+        for (uint32_t off = 16; off > 0; off >>= 1)
+            for (uint32_t l = 0; l < off; ++l) p[l] += p[l + off];
+        return p[0];
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // Single-warp reductions: raw __shfl, no shared scratch, no inter-warp combine.
+        // For warp-per-problem kernels (one 32-lane warp owns the reduction). The
+        // caller must run a full warp (mask 0xffffffff); partial-warp callers must
+        // pass 0 from inactive lanes. Distinct from reduce_fast, which is
+        // block-scoped (warp-shuffle + shared inter-warp combine).
+    
+        /**
+         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp.
+         *
+         * One 32-lane warp sums the vector with `__shfl_down_sync`; the total lands in
+         * `x[0]` (input overwritten). No shared scratch, no inter-warp combine. NumPy
+         * equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n  Number of elements.
+         * @param x  In/out vector of length `n`; the sum lands in `x[0]`.
+         */
+        template <typename T>
+        __device__ void reduce(uint32_t n, T *x)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < n; i += 32) val += x[i];
+            val = shfl_detail::fold_sum(val);
+            if (lane == 0) x[0] = val;
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp, compile-time size.
+         *
+         * Compile-time-`N` overload. NumPy equivalent: `np.sum(x)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x  In/out vector of length `N`; the sum lands in `x[0]`.
+         */
+        template <typename T, uint32_t N>
+        __device__ void reduce(T *x)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < N; i += 32) val += x[i];
+            val = shfl_detail::fold_sum(val);
+            if (lane == 0) x[0] = val;
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Warp-sum of a per-lane register value: returns `Σ partial` on every lane.
+         *
+         * Reduces one PER-LANE contribution across a single warp and broadcasts the
+         * total back to all 32 lanes — no `x[]` buffer, no shared scratch. The entry
+         * point for fused "compute-a-partial-then-sum" patterns inside a warp (e.g.
+         * row-norm / residual accumulation). Inactive lanes should pass `0`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param partial  This lane's contribution.
+         * @return The warp-wide total `Σ partial`, identical on every lane.
+         */
+        template <typename T>
+        __device__ T reduce(T partial)
+        {
+            T val = partial;
+            val = shfl_detail::fold_sum(val);
+            return __shfl_sync(0xffffffff, val, 0);
+        }
+    
+        /**
+         * @brief Warp-min of a per-lane register value: returns `min(partial)` on
+         *        every lane.
+         *
+         * The min twin of the register `warp::reduce` (same shuffle ladder +
+         * broadcast; no buffer, no scratch). Inactive/idle lanes must pass the
+         * identity (e.g. `+INFINITY` — there is no empty-lane sentinel here; use
+         * `argmin_pair` when a lane can be excluded by index). NaN candidates
+         * lose every compare, so a NaN lane never wins unless ALL lanes are NaN.
+         * Full 32-lane warp required.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param partial  This lane's contribution.
+         * @return The warp-wide minimum, identical on every lane.
+         */
+        template <typename T>
+        __device__ T reduce_min(T partial)
+        {
+            T val = partial;
+            for (int off = 16; off > 0; off >>= 1) {
+                T o = __shfl_down_sync(0xffffffff, val, off);
+                if (o < val) val = o;
+            }
+            return __shfl_sync(0xffffffff, val, 0);
+        }
+    
+        /**
+         * @brief Warp-max of a per-lane register value: returns `max(partial)` on
+         *        every lane. See `reduce_min` (pass `-INFINITY` from idle lanes).
+         *
+         * @tparam T  Scalar type.
+         * @param partial  This lane's contribution.
+         * @return The warp-wide maximum, identical on every lane.
+         */
+        template <typename T>
+        __device__ T reduce_max(T partial)
+        {
+            T val = partial;
+            for (int off = 16; off > 0; off >>= 1) {
+                T o = __shfl_down_sync(0xffffffff, val, off);
+                if (o > val) val = o;
+            }
+            return __shfl_sync(0xffffffff, val, 0);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace thread {
         // Single-thread reductions: one THREAD owns the whole sum, accumulating
@@ -1228,144 +1498,6 @@ namespace grid {
         {
             return partial;
         }
-    }
-    
-    namespace warp {
-        // Single-warp reductions: raw __shfl, no shared scratch, no inter-warp combine.
-        // For warp-per-problem kernels (one 32-lane warp owns the reduction). The
-        // caller must run a full warp (mask 0xffffffff); partial-warp callers must
-        // pass 0 from inactive lanes. Distinct from reduce_fast, which is
-        // block-scoped (warp-shuffle + shared inter-warp combine).
-    
-        /**
-         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp.
-         *
-         * One 32-lane warp sums the vector with `__shfl_down_sync`; the total lands in
-         * `x[0]` (input overwritten). No shared scratch, no inter-warp combine. NumPy
-         * equivalent: `np.sum(x)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @param n  Number of elements.
-         * @param x  In/out vector of length `n`; the sum lands in `x[0]`.
-         */
-        template <typename T>
-        __device__ void reduce(uint32_t n, T *x)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T val = static_cast<T>(0);
-            for (uint32_t i = lane; i < n; i += 32) val += x[i];
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-            if (lane == 0) x[0] = val;
-            __syncwarp();
-        }
-    
-        /**
-         * @brief Sum reduction within one warp: `x[0] = Σ x[i]` (in-place), single-warp, compile-time size.
-         *
-         * Compile-time-`N` overload. NumPy equivalent: `np.sum(x)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @tparam N  Number of elements (compile-time constant).
-         * @param x  In/out vector of length `N`; the sum lands in `x[0]`.
-         */
-        template <typename T, uint32_t N>
-        __device__ void reduce(T *x)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T val = static_cast<T>(0);
-            for (uint32_t i = lane; i < N; i += 32) val += x[i];
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-            if (lane == 0) x[0] = val;
-            __syncwarp();
-        }
-    
-        /**
-         * @brief Warp-sum of a per-lane register value: returns `Σ partial` on every lane.
-         *
-         * Reduces one PER-LANE contribution across a single warp and broadcasts the
-         * total back to all 32 lanes — no `x[]` buffer, no shared scratch. The entry
-         * point for fused "compute-a-partial-then-sum" patterns inside a warp (e.g.
-         * row-norm / residual accumulation). Inactive lanes should pass `0`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @param partial  This lane's contribution.
-         * @return The warp-wide total `Σ partial`, identical on every lane.
-         */
-        template <typename T>
-        __device__ T reduce(T partial)
-        {
-            T val = partial;
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-            return __shfl_sync(0xffffffff, val, 0);
-        }
-    
-        /**
-         * @brief Warp-min of a per-lane register value: returns `min(partial)` on
-         *        every lane.
-         *
-         * The min twin of the register `warp::reduce` (same shuffle ladder +
-         * broadcast; no buffer, no scratch). Inactive/idle lanes must pass the
-         * identity (e.g. `+INFINITY` — there is no empty-lane sentinel here; use
-         * `argmin_pair` when a lane can be excluded by index). NaN candidates
-         * lose every compare, so a NaN lane never wins unless ALL lanes are NaN.
-         * Full 32-lane warp required.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @param partial  This lane's contribution.
-         * @return The warp-wide minimum, identical on every lane.
-         */
-        template <typename T>
-        __device__ T reduce_min(T partial)
-        {
-            T val = partial;
-            for (int off = 16; off > 0; off >>= 1) {
-                T o = __shfl_down_sync(0xffffffff, val, off);
-                if (o < val) val = o;
-            }
-            return __shfl_sync(0xffffffff, val, 0);
-        }
-    
-        /**
-         * @brief Warp-max of a per-lane register value: returns `max(partial)` on
-         *        every lane. See `reduce_min` (pass `-INFINITY` from idle lanes).
-         *
-         * @tparam T  Scalar type.
-         * @param partial  This lane's contribution.
-         * @return The warp-wide maximum, identical on every lane.
-         */
-        template <typename T>
-        __device__ T reduce_max(T partial)
-        {
-            T val = partial;
-            for (int off = 16; off > 0; off >>= 1) {
-                T o = __shfl_down_sync(0xffffffff, val, off);
-                if (o > val) val = o;
-            }
-            return __shfl_sync(0xffffffff, val, 0);
-        }
-    }
-    
-    /**
-     * @brief Fixed 32-way pairwise tree reduce of a register array (returns the sum in p[0]).
-     *
-     * Combines 32 partials in the EXACT pairwise grouping that `glass::warp::reduce`
-     * produces in lane 0 (a `__shfl_down_sync` tree with offsets 16,8,4,2,1), so a
-     * serial caller (e.g. a sub-warp fallback below 32 threads) matches the
-     * full-warp caller bit-for-bit. This is the shared primitive that lets the
-     * contraction-parallel `*_reduced` engines stay thread-count invariant across the
-     * 32-thread boundary. NumPy equivalent: `np.sum(p)` (different rounding).
-     *
-     * @tparam T  Scalar type.
-     * @param p  In/out array of 32 partials; on return `p[0]` holds the total (p is clobbered).
-     * @return The sum of `p[0..31]`.
-     */
-    template <typename T>
-    __device__ __forceinline__ T reduced_tree32(T p[32])
-    {
-        #pragma unroll
-        for (uint32_t off = 16; off > 0; off >>= 1)
-            for (uint32_t l = 0; l < off; ++l) p[l] += p[l + off];
-        return p[0];
     }
     // END GLASS src/base/L1/reduce.cuh
     
@@ -1435,13 +1567,166 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void dot_lowmem(uint32_t n, T *x, T *y, T *out)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t i = rank; i < n; i += size) out[i] = x[i]*y[i];
         __syncthreads();
         if (rank == 0) { for (uint32_t i = 1; i < n; i++) out[0] += out[i]; }
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
+    
+    
+    /**
+     * @brief Shared-scratch size in bytes for the `dot_fast` ops.
+     *
+     * The warp-shuffle dot combines across warps through one scratch slot per warp:
+     * `ceil(block_threads / 32)` elements of `T`. Allocate
+     * `dot_fast_scratch_bytes<T>(block_threads)` for the `s_scratch` argument.
+     *
+     * @tparam T  Scalar type.
+     * @param block_threads  Number of threads in the launching block.
+     * @return Bytes to allocate for `s_scratch`.
+     */
+    template <typename T>
+    __host__ __device__ constexpr std::size_t dot_fast_scratch_bytes(uint32_t block_threads) { return static_cast<std::size_t>((block_threads + 31) / 32) * sizeof(T); }
+    
+    /**
+     * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle variant.
+     *
+     * Accumulates the element-wise products with a warp-shuffle reduction plus
+     * an inter-warp reduction through shared scratch, leaving `x` and `y`
+     * untouched. NumPy equivalent: `np.dot_fast(x, y)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @param n          Number of elements.
+     * @param x          Input vector of length `n`.
+     * @param y          Input vector of length `n`.
+     * @param out        Output buffer; the result lands in `out[0]`.
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`.
+     */
+    // s_scratch: ceil(blockDim/32)*sizeof(T); result in out[0]
+    template <typename T, bool TRAILING_SYNC = true>
+    __device__ void dot_fast(uint32_t n, T *x, T *y, T *out, T *s_scratch)
+    {
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T val = static_cast<T>(0);
+        for (uint32_t i = rank; i < n; i += size) val += x[i]*y[i];
+        uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
+        if (lane == 0) s_scratch[warp] = val;
+        __syncthreads();
+        uint32_t nw = (size + 31) / 32;
+        if (rank < 32) {
+            val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
+            if (rank == 0) out[0] = val;
+        }
+        if constexpr (TRAILING_SYNC) __syncthreads();
+    }
+    
+    /**
+     * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle, compile-time size.
+     *
+     * Compile-time-`N` overload of the warp-shuffle dot product. NumPy
+     * equivalent: `np.dot_fast(x, y)`.
+     *
+     * @tparam T  Scalar type (e.g. `float`, `double`).
+     * @tparam N  Number of elements (compile-time constant).
+     * @param x          Input vector of length `N`.
+     * @param y          Input vector of length `N`.
+     * @param out        Output buffer; the result lands in `out[0]`.
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`.
+     */
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
+    __device__ void dot_fast(T *x, T *y, T *out, T *s_scratch)
+    {
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T val = static_cast<T>(0);
+        for (uint32_t i = rank; i < N; i += size) val += x[i]*y[i];
+        uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
+        if (lane == 0) s_scratch[warp] = val;
+        __syncthreads();
+        uint32_t nw = (size + 31) / 32;
+        if (rank < 32) {
+            val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
+            if (rank == 0) out[0] = val;
+        }
+        if constexpr (TRAILING_SYNC) __syncthreads();
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // Single-warp dot products: one 32-lane warp owns the reduction (raw __shfl,
+        // no shared scratch). For warp-per-problem kernels packing many small dots
+        // into one block via independent warps (threadIdx.y selects the warp). The
+        // caller must run a full 32-lane warp (mask 0xffffffff). Distinct from
+        // dot_fast, which is block-scoped (warp-shuffle + shared inter-warp
+        // combine). The result is broadcast to EVERY lane, so the value is usable
+        // immediately by all lanes without a follow-up read.
+    
+        /**
+         * @brief Inner product within one warp: returns `x · y` on every lane, single-warp.
+         *
+         * One 32-lane warp forms the element-wise products and reduces them with
+         * `__shfl_down_sync`, then BROADCASTS the scalar total back to all 32 lanes via
+         * `__shfl_sync` (from a lane's register, never a shared re-read — immune to the
+         * `__restrict__` stale-cache miscompile). Inputs are left untouched; no shared
+         * scratch, no `__syncthreads`. Full 32 lanes required; independent warps may run
+         * distinct problems concurrently. NumPy equivalent: `np.dot(x, y)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n  Number of elements.
+         * @param x  Input vector of length `n`.
+         * @param y  Input vector of length `n`.
+         * @return The inner product `x · y`, identical on every lane.
+         */
+        template <typename T>
+        __device__ T dot(uint32_t n, T *x, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < n; i += 32) val += x[i]*y[i];
+            val = shfl_detail::fold_sum(val);
+            return __shfl_sync(0xffffffffu, val, 0);
+        }
+    
+        /**
+         * @brief Inner product within one warp: returns `x · y` on every lane, single-warp, compile-time size.
+         *
+         * Compile-time-`N` overload of the single-warp dot. Reduces with
+         * `__shfl_down_sync` and broadcasts the total to all 32 lanes from a register.
+         * No shared scratch, no `__syncthreads`. NumPy equivalent: `np.dot(x, y)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Number of elements (compile-time constant).
+         * @param x  Input vector of length `N`.
+         * @param y  Input vector of length `N`.
+         * @return The inner product `x · y`, identical on every lane.
+         */
+        template <typename T, uint32_t N>
+        __device__ T dot(T *x, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T val = static_cast<T>(0);
+            for (uint32_t i = lane; i < N; i += 32) val += x[i]*y[i];
+            val = shfl_detail::fold_sum(val);
+            return __shfl_sync(0xffffffffu, val, 0);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
     
         /**
@@ -1485,147 +1770,6 @@ namespace grid {
             for (uint32_t i = 0; i < N; i++) val += x[i]*y[i];
             return val;
         }
-    }
-    
-    namespace warp {
-        // Single-warp dot products: one 32-lane warp owns the reduction (raw __shfl,
-        // no shared scratch). For warp-per-problem kernels packing many small dots
-        // into one block via independent warps (threadIdx.y selects the warp). The
-        // caller must run a full 32-lane warp (mask 0xffffffff). Distinct from
-        // dot_fast, which is block-scoped (warp-shuffle + shared inter-warp
-        // combine). The result is broadcast to EVERY lane, so the value is usable
-        // immediately by all lanes without a follow-up read.
-    
-        /**
-         * @brief Inner product within one warp: returns `x · y` on every lane, single-warp.
-         *
-         * One 32-lane warp forms the element-wise products and reduces them with
-         * `__shfl_down_sync`, then BROADCASTS the scalar total back to all 32 lanes via
-         * `__shfl_sync` (from a lane's register, never a shared re-read — immune to the
-         * `__restrict__` stale-cache miscompile). Inputs are left untouched; no shared
-         * scratch, no `__syncthreads`. Full 32 lanes required; independent warps may run
-         * distinct problems concurrently. NumPy equivalent: `np.dot(x, y)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @param n  Number of elements.
-         * @param x  Input vector of length `n`.
-         * @param y  Input vector of length `n`.
-         * @return The inner product `x · y`, identical on every lane.
-         */
-        template <typename T>
-        __device__ T dot(uint32_t n, T *x, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T val = static_cast<T>(0);
-            for (uint32_t i = lane; i < n; i += 32) val += x[i]*y[i];
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffffu, val, off);
-            return __shfl_sync(0xffffffffu, val, 0);
-        }
-    
-        /**
-         * @brief Inner product within one warp: returns `x · y` on every lane, single-warp, compile-time size.
-         *
-         * Compile-time-`N` overload of the single-warp dot. Reduces with
-         * `__shfl_down_sync` and broadcasts the total to all 32 lanes from a register.
-         * No shared scratch, no `__syncthreads`. NumPy equivalent: `np.dot(x, y)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @tparam N  Number of elements (compile-time constant).
-         * @param x  Input vector of length `N`.
-         * @param y  Input vector of length `N`.
-         * @return The inner product `x · y`, identical on every lane.
-         */
-        template <typename T, uint32_t N>
-        __device__ T dot(T *x, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T val = static_cast<T>(0);
-            for (uint32_t i = lane; i < N; i += 32) val += x[i]*y[i];
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffffu, val, off);
-            return __shfl_sync(0xffffffffu, val, 0);
-        }
-    }
-    
-    /**
-     * @brief Shared-scratch size in bytes for the `dot_fast` ops.
-     *
-     * The warp-shuffle dot combines across warps through one scratch slot per warp:
-     * `ceil(block_threads / 32)` elements of `T`. Allocate
-     * `dot_fast_scratch_bytes<T>(block_threads)` for the `s_scratch` argument.
-     *
-     * @tparam T  Scalar type.
-     * @param block_threads  Number of threads in the launching block.
-     * @return Bytes to allocate for `s_scratch`.
-     */
-    template <typename T>
-    __host__ __device__ constexpr std::size_t dot_fast_scratch_bytes(uint32_t block_threads) { return static_cast<std::size_t>((block_threads + 31) / 32) * sizeof(T); }
-    
-    /**
-     * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle variant.
-     *
-     * Accumulates the element-wise products with a warp-shuffle reduction plus
-     * an inter-warp reduction through shared scratch, leaving `x` and `y`
-     * untouched. NumPy equivalent: `np.dot_fast(x, y)`.
-     *
-     * @tparam T  Scalar type (e.g. `float`, `double`).
-     * @param n          Number of elements.
-     * @param x          Input vector of length `n`.
-     * @param y          Input vector of length `n`.
-     * @param out        Output buffer; the result lands in `out[0]`.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
-     */
-    // s_scratch: ceil(blockDim/32)*sizeof(T); result in out[0]
-    template <typename T, bool TRAILING_SYNC = true>
-    __device__ void dot_fast(uint32_t n, T *x, T *y, T *out, T *s_scratch)
-    {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T val = static_cast<T>(0);
-        for (uint32_t i = rank; i < n; i += size) val += x[i]*y[i];
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-        uint32_t lane = rank & 31, warp = rank >> 5;
-        if (lane == 0) s_scratch[warp] = val;
-        __syncthreads();
-        uint32_t nw = (size + 31) / 32;
-        if (rank < 32) {
-            val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-            if (rank == 0) out[0] = val;
-        }
-        if constexpr (TRAILING_SYNC) __syncthreads();
-    }
-    
-    /**
-     * @brief Inner product: `out[0] = x · y` (DOT), warp-shuffle, compile-time size.
-     *
-     * Compile-time-`N` overload of the warp-shuffle dot product. NumPy
-     * equivalent: `np.dot_fast(x, y)`.
-     *
-     * @tparam T  Scalar type (e.g. `float`, `double`).
-     * @tparam N  Number of elements (compile-time constant).
-     * @param x          Input vector of length `N`.
-     * @param y          Input vector of length `N`.
-     * @param out        Output buffer; the result lands in `out[0]`.
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
-     */
-    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
-    __device__ void dot_fast(T *x, T *y, T *out, T *s_scratch)
-    {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T val = static_cast<T>(0);
-        for (uint32_t i = rank; i < N; i += size) val += x[i]*y[i];
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-        uint32_t lane = rank & 31, warp = rank >> 5;
-        if (lane == 0) s_scratch[warp] = val;
-        __syncthreads();
-        uint32_t nw = (size + 31) / 32;
-        if (rank < 32) {
-            val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
-            if (rank == 0) out[0] = val;
-        }
-        if constexpr (TRAILING_SYNC) __syncthreads();
     }
     // END GLASS src/base/L1/dot.cuh
     
@@ -1738,13 +1882,14 @@ namespace grid {
      * @param x          Input vector, accessed at indices `0, SX, 2*SX, …`.
      * @param y          Input vector, accessed at indices `0, SY, 2*SY, …`.
      * @param out        Destination for the scalar result (broadcast to all threads).
-     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per warp).
+     * @param s_scratch  Shared scratch of `ceil(blockDim/32)` elements (one per
+     *                   warp) — size with `reduce_fast_scratch_bytes<T>(blockDim)`.
      */
     template <typename T, uint32_t N, uint32_t SX = 1, uint32_t SY = 1, bool TRAILING_SYNC = true>
     __device__ void dot_strided_coalesced(const T* x, const T* y, T* out, T* s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
     
         // Each thread accumulates a partial over its block-strided slice of i.
         // Consecutive ranks read consecutive (i*SX, i*SY) base addresses.
@@ -1753,14 +1898,14 @@ namespace grid {
             val += x[i * SX] * y[i * SY];
     
         // Warp-level reduce, then inter-warp reduce via shared scratch.
-        for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
         uint32_t lane = rank & 31, warp = rank >> 5;
+        val = shfl_detail::fold_sum_bounded(val, lane, shfl_detail::warp_active(rank, size));
         if (lane == 0) s_scratch[warp] = val;
         __syncthreads();
         uint32_t nw = (size + 31) / 32;
         if (rank < 32) {
             val = (rank < nw) ? s_scratch[rank] : static_cast<T>(0);
-            for (int off = 16; off > 0; off >>= 1) val += __shfl_down_sync(0xffffffff, val, off);
+            val = shfl_detail::fold_sum_bounded(val, rank, (size < 32u) ? size : 32u);
             if (rank == 0) *out = val;
         }
         if constexpr (TRAILING_SYNC) __syncthreads();
@@ -1881,6 +2026,64 @@ namespace grid {
         symmetrize_impl<BlockBarrier, T, TRAILING_SYNC>(BlockBarrier{}, N, A);
     }
     
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // Single-warp SYMMETRIZE: one 32-lane warp strides the n*n index space
+        // (lane k handles flat indices k, k+32, …) acting on strictly-lower entries.
+        // Each mirror pair has a single owning lane, so no inter-lane communication
+        // is needed; a trailing __syncwarp() orders the writes for the caller.
+        // Full 32 lanes required.
+    
+        /**
+         * @brief Symmetrize within one warp: `A = 0.5*(A + Aᵀ)`, single-warp.
+         *
+         * One 32-lane warp averages the mirror pairs of the `n×n` column-major
+         * matrix in place; the diagonal is untouched. Each pair owned by exactly
+         * one lane; trailing `__syncwarp()`. NumPy equivalent: `A = 0.5*(A + A.T)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @param n  Matrix dimension (number of rows/columns).
+         * @param A  In/out matrix of `n*n` elements (column-major).
+         */
+        template <typename T>
+        __device__ void symmetrize(uint32_t n, T *A)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            for (uint32_t idx = lane; idx < n*n; idx += 32) {
+                uint32_t r = idx % n, c = idx / n;
+                if (r > c) {
+                    T v = static_cast<T>(0.5) * (A[idx] + A[c + r*n]);
+                    A[idx] = v;
+                    A[c + r*n] = v;
+                }
+            }
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Symmetrize within one warp: `A = 0.5*(A + Aᵀ)`, compile-time size.
+         *
+         * Compile-time-`N` overload of the single-warp symmetrize. NumPy
+         * equivalent: `A = 0.5*(A + A.T)`.
+         *
+         * @tparam T  Scalar type (e.g. `float`, `double`).
+         * @tparam N  Matrix dimension (compile-time constant).
+         * @param A  In/out matrix of `N*N` elements (column-major).
+         */
+        template <typename T, uint32_t N>
+        __device__ void symmetrize(T *A)
+        {
+            symmetrize<T>(N, A);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         // Single-thread SYMMETRIZE: one THREAD averages every mirror pair, reusing
         // the shared `symmetrize_impl` body with ThreadBarrier{rank=0, size=1, no-op
@@ -1919,56 +2122,6 @@ namespace grid {
         __device__ void symmetrize(T *A)
         {
             symmetrize_impl<ThreadBarrier, T>(ThreadBarrier{}, N, A);
-        }
-    }
-    
-    namespace warp {
-        // Single-warp SYMMETRIZE: one 32-lane warp strides the n*n index space
-        // (lane k handles flat indices k, k+32, …) acting on strictly-lower entries.
-        // Each mirror pair has a single owning lane, so no inter-lane communication
-        // is needed; a trailing __syncwarp() orders the writes for the caller.
-        // Full 32 lanes required.
-    
-        /**
-         * @brief Symmetrize within one warp: `A = 0.5*(A + Aᵀ)`, single-warp.
-         *
-         * One 32-lane warp averages the mirror pairs of the `n×n` column-major
-         * matrix in place; the diagonal is untouched. Each pair owned by exactly
-         * one lane; trailing `__syncwarp()`. NumPy equivalent: `A = 0.5*(A + A.T)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @param n  Matrix dimension (number of rows/columns).
-         * @param A  In/out matrix of `n*n` elements (column-major).
-         */
-        template <typename T>
-        __device__ void symmetrize(uint32_t n, T *A)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            for (uint32_t idx = lane; idx < n*n; idx += 32) {
-                uint32_t r = idx % n, c = idx / n;
-                if (r > c) {
-                    T v = static_cast<T>(0.5) * (A[idx] + A[c + r*n]);
-                    A[idx] = v;
-                    A[c + r*n] = v;
-                }
-            }
-            __syncwarp();
-        }
-    
-        /**
-         * @brief Symmetrize within one warp: `A = 0.5*(A + Aᵀ)`, compile-time size.
-         *
-         * Compile-time-`N` overload of the single-warp symmetrize. NumPy
-         * equivalent: `A = 0.5*(A + A.T)`.
-         *
-         * @tparam T  Scalar type (e.g. `float`, `double`).
-         * @tparam N  Matrix dimension (compile-time constant).
-         * @param A  In/out matrix of `N*N` elements (column-major).
-         */
-        template <typename T, uint32_t N>
-        __device__ void symmetrize(T *A)
-        {
-            symmetrize<T>(N, A);
         }
     }
     // END GLASS src/base/L1/symmetrize.cuh
@@ -2059,8 +2212,8 @@ namespace grid {
     template <typename T, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void gemv(uint32_t m, uint32_t n, T alpha, const T *A, const T *x, T beta, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemv_impl<T, TRANSPOSE, ROW_MAJOR>(rank, size, m, n, alpha, A, x, beta, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -2085,8 +2238,8 @@ namespace grid {
     template <typename T, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void gemv(uint32_t m, uint32_t n, T alpha, const T *A, const T *x, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemv_impl<T, TRANSPOSE, ROW_MAJOR>(rank, size, m, n, alpha, A, x, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -2165,8 +2318,8 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void gemv(T alpha, const T *A, const T *x, T beta, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, x, beta, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -2190,11 +2343,85 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void gemv(T alpha, const T *A, const T *x, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, x, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // Single-warp GEMV: one 32-lane warp computes the matvec, lanes striding over
+        // the output rows (lane i owns output rows i, i+32, …). Each lane's row is an
+        // independent inner product — no cross-lane communication, no shared scratch,
+        // no `__syncthreads`. Reuses the block impl `gemv_impl_ct(lane, 32u, …)` exactly
+        // as `warp::gemm` reuses `gemm_impl_ct`. For warp-per-problem kernels packing
+        // many small matvecs into one block via independent warps. Full 32 lanes
+        // required.
+    
+        /**
+         * @brief Matrix-vector product within one warp: `y = alpha * A * x + beta * y` (GEMV), single-warp, compile-time size.
+         *
+         * One 32-lane warp computes the matvec with lanes striding over the output rows
+         * of the `M×N` matrix `A` (each row an independent inner product). Set
+         * `TRANSPOSE=true` for `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`. No shared
+         * scratch, no `__syncthreads`; independent warps may run distinct problems
+         * concurrently. Full 32 lanes required. `y` is read only when `beta != 0`
+         * (BLAS semantics: `beta == 0` treats `y` as write-only). NumPy
+         * equivalent: `y = alpha*A@x + beta*y` (or `alpha*A.T@x + beta*y` when transposed).
+         *
+         * @tparam T          Scalar type (e.g. `float`, `double`).
+         * @tparam M          Number of rows of `A` (compile-time constant).
+         * @tparam N          Number of columns of `A` (compile-time constant).
+         * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+         * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A      Input matrix of `M*N` elements.
+         * @param x      Input vector (length `N`, or `M` when transposed).
+         * @param beta   Scalar multiplier on the prior `y`.
+         * @param y      In/out vector (length `M`, or `N` when transposed).
+         */
+        template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void gemv(T alpha, const T *A, const T *x, T beta, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(lane, 32u, alpha, A, x, beta, y);
+            __syncwarp();
+        }
+    
+        /**
+         * @brief Matrix-vector product within one warp: `y = alpha * A * x` (GEMV), single-warp, compile-time size, implicit beta = 0.
+         *
+         * Overwrites `y` (no `beta * y` term — `y` is never read, so it is safe to write
+         * into cold/uninitialized scratch). Otherwise identical to the beta overload
+         * above. No shared scratch, no `__syncthreads`. Full 32 lanes required. NumPy
+         * equivalent: `y = alpha*A@x` (or `alpha*A.T@x` when transposed).
+         *
+         * @tparam T          Scalar type (e.g. `float`, `double`).
+         * @tparam M          Number of rows of `A` (compile-time constant).
+         * @tparam N          Number of columns of `A` (compile-time constant).
+         * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
+         * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A      Input matrix of `M*N` elements.
+         * @param x      Input vector (length `N`, or `M` when transposed).
+         * @param y      Output vector (length `M`, or `N` when transposed; overwritten).
+         */
+        template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void gemv(T alpha, const T *A, const T *x, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(lane, 32u, alpha, A, x, y);
+            __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace thread {
         // Single-thread GEMV: one THREAD computes the whole matvec, walking the output
@@ -2264,72 +2491,6 @@ namespace grid {
             gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(0u, 1u, alpha, A, x, y);
         }
     }
-    
-    namespace warp {
-        // Single-warp GEMV: one 32-lane warp computes the matvec, lanes striding over
-        // the output rows (lane i owns output rows i, i+32, …). Each lane's row is an
-        // independent inner product — no cross-lane communication, no shared scratch,
-        // no `__syncthreads`. Reuses the block impl `gemv_impl_ct(lane, 32u, …)` exactly
-        // as `warp::gemm` reuses `gemm_impl_ct`. For warp-per-problem kernels packing
-        // many small matvecs into one block via independent warps. Full 32 lanes
-        // required.
-    
-        /**
-         * @brief Matrix-vector product within one warp: `y = alpha * A * x + beta * y` (GEMV), single-warp, compile-time size.
-         *
-         * One 32-lane warp computes the matvec with lanes striding over the output rows
-         * of the `M×N` matrix `A` (each row an independent inner product). Set
-         * `TRANSPOSE=true` for `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`. No shared
-         * scratch, no `__syncthreads`; independent warps may run distinct problems
-         * concurrently. Full 32 lanes required. `y` is read only when `beta != 0`
-         * (BLAS semantics: `beta == 0` treats `y` as write-only). NumPy
-         * equivalent: `y = alpha*A@x + beta*y` (or `alpha*A.T@x + beta*y` when transposed).
-         *
-         * @tparam T          Scalar type (e.g. `float`, `double`).
-         * @tparam M          Number of rows of `A` (compile-time constant).
-         * @tparam N          Number of columns of `A` (compile-time constant).
-         * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
-         * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A      Input matrix of `M*N` elements.
-         * @param x      Input vector (length `N`, or `M` when transposed).
-         * @param beta   Scalar multiplier on the prior `y`.
-         * @param y      In/out vector (length `M`, or `N` when transposed).
-         */
-        template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void gemv(T alpha, const T *A, const T *x, T beta, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(lane, 32u, alpha, A, x, beta, y);
-            __syncwarp();
-        }
-    
-        /**
-         * @brief Matrix-vector product within one warp: `y = alpha * A * x` (GEMV), single-warp, compile-time size, implicit beta = 0.
-         *
-         * Overwrites `y` (no `beta * y` term — `y` is never read, so it is safe to write
-         * into cold/uninitialized scratch). Otherwise identical to the beta overload
-         * above. No shared scratch, no `__syncthreads`. Full 32 lanes required. NumPy
-         * equivalent: `y = alpha*A@x` (or `alpha*A.T@x` when transposed).
-         *
-         * @tparam T          Scalar type (e.g. `float`, `double`).
-         * @tparam M          Number of rows of `A` (compile-time constant).
-         * @tparam N          Number of columns of `A` (compile-time constant).
-         * @tparam TRANSPOSE  When true, multiply by `Aᵀ` instead of `A` (default false).
-         * @tparam ROW_MAJOR  When true, `A` is stored row-major (default false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A      Input matrix of `M*N` elements.
-         * @param x      Input vector (length `N`, or `M` when transposed).
-         * @param y      Output vector (length `M`, or `N` when transposed; overwritten).
-         */
-        template <typename T, uint32_t M, uint32_t N, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void gemv(T alpha, const T *A, const T *x, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            gemv_impl_ct<T, M, N, TRANSPOSE, ROW_MAJOR>(lane, 32u, alpha, A, x, y);
-            __syncwarp();
-        }
-    }
     // END GLASS src/base/L2/gemv.cuh
     
     // BEGIN GLASS src/base/L2/gemv_strided.cuh
@@ -2364,8 +2525,8 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, uint32_t ROW_STRIDE = M>
     __device__ void gemv_strided(T alpha, const T* A, const T* x, T beta, T* y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t row = rank; row < M; row += size) {
             T res = static_cast<T>(0);
             for (uint32_t col = 0; col < N; col++)
@@ -2392,8 +2553,8 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, uint32_t ROW_STRIDE = M>
     __device__ void gemv_strided(T alpha, const T* A, const T* x, T* y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t row = rank; row < M; row += size) {
             T res = static_cast<T>(0);
             for (uint32_t col = 0; col < N; col++)
@@ -2513,8 +2674,8 @@ namespace grid {
                       "FUSE_SCALED_ADD folds into a non-atomic store; not available under ATOMIC_Y");
         constexpr uint32_t OUT_ROWS = TRANSPOSE ? N : M;   // output rows per segment
         constexpr uint32_t CONTRACT = TRANSPOSE ? M : N;   // contracted dimension
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         uint32_t total = segments * OUT_ROWS;
         for (uint32_t r = rank; r < total; r += size) {
             uint32_t seg = r / OUT_ROWS;
@@ -2586,8 +2747,8 @@ namespace grid {
                       "FUSE_SCALED_ADD folds into a non-atomic store; not available under ATOMIC_Y");
         constexpr uint32_t OUT_ROWS = TRANSPOSE ? N : M;
         constexpr uint32_t CONTRACT = TRANSPOSE ? M : N;
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         uint32_t total = segments * OUT_ROWS;
         for (uint32_t r = rank; r < total; r += size) {
             uint32_t seg = r / OUT_ROWS;
@@ -2652,7 +2813,7 @@ namespace grid {
     // and `size` stay explicit params rather than coming from Bar: callers like
     // posv_impl already have them in hand, and the warp surface's trsv is a separate
     // __syncwarp-based body in trsm.cuh, not a Bar instantiation of this one.)
-    template <typename T, FillMode FILL, Diag DIAG, bool TRANSPOSE, typename Bar = BlockBarrier, typename SizeT>
+    template <typename T, FillMode FILL, Diag DIAG, bool TRANSPOSE, typename Bar = BlockBarrier, bool TRAILING_SYNC = true, typename SizeT>
     __device__ void trsv_impl(uint32_t rank, uint32_t size, SizeT n, const T* A, T* x)
     {
         static_assert(FILL != FillMode::Full, "trsv: FILL must name a triangle (Lower or Upper)");
@@ -2677,7 +2838,9 @@ namespace grid {
                 for (uint32_t i = rank; i < k; i += size)
                     x[i] -= (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * xk;
             }
-            Bar{}.sync();                  // pivot column consumed before next step
+            // Mid-loop this barrier is mandatory (pivot column consumed before the
+            // next step); on the FINAL step it is the separable publish barrier.
+            if (TRAILING_SYNC || step + 1 < n) Bar{}.sync();
         }
     }
     
@@ -2705,12 +2868,12 @@ namespace grid {
      * @param A  Triangular matrix (column-major, `n*n` elements; read-only).
      * @param x  In/out right-hand side; on return holds the solution.
      */
-    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trsv(uint32_t n, const T* A, T* x)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        trsv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, n, A, x);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        trsv_impl<T, FILL, DIAG, TRANSPOSE, BlockBarrier, TRAILING_SYNC>(rank, size, n, A, x);
     }
     
     // ─── trsv: compile-time size ──────────────────────────────────────────────────
@@ -2730,44 +2893,14 @@ namespace grid {
      * @param A  Triangular matrix (column-major, `N*N` elements; read-only).
      * @param x  In/out right-hand side; on return holds the solution.
      */
-    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trsv(const T* A, T* x)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        trsv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, ct_size<N>{}, A, x);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        trsv_impl<T, FILL, DIAG, TRANSPOSE, BlockBarrier, TRAILING_SYNC>(rank, size, ct_size<N>{}, A, x);
     }
     
-    namespace thread {
-        // Single-thread triangular solve: one THREAD owns the whole substitution,
-        // reusing the block impl `trsv_impl(0u, 1u, …)`. Unlike `warp::trsv` (which
-        // lives in trsm.cuh, next to the `warp::trsm` it shares a body with), this
-        // composes nothing, so it sits beside `trsv_impl` itself.
-    
-    
-        /**
-         * @brief Triangular solve on one thread: `A x = b` in place, compile-time size.
-         *
-         * One thread solves the `N×N` triangular system by forward or back
-         * substitution (direction set by `FILL` and `TRANSPOSE`). `A` is column-major
-         * and read-only; `x` is overwritten with the solution. No shared scratch, no
-         * barriers, no `threadIdx` read; operands may be thread-local register arrays.
-         * SciPy equivalent: `x = scipy.linalg.solve_triangular(A, b, lower=...)`.
-         *
-         * @tparam T     Scalar type (e.g. `float`, `double`).
-         * @tparam N     Dimension (`A` is `N×N`, `x` has length `N`).
-         * @tparam FILL  Which triangle of `A` holds the data (default `FillMode::Lower`).
-         * @tparam DIAG  `Diag::Unit` for an implicit unit diagonal (default `Diag::NonUnit`).
-         * @tparam TRANSPOSE  When true solve `Aᵀx = b` (default false).
-         * @param A  Triangular matrix (column-major, `N*N` elements; read-only).
-         * @param x  In/out right-hand side; on return holds the solution.
-         */
-        template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
-        __device__ void trsv(const T* A, T* x)
-        {
-            trsv_impl<T, FILL, DIAG, TRANSPOSE, ThreadBarrier>(0u, 1u, ct_size<N>{}, A, x);
-        }
-    }
     
     // ─── trmv: out-of-place core ──────────────────────────────────────────────────
     
@@ -2821,12 +2954,13 @@ namespace grid {
      * @param x  Input vector (length `n`; read-only).
      * @param y  Output vector (length `n`); must not alias `x`.
      */
-    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trmv(uint32_t n, const T* A, const T* x, T* y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         trmv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, n, A, x, y);
+        if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
     /**
@@ -2844,12 +2978,13 @@ namespace grid {
      * @param x  Input vector (length `N`; read-only).
      * @param y  Output vector (length `N`); must not alias `x`.
      */
-    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trmv(const T* A, const T* x, T* y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         trmv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, ct_size<N>{}, A, x, y);
+        if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
     // ─── trmv: in-place wrapper (needs scratch) ──────────────────────────────────
@@ -2884,15 +3019,15 @@ namespace grid {
      * @param x        In/out vector (length `n`); on return holds `op(A) x`.
      * @param scratch  Workspace of length `n` (see `trmv_scratch_bytes`).
      */
-    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trmv(uint32_t n, const T* A, T* x, T* scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         trmv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, n, A, x, scratch);
         __syncthreads();                              // scratch fully written before read-back
         for (uint32_t i = rank; i < n; i += size) x[i] = scratch[i];
-        __syncthreads();
+        if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
     /**
@@ -2910,15 +3045,50 @@ namespace grid {
      * @param x        In/out vector (length `N`); on return holds `op(A) x`.
      * @param scratch  Workspace of length `N` (see `trmv_scratch_bytes`).
      */
-    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trmv(const T* A, T* x, T* scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         trmv_impl<T, FILL, DIAG, TRANSPOSE>(rank, size, ct_size<N>{}, A, x, scratch);
         __syncthreads();
         for (uint32_t i = rank; i < N; i += size) x[i] = scratch[i];
-        __syncthreads();
+        if constexpr (TRAILING_SYNC) __syncthreads();
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace thread {
+        // Single-thread triangular solve: one THREAD owns the whole substitution,
+        // reusing the block impl `trsv_impl(0u, 1u, …)`. Unlike `warp::trsv` (which
+        // lives in trsm.cuh, next to the `warp::trsm` it shares a body with), this
+        // composes nothing, so it sits beside `trsv_impl` itself.
+    
+    
+        /**
+         * @brief Triangular solve on one thread: `A x = b` in place, compile-time size.
+         *
+         * One thread solves the `N×N` triangular system by forward or back
+         * substitution (direction set by `FILL` and `TRANSPOSE`). `A` is column-major
+         * and read-only; `x` is overwritten with the solution. No shared scratch, no
+         * barriers, no `threadIdx` read; operands may be thread-local register arrays.
+         * SciPy equivalent: `x = scipy.linalg.solve_triangular(A, b, lower=...)`.
+         *
+         * @tparam T     Scalar type (e.g. `float`, `double`).
+         * @tparam N     Dimension (`A` is `N×N`, `x` has length `N`).
+         * @tparam FILL  Which triangle of `A` holds the data (default `FillMode::Lower`).
+         * @tparam DIAG  `Diag::Unit` for an implicit unit diagonal (default `Diag::NonUnit`).
+         * @tparam TRANSPOSE  When true solve `Aᵀx = b` (default false).
+         * @param A  Triangular matrix (column-major, `N*N` elements; read-only).
+         * @param x  In/out right-hand side; on return holds the solution.
+         */
+        template <typename T, uint32_t N, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+        __device__ void trsv(const T* A, T* x)
+        {
+            trsv_impl<T, FILL, DIAG, TRANSPOSE, ThreadBarrier>(0u, 1u, ct_size<N>{}, A, x);
+        }
     }
     // END GLASS src/base/L2/trsv.cuh
     
@@ -3291,8 +3461,8 @@ namespace grid {
                          T alpha, const T *__restrict__ A, const T *__restrict__ B,
                          T beta, T *__restrict__ C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_impl<T, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(rank, size, m, n, k, alpha, A, B, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -3317,8 +3487,8 @@ namespace grid {
                          T alpha, const T *__restrict__ A, const T *__restrict__ B,
                          T *__restrict__ C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_impl<T, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(rank, size, m, n, k, alpha, A, B, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -3348,8 +3518,8 @@ namespace grid {
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(rank, size, alpha, A, B, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -3373,119 +3543,13 @@ namespace grid {
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(rank, size, alpha, A, B, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread compile-time GEMM ─────────────────────────────────────────
-    namespace thread {
-        /**
-         * @brief Single-thread compile-time-size GEMM: `C = alpha * op(A) * op(B) + beta * C`.
-         *
-         * ONE thread computes the whole product, walking the `M*N` outputs serially
-         * (serial-K inner loop) — same semantics as the block/warp compile-time `gemm`,
-         * reusing the same `gemm_impl_ct` body with `(rank=0, size=1)`. 
-         * Generally performs worse. 
-         *
-         * @warning The shared body switches to the 4-row **tile4** path when
-         * `tile4_profitable(M)` (`M % 4 == 0 && M >= 12`), which issues `float4` /
-         * `double2` vector loads through a `reinterpret_cast`. Unlikely to happen 
-         * in the DOF where the single-thread is valuable
-         *
-         * @tparam T  Scalar type.
-         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
-         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
-         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
-         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A,B    Input matrices.
-         * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
-         * @param C      In/out result matrix.
-         */
-        template <typename T, uint32_t M, uint32_t N, uint32_t K,
-                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
-        {
-            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, beta, C);
-        }
     
-        /**
-         * @brief Single-thread compile-time-size GEMM with implicit `beta = 0`: `C = alpha * op(A) * op(B)`.
-         *
-         * Overwrites C (the existing C is not read). Otherwise identical to the beta
-         * overload above, including the tile4 caveat.
-         *
-         * @tparam T  Scalar type.
-         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
-         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
-         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
-         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A,B    Input matrices.
-         * @param C      Output result matrix.
-         */
-        template <typename T, uint32_t M, uint32_t N, uint32_t K,
-                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
-        {
-            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, C);
-        }
-    }
-    
-    // ─── single-warp compile-time GEMM ───────────────────────────────────────────
-    namespace warp {
-        /**
-         * @brief Single-warp compile-time-size GEMM: `C = alpha * op(A) * op(B) + beta * C`.
-         *
-         * One 32-lane warp computes the product with flat per-element parallelism
-         * (lanes stride over the `M*N` outputs, serial-K inner loop) — same semantics
-         * as the block-scoped compile-time `gemm`, but scoped to a single warp for
-         * warp-per-problem kernels (e.g. 4×4 homogeneous-transform multiplies). No
-         * inter-lane communication, no sync. `C` must not alias `A`/`B`.
-         *
-         * @tparam T  Scalar type.
-         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
-         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
-         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
-         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A,B    Input matrices.
-         * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
-         * @param C      In/out result matrix.
-         */
-        template <typename T, uint32_t M, uint32_t N, uint32_t K,
-                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, beta, C);
-        }
-    
-        /**
-         * @brief Single-warp compile-time-size GEMM with implicit `beta = 0`: `C = alpha * op(A) * op(B)`.
-         *
-         * Overwrites C (the existing C is not read). Otherwise identical to the
-         * beta overload above.
-         *
-         * @tparam T  Scalar type.
-         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
-         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
-         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
-         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
-         * @param alpha  Scalar multiplier on the product.
-         * @param A,B    Input matrices.
-         * @param C      Output result matrix (overwritten).
-         */
-        template <typename T, uint32_t M, uint32_t N, uint32_t K,
-                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, C);
-        }
-    }
     
     // ─── tiled GEMM (shared-memory staging, column-major, no transpose) ──────────
     /**
@@ -3513,8 +3577,8 @@ namespace grid {
                                 T beta, T *__restrict__ C,
                                 T *s_A, T *s_B)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         uint32_t mn   = m * n;
         bool valid    = (rank < mn);
         uint32_t crow = valid ? (rank % m) : 0;
@@ -3569,11 +3633,125 @@ namespace grid {
                                    T beta, T *__restrict__ C,
                                    T *s_A = nullptr, T *s_B = nullptr)
     {
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t size = flat_size();
         if (s_A != nullptr && m*n <= size)
             gemm_tiled<T, TILE>(m, n, k, alpha, A, B, beta, C, s_A, s_B);
         else
             gemm<T>(m, n, k, alpha, A, B, beta, C);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        /**
+         * @brief Single-warp compile-time-size GEMM: `C = alpha * op(A) * op(B) + beta * C`.
+         *
+         * One 32-lane warp computes the product with flat per-element parallelism
+         * (lanes stride over the `M*N` outputs, serial-K inner loop) — same semantics
+         * as the block-scoped compile-time `gemm`, but scoped to a single warp for
+         * warp-per-problem kernels (e.g. 4×4 homogeneous-transform multiplies). No
+         * inter-lane communication, no sync. `C` must not alias `A`/`B`.
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
+         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
+         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
+         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
+         * @param C      In/out result matrix.
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
+        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, beta, C);
+        }
+    
+        /**
+         * @brief Single-warp compile-time-size GEMM with implicit `beta = 0`: `C = alpha * op(A) * op(B)`.
+         *
+         * Overwrites C (the existing C is not read). Otherwise identical to the
+         * beta overload above.
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
+         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
+         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
+         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param C      Output result matrix (overwritten).
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
+        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, C);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace thread {
+        /**
+         * @brief Single-thread compile-time-size GEMM: `C = alpha * op(A) * op(B) + beta * C`.
+         *
+         * ONE thread computes the whole product, walking the `M*N` outputs serially
+         * (serial-K inner loop) — same semantics as the block/warp compile-time `gemm`,
+         * reusing the same `gemm_impl_ct` body with `(rank=0, size=1)`. 
+         * Generally performs worse. 
+         *
+         * @warning The shared body switches to the 4-row **tile4** path when
+         * `tile4_profitable(M)` (`M % 4 == 0 && M >= 12`), which issues `float4` /
+         * `double2` vector loads through a `reinterpret_cast`. Unlikely to happen 
+         * in the DOF where the single-thread is valuable
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
+         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
+         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
+         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
+         * @param C      In/out result matrix.
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
+        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
+        {
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, beta, C);
+        }
+    
+        /**
+         * @brief Single-thread compile-time-size GEMM with implicit `beta = 0`: `C = alpha * op(A) * op(B)`.
+         *
+         * Overwrites C (the existing C is not read). Otherwise identical to the beta
+         * overload above, including the tile4 caveat.
+         *
+         * @tparam T  Scalar type.
+         * @tparam M,N,K  `C` is `M×N`, contraction `K`.
+         * @tparam TRANSPOSE_A  If true, `A` is `K×M` and `op(A)=Aᵀ`.
+         * @tparam TRANSPOSE_B  If true, `B` is `N×K` and `op(B)=Bᵀ`.
+         * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
+         * @param alpha  Scalar multiplier on the product.
+         * @param A,B    Input matrices.
+         * @param C      Output result matrix.
+         */
+        template <typename T, uint32_t M, uint32_t N, uint32_t K,
+                  bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
+        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
+        {
+            gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, C);
+        }
     }
     // END GLASS src/base/L3/gemm.cuh
     
@@ -3615,8 +3793,8 @@ namespace grid {
               uint32_t A_RS = M, uint32_t B_RS = K>
     __device__ void gemm_strided(T alpha, const T* A, const T* B, T beta, T* C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t el = rank; el < M * N; el += size) {
             uint32_t m = el % M, n = el / M;
             T res = static_cast<T>(0);
@@ -3645,8 +3823,8 @@ namespace grid {
               uint32_t A_RS = M, uint32_t B_RS = K>
     __device__ void gemm_strided(T alpha, const T* A, const T* B, T* C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t el = rank; el < M * N; el += size) {
             uint32_t m = el % M, n = el / M;
             T res = static_cast<T>(0);
@@ -3751,8 +3929,8 @@ namespace grid {
         uint32_t pairs, const IDX_T* a_idx, const IDX_T* b_idx, const IDX_T* c_idx,
         const T* A_base, const T* B_base, T* C_base)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         constexpr uint32_t MAT = DIM * DIM;
         uint32_t total = pairs * MAT;
         for (uint32_t e = rank; e < total; e += size) {
@@ -3788,12 +3966,11 @@ namespace grid {
     // `*_reduced` family flips the mapping: one WARP owns one output and its 32
     // lanes split the contraction, combining with a single warp-shuffle reduce.
     //
-    // This is a thread-utilization play, NOT a FLOP reduction — total MAC work is
-    // identical. It wins only when n_out < blockDim (idle threads to soak up) AND
-    // the contraction K amortizes the ~5-step shuffle tail; it is neutral/slower
-    // when n_out >= blockDim with a tiny K. See the bench (bench/bench_reduced.cu)
-    // and concepts/contraction_parallel for the measured crossover; pick with
-    // glass::suggested_use_reduced<>() rather than guessing.
+    // This is a thread-utilization experiment, NOT a FLOP reduction — total MAC
+    // work is identical. The 2026-08-14 sm_120 sweep found two f64-only wins among
+    // 96 cells, both at one 4x4x64 shape; no f32 cell won. Because the existing
+    // measured default remains the standard algorithm everywhere. The explicit
+    // `*_reduced` operations remain available for controlled experiments.
     //
     // Thread-count invariance: each output is reduced by the SAME fixed 32-way tree
     // regardless of how many warps the block has, so results are bit-identical at
@@ -3805,34 +3982,6 @@ namespace grid {
     // reduced_tree32 (the 32-way register tree that matches glass::warp::reduce's
     // lane-0 rounding bit-for-bit) lives in L1/reduce.cuh so every L2/L3 *_reduced
     // engine can share it. The sub-warp fallback below uses it for invariance.
-    
-    /**
-     * @brief Should a contraction-parallel `*_reduced` op be preferred over the serial one?
-     *
-     * Codegen / launch-time picker seeded by the measured crossover sweep
-     * (`bench/REDUCED_SWEEP_RESULTS.md`). **On sm_120 the measured answer is NO
-     * everywhere**: the quiet-GPU resweep of 2026-07-08 found 0 of 48
-     * configurations where `*_reduced` beats serial by more than the ±5% tie
-     * margin — the family pays a warp-shuffle latency per output and idles most
-     * lanes at short contractions, and even the former long-contraction corner
-     * (`n_out <= blockDim/32 && K_contract >= 32`) collapsed into the noise band.
-     * So this returns `false` unconditionally; it keeps its original signature as
-     * the seam where a retune on different hardware (e.g. Jetson Orin, whose
-     * shuffle/FMA balance differs) can reinstate a data-derived corner without
-     * touching call sites. The `*_reduced` ops stay in the library for
-     * expressiveness and fusion, not speed. Not a device function (the choice is
-     * a launch/codegen decision); `constexpr` so the `if constexpr` at call sites
-     * folds to the serial path with zero cost.
-     *
-     * @tparam n_out       Output element count (e.g. M*K for gemm, M for gemv).
-     * @tparam K_contract  Length of the contracted dimension.
-     * @tparam blockDim    Launch thread count.
-     * @return true to use the `*_reduced` variant, false to use the serial op.
-     */
-    template <uint32_t n_out, uint32_t K_contract, uint32_t blockDim>
-    __host__ __device__ constexpr bool suggested_use_reduced() {
-        return false;   // measured: 0/48 wins on sm_120 (2026-07-08 quiet sweep, ±5% margin)
-    }
     
     // Core: explicit (rank,size), compile-time dims + standard-BLAS layout flags
     // (C is M×N, contraction K; op(A) M×K, op(B) K×N — see gemm.cuh). HAS_BETA
@@ -3900,7 +4049,7 @@ namespace grid {
      * split the inner sum (combined with a single warp-shuffle reduce) instead of
      * one thread summing serially. A utilization win when the output count is
      * smaller than the block — see :doc:`../../user_guide/concepts/contraction_parallel`
-     * and `glass::suggested_use_reduced`. Total MAC work is unchanged.
+     * and `glass::recommend`. Total MAC work is unchanged.
      *
      * Thread-count invariant: bit-identical at any block size (a trailing partial
      * warp idles; below 32 threads a register path reproduces the same rounding).
@@ -3920,8 +4069,8 @@ namespace grid {
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm_reduced(T alpha, T *A, T *B, T beta, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_reduced_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C, true>(
             rank, size, alpha, A, B, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
@@ -3947,14 +4096,17 @@ namespace grid {
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm_reduced(T alpha, T *A, T *B, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         gemm_reduced_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C, false>(
             rank, size, alpha, A, B, static_cast<T>(0), C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-warp contraction-parallel GEMM ───────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace warp {
         /**
          * @brief Single-warp contraction-parallel GEMM: `C = alpha * A * op(B) + beta * C`.
@@ -3979,7 +4131,7 @@ namespace grid {
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
         __device__ void gemm_reduced(T alpha, T *A, T *B, T beta, T *C)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31u;
+            uint32_t lane = (flat_rank()) & 31u;
             gemm_reduced_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C, true>(
                 lane, 32u, alpha, A, B, beta, C);
             if constexpr (TRAILING_SYNC) __syncwarp();
@@ -4005,7 +4157,7 @@ namespace grid {
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
         __device__ void gemm_reduced(T alpha, T *A, T *B, T *C)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31u;
+            uint32_t lane = (flat_rank()) & 31u;
             gemm_reduced_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C, false>(
                 lane, 32u, alpha, A, B, static_cast<T>(0), C);
             if constexpr (TRAILING_SYNC) __syncwarp();
@@ -4030,7 +4182,7 @@ namespace grid {
     // Which tensor axis is contracted away by tensor_vec_contract.
     enum class TensorAxis { K, A, B };
     
-    namespace detail {
+    namespace tensor_detail {
         // Output / contraction dims for a (K,A,B) tensor contracted on CONTRACT.
         template <TensorAxis C, uint32_t K, uint32_t A, uint32_t B>
         struct tvc_dims {
@@ -4150,7 +4302,7 @@ namespace grid {
                 }
             }
         }
-    } // namespace detail
+    } // namespace tensor_detail
     
     /**
      * @brief Tensor ⊗ vector contraction: `Mout (+)= Σ_c v[c] · T[..c..]`.
@@ -4178,9 +4330,9 @@ namespace grid {
               bool ACCUMULATE = true, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void tensor_vec_contract(const T* Tns, const T* v, T* Mout)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(rank, size, Tns, v, Mout);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        tensor_detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(rank, size, Tns, v, Mout);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -4206,16 +4358,63 @@ namespace grid {
               bool ACCUMULATE = false, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void vec_tensor_vec(const T* Tns, const T* u, const T* w, T* s)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(rank, size, Tns, u, w, s);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        tensor_detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(rank, size, Tns, u, w, s);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread tensor contractions ───────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        /**
+         * @brief Single-warp tensor ⊗ vector contraction: `Mout (+)= Σ_c v[c] · T[..c..]`.
+         *
+         * Warp-per-problem analogue of `glass::tensor_vec_contract`; one full 32-lane
+         * warp performs the whole contraction. See the block version for semantics.
+         *
+         * @tparam T,K,A,B,CONTRACT,SYMMETRIC,ACCUMULATE,TIN_ROW_MAJOR  See glass::tensor_vec_contract.
+         * @tparam TRAILING_SYNC  Emit a trailing `__syncwarp()` (default true).
+         * @param Tns,v,Mout  See glass::tensor_vec_contract.
+         */
+        template <typename T, uint32_t K, uint32_t A, uint32_t B,
+                  TensorAxis CONTRACT = TensorAxis::K, bool SYMMETRIC = false,
+                  bool ACCUMULATE = true, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
+        __device__ void tensor_vec_contract(const T* Tns, const T* v, T* Mout)
+        {
+            uint32_t lane = (flat_rank()) & 31u;
+            tensor_detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(lane, 32u, Tns, v, Mout);
+            if constexpr (TRAILING_SYNC) __syncwarp();
+        }
+    
+        /**
+         * @brief Single-warp vector–tensor–vector triple product: `s[k] (+)= u^T · T_k · w`.
+         *
+         * Warp-per-problem analogue of `glass::vec_tensor_vec`.
+         *
+         * @tparam T,K,A,B,ACCUMULATE,TIN_ROW_MAJOR  See glass::vec_tensor_vec.
+         * @tparam TRAILING_SYNC  Emit a trailing `__syncwarp()` (default true).
+         * @param Tns,u,w,s  See glass::vec_tensor_vec.
+         */
+        template <typename T, uint32_t K, uint32_t A, uint32_t B,
+                  bool ACCUMULATE = false, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
+        __device__ void vec_tensor_vec(const T* Tns, const T* u, const T* w, T* s)
+        {
+            uint32_t lane = (flat_rank()) & 31u;
+            tensor_detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(lane, 32u, Tns, u, w, s);
+            if constexpr (TRAILING_SYNC) __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         // Single-thread tensor contractions: ONE thread owns the whole contraction
-        // via the SAME validated `detail::tvc_impl` / `detail::vtv_impl` engines,
+        // via the SAME validated `tensor_detail::tvc_impl` / `tensor_detail::vtv_impl` engines,
         // dispatched with (rank=0, size=1). At size=1 the engine takes its sub-warp
         // path, which is barrier-free and shuffle-free (partials combine through the
         // register-only `reduced_tree32`), so nothing block- or warp-scoped survives
@@ -4249,7 +4448,7 @@ namespace grid {
                   bool ACCUMULATE = true, bool TIN_ROW_MAJOR = false>
         __device__ void tensor_vec_contract(const T* Tns, const T* v, T* Mout)
         {
-            detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(0u, 1u, Tns, v, Mout);
+            tensor_detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(0u, 1u, Tns, v, Mout);
         }
     
         /**
@@ -4269,48 +4468,7 @@ namespace grid {
                   bool ACCUMULATE = false, bool TIN_ROW_MAJOR = false>
         __device__ void vec_tensor_vec(const T* Tns, const T* u, const T* w, T* s)
         {
-            detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(0u, 1u, Tns, u, w, s);
-        }
-    }
-    
-    // ─── single-warp tensor contractions ─────────────────────────────────────────
-    namespace warp {
-        /**
-         * @brief Single-warp tensor ⊗ vector contraction: `Mout (+)= Σ_c v[c] · T[..c..]`.
-         *
-         * Warp-per-problem analogue of `glass::tensor_vec_contract`; one full 32-lane
-         * warp performs the whole contraction. See the block version for semantics.
-         *
-         * @tparam T,K,A,B,CONTRACT,SYMMETRIC,ACCUMULATE,TIN_ROW_MAJOR  See glass::tensor_vec_contract.
-         * @tparam TRAILING_SYNC  Emit a trailing `__syncwarp()` (default true).
-         * @param Tns,v,Mout  See glass::tensor_vec_contract.
-         */
-        template <typename T, uint32_t K, uint32_t A, uint32_t B,
-                  TensorAxis CONTRACT = TensorAxis::K, bool SYMMETRIC = false,
-                  bool ACCUMULATE = true, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
-        __device__ void tensor_vec_contract(const T* Tns, const T* v, T* Mout)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31u;
-            detail::tvc_impl<T, CONTRACT, K, A, B, SYMMETRIC, ACCUMULATE, TIN_ROW_MAJOR>(lane, 32u, Tns, v, Mout);
-            if constexpr (TRAILING_SYNC) __syncwarp();
-        }
-    
-        /**
-         * @brief Single-warp vector–tensor–vector triple product: `s[k] (+)= u^T · T_k · w`.
-         *
-         * Warp-per-problem analogue of `glass::vec_tensor_vec`.
-         *
-         * @tparam T,K,A,B,ACCUMULATE,TIN_ROW_MAJOR  See glass::vec_tensor_vec.
-         * @tparam TRAILING_SYNC  Emit a trailing `__syncwarp()` (default true).
-         * @param Tns,u,w,s  See glass::vec_tensor_vec.
-         */
-        template <typename T, uint32_t K, uint32_t A, uint32_t B,
-                  bool ACCUMULATE = false, bool TIN_ROW_MAJOR = false, bool TRAILING_SYNC = true>
-        __device__ void vec_tensor_vec(const T* Tns, const T* u, const T* w, T* s)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31u;
-            detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(lane, 32u, Tns, u, w, s);
-            if constexpr (TRAILING_SYNC) __syncwarp();
+            tensor_detail::vtv_impl<T, K, A, B, ACCUMULATE, TIN_ROW_MAJOR>(0u, 1u, Tns, u, w, s);
         }
     }
     // END GLASS src/base/L3/tensor_contract.cuh
@@ -4338,7 +4496,7 @@ namespace grid {
     // two per-pivot syncs, shared by the glass:: and cgrps:: surfaces.
     // SizeT is deduced: uint32_t from the runtime overload, ct_size<N> from the
     // compile-time overload (constant-folds the trip counts and the %/ indexing).
-    template <typename Bar, typename T, typename SizeT>
+    template <typename Bar, typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void inv_impl(Bar bar, SizeT dimA, T *A, T *s_scratch)
     {
         uint32_t rank = bar.rank(), size = bar.size();
@@ -4355,14 +4513,15 @@ namespace grid {
                 if (row == pivRC) A[row + pivOff + coff] *= pvInv;
                 else A[row + pivOff + coff] -= s_scratch[row]*pvInv*s_scratch[dimA+col];
             }
-            bar.sync();
+            // Mid-loop mandatory; on the FINAL pivot it is the separable publish barrier.
+            if (TRAILING_SYNC || pivRC + 1 < dimA) bar.sync();
         }
     }
     
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv(uint32_t dimA, T *A, T *s_scratch)
     {
-        inv_impl<BlockBarrier, T>(BlockBarrier{}, dimA, A, s_scratch);
+        inv_impl<BlockBarrier, T, TRAILING_SYNC>(BlockBarrier{}, dimA, A, s_scratch);
     }
     
     /**
@@ -4377,10 +4536,10 @@ namespace grid {
      *                on return its right half holds `A^-1`.
      * @param s_scratch  Shared scratch of `(2*N + 1) * sizeof(T)` bytes.
      */
-    template <typename T, uint32_t N>
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void inv(T *A, T *s_scratch)
     {
-        inv_impl<BlockBarrier, T>(BlockBarrier{}, ct_size<N>{}, A, s_scratch);
+        inv_impl<BlockBarrier, T, TRAILING_SYNC>(BlockBarrier{}, ct_size<N>{}, A, s_scratch);
     }
     
     /**
@@ -4466,11 +4625,11 @@ namespace grid {
      */
     // Shared body (runtime + compile-time overloads): SizeT deduced — uint32_t or
     // ct_size<N> (constant-folds the trip counts and the %/ indexing).
-    template <typename T, typename SizeT>
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void inv_pivoted_impl(SizeT dimA, T *A, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         const unsigned W = 2*dimA;          // augmented width
         // s_scratch layout (3*dimA + 1 slots):
         //   [0 .. dimA)       pivot column
@@ -4526,7 +4685,9 @@ namespace grid {
         }
     }
     
-    template <typename T>
+    // TRAILING_SYNC: accepted for uniformity, documented NO-OP here (the pivot
+    // search/permute tail is fused into the final elimination step).
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv_pivoted(uint32_t dimA, T *A, T *s_scratch)
     {
         inv_pivoted_impl<T>(dimA, A, s_scratch);
@@ -4546,11 +4707,12 @@ namespace grid {
      * @param s_scratch  Shared scratch of `(3*N + 1) * sizeof(T)` bytes
      *                (= `inv_pivoted_scratch_bytes<T>(N)`).
      */
-    template <typename T, uint32_t N>
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void inv_pivoted(T *A, T *s_scratch)
     {
         inv_pivoted_impl<T>(ct_size<N>{}, A, s_scratch);
     }
+    // (compile-time overload: same documented NO-OP TRAILING_SYNC)
     
     /**
      * @brief Scratch size in bytes for the K-way fused `inv` (`Σ_m (2*dims[m]+1)` elements).
@@ -4599,11 +4761,11 @@ namespace grid {
      * @param s_scratch   Shared scratch of `inv_fused_scratch_bytes<T>(K, dims)` bytes
      *                    (= `(Σ_m (2*dims[m]+1)) * sizeof(T)`).
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv(uint32_t K, const uint32_t *dims, uint32_t MAX_DIM, T **mats, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (unsigned pivRC = 0; pivRC < MAX_DIM; pivRC++) {
             // Phase 1: save each active matrix's pivot row + column into its scratch span.
             // Strided over the union of work; per-matrix scratch base = prefix sum of (2*dim+1).
@@ -4639,7 +4801,8 @@ namespace grid {
                 }
                 sOff += 2*dim + 1;
             }
-            __syncthreads();
+            // Mid-loop mandatory; on the FINAL pivot it is the separable publish barrier.
+            if (TRAILING_SYNC || pivRC + 1 < MAX_DIM) __syncthreads();
         }
     }
     
@@ -4657,12 +4820,12 @@ namespace grid {
      * @param A,B        In/out augmented `[V | I]` buffers (column-major, dim x 2*dim).
      * @param s_scratch     Shared scratch of `(2*dimA + 2*dimB + 2) * sizeof(T)` bytes.
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv(uint32_t dimA, uint32_t dimB, uint32_t MAX_DIM, T *A, T *B, T *s_scratch)
     {
         uint32_t dims[2] = {dimA, dimB};
         T *mats[2] = {A, B};
-        inv<T>(2, dims, MAX_DIM, mats, s_scratch);
+        inv<T, TRAILING_SYNC>(2, dims, MAX_DIM, mats, s_scratch);
     }
     
     /**
@@ -4679,12 +4842,12 @@ namespace grid {
      * @param A,B,C           In/out augmented `[V | I]` buffers (column-major, dim x 2*dim).
      * @param s_scratch          Shared scratch of `(2*dimA + 2*dimB + 2*dimC + 3) * sizeof(T)` bytes.
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv(uint32_t dimA, uint32_t dimB, uint32_t dimC, uint32_t MAX_DIM, T *A, T *B, T *C, T *s_scratch)
     {
         uint32_t dims[3] = {dimA, dimB, dimC};
         T *mats[3] = {A, B, C};
-        inv<T>(3, dims, MAX_DIM, mats, s_scratch);
+        inv<T, TRAILING_SYNC>(3, dims, MAX_DIM, mats, s_scratch);
     }
     
     
@@ -4735,11 +4898,11 @@ namespace grid {
      */
     // Shared body (runtime + compile-time overloads): SizeT deduced — uint32_t or
     // ct_size<N> (constant-folds the trip counts and the %/ indexing).
-    template <typename T, typename SizeT>
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void inv_dense_impl(SizeT dimA, T *A, T *Ainv, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         // Seed Ainv = I (parallel over dimA*dimA cells).
         for (uint32_t ind = rank; ind < dimA*dimA; ind += size) {
             uint32_t row = ind % dimA, col = ind / dimA;
@@ -4770,14 +4933,15 @@ namespace grid {
                     Ainv[row + dimA * col] -= multiplier * s_scratch[col + dimA];
                 }
             }
-            __syncthreads();
+            // Mid-loop mandatory; on the FINAL pivot it is the separable publish barrier.
+            if (TRAILING_SYNC || pivRC + 1 < dimA) __syncthreads();
         }
     }
     
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void inv_dense(uint32_t dimA, T *A, T *Ainv, T *s_scratch)
     {
-        inv_dense_impl<T>(dimA, A, Ainv, s_scratch);
+        inv_dense_impl<T, TRAILING_SYNC>(dimA, A, Ainv, s_scratch);
     }
     
     /**
@@ -4793,11 +4957,79 @@ namespace grid {
      * @param Ainv    Workspace column-major N x N; on return also holds `A^{-1}`.
      * @param s_scratch  Shared scratch of `3 * N * sizeof(T)` bytes.
      */
-    template <typename T, uint32_t N>
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void inv_dense(T *A, T *Ainv, T *s_scratch)
     {
-        inv_dense_impl<T>(ct_size<N>{}, A, Ainv, s_scratch);
+        inv_dense_impl<T, TRAILING_SYNC>(ct_size<N>{}, A, Ainv, s_scratch);
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        /**
+         * @brief Single-warp in-place matrix inverse (unpivoted Gauss-Jordan, augmented `[A | I]`), compile-time size.
+         *
+         * One 32-lane warp reduces a column-major augmented `N x 2*N` `[A | I]`
+         * buffer so that on return columns `N..2*N-1` hold `A^-1` — the same
+         * layout, phases, and arithmetic as the block `glass::inv`, scoped to a
+         * warp for warp-per-problem kernels (e.g. packing many small Schur-block
+         * inversions from GATO/MPCGPU into one block, one warp each). Per pivot:
+         * a lane-strided SAVE of the pivot column + active pivot-row window into
+         * `s_scratch`, `__syncwarp()`, then a lane-strided Gauss-Jordan cell
+         * UPDATE over the `N x (N+1)` active window, `__syncwarp()` — mirroring
+         * `inv_impl`'s two-phase structure exactly. The pivot reciprocal is
+         * computed redundantly by every lane from the SAVED shared value
+         * (`1 / s_scratch[pivRC]`, the same bits every lane) — deterministic, and
+         * never a lane-0-register broadcast, so there is nothing for the
+         * `__restrict__` stale-shared-reread miscompile (guide §1g) to bite.
+         * No `__syncthreads`. Unpivoted: like the block `inv`, it divides by the
+         * leading pivots as-is (no row exchange) — use the block `inv_pivoted`
+         * when robustness to small/zero leading pivots is needed. Fused K-way and
+         * pivoted warp forms are deliberately not provided (future work).
+         *
+         * NumPy equivalent: `Ainv = np.linalg.inv(A)`.
+         *
+         * @tparam T  Scalar type.
+         * @tparam N  Matrix dimension (A is N x N).
+         * @param A          In/out augmented `[A | I]` buffer (column-major, N x 2*N);
+         *                   on return its right half holds `A^-1`.
+         * @param s_scratch  Scratch of `2*N + 1` elements of `T`
+         *                   (= `inv_scratch_bytes<T>(N)` bytes), shared or global.
+         *                   Each warp needs its OWN `2*N + 1` span — when packing W
+         *                   warps into a block, give warp `w` `s_scratch + w*(2*N+1)`.
+         */
+        template <typename T, uint32_t N>
+        __device__ void inv(T *A, T *s_scratch)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            for (unsigned pivRC = 0; pivRC < N; pivRC++) {
+                unsigned pivOff = pivRC * N;
+                // SAVE: pivot column (N entries) + active pivot-row window (N+1 entries).
+                for (unsigned ind = lane; ind < 2*N+1; ind += 32) {
+                    unsigned AInd = (ind < N) ? (ind + pivOff) : (pivRC + pivOff + (ind-N)*N);
+                    s_scratch[ind] = A[AInd];
+                }
+                __syncwarp();
+                // UPDATE: every lane recomputes the pivot reciprocal from the saved
+                // pivot value — same bits on all lanes (s_scratch[pivRC] == the
+                // pre-save A[pivRC + pivOff] the block impl reads), so the result
+                // is deterministic and matches the block path bit-for-bit.
+                T pvInv = static_cast<T>(1) / s_scratch[pivRC];
+                for (unsigned ind = lane; ind < N*(N+1); ind += 32) {
+                    unsigned row = ind % N, col = ind / N, coff = ind - row;
+                    if (row == pivRC) A[row + pivOff + coff] *= pvInv;
+                    else A[row + pivOff + coff] -= s_scratch[row]*pvInv*s_scratch[N+col];
+                }
+                __syncwarp();
+            }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace thread {
         /**
@@ -4846,66 +5078,6 @@ namespace grid {
             inv_impl<ThreadBarrier, T>(ThreadBarrier{}, ct_size<N>{}, A, s_scratch);
         }
     }
-    
-    namespace warp {
-        /**
-         * @brief Single-warp in-place matrix inverse (unpivoted Gauss-Jordan, augmented `[A | I]`), compile-time size.
-         *
-         * One 32-lane warp reduces a column-major augmented `N x 2*N` `[A | I]`
-         * buffer so that on return columns `N..2*N-1` hold `A^-1` — the same
-         * layout, phases, and arithmetic as the block `glass::inv`, scoped to a
-         * warp for warp-per-problem kernels (e.g. packing many small Schur-block
-         * inversions from GATO/MPCGPU into one block, one warp each). Per pivot:
-         * a lane-strided SAVE of the pivot column + active pivot-row window into
-         * `s_scratch`, `__syncwarp()`, then a lane-strided Gauss-Jordan cell
-         * UPDATE over the `N x (N+1)` active window, `__syncwarp()` — mirroring
-         * `inv_impl`'s two-phase structure exactly. The pivot reciprocal is
-         * computed redundantly by every lane from the SAVED shared value
-         * (`1 / s_scratch[pivRC]`, the same bits every lane) — deterministic, and
-         * never a lane-0-register broadcast, so there is nothing for the
-         * `__restrict__` stale-shared-reread miscompile (guide §1g) to bite.
-         * No `__syncthreads`. Unpivoted: like the block `inv`, it divides by the
-         * leading pivots as-is (no row exchange) — use the block `inv_pivoted`
-         * when robustness to small/zero leading pivots is needed. Fused K-way and
-         * pivoted warp forms are deliberately not provided (future work).
-         *
-         * NumPy equivalent: `Ainv = np.linalg.inv(A)`.
-         *
-         * @tparam T  Scalar type.
-         * @tparam N  Matrix dimension (A is N x N).
-         * @param A          In/out augmented `[A | I]` buffer (column-major, N x 2*N);
-         *                   on return its right half holds `A^-1`.
-         * @param s_scratch  Scratch of `2*N + 1` elements of `T`
-         *                   (= `inv_scratch_bytes<T>(N)` bytes), shared or global.
-         *                   Each warp needs its OWN `2*N + 1` span — when packing W
-         *                   warps into a block, give warp `w` `s_scratch + w*(2*N+1)`.
-         */
-        template <typename T, uint32_t N>
-        __device__ void inv(T *A, T *s_scratch)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            for (unsigned pivRC = 0; pivRC < N; pivRC++) {
-                unsigned pivOff = pivRC * N;
-                // SAVE: pivot column (N entries) + active pivot-row window (N+1 entries).
-                for (unsigned ind = lane; ind < 2*N+1; ind += 32) {
-                    unsigned AInd = (ind < N) ? (ind + pivOff) : (pivRC + pivOff + (ind-N)*N);
-                    s_scratch[ind] = A[AInd];
-                }
-                __syncwarp();
-                // UPDATE: every lane recomputes the pivot reciprocal from the saved
-                // pivot value — same bits on all lanes (s_scratch[pivRC] == the
-                // pre-save A[pivRC + pivOff] the block impl reads), so the result
-                // is deterministic and matches the block path bit-for-bit.
-                T pvInv = static_cast<T>(1) / s_scratch[pivRC];
-                for (unsigned ind = lane; ind < N*(N+1); ind += 32) {
-                    unsigned row = ind % N, col = ind / N, coff = ind - row;
-                    if (row == pivRC) A[row + pivOff + coff] *= pvInv;
-                    else A[row + pivOff + coff] -= s_scratch[row]*pvInv*s_scratch[N+col];
-                }
-                __syncwarp();
-            }
-        }
-    }
     // END GLASS src/base/L3/inv.cuh
     
     // BEGIN GLASS src/base/L3/potrf.cuh
@@ -4933,10 +5105,11 @@ namespace grid {
      */
     // Shared body: in-place lower Cholesky; barrier policy supplies rank/size + the
     // two per-row syncs, so the glass:: and cgrps:: surfaces share this one body.
-    // (No separable TRAILING_SYNC: the algorithm's final step is itself a barrier.)
+    // TRAILING_SYNC: the final row's second barrier is the separable publish
+    // barrier (its column loop is empty) — elided when TRAILING_SYNC=false.
     // SizeT is deduced: uint32_t from the runtime overload, ct_size<N> from the
     // compile-time overload (constant-folds the trip counts / indexing).
-    template <typename Bar, typename T, bool CHECK = false, typename SizeT>
+    template <typename Bar, typename T, bool CHECK = false, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void potrf_impl(Bar bar, SizeT n, T *s_A, int *s_fail)
     {
         uint32_t rank = bar.rank(), size = bar.size();
@@ -4956,14 +5129,16 @@ namespace grid {
                 for (uint32_t kk = 0; kk < row; kk++) sum += s_A[kk*n + col]*s_A[kk*n + row];
                 s_A[row*n + col] = (static_cast<T>(1)/s_A[row*n + row])*(s_A[row*n + col] - sum);
             }
-            bar.sync();
+            // Mid-loop this barrier is mandatory; on the FINAL row (empty column
+            // loop) it is the separable publish barrier.
+            if (TRAILING_SYNC || row + 1 < n) bar.sync();
         }
     }
     
-    template <typename T, bool CHECK = false>
+    template <typename T, bool CHECK = false, bool TRAILING_SYNC = true>
     __device__ void potrf(uint32_t n, T *s_A, int *s_fail = nullptr)
     {
-        potrf_impl<BlockBarrier, T, CHECK>(BlockBarrier{}, n, s_A, s_fail);
+        potrf_impl<BlockBarrier, T, CHECK, TRAILING_SYNC>(BlockBarrier{}, n, s_A, s_fail);
     }
     
     /**
@@ -4990,11 +5165,11 @@ namespace grid {
      * @param mats     Array of K in/out column-major SPD buffers (`dims[m] x dims[m]`);
      *                 on return each lower triangle holds its Cholesky factor `L`.
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void potrf(uint32_t K, const uint32_t *dims, uint32_t MAX_DIM, T **mats)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t row = 0; row < MAX_DIM; row++) {
             // Phase 1: diagonal of each active matrix — distribute the K diagonals across threads.
             for (uint32_t m = rank; m < K; m += size) {
@@ -5020,7 +5195,7 @@ namespace grid {
                     }
                 }
             }
-            __syncthreads();
+            if (TRAILING_SYNC || row + 1 < MAX_DIM) __syncthreads();
         }
     }
     
@@ -5036,12 +5211,12 @@ namespace grid {
      * @param MAX_DIM    `max(dimA, dimB)` — the shared row-loop length.
      * @param A,B        In/out column-major SPD buffers (dim x dim); lower triangles hold L.
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void potrf(uint32_t dimA, uint32_t dimB, uint32_t MAX_DIM, T *A, T *B)
     {
         uint32_t dims[2] = {dimA, dimB};
         T *mats[2] = {A, B};
-        potrf<T>(2, dims, MAX_DIM, mats);
+        potrf<T, TRAILING_SYNC>(2, dims, MAX_DIM, mats);
     }
     
     /**
@@ -5056,12 +5231,12 @@ namespace grid {
      * @param MAX_DIM         `max(dimA, dimB, dimC)` — the shared row-loop length.
      * @param A,B,C           In/out column-major SPD buffers (dim x dim); lower triangles hold L.
      */
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void potrf(uint32_t dimA, uint32_t dimB, uint32_t dimC, uint32_t MAX_DIM, T *A, T *B, T *C)
     {
         uint32_t dims[3] = {dimA, dimB, dimC};
         T *mats[3] = {A, B, C};
-        potrf<T>(3, dims, MAX_DIM, mats);
+        potrf<T, TRAILING_SYNC>(3, dims, MAX_DIM, mats);
     }
     
     /**
@@ -5082,11 +5257,75 @@ namespace grid {
      * @param s_A     In/out N x N matrix (column-major); on return its lower triangle holds L.
      * @param s_fail  Optional flag (CHECK only): set to 1 on a non-PD / NaN pivot, else 0. Ignored when null.
      */
-    template <typename T, uint32_t N, bool CHECK = false>
+    template <typename T, uint32_t N, bool CHECK = false, bool TRAILING_SYNC = true>
     __device__ void potrf(T *s_A, int *s_fail = nullptr)
     {
-        potrf_impl<BlockBarrier, T, CHECK>(BlockBarrier{}, ct_size<N>{}, s_A, s_fail);
+        potrf_impl<BlockBarrier, T, CHECK, TRAILING_SYNC>(BlockBarrier{}, ct_size<N>{}, s_A, s_fail);
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        /**
+         * @brief Single-warp in-place Cholesky factorization (LAPACK potrf, lower), compile-time size.
+         *
+         * One 32-lane warp factors the SPD matrix `A = L * L^T` in place, writing only
+         * the lower triangle (column-major). For warp-per-problem solvers on small
+         * systems (e.g. N≈7 normal equations). Lane 0 computes each diagonal; the
+         * remaining sub-diagonal entries of the column are filled by the warp's lanes
+         * (stride 32), synchronized with `__syncwarp`. No shared scratch, no
+         * `__syncthreads`. `A` must be SPD. NumPy equivalent:
+         * `L = np.linalg.cholesky(A)`.
+         *
+         * When `CHECK` is true and `s_fail` is non-null, reports a non-PD / NaN pivot
+         * via `*s_fail` (lane 0 writes it, mirroring the block overload). `CHECK`
+         * defaults false and compiles out, so the unchecked instantiation is
+         * byte-identical to the original.
+         *
+         * @tparam T  Scalar type (use `double` for stability on ill-conditioned A).
+         * @tparam N  Matrix dimension (A is N x N).
+         * @tparam CHECK  If true, detect a non-PD pivot and report it via `s_fail` (default false, compiles out).
+         * @param s_A     In/out N x N matrix (column-major); on return its lower triangle holds L.
+         * @param s_fail  Optional flag (CHECK only): set to 1 on a non-PD / NaN pivot, else 0. Ignored when null.
+         */
+        template <typename T, uint32_t N, bool CHECK = false>
+        __device__ void potrf(T *s_A, int *s_fail = nullptr)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            if constexpr (CHECK) { if (lane == 0 && s_fail) *s_fail = 0; }
+            for (uint32_t k = 0; k < N; k++) {
+                T diag = static_cast<T>(0);
+                if (lane == 0) {
+                    T sum = static_cast<T>(0);
+                    T val = s_A[k*N + k];
+                    for (uint32_t r = 0; r < k; r++) sum += s_A[r*N + k]*s_A[r*N + k];
+                    T d = val - sum;
+                    if constexpr (CHECK) { if (s_fail && (d <= static_cast<T>(0) || isnan(d))) *s_fail = 1; }
+                    diag = sqrt(d);
+                    s_A[k*N + k] = diag;
+                }
+                // Broadcast the pivot from lane 0's REGISTER via __shfl_sync rather than having
+                // every lane re-read s_A[k*N+k] from shared. The shared re-read is the same
+                // write-then-read-same-location pattern that nvcc can cache stale when the buffer
+                // is reached through a caller `__restrict__` pointer (observed: in-place warp solve
+                // gave wrong results for ~10% of inputs under -restrict; shfl broadcast is immune
+                // and matches glass::warp::reduce's own shfl-based design).
+                diag = __shfl_sync(0xffffffffu, diag, 0);
+                for (uint32_t row = lane + k + 1; row < N; row += 32) {
+                    T sum = static_cast<T>(0);
+                    for (uint32_t kk = 0; kk < k; kk++) sum += s_A[kk*N + row]*s_A[kk*N + k];
+                    s_A[k*N + row] = (s_A[k*N + row] - sum) / diag;
+                }
+                __syncwarp();
+            }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace thread {
         /**
@@ -5125,62 +5364,6 @@ namespace grid {
             potrf_impl<ThreadBarrier, T, CHECK>(ThreadBarrier{}, ct_size<N>{}, s_A, s_fail);
         }
     }
-    
-    namespace warp {
-        /**
-         * @brief Single-warp in-place Cholesky factorization (LAPACK potrf, lower), compile-time size.
-         *
-         * One 32-lane warp factors the SPD matrix `A = L * L^T` in place, writing only
-         * the lower triangle (column-major). For warp-per-problem solvers on small
-         * systems (e.g. N≈7 normal equations). Lane 0 computes each diagonal; the
-         * remaining sub-diagonal entries of the column are filled by the warp's lanes
-         * (stride 32), synchronized with `__syncwarp`. No shared scratch, no
-         * `__syncthreads`. `A` must be SPD. NumPy equivalent:
-         * `L = np.linalg.cholesky(A)`.
-         *
-         * When `CHECK` is true and `s_fail` is non-null, reports a non-PD / NaN pivot
-         * via `*s_fail` (lane 0 writes it, mirroring the block overload). `CHECK`
-         * defaults false and compiles out, so the unchecked instantiation is
-         * byte-identical to the original.
-         *
-         * @tparam T  Scalar type (use `double` for stability on ill-conditioned A).
-         * @tparam N  Matrix dimension (A is N x N).
-         * @tparam CHECK  If true, detect a non-PD pivot and report it via `s_fail` (default false, compiles out).
-         * @param s_A     In/out N x N matrix (column-major); on return its lower triangle holds L.
-         * @param s_fail  Optional flag (CHECK only): set to 1 on a non-PD / NaN pivot, else 0. Ignored when null.
-         */
-        template <typename T, uint32_t N, bool CHECK = false>
-        __device__ void potrf(T *s_A, int *s_fail = nullptr)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            if constexpr (CHECK) { if (lane == 0 && s_fail) *s_fail = 0; }
-            for (uint32_t k = 0; k < N; k++) {
-                T diag = static_cast<T>(0);
-                if (lane == 0) {
-                    T sum = static_cast<T>(0);
-                    T val = s_A[k*N + k];
-                    for (uint32_t r = 0; r < k; r++) sum += s_A[r*N + k]*s_A[r*N + k];
-                    T d = val - sum;
-                    if constexpr (CHECK) { if (s_fail && (d <= static_cast<T>(0) || isnan(d))) *s_fail = 1; }
-                    diag = sqrt(d);
-                    s_A[k*N + k] = diag;
-                }
-                // Broadcast the pivot from lane 0's REGISTER via __shfl_sync rather than having
-                // every lane re-read s_A[k*N+k] from shared. The shared re-read is the same
-                // write-then-read-same-location pattern that nvcc can cache stale when the buffer
-                // is reached through a caller `__restrict__` pointer (observed: in-place warp solve
-                // gave wrong results for ~10% of inputs under -restrict; shfl broadcast is immune
-                // and matches glass::warp::reduce's own shfl-based design).
-                diag = __shfl_sync(0xffffffffu, diag, 0);
-                for (uint32_t row = lane + k + 1; row < N; row += 32) {
-                    T sum = static_cast<T>(0);
-                    for (uint32_t kk = 0; kk < k; kk++) sum += s_A[kk*N + row]*s_A[kk*N + k];
-                    s_A[k*N + row] = (s_A[k*N + row] - sum) / diag;
-                }
-                __syncwarp();
-            }
-        }
-    }
     // END GLASS src/base/L3/potrf.cuh
     
     // BEGIN GLASS src/base/L3/trsm.cuh
@@ -5204,7 +5387,7 @@ namespace grid {
     // overload, ct_size<N>/ct_size<NRHS> from the compile-time overload
     // (constant-folds the trip counts and the flat-index %/ by `rows`).
     template <typename Bar, typename T, FillMode FILL, Diag DIAG, bool TRANSPOSE,
-              typename SizeT, typename SizeU>
+              bool TRAILING_SYNC = true, typename SizeT = uint32_t, typename SizeU = uint32_t>
     __device__ void trsm_impl(Bar bar, SizeT n, SizeU nrhs, const T *A, T *B)
     {
         static_assert(FILL != FillMode::Full, "trsm: FILL must name a triangle (Lower or Upper)");
@@ -5228,7 +5411,9 @@ namespace grid {
                 uint32_t c = flat / rows;
                 B[i + c * n] -= (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * B[k + c * n];
             }
-            bar.sync();
+            // Mid-loop this barrier is mandatory; on the FINAL step it is the
+            // separable publish barrier.
+            if (TRAILING_SYNC || step + 1 < n) bar.sync();
         }
     }
     
@@ -5254,10 +5439,10 @@ namespace grid {
      * @param A     Triangular matrix (column-major; read-only).
      * @param B     In/out right-hand sides (`n×nrhs`, column-major); on return holds `X`.
      */
-    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+    template <typename T, FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trsm(uint32_t n, uint32_t nrhs, const T *A, T *B)
     {
-        trsm_impl<BlockBarrier, T, FILL, DIAG, TRANSPOSE>(BlockBarrier{}, n, nrhs, A, B);
+        trsm_impl<BlockBarrier, T, FILL, DIAG, TRANSPOSE, TRAILING_SYNC>(BlockBarrier{}, n, nrhs, A, B);
     }
     
     /**
@@ -5277,53 +5462,15 @@ namespace grid {
      * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
      */
     template <typename T, uint32_t N, uint32_t NRHS,
-              FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+              FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false, bool TRAILING_SYNC = true>
     __device__ void trsm(const T *A, T *B)
     {
-        trsm_impl<BlockBarrier, T, FILL, DIAG, TRANSPOSE>(BlockBarrier{}, ct_size<N>{}, ct_size<NRHS>{}, A, B);
+        trsm_impl<BlockBarrier, T, FILL, DIAG, TRANSPOSE, TRAILING_SYNC>(BlockBarrier{}, ct_size<N>{}, ct_size<NRHS>{}, A, B);
     }
     
-    namespace thread {
-        /**
-         * @brief Single-thread triangular solve with multiple right-hand sides
-         *        `op(A) X = B`, in place (TRSM), compile-time size.
-         *
-         * ONE thread solves the `N×N` triangular system for all `NRHS` columns of
-         * `B` (`N×NRHS`, column-major), overwriting `B` with `X` — for
-         * thread-per-problem solvers that pack 32 independent low-DOF problems into
-         * a warp. `A` is column-major and read-only; only the triangle named by
-         * `FILL` is read; `TRANSPOSE=true` solves `Aᵀ X = B` against that same
-         * stored triangle; `DIAG=Diag::Unit` skips the diagonal divide. No shared
-         * scratch, no barriers, no `threadIdx` read; operands may be thread-local
-         * register arrays. SciPy equivalent:
-         * `X = scipy.linalg.solve_triangular(A, B, lower=(FILL==Lower), unit_diagonal=(DIAG==Unit), trans=(1 if TRANSPOSE else 0))`.
-         *
-         * Delegates to the same `trsm_impl` body the block surface uses, via
-         * `ThreadBarrier` (rank=0, size=1, no-op sync) — the same algorithm and
-         * operand order as `glass::trsm<T, N, NRHS, …>` on one thread, agreeing to a
-         * few ULP (FMA-contraction jitter; bit-identity across the two
-         * instantiations is NOT guaranteed — see test/test_thread.py).
-         *
-         * @tparam T     Scalar type.
-         * @tparam N     Dimension (`A` is `N×N`; each column of `B` has length `N`). N<=7 keeps a
-         *               `T[N*N]` operand register-resident (measured ceiling, both dtypes — see the
-         *               thread-tier constraints in CLAUDE.md); larger N — or a `B` wider than that
-         *               element budget — still computes correctly but spills to local memory,
-         *               forfeiting the tier's premise.
-         * @tparam NRHS  Number of right-hand sides (columns of `B`).
-         * @tparam FILL  Which triangle of `A` holds the data (default `FillMode::Lower`).
-         * @tparam DIAG  `Diag::Unit` for an implicit unit diagonal (default `Diag::NonUnit`).
-         * @tparam TRANSPOSE  When true solve `Aᵀ X = B` (default false).
-         * @param A  Triangular matrix (column-major, `N*N`; read-only).
-         * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
-         */
-        template <typename T, uint32_t N, uint32_t NRHS,
-                  FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
-        __device__ void trsm(const T *A, T *B)
-        {
-            trsm_impl<ThreadBarrier, T, FILL, DIAG, TRANSPOSE>(ThreadBarrier{}, ct_size<N>{}, ct_size<NRHS>{}, A, B);
-        }
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace warp {
         /**
@@ -5356,7 +5503,7 @@ namespace grid {
             constexpr bool LOWER   = (FILL == FillMode::Lower);
             constexpr bool UNIT    = (DIAG == Diag::Unit);
             constexpr bool FORWARD = (LOWER != TRANSPOSE);   // op(A) lower ⇒ forward sweep
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            uint32_t lane = (flat_rank()) & 31;
             for (uint32_t step = 0; step < N; step++) {
                 uint32_t k = FORWARD ? step : (N - 1 - step);
                 // resolve pivot on lane 0's register, then broadcast (§1g) — never a
@@ -5406,7 +5553,7 @@ namespace grid {
             constexpr bool LOWER   = (FILL == FillMode::Lower);
             constexpr bool UNIT    = (DIAG == Diag::Unit);
             constexpr bool FORWARD = (LOWER != TRANSPOSE);
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            uint32_t lane = (flat_rank()) & 31;
             for (uint32_t step = 0; step < N; step++) {
                 uint32_t k = FORWARD ? step : (N - 1 - step);
                 if constexpr (!UNIT) {
@@ -5483,7 +5630,7 @@ namespace grid {
         template <typename T, bool REG_DIAG = false, typename SizeT>
         __device__ void _posv_regularize(SizeT n, T *A, T rho)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            uint32_t lane = (flat_rank()) & 31;
             for (uint32_t i = lane; i < n; i += 32) {
                 if constexpr (REG_DIAG) A[i*n + i] += rho * A[i*n + i];   // rho*diag(A)
                 else                    A[i*n + i] += rho;                // rho*I
@@ -5531,6 +5678,52 @@ namespace grid {
             trsm<T, N, NRHS, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true>(A, B);    // back:   Lᵀ X = Y
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace thread {
+        /**
+         * @brief Single-thread triangular solve with multiple right-hand sides
+         *        `op(A) X = B`, in place (TRSM), compile-time size.
+         *
+         * ONE thread solves the `N×N` triangular system for all `NRHS` columns of
+         * `B` (`N×NRHS`, column-major), overwriting `B` with `X` — for
+         * thread-per-problem solvers that pack 32 independent low-DOF problems into
+         * a warp. `A` is column-major and read-only; only the triangle named by
+         * `FILL` is read; `TRANSPOSE=true` solves `Aᵀ X = B` against that same
+         * stored triangle; `DIAG=Diag::Unit` skips the diagonal divide. No shared
+         * scratch, no barriers, no `threadIdx` read; operands may be thread-local
+         * register arrays. SciPy equivalent:
+         * `X = scipy.linalg.solve_triangular(A, B, lower=(FILL==Lower), unit_diagonal=(DIAG==Unit), trans=(1 if TRANSPOSE else 0))`.
+         *
+         * Delegates to the same `trsm_impl` body the block surface uses, via
+         * `ThreadBarrier` (rank=0, size=1, no-op sync) — the same algorithm and
+         * operand order as `glass::trsm<T, N, NRHS, …>` on one thread, agreeing to a
+         * few ULP (FMA-contraction jitter; bit-identity across the two
+         * instantiations is NOT guaranteed — see test/test_thread.py).
+         *
+         * @tparam T     Scalar type.
+         * @tparam N     Dimension (`A` is `N×N`; each column of `B` has length `N`). N<=7 keeps a
+         *               `T[N*N]` operand register-resident (measured ceiling, both dtypes — see the
+         *               thread-tier constraints in CLAUDE.md); larger N — or a `B` wider than that
+         *               element budget — still computes correctly but spills to local memory,
+         *               forfeiting the tier's premise.
+         * @tparam NRHS  Number of right-hand sides (columns of `B`).
+         * @tparam FILL  Which triangle of `A` holds the data (default `FillMode::Lower`).
+         * @tparam DIAG  `Diag::Unit` for an implicit unit diagonal (default `Diag::NonUnit`).
+         * @tparam TRANSPOSE  When true solve `Aᵀ X = B` (default false).
+         * @param A  Triangular matrix (column-major, `N*N`; read-only).
+         * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
+         */
+        template <typename T, uint32_t N, uint32_t NRHS,
+                  FillMode FILL = FillMode::Lower, Diag DIAG = Diag::NonUnit, bool TRANSPOSE = false>
+        __device__ void trsm(const T *A, T *B)
+        {
+            trsm_impl<ThreadBarrier, T, FILL, DIAG, TRANSPOSE>(ThreadBarrier{}, ct_size<N>{}, ct_size<NRHS>{}, A, B);
+        }
+    }
     // END GLASS src/base/L3/trsm.cuh
     
     // BEGIN GLASS src/base/L3/posv.cuh
@@ -5542,7 +5735,7 @@ namespace grid {
      * `posv` / `potrs` are thin single-block compositions of `potrf`
      * (`potrf.cuh`) and `trsv` (`trsv.cuh`). Both callees end with a trailing
      * `__syncthreads()`, so the factor and the two solves compose with NO inter-call
-     * barrier. Pure-SIMT companion to `glass::nvidia::posv`. Column-major throughout.
+     * barrier. Pure-SIMT companion to `glass::nvidia::block::posv`. Column-major throughout.
      *
      * NOTE: `glass::warp::posv` is NOT in this file — it lives in `trsm.cuh`,
      * after the `warp::potrf`/`warp::trsm` definitions it composes.
@@ -5563,8 +5756,8 @@ namespace grid {
     template <typename T, bool REG_DIAG = false, typename SizeT>
     __device__ void _posv_regularize(SizeT n, T *A, T rho)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         for (uint32_t i = rank; i < n; i += size) {
             if constexpr (REG_DIAG) A[i*n + i] += rho * A[i*n + i];   // rho*diag(A)
             else                    A[i*n + i] += rho;                // rho*I
@@ -5596,20 +5789,20 @@ namespace grid {
     // Shared body (runtime + compile-time overloads): SizeT deduced — uint32_t or
     // ct_size<N> — and forwarded down through potrf_impl/trsv_impl so the WHOLE
     // compile-time chain constant-folds.
-    template <typename T, typename SizeT>
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void posv_impl(SizeT n, T *A, T *b)
     {
         potrf_impl<BlockBarrier, T>(BlockBarrier{}, n, A, nullptr);   // A -> L (lower); trailing __syncthreads
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(rank, size, n, A, b);  // forward: L y = b
-        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true >(rank, size, n, A, b);  // back:   Lᵀ x = y
+        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true, BlockBarrier, TRAILING_SYNC>(rank, size, n, A, b);  // back: Lᵀ x = y
     }
     
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void posv(uint32_t n, T *A, T *b)
     {
-        posv_impl<T>(n, A, b);
+        posv_impl<T, TRAILING_SYNC>(n, A, b);
     }
     
     /**
@@ -5625,8 +5818,198 @@ namespace grid {
      * @param A  In/out SPD matrix (column-major); overwritten with its factor `L`.
      * @param b  In/out right-hand side; on return holds the solution `x`.
      */
+    // (No TRAILING_SYNC here: a third template arg would make `posv<T,N,NRHS>`
+    // ambiguous. The elidable compile-time form is the NRHS=1 multi-RHS overload:
+    // `posv<T, N, 1, false, false, false, /*TRAILING_SYNC=*/false>(A, b)`.)
     template <typename T, uint32_t N>
     __device__ void posv(T *A, T *b) { posv_impl<T>(ct_size<N>{}, A, b); }
+    
+    
+    /**
+     * @brief Solve the SPD system `A x = b` from a precomputed Cholesky factor (LAPACK potrs).
+     *
+     * Given the lower factor `L` (e.g. from `potrf`), solves
+     * `L Lᵀ x = b` by forward then back substitution — the reusable-factor /
+     * multi-solve path (no re-factor). `L` is read-only; `b` is overwritten with `x`.
+     * Thread-count invariant. SciPy equivalent: `x = scipy.linalg.cho_solve((L, True), b)`.
+     *
+     * @tparam T  Scalar type.
+     * @param n  Dimension (`L` is `n×n`, `b` has length `n`).
+     * @param L  Lower Cholesky factor (column-major, `n*n`; read-only).
+     * @param b  In/out right-hand side; on return holds the solution `x`.
+     */
+    // Shared body (runtime + compile-time overloads): SizeT deduced and forwarded
+    // through trsv_impl (see posv_impl).
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
+    __device__ void potrs_impl(SizeT n, const T *L, T *b)
+    {
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(rank, size, n, L, b);  // forward: L y = b
+        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true, BlockBarrier, TRAILING_SYNC>(rank, size, n, L, b);  // back: Lᵀ x = y
+    }
+    
+    template <typename T, bool TRAILING_SYNC = true>
+    __device__ void potrs(uint32_t n, const T *L, T *b)
+    {
+        potrs_impl<T, TRAILING_SYNC>(n, L, b);
+    }
+    
+    /**
+     * @brief Compile-time-size SPD solve from a precomputed Cholesky factor (LAPACK potrs).
+     *
+     * @tparam T  Scalar type.
+     * @tparam N  Dimension.
+     * @param L  Lower Cholesky factor (column-major, `N*N`; read-only).
+     * @param b  In/out right-hand side; on return holds the solution `x`.
+     */
+    // (No TRAILING_SYNC here — same `potrs<T,N,NRHS>` ambiguity; use the NRHS=1
+    // multi-RHS overload for the elidable compile-time form.)
+    template <typename T, uint32_t N>
+    __device__ void potrs(const T *L, T *b) { potrs_impl<T>(ct_size<N>{}, L, b); }
+    
+    // ─── multi-RHS overloads (column-major B, factor once / solve per column) ─────
+    
+    /**
+     * @brief Solve the SPD system `A X = B` with multiple right-hand sides (LAPACK posv).
+     *
+     * Factors `A = L Lᵀ` in place **once** via Cholesky, then solves each of the
+     * `nrhs` columns of `B` by a forward (`L y = b`) and back (`Lᵀ x = y`)
+     * substitution. On return `A` holds its lower Cholesky factor `L` and `B` holds
+     * the solution `X`. `A` must be symmetric positive-definite; behaviour on non-SPD
+     * input is undefined (the Cholesky step produces NaN, no info flag).
+     *
+     * `B` (and `X`) is `n × nrhs` stored **column-major**: column `c` begins at
+     * `B + c*n` and occupies `n` contiguous elements. The Cholesky factor completes
+     * before the solve (its trailing `__syncthreads()`); all columns are then solved
+     * together by the multi-RHS `trsm` (per-step barriers shared across right-hand
+     * sides). Thread-count invariant. NumPy equivalent:
+     * `X = np.linalg.solve(A, B)` (A SPD, B `n×nrhs`).
+     *
+     * @par Regularize + check (`REGULARIZE` / `CHECK` / `REG_DIAG`, all compile-out, default off)
+     * `REGULARIZE` adds a shift to `A`'s diagonal before factoring — `rho·I`
+     * (Marquardt) by default, or `rho·diag(A)` (Levenberg, scale-invariant) when
+     * `REG_DIAG` is also set — used to push a borderline-indefinite Hessian (e.g. `Huu`)
+     * back to SPD; `CHECK` forwards to the checked Cholesky and sets `*s_fail = 1` on
+     * a non-PD pivot, so a caller can escalate `rho` and retry. All default false and
+     * compile out (`if constexpr`), leaving the unflagged instantiation byte-identical
+     * to the original. This is the fused "regularize → factor → solve" path: e.g.
+     * `posv<T, N, NRHS, true, true>(A, B, rho, s_fail)` (add a trailing `true` for Levenberg).
+     *
+     * @tparam T     Scalar type (e.g. `float`, `double`).
+     * @tparam REGULARIZE  If true, shift A before factoring (default false, compiles out).
+     * @tparam CHECK  If true, report a non-PD pivot via `s_fail` (default false, compiles out).
+     * @tparam REG_DIAG    With REGULARIZE: shift by `rho·diag(A)` instead of `rho·I` (default false).
+     * @param n      Dimension (`A` is `n×n`, each column of `B` has length `n`).
+     * @param nrhs   Number of right-hand sides (columns of `B`).
+     * @param A      In/out SPD matrix (column-major); overwritten with its factor `L`.
+     * @param B      In/out right-hand sides (`n×nrhs`, column-major); on return holds `X`.
+     * @param rho    Diagonal shift added to A when REGULARIZE (ignored otherwise).
+     * @param s_fail Optional non-PD flag when CHECK (set to 1 on a non-PD pivot, else 0).
+     */
+    // Shared body (runtime + compile-time overloads): SizeT/SizeU deduced —
+    // uint32_t or ct_size<N>/ct_size<NRHS> — and forwarded down through
+    // _posv_regularize/potrf_impl/trsm_impl so the WHOLE compile-time chain folds.
+    template <typename T, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false,
+              bool TRAILING_SYNC = true, typename SizeT = uint32_t, typename SizeU = uint32_t>
+    __device__ void posv_impl(SizeT n, SizeU nrhs, T *A, T *B, T rho, int *s_fail)
+    {
+        if constexpr (REGULARIZE) _posv_regularize<T, REG_DIAG>(n, A, rho);  // rho*I or rho*diag(A)
+        potrf_impl<BlockBarrier, T, CHECK>(BlockBarrier{}, n, A, s_fail);   // A -> L (lower); trailing __syncthreads
+        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(BlockBarrier{}, n, nrhs, A, B);  // forward: L Y = B
+        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true, TRAILING_SYNC>(BlockBarrier{}, n, nrhs, A, B);  // back: Lᵀ X = Y
+    }
+    
+    template <typename T, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false, bool TRAILING_SYNC = true>
+    __device__ void posv(uint32_t n, uint32_t nrhs, T *A, T *B, T rho = T(0), int *s_fail = nullptr)
+    {
+        posv_impl<T, REGULARIZE, CHECK, REG_DIAG, TRAILING_SYNC>(n, nrhs, A, B, rho, s_fail);
+    }
+    
+    /**
+     * @brief Compile-time-size multi-RHS SPD solve `A X = B` (LAPACK posv).
+     *
+     * Same as the runtime multi-RHS `posv` with the dimension and right-hand-side
+     * count as template parameters. `B` is `N × NRHS` column-major (column `c` at
+     * `B + c*N`). Factored once, solved per column. NumPy equivalent:
+     * `X = np.linalg.solve(A, B)` (A SPD).
+     *
+     * The optional `REGULARIZE` / `CHECK` / `REG_DIAG` flags (default off, compile out)
+     * add a diagonal shift before factoring and report a non-PD pivot via `s_fail` — the
+     * fused regularize→factor→solve path `posv<T, N, NRHS, true, true>(A, B, rho, s_fail)`.
+     * `REG_DIAG` (appended last so existing `<…, true, true>` callers are unaffected)
+     * switches the shift from `rho·I` to `rho·diag(A)` (Levenberg). A flagged single-RHS
+     * solve is just NRHS=1: `posv<T, N, 1, true, true, true>(A, b, rho, s_fail)`.
+     *
+     * @tparam T     Scalar type.
+     * @tparam N     Dimension (`A` is `N×N`, each column of `B` has length `N`).
+     * @tparam NRHS  Number of right-hand sides (columns of `B`).
+     * @tparam REGULARIZE  If true, shift A before factoring (default false, compiles out).
+     * @tparam CHECK  If true, report a non-PD pivot via `s_fail` (default false, compiles out).
+     * @tparam REG_DIAG    With REGULARIZE: shift by `rho·diag(A)` instead of `rho·I` (default false).
+     * @param A  In/out SPD matrix (column-major); overwritten with its factor `L`.
+     * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
+     * @param rho    Diagonal shift added to A when REGULARIZE (ignored otherwise).
+     * @param s_fail Optional non-PD flag when CHECK (set to 1 on a non-PD pivot, else 0).
+     */
+    template <typename T, uint32_t N, uint32_t NRHS, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false, bool TRAILING_SYNC = true>
+    __device__ void posv(T *A, T *B, T rho = T(0), int *s_fail = nullptr)
+    {
+        posv_impl<T, REGULARIZE, CHECK, REG_DIAG, TRAILING_SYNC>(ct_size<N>{}, ct_size<NRHS>{}, A, B, rho, s_fail);
+    }
+    
+    /**
+     * @brief Multi-RHS SPD solve `A X = B` from a precomputed Cholesky factor (LAPACK potrs).
+     *
+     * Given the lower factor `L` (e.g. from `potrf`), solves
+     * `L Lᵀ X = B` for each of the `nrhs` columns by forward then back substitution
+     * — the reusable-factor / multi-solve path (no re-factor). `L` is read-only; `B`
+     * is overwritten with `X`.
+     *
+     * `B` (and `X`) is `n × nrhs` stored **column-major**: column `c` begins at
+     * `B + c*n`. All columns are solved together by the multi-RHS `trsm` (per-step
+     * barriers shared across right-hand sides). Thread-count invariant. SciPy
+     * equivalent: `X = scipy.linalg.cho_solve((L, True), B)`.
+     *
+     * @tparam T     Scalar type.
+     * @param n      Dimension (`L` is `n×n`, each column of `B` has length `n`).
+     * @param nrhs   Number of right-hand sides (columns of `B`).
+     * @param L      Lower Cholesky factor (column-major, `n*n`; read-only).
+     * @param B      In/out right-hand sides (`n×nrhs`, column-major); on return holds `X`.
+     */
+    // Shared body (runtime + compile-time overloads): SizeT/SizeU deduced and
+    // forwarded through trsm_impl (see the multi-RHS posv_impl).
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t, typename SizeU = uint32_t>
+    __device__ void potrs_impl(SizeT n, SizeU nrhs, const T *L, T *B)
+    {
+        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(BlockBarrier{}, n, nrhs, L, B);  // forward: L Y = B
+        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true, TRAILING_SYNC>(BlockBarrier{}, n, nrhs, L, B);  // back: Lᵀ X = Y
+    }
+    
+    template <typename T, bool TRAILING_SYNC = true>
+    __device__ void potrs(uint32_t n, uint32_t nrhs, const T *L, T *B)
+    {
+        potrs_impl<T, TRAILING_SYNC>(n, nrhs, L, B);
+    }
+    
+    /**
+     * @brief Compile-time-size multi-RHS SPD solve from a precomputed Cholesky factor (LAPACK potrs).
+     *
+     * `B` is `N × NRHS` column-major (column `c` at `B + c*N`). Solved per column,
+     * no re-factor. SciPy equivalent: `X = scipy.linalg.cho_solve((L, True), B)`.
+     *
+     * @tparam T     Scalar type.
+     * @tparam N     Dimension.
+     * @tparam NRHS  Number of right-hand sides (columns of `B`).
+     * @param L  Lower Cholesky factor (column-major, `N*N`; read-only).
+     * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
+     */
+    template <typename T, uint32_t N, uint32_t NRHS, bool TRAILING_SYNC = true>
+    __device__ void potrs(const T *L, T *B) { potrs_impl<T, TRAILING_SYNC>(ct_size<N>{}, ct_size<NRHS>{}, L, B); }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
     
     namespace thread {
         /**
@@ -5685,186 +6068,6 @@ namespace grid {
             trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true , ThreadBarrier>(0u, 1u, ct_size<N>{}, L, b);  // back:   Lᵀ x = y
         }
     }
-    
-    /**
-     * @brief Solve the SPD system `A x = b` from a precomputed Cholesky factor (LAPACK potrs).
-     *
-     * Given the lower factor `L` (e.g. from `potrf`), solves
-     * `L Lᵀ x = b` by forward then back substitution — the reusable-factor /
-     * multi-solve path (no re-factor). `L` is read-only; `b` is overwritten with `x`.
-     * Thread-count invariant. SciPy equivalent: `x = scipy.linalg.cho_solve((L, True), b)`.
-     *
-     * @tparam T  Scalar type.
-     * @param n  Dimension (`L` is `n×n`, `b` has length `n`).
-     * @param L  Lower Cholesky factor (column-major, `n*n`; read-only).
-     * @param b  In/out right-hand side; on return holds the solution `x`.
-     */
-    // Shared body (runtime + compile-time overloads): SizeT deduced and forwarded
-    // through trsv_impl (see posv_impl).
-    template <typename T, typename SizeT>
-    __device__ void potrs_impl(SizeT n, const T *L, T *b)
-    {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(rank, size, n, L, b);  // forward: L y = b
-        trsv_impl<T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true >(rank, size, n, L, b);  // back:   Lᵀ x = y
-    }
-    
-    template <typename T>
-    __device__ void potrs(uint32_t n, const T *L, T *b)
-    {
-        potrs_impl<T>(n, L, b);
-    }
-    
-    /**
-     * @brief Compile-time-size SPD solve from a precomputed Cholesky factor (LAPACK potrs).
-     *
-     * @tparam T  Scalar type.
-     * @tparam N  Dimension.
-     * @param L  Lower Cholesky factor (column-major, `N*N`; read-only).
-     * @param b  In/out right-hand side; on return holds the solution `x`.
-     */
-    template <typename T, uint32_t N>
-    __device__ void potrs(const T *L, T *b) { potrs_impl<T>(ct_size<N>{}, L, b); }
-    
-    // ─── multi-RHS overloads (column-major B, factor once / solve per column) ─────
-    
-    /**
-     * @brief Solve the SPD system `A X = B` with multiple right-hand sides (LAPACK posv).
-     *
-     * Factors `A = L Lᵀ` in place **once** via Cholesky, then solves each of the
-     * `nrhs` columns of `B` by a forward (`L y = b`) and back (`Lᵀ x = y`)
-     * substitution. On return `A` holds its lower Cholesky factor `L` and `B` holds
-     * the solution `X`. `A` must be symmetric positive-definite; behaviour on non-SPD
-     * input is undefined (the Cholesky step produces NaN, no info flag).
-     *
-     * `B` (and `X`) is `n × nrhs` stored **column-major**: column `c` begins at
-     * `B + c*n` and occupies `n` contiguous elements. The Cholesky factor completes
-     * before the solve (its trailing `__syncthreads()`); all columns are then solved
-     * together by the multi-RHS `trsm` (per-step barriers shared across right-hand
-     * sides). Thread-count invariant. NumPy equivalent:
-     * `X = np.linalg.solve(A, B)` (A SPD, B `n×nrhs`).
-     *
-     * @par Regularize + check (`REGULARIZE` / `CHECK` / `REG_DIAG`, all compile-out, default off)
-     * `REGULARIZE` adds a shift to `A`'s diagonal before factoring — `rho·I`
-     * (Marquardt) by default, or `rho·diag(A)` (Levenberg, scale-invariant) when
-     * `REG_DIAG` is also set — used to push a borderline-indefinite Hessian (e.g. `Huu`)
-     * back to SPD; `CHECK` forwards to the checked Cholesky and sets `*s_fail = 1` on
-     * a non-PD pivot, so a caller can escalate `rho` and retry. All default false and
-     * compile out (`if constexpr`), leaving the unflagged instantiation byte-identical
-     * to the original. This is the fused "regularize → factor → solve" path: e.g.
-     * `posv<T, N, NRHS, true, true>(A, B, rho, s_fail)` (add a trailing `true` for Levenberg).
-     *
-     * @tparam T     Scalar type (e.g. `float`, `double`).
-     * @tparam REGULARIZE  If true, shift A before factoring (default false, compiles out).
-     * @tparam CHECK  If true, report a non-PD pivot via `s_fail` (default false, compiles out).
-     * @tparam REG_DIAG    With REGULARIZE: shift by `rho·diag(A)` instead of `rho·I` (default false).
-     * @param n      Dimension (`A` is `n×n`, each column of `B` has length `n`).
-     * @param nrhs   Number of right-hand sides (columns of `B`).
-     * @param A      In/out SPD matrix (column-major); overwritten with its factor `L`.
-     * @param B      In/out right-hand sides (`n×nrhs`, column-major); on return holds `X`.
-     * @param rho    Diagonal shift added to A when REGULARIZE (ignored otherwise).
-     * @param s_fail Optional non-PD flag when CHECK (set to 1 on a non-PD pivot, else 0).
-     */
-    // Shared body (runtime + compile-time overloads): SizeT/SizeU deduced —
-    // uint32_t or ct_size<N>/ct_size<NRHS> — and forwarded down through
-    // _posv_regularize/potrf_impl/trsm_impl so the WHOLE compile-time chain folds.
-    template <typename T, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false,
-              typename SizeT, typename SizeU>
-    __device__ void posv_impl(SizeT n, SizeU nrhs, T *A, T *B, T rho, int *s_fail)
-    {
-        if constexpr (REGULARIZE) _posv_regularize<T, REG_DIAG>(n, A, rho);  // rho*I or rho*diag(A)
-        potrf_impl<BlockBarrier, T, CHECK>(BlockBarrier{}, n, A, s_fail);   // A -> L (lower); trailing __syncthreads
-        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(BlockBarrier{}, n, nrhs, A, B);  // forward: L Y = B
-        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true >(BlockBarrier{}, n, nrhs, A, B);  // back:   Lᵀ X = Y
-    }
-    
-    template <typename T, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false>
-    __device__ void posv(uint32_t n, uint32_t nrhs, T *A, T *B, T rho = T(0), int *s_fail = nullptr)
-    {
-        posv_impl<T, REGULARIZE, CHECK, REG_DIAG>(n, nrhs, A, B, rho, s_fail);
-    }
-    
-    /**
-     * @brief Compile-time-size multi-RHS SPD solve `A X = B` (LAPACK posv).
-     *
-     * Same as the runtime multi-RHS `posv` with the dimension and right-hand-side
-     * count as template parameters. `B` is `N × NRHS` column-major (column `c` at
-     * `B + c*N`). Factored once, solved per column. NumPy equivalent:
-     * `X = np.linalg.solve(A, B)` (A SPD).
-     *
-     * The optional `REGULARIZE` / `CHECK` / `REG_DIAG` flags (default off, compile out)
-     * add a diagonal shift before factoring and report a non-PD pivot via `s_fail` — the
-     * fused regularize→factor→solve path `posv<T, N, NRHS, true, true>(A, B, rho, s_fail)`.
-     * `REG_DIAG` (appended last so existing `<…, true, true>` callers are unaffected)
-     * switches the shift from `rho·I` to `rho·diag(A)` (Levenberg). A flagged single-RHS
-     * solve is just NRHS=1: `posv<T, N, 1, true, true, true>(A, b, rho, s_fail)`.
-     *
-     * @tparam T     Scalar type.
-     * @tparam N     Dimension (`A` is `N×N`, each column of `B` has length `N`).
-     * @tparam NRHS  Number of right-hand sides (columns of `B`).
-     * @tparam REGULARIZE  If true, shift A before factoring (default false, compiles out).
-     * @tparam CHECK  If true, report a non-PD pivot via `s_fail` (default false, compiles out).
-     * @tparam REG_DIAG    With REGULARIZE: shift by `rho·diag(A)` instead of `rho·I` (default false).
-     * @param A  In/out SPD matrix (column-major); overwritten with its factor `L`.
-     * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
-     * @param rho    Diagonal shift added to A when REGULARIZE (ignored otherwise).
-     * @param s_fail Optional non-PD flag when CHECK (set to 1 on a non-PD pivot, else 0).
-     */
-    template <typename T, uint32_t N, uint32_t NRHS, bool REGULARIZE = false, bool CHECK = false, bool REG_DIAG = false>
-    __device__ void posv(T *A, T *B, T rho = T(0), int *s_fail = nullptr)
-    {
-        posv_impl<T, REGULARIZE, CHECK, REG_DIAG>(ct_size<N>{}, ct_size<NRHS>{}, A, B, rho, s_fail);
-    }
-    
-    /**
-     * @brief Multi-RHS SPD solve `A X = B` from a precomputed Cholesky factor (LAPACK potrs).
-     *
-     * Given the lower factor `L` (e.g. from `potrf`), solves
-     * `L Lᵀ X = B` for each of the `nrhs` columns by forward then back substitution
-     * — the reusable-factor / multi-solve path (no re-factor). `L` is read-only; `B`
-     * is overwritten with `X`.
-     *
-     * `B` (and `X`) is `n × nrhs` stored **column-major**: column `c` begins at
-     * `B + c*n`. All columns are solved together by the multi-RHS `trsm` (per-step
-     * barriers shared across right-hand sides). Thread-count invariant. SciPy
-     * equivalent: `X = scipy.linalg.cho_solve((L, True), B)`.
-     *
-     * @tparam T     Scalar type.
-     * @param n      Dimension (`L` is `n×n`, each column of `B` has length `n`).
-     * @param nrhs   Number of right-hand sides (columns of `B`).
-     * @param L      Lower Cholesky factor (column-major, `n*n`; read-only).
-     * @param B      In/out right-hand sides (`n×nrhs`, column-major); on return holds `X`.
-     */
-    // Shared body (runtime + compile-time overloads): SizeT/SizeU deduced and
-    // forwarded through trsm_impl (see the multi-RHS posv_impl).
-    template <typename T, typename SizeT, typename SizeU>
-    __device__ void potrs_impl(SizeT n, SizeU nrhs, const T *L, T *B)
-    {
-        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/false>(BlockBarrier{}, n, nrhs, L, B);  // forward: L Y = B
-        trsm_impl<BlockBarrier, T, FillMode::Lower, Diag::NonUnit, /*TRANSPOSE=*/true >(BlockBarrier{}, n, nrhs, L, B);  // back:   Lᵀ X = Y
-    }
-    
-    template <typename T>
-    __device__ void potrs(uint32_t n, uint32_t nrhs, const T *L, T *B)
-    {
-        potrs_impl<T>(n, nrhs, L, B);
-    }
-    
-    /**
-     * @brief Compile-time-size multi-RHS SPD solve from a precomputed Cholesky factor (LAPACK potrs).
-     *
-     * `B` is `N × NRHS` column-major (column `c` at `B + c*N`). Solved per column,
-     * no re-factor. SciPy equivalent: `X = scipy.linalg.cho_solve((L, True), B)`.
-     *
-     * @tparam T     Scalar type.
-     * @tparam N     Dimension.
-     * @tparam NRHS  Number of right-hand sides (columns of `B`).
-     * @param L  Lower Cholesky factor (column-major, `N*N`; read-only).
-     * @param B  In/out right-hand sides (`N×NRHS`, column-major); on return holds `X`.
-     */
-    template <typename T, uint32_t N, uint32_t NRHS>
-    __device__ void potrs(const T *L, T *B) { potrs_impl<T>(ct_size<N>{}, ct_size<NRHS>{}, L, B); }
     // END GLASS src/base/L3/posv.cuh
     
     // BEGIN GLASS src/base/L3/syrk.cuh
@@ -6184,8 +6387,8 @@ namespace grid {
     template <typename T, FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syrk(uint32_t n, uint32_t k, T alpha, const T *A, T beta, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syrk_impl<T, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, n, k, alpha, A, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6214,8 +6417,8 @@ namespace grid {
     template <typename T, FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syrk(uint32_t n, uint32_t k, T alpha, const T *A, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syrk_impl<T, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, n, k, alpha, A, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6249,8 +6452,8 @@ namespace grid {
               FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syrk(T alpha, const T *A, T beta, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6278,8 +6481,8 @@ namespace grid {
               FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syrk(T alpha, const T *A, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6311,8 +6514,8 @@ namespace grid {
     template <typename T, FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syr2k(uint32_t n, uint32_t k, T alpha, const T *A, const T *B, T beta, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syr2k_impl<T, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, n, k, alpha, A, B, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6340,8 +6543,8 @@ namespace grid {
     template <typename T, FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syr2k(uint32_t n, uint32_t k, T alpha, const T *A, const T *B, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syr2k_impl<T, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, n, k, alpha, A, B, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6374,8 +6577,8 @@ namespace grid {
               FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syr2k(T alpha, const T *A, const T *B, T beta, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, B, beta, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -6404,13 +6607,79 @@ namespace grid {
               FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false, bool TRAILING_SYNC = true>
     __device__ void syr2k(T alpha, const T *A, const T *B, T *C)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(rank, size, alpha, A, B, C);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread SYRK / SYR2K ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // Single-warp SYRK / SYR2K: one 32-lane warp owns the symmetric output via the
+        // SAME validated `syrk_impl_ct` / `syr2k_impl_ct` flat-element kernels, just
+        // dispatched with (lane, 32) instead of (rank, blockDim). Each output element is
+        // written once (no cross-lane reduction — the K contraction is a per-lane serial
+        // loop), so this is bit-identical to the block form restricted to one warp. For
+        // warp-per-problem normal-equation builds (e.g. HJCD's JᵀJ). Full 32 lanes
+        // required; independent warps may run distinct problems. No `__syncwarp` needed
+        // (no inter-lane dependency); compile-time size only, mirroring `warp::gemm`.
+    
+        /**
+         * @brief Single-warp SYRK `C = alpha*op(A)*op(A)ᵀ + beta*C` (compile-time size).
+         * @see ::syrk  (block form; identical math, `(lane,32)` element striping)
+         */
+        template <typename T, uint32_t N, uint32_t K,
+                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void syrk(T alpha, const T *A, T beta, T *C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, beta, C);
+        }
+    
+        /**
+         * @brief Single-warp SYRK with implicit `beta = 0`: `C = alpha*op(A)*op(A)ᵀ` (overwrite).
+         * @see ::syrk
+         */
+        template <typename T, uint32_t N, uint32_t K,
+                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void syrk(T alpha, const T *A, T *C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, C);
+        }
+    
+        /**
+         * @brief Single-warp SYR2K `C = alpha*(op(A)op(B)ᵀ + op(B)op(A)ᵀ) + beta*C` (compile-time size).
+         * @see ::syr2k
+         */
+        template <typename T, uint32_t N, uint32_t K,
+                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void syr2k(T alpha, const T *A, const T *B, T beta, T *C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, B, beta, C);
+        }
+    
+        /**
+         * @brief Single-warp SYR2K with implicit `beta = 0` (overwrite).
+         * @see ::syr2k
+         */
+        template <typename T, uint32_t N, uint32_t K,
+                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
+        __device__ void syr2k(T alpha, const T *A, const T *B, T *C)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, B, C);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         // Single-thread SYRK / SYR2K: ONE thread owns the whole symmetric update via
         // the SAME validated `syrk_impl_ct` / `syr2k_impl_ct` flat-element bodies,
@@ -6513,65 +6782,6 @@ namespace grid {
         __device__ void syr2k(T alpha, const T *A, const T *B, T *C)
         {
             syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(0u, 1u, alpha, A, B, C);
-        }
-    }
-    
-    namespace warp {
-        // Single-warp SYRK / SYR2K: one 32-lane warp owns the symmetric output via the
-        // SAME validated `syrk_impl_ct` / `syr2k_impl_ct` flat-element kernels, just
-        // dispatched with (lane, 32) instead of (rank, blockDim). Each output element is
-        // written once (no cross-lane reduction — the K contraction is a per-lane serial
-        // loop), so this is bit-identical to the block form restricted to one warp. For
-        // warp-per-problem normal-equation builds (e.g. HJCD's JᵀJ). Full 32 lanes
-        // required; independent warps may run distinct problems. No `__syncwarp` needed
-        // (no inter-lane dependency); compile-time size only, mirroring `warp::gemm`.
-    
-        /**
-         * @brief Single-warp SYRK `C = alpha*op(A)*op(A)ᵀ + beta*C` (compile-time size).
-         * @see ::syrk  (block form; identical math, `(lane,32)` element striping)
-         */
-        template <typename T, uint32_t N, uint32_t K,
-                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void syrk(T alpha, const T *A, T beta, T *C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, beta, C);
-        }
-    
-        /**
-         * @brief Single-warp SYRK with implicit `beta = 0`: `C = alpha*op(A)*op(A)ᵀ` (overwrite).
-         * @see ::syrk
-         */
-        template <typename T, uint32_t N, uint32_t K,
-                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void syrk(T alpha, const T *A, T *C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            syrk_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, C);
-        }
-    
-        /**
-         * @brief Single-warp SYR2K `C = alpha*(op(A)op(B)ᵀ + op(B)op(A)ᵀ) + beta*C` (compile-time size).
-         * @see ::syr2k
-         */
-        template <typename T, uint32_t N, uint32_t K,
-                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void syr2k(T alpha, const T *A, const T *B, T beta, T *C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, B, beta, C);
-        }
-    
-        /**
-         * @brief Single-warp SYR2K with implicit `beta = 0` (overwrite).
-         * @see ::syr2k
-         */
-        template <typename T, uint32_t N, uint32_t K,
-                  FillMode FILL = FillMode::Full, bool TRANSPOSE = false, bool ROW_MAJOR = false>
-        __device__ void syr2k(T alpha, const T *A, const T *B, T *C)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            syr2k_impl_ct<T, N, K, FILL, TRANSPOSE, ROW_MAJOR>(lane, 32, alpha, A, B, C);
         }
     }
     // END GLASS src/base/L3/syrk.cuh
@@ -6679,13 +6889,13 @@ namespace grid {
      */
     // Shared body (runtime + compile-time overloads): SizeT deduced — uint32_t or
     // ct_size<N> (constant-folds the trip counts / indexing).
-    template <typename T, typename SizeT>
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void syev_impl(SizeT n, const T *A, T *W, T *V, T *s_scratch)
     {
         static_assert(sizeof(uint32_t) <= sizeof(T),
                       "syev: the permutation slots assume sizeof(T) >= 4");
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         // Scratch layout — see syev_scratch_bytes: [0, n*n) working copy B (reused
         // as the V-permutation staging buffer at the end); [n*n, n*n + n) the sort
         // permutation (as uint32_t); then 4 control slots: [0]=c, [1]=s,
@@ -6818,13 +7028,14 @@ namespace grid {
             uint32_t r = idx % n, c = idx / n;
             V[idx] = s_B[r + s_perm[c]*n];
         }
-        __syncthreads();                             // outputs valid for every thread on return
+        if constexpr (TRAILING_SYNC)
+            __syncthreads();                         // outputs valid for every thread on return
     }
     
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void syev(uint32_t n, const T *A, T *W, T *V, T *s_scratch)
     {
-        syev_impl<T>(n, A, W, V, s_scratch);
+        syev_impl<T, TRAILING_SYNC>(n, A, W, V, s_scratch);
     }
     
     /**
@@ -6842,10 +7053,10 @@ namespace grid {
      * @param V          Out: N x N eigenvectors (column-major; column i ↔ W[i]).
      * @param s_scratch  Shared scratch of `syev_scratch_bytes<T>(N)` bytes.
      */
-    template <typename T, uint32_t N>
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void syev(const T *A, T *W, T *V, T *s_scratch)
     {
-        syev_impl<T>(ct_size<N>{}, A, W, V, s_scratch);
+        syev_impl<T, TRAILING_SYNC>(ct_size<N>{}, A, W, V, s_scratch);
     }
     
     /**
@@ -6894,11 +7105,11 @@ namespace grid {
      */
     // Shared body (runtime + compile-time overloads): SizeT deduced — uint32_t or
     // ct_size<N> (constant-folds the trip counts / indexing).
-    template <typename T, typename SizeT>
+    template <typename T, bool TRAILING_SYNC = true, typename SizeT = uint32_t>
     __device__ void eig_clamp_impl(SizeT n, T *A, T eps, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         // Scratch layout — see eig_clamp_scratch_bytes: W (n) | V (n*n) | syev scratch.
         T *s_W = s_scratch;
         T *s_V = s_scratch + n;
@@ -6918,13 +7129,14 @@ namespace grid {
             }
             A[idx] = sum;
         }
-        __syncthreads();                       // clamped A valid for every thread on return
+        if constexpr (TRAILING_SYNC)
+            __syncthreads();                   // clamped A valid for every thread on return
     }
     
-    template <typename T>
+    template <typename T, bool TRAILING_SYNC = true>
     __device__ void eig_clamp(uint32_t n, T *A, T eps, T *s_scratch)
     {
-        eig_clamp_impl<T>(n, A, eps, s_scratch);
+        eig_clamp_impl<T, TRAILING_SYNC>(n, A, eps, s_scratch);
     }
     
     /**
@@ -6941,10 +7153,10 @@ namespace grid {
      * @param eps        Eigenvalue floor.
      * @param s_scratch  Shared scratch of `eig_clamp_scratch_bytes<T>(N)` bytes.
      */
-    template <typename T, uint32_t N>
+    template <typename T, uint32_t N, bool TRAILING_SYNC = true>
     __device__ void eig_clamp(T *A, T eps, T *s_scratch)
     {
-        eig_clamp_impl<T>(ct_size<N>{}, A, eps, s_scratch);
+        eig_clamp_impl<T, TRAILING_SYNC>(ct_size<N>{}, A, eps, s_scratch);
     }
     // END GLASS src/base/L3/syev.cuh
     
@@ -6979,7 +7191,7 @@ namespace grid {
      * sized by the consumer's stage blocks, n = 12..21 today).
      */
     
-    namespace detail {
+    namespace eigh_detail {
     
     /// Circle-method round-robin schedule for N indices: M-1 rounds (M = N padded
     /// even) of M/2 disjoint (p<q) pairs; slots touching the pad index hold the
@@ -7020,7 +7232,7 @@ namespace grid {
         return S;
     }
     
-    }  // namespace detail
+    }  // namespace eigh_detail
     
     /**
      * @brief Default sweep count for `eigh` by scalar width.
@@ -7078,15 +7290,15 @@ namespace grid {
      * @param V          Out: `N x N` eigenvectors (column-major; column i ↔ W[i]).
      * @param s_scratch  Shared scratch of `eigh_scratch_bytes<T, N>()` bytes.
      */
-    template <typename T, uint32_t N, uint32_t SWEEPS = eigh_sweeps<T>()>
+    template <typename T, uint32_t N, uint32_t SWEEPS = eigh_sweeps<T>(), bool TRAILING_SYNC = true>
     __device__ void eigh(const T *A, T *W, T *V, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         constexpr uint32_t M      = N + (N & 1u);
         constexpr uint32_t ROUNDS = M - 1u;
         constexpr uint32_t KMAX   = M / 2u;
-        static constexpr detail::EighSchedule<N> sched = detail::eigh_schedule<N>();
+        static constexpr eigh_detail::EighSchedule<N> sched = eigh_detail::eigh_schedule<N>();
         // Scratch layout — see eigh_scratch_bytes: [0, N*N) working copy B; then
         // KMAX c's; then KMAX s's.
         T *s_B = s_scratch;
@@ -7169,7 +7381,8 @@ namespace grid {
     
         // W := diag(B), unsorted.
         for (uint32_t i = rank; i < N; i += size) W[i] = s_B[i + i*N];
-        __syncthreads();                         // outputs valid for every thread on return
+        if constexpr (TRAILING_SYNC)
+            __syncthreads();                     // outputs valid for every thread on return
     }
     
     /**
@@ -7211,11 +7424,11 @@ namespace grid {
      * @param eps        Eigenvalue floor (runtime scalar; >= 0).
      * @param s_scratch  Shared scratch of `psd_project_scratch_bytes<T, N>()` bytes.
      */
-    template <typename T, uint32_t N, uint32_t SWEEPS = eigh_sweeps<T>()>
+    template <typename T, uint32_t N, uint32_t SWEEPS = eigh_sweeps<T>(), bool TRAILING_SYNC = true>
     __device__ void psd_project(T *A, T eps, T *s_scratch)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         // Scratch layout — see psd_project_scratch_bytes: W (N) | V (N*N) | eigh scratch.
         T *s_W = s_scratch;
         T *s_V = s_scratch + N;
@@ -7235,7 +7448,8 @@ namespace grid {
             }
             A[idx] = sum;
         }
-        __syncthreads();                       // projected A valid for every thread on return
+        if constexpr (TRAILING_SYNC)
+            __syncthreads();                   // projected A valid for every thread on return
     }
     // END GLASS src/base/L3/eigh.cuh
     
@@ -7436,8 +7650,8 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void motion_cross(const T *v, T *M)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         spatial_detail::motion_cross_impl(rank, size, v, M);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -7468,8 +7682,8 @@ namespace grid {
     template <typename T, int AXIS = -1, bool HAS_BETA = false, bool TRAILING_SYNC = true>
     __device__ void motion_cross_mul(T alpha, const T *v, const T *x, T beta, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         spatial_detail::motion_cross_mul_impl<T, AXIS, HAS_BETA>(rank, size, alpha, v, x, beta, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -7488,8 +7702,8 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void force_cross(const T *v, T *M)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         spatial_detail::force_cross_impl(rank, size, v, M);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -7511,8 +7725,8 @@ namespace grid {
     template <typename T, bool HAS_BETA = false, bool TRAILING_SYNC = true>
     __device__ void force_cross_mul(T alpha, const T *v, const T *f, T beta, T *y)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         spatial_detail::force_cross_mul_impl<T, HAS_BETA>(rank, size, alpha, v, f, beta, y);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
@@ -7531,13 +7745,70 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void force_cross_dual(const T *f, T *M)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         spatial_detail::force_cross_dual_impl(rank, size, f, M);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread spatial cross ops ─────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // One 32-lane warp owns the result: lane-strided over the outputs,
+        // `__syncwarp()` close. Outputs must not alias inputs.
+    
+        /** @brief Single-warp motion cross matrix. See `glass::motion_cross`. */
+        template <typename T>
+        __device__ void motion_cross(const T *v, T *M)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            spatial_detail::motion_cross_impl(lane, 32u, v, M);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp fused motion cross apply. See `glass::motion_cross_mul`. */
+        template <typename T, int AXIS = -1, bool HAS_BETA = false>
+        __device__ void motion_cross_mul(T alpha, const T *v, const T *x, T beta, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            spatial_detail::motion_cross_mul_impl<T, AXIS, HAS_BETA>(lane, 32u, alpha, v, x, beta, y);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp force cross matrix. See `glass::force_cross`. */
+        template <typename T>
+        __device__ void force_cross(const T *v, T *M)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            spatial_detail::force_cross_impl(lane, 32u, v, M);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp fused force cross apply. See `glass::force_cross_mul`. */
+        template <typename T, bool HAS_BETA = false>
+        __device__ void force_cross_mul(T alpha, const T *v, const T *f, T beta, T *y)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            spatial_detail::force_cross_mul_impl<T, HAS_BETA>(lane, 32u, alpha, v, f, beta, y);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp operand-swapped force cross matrix. See `glass::force_cross_dual`. */
+        template <typename T>
+        __device__ void force_cross_dual(const T *f, T *M)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            spatial_detail::force_cross_dual_impl(lane, 32u, f, M);
+            __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         // One thread owns the whole 6-/36-element result: the SAME row/entry
         // formulas run serially. No barriers, no threadIdx read; register operands
@@ -7567,57 +7838,6 @@ namespace grid {
         template <typename T>
         __device__ void force_cross_dual(const T *f, T *M)
         { spatial_detail::force_cross_dual_impl(0u, 1u, f, M); }
-    }
-    
-    // ─── single-warp spatial cross ops ───────────────────────────────────────────
-    namespace warp {
-        // One 32-lane warp owns the result: lane-strided over the outputs,
-        // `__syncwarp()` close. Outputs must not alias inputs.
-    
-        /** @brief Single-warp motion cross matrix. See `glass::motion_cross`. */
-        template <typename T>
-        __device__ void motion_cross(const T *v, T *M)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            spatial_detail::motion_cross_impl(lane, 32u, v, M);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp fused motion cross apply. See `glass::motion_cross_mul`. */
-        template <typename T, int AXIS = -1, bool HAS_BETA = false>
-        __device__ void motion_cross_mul(T alpha, const T *v, const T *x, T beta, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            spatial_detail::motion_cross_mul_impl<T, AXIS, HAS_BETA>(lane, 32u, alpha, v, x, beta, y);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp force cross matrix. See `glass::force_cross`. */
-        template <typename T>
-        __device__ void force_cross(const T *v, T *M)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            spatial_detail::force_cross_impl(lane, 32u, v, M);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp fused force cross apply. See `glass::force_cross_mul`. */
-        template <typename T, bool HAS_BETA = false>
-        __device__ void force_cross_mul(T alpha, const T *v, const T *f, T beta, T *y)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            spatial_detail::force_cross_mul_impl<T, HAS_BETA>(lane, 32u, alpha, v, f, beta, y);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp operand-swapped force cross matrix. See `glass::force_cross_dual`. */
-        template <typename T>
-        __device__ void force_cross_dual(const T *f, T *M)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            spatial_detail::force_cross_dual_impl(lane, 32u, f, M);
-            __syncwarp();
-        }
     }
     // END GLASS src/base/spatial/cross.cuh
     
@@ -7662,7 +7882,7 @@ namespace grid {
      */
     enum class QuatLayout { xyzw, wxyz };
     
-    namespace quat_detail {
+    namespace lie_detail {
         // storage indices for a layout — formulas are written once against these.
         template <QuatLayout L> struct layout;
         template <> struct layout<QuatLayout::xyzw> {
@@ -7829,7 +8049,7 @@ namespace grid {
             for (uint32_t i = rank; i < 9; i += size)
                 out[(i/3)*LDA + (i%3)] = tmp[i];
         }
-    } // namespace quat_detail
+    } // namespace lie_detail
     
     /**
      * @brief Hamilton quaternion product: `out = a ⊗ b`.
@@ -7849,10 +8069,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_mul(const T *a, const T *b, T *out)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[4]; quat_detail::quat_mul_core<T, L>(a, b, tmp);
-        quat_detail::copy_out<T, 4>(rank, size, tmp, out);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[4]; lie_detail::quat_mul_core<T, L>(a, b, tmp);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, out);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7868,13 +8088,13 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_conj(const T *a, T *out)
     {
-        using QL = quat_detail::layout<L>;
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        using QL = lie_detail::layout<L>;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[4];
         tmp[QL::X] = -a[QL::X]; tmp[QL::Y] = -a[QL::Y]; tmp[QL::Z] = -a[QL::Z];
         tmp[QL::W] =  a[QL::W];
-        quat_detail::copy_out<T, 4>(rank, size, tmp, out);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, out);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7895,10 +8115,10 @@ namespace grid {
               bool TRAILING_SYNC = true>
     __device__ void quat_normalize(const T *q, T *out)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[4]; quat_detail::quat_normalize_core<T, L, CANONICAL>(q, tmp);
-        quat_detail::copy_out<T, 4>(rank, size, tmp, out);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[4]; lie_detail::quat_normalize_core<T, L, CANONICAL>(q, tmp);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, out);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7917,10 +8137,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_exp(const T *phi, T *out)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[4]; quat_detail::quat_exp_core<T, L>(phi, tmp);
-        quat_detail::copy_out<T, 4>(rank, size, tmp, out);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[4]; lie_detail::quat_exp_core<T, L>(phi, tmp);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, out);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7941,10 +8161,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_log(const T *q, T *phi)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[3]; quat_detail::quat_log_core<T, L>(q, tmp);
-        quat_detail::copy_out<T, 3>(rank, size, tmp, phi);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[3]; lie_detail::quat_log_core<T, L>(q, tmp);
+        lie_detail::copy_out<T, 3>(rank, size, tmp, phi);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7964,10 +8184,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_rotate(const T *q, const T *p, T *out)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[3]; quat_detail::quat_rotate_core<T, L>(q, p, tmp);
-        quat_detail::copy_out<T, 3>(rank, size, tmp, out);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[3]; lie_detail::quat_rotate_core<T, L>(q, p, tmp);
+        lie_detail::copy_out<T, 3>(rank, size, tmp, out);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -7989,10 +8209,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3, bool TRAILING_SYNC = true>
     __device__ void quat_to_rot(const T *q, T *R)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[9]; quat_detail::quat_to_rot_core<T, L>(q, tmp);
-        quat_detail::copy_out_mat3<T, LDA>(rank, size, tmp, R);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[9]; lie_detail::quat_to_rot_core<T, L>(q, tmp);
+        lie_detail::copy_out_mat3<T, LDA>(rank, size, tmp, R);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8015,10 +8235,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3, bool TRAILING_SYNC = true>
     __device__ void rot_to_quat(const T *R, T *q)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[4]; quat_detail::rot_to_quat_core<T, L, LDA>(R, tmp);
-        quat_detail::copy_out<T, 4>(rank, size, tmp, q);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[4]; lie_detail::rot_to_quat_core<T, L, LDA>(R, tmp);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, q);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8038,10 +8258,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_to_basis(const T *q, T *u, T *v, T *w)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T qn[4]; quat_detail::quat_normalize_core<T, L, false>(q, qn);
-        T R[9];  quat_detail::quat_to_rot_core<T, L>(qn, R);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T qn[4]; lie_detail::quat_normalize_core<T, L, false>(q, qn);
+        T R[9];  lie_detail::quat_to_rot_core<T, L>(qn, R);
         for (uint32_t i = rank; i < 9; i += size) {
             T *dst = (i < 3) ? u : (i < 6) ? v : w;
             dst[i % 3] = R[i];
@@ -8066,105 +8286,17 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void quat_retract(const T *q, const T *phi, T *q_new)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
-        T tmp[4]; quat_detail::quat_retract_core<T, L>(q, phi, tmp);
-        quat_detail::copy_out<T, 4>(rank, size, tmp, q_new);
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
+        T tmp[4]; lie_detail::quat_retract_core<T, L>(q, phi, tmp);
+        lie_detail::copy_out<T, 4>(rank, size, tmp, q_new);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread quaternion ops ────────────────────────────────────────────
-    namespace thread {
-        // One thread owns the whole (4/9-element) result: the SAME serial cores as
-        // the block/warp tiers with a plain serial copy-out. No barriers, no
-        // shuffles, no threadIdx read; operands may be thread-local register
-        // arrays, and in-place aliasing is safe (the core buffers via registers).
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
     
-        /** @brief Single-thread `out = a ⊗ b`. See `glass::quat_mul`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_mul(const T *a, const T *b, T *out)
-        {
-            T tmp[4]; quat_detail::quat_mul_core<T, L>(a, b, tmp);
-            for (uint32_t i = 0; i < 4; i++) out[i] = tmp[i];
-        }
-    
-        /** @brief Single-thread conjugate. See `glass::quat_conj`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_conj(const T *a, T *out)
-        {
-            using QL = quat_detail::layout<L>;
-            const T x = a[QL::X], y = a[QL::Y], z = a[QL::Z], w = a[QL::W];
-            out[QL::X] = -x; out[QL::Y] = -y; out[QL::Z] = -z; out[QL::W] = w;
-        }
-    
-        /** @brief Single-thread normalize (optional `w>=0` canonicalization). See `glass::quat_normalize`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw, bool CANONICAL = false>
-        __device__ void quat_normalize(const T *q, T *out)
-        {
-            quat_detail::quat_normalize_core<T, L, CANONICAL>(q, out);
-        }
-    
-        /** @brief Single-thread `exp([φ/2])`. See `glass::quat_exp`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_exp(const T *phi, T *out)
-        {
-            quat_detail::quat_exp_core<T, L>(phi, out);
-        }
-    
-        /** @brief Single-thread quaternion logarithm. See `glass::quat_log`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_log(const T *q, T *phi)
-        {
-            T tmp[3]; quat_detail::quat_log_core<T, L>(q, tmp);
-            phi[0] = tmp[0]; phi[1] = tmp[1]; phi[2] = tmp[2];
-        }
-    
-        /** @brief Single-thread `R(q)·p`. See `glass::quat_rotate`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_rotate(const T *q, const T *p, T *out)
-        {
-            T tmp[3]; quat_detail::quat_rotate_core<T, L>(q, p, tmp);
-            out[0] = tmp[0]; out[1] = tmp[1]; out[2] = tmp[2];
-        }
-    
-        /** @brief Single-thread quaternion → column-major 3x3 (LDA-strided). See `glass::quat_to_rot`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
-        __device__ void quat_to_rot(const T *q, T *R)
-        {
-            if constexpr (LDA == 3) {
-                quat_detail::quat_to_rot_core<T, L>(q, R);
-            } else {
-                T tmp[9]; quat_detail::quat_to_rot_core<T, L>(q, tmp);
-                quat_detail::copy_out_mat3<T, LDA>(0u, 1u, tmp, R);
-            }
-        }
-    
-        /** @brief Single-thread column-major 3x3 (LDA-strided) → quaternion (Shepperd). See `glass::rot_to_quat`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
-        __device__ void rot_to_quat(const T *R, T *q)
-        {
-            quat_detail::rot_to_quat_core<T, L, LDA>(R, q);
-        }
-    
-        /** @brief Single-thread normalize + rotation columns. See `glass::quat_to_basis`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_to_basis(const T *q, T *u, T *v, T *w)
-        {
-            T qn[4]; quat_detail::quat_normalize_core<T, L, false>(q, qn);
-            T R[9];  quat_detail::quat_to_rot_core<T, L>(qn, R);
-            for (uint32_t i = 0; i < 3; i++) { u[i] = R[i]; v[i] = R[3+i]; w[i] = R[6+i]; }
-        }
-    
-        /** @brief Single-thread SO(3) quaternion retract. See `glass::quat_retract`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void quat_retract(const T *q, const T *phi, T *q_new)
-        {
-            T tmp[4]; quat_detail::quat_retract_core<T, L>(q, phi, tmp);
-            for (uint32_t i = 0; i < 4; i++) q_new[i] = tmp[i];
-        }
-    }
-    
-    // ─── single-warp quaternion ops ──────────────────────────────────────────────
     namespace warp {
         // One 32-lane warp owns the result: the same serial cores, lane-strided
         // copy-out, `__syncwarp()` close. For warp-per-problem kernels. Outputs must
@@ -8174,9 +8306,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_mul(const T *a, const T *b, T *out)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[4]; quat_detail::quat_mul_core<T, L>(a, b, tmp);
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, out);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[4]; lie_detail::quat_mul_core<T, L>(a, b, tmp);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, out);
             __syncwarp();
         }
     
@@ -8184,12 +8316,12 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_conj(const T *a, T *out)
         {
-            using QL = quat_detail::layout<L>;
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
+            using QL = lie_detail::layout<L>;
+            uint32_t lane = (flat_rank()) & 31;
             T tmp[4];
             tmp[QL::X] = -a[QL::X]; tmp[QL::Y] = -a[QL::Y]; tmp[QL::Z] = -a[QL::Z];
             tmp[QL::W] =  a[QL::W];
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, out);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, out);
             __syncwarp();
         }
     
@@ -8197,9 +8329,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw, bool CANONICAL = false>
         __device__ void quat_normalize(const T *q, T *out)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[4]; quat_detail::quat_normalize_core<T, L, CANONICAL>(q, tmp);
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, out);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[4]; lie_detail::quat_normalize_core<T, L, CANONICAL>(q, tmp);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, out);
             __syncwarp();
         }
     
@@ -8207,9 +8339,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_exp(const T *phi, T *out)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[4]; quat_detail::quat_exp_core<T, L>(phi, tmp);
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, out);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[4]; lie_detail::quat_exp_core<T, L>(phi, tmp);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, out);
             __syncwarp();
         }
     
@@ -8217,9 +8349,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_log(const T *q, T *phi)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[3]; quat_detail::quat_log_core<T, L>(q, tmp);
-            quat_detail::copy_out<T, 3>(lane, 32u, tmp, phi);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[3]; lie_detail::quat_log_core<T, L>(q, tmp);
+            lie_detail::copy_out<T, 3>(lane, 32u, tmp, phi);
             __syncwarp();
         }
     
@@ -8227,9 +8359,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_rotate(const T *q, const T *p, T *out)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[3]; quat_detail::quat_rotate_core<T, L>(q, p, tmp);
-            quat_detail::copy_out<T, 3>(lane, 32u, tmp, out);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[3]; lie_detail::quat_rotate_core<T, L>(q, p, tmp);
+            lie_detail::copy_out<T, 3>(lane, 32u, tmp, out);
             __syncwarp();
         }
     
@@ -8237,9 +8369,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
         __device__ void quat_to_rot(const T *q, T *R)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; quat_detail::quat_to_rot_core<T, L>(q, tmp);
-            quat_detail::copy_out_mat3<T, LDA>(lane, 32u, tmp, R);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::quat_to_rot_core<T, L>(q, tmp);
+            lie_detail::copy_out_mat3<T, LDA>(lane, 32u, tmp, R);
             __syncwarp();
         }
     
@@ -8247,9 +8379,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
         __device__ void rot_to_quat(const T *R, T *q)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[4]; quat_detail::rot_to_quat_core<T, L, LDA>(R, tmp);
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, q);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[4]; lie_detail::rot_to_quat_core<T, L, LDA>(R, tmp);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, q);
             __syncwarp();
         }
     
@@ -8257,9 +8389,9 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_to_basis(const T *q, T *u, T *v, T *w)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T qn[4]; quat_detail::quat_normalize_core<T, L, false>(q, qn);
-            T R[9];  quat_detail::quat_to_rot_core<T, L>(qn, R);
+            uint32_t lane = (flat_rank()) & 31;
+            T qn[4]; lie_detail::quat_normalize_core<T, L, false>(q, qn);
+            T R[9];  lie_detail::quat_to_rot_core<T, L>(qn, R);
             for (uint32_t i = lane; i < 9; i += 32u) {
                 T *dst = (i < 3) ? u : (i < 6) ? v : w;
                 dst[i % 3] = R[i];
@@ -8271,10 +8403,104 @@ namespace grid {
         template <typename T, QuatLayout L = QuatLayout::xyzw>
         __device__ void quat_retract(const T *q, const T *phi, T *q_new)
         {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[4]; quat_detail::quat_retract_core<T, L>(q, phi, tmp);
-            quat_detail::copy_out<T, 4>(lane, 32u, tmp, q_new);
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[4]; lie_detail::quat_retract_core<T, L>(q, phi, tmp);
+            lie_detail::copy_out<T, 4>(lane, 32u, tmp, q_new);
             __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace thread {
+        // One thread owns the whole (4/9-element) result: the SAME serial cores as
+        // the block/warp tiers with a plain serial copy-out. No barriers, no
+        // shuffles, no threadIdx read; operands may be thread-local register
+        // arrays, and in-place aliasing is safe (the core buffers via registers).
+    
+        /** @brief Single-thread `out = a ⊗ b`. See `glass::quat_mul`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_mul(const T *a, const T *b, T *out)
+        {
+            T tmp[4]; lie_detail::quat_mul_core<T, L>(a, b, tmp);
+            for (uint32_t i = 0; i < 4; i++) out[i] = tmp[i];
+        }
+    
+        /** @brief Single-thread conjugate. See `glass::quat_conj`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_conj(const T *a, T *out)
+        {
+            using QL = lie_detail::layout<L>;
+            const T x = a[QL::X], y = a[QL::Y], z = a[QL::Z], w = a[QL::W];
+            out[QL::X] = -x; out[QL::Y] = -y; out[QL::Z] = -z; out[QL::W] = w;
+        }
+    
+        /** @brief Single-thread normalize (optional `w>=0` canonicalization). See `glass::quat_normalize`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw, bool CANONICAL = false>
+        __device__ void quat_normalize(const T *q, T *out)
+        {
+            lie_detail::quat_normalize_core<T, L, CANONICAL>(q, out);
+        }
+    
+        /** @brief Single-thread `exp([φ/2])`. See `glass::quat_exp`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_exp(const T *phi, T *out)
+        {
+            lie_detail::quat_exp_core<T, L>(phi, out);
+        }
+    
+        /** @brief Single-thread quaternion logarithm. See `glass::quat_log`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_log(const T *q, T *phi)
+        {
+            T tmp[3]; lie_detail::quat_log_core<T, L>(q, tmp);
+            phi[0] = tmp[0]; phi[1] = tmp[1]; phi[2] = tmp[2];
+        }
+    
+        /** @brief Single-thread `R(q)·p`. See `glass::quat_rotate`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_rotate(const T *q, const T *p, T *out)
+        {
+            T tmp[3]; lie_detail::quat_rotate_core<T, L>(q, p, tmp);
+            out[0] = tmp[0]; out[1] = tmp[1]; out[2] = tmp[2];
+        }
+    
+        /** @brief Single-thread quaternion → column-major 3x3 (LDA-strided). See `glass::quat_to_rot`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
+        __device__ void quat_to_rot(const T *q, T *R)
+        {
+            if constexpr (LDA == 3) {
+                lie_detail::quat_to_rot_core<T, L>(q, R);
+            } else {
+                T tmp[9]; lie_detail::quat_to_rot_core<T, L>(q, tmp);
+                lie_detail::copy_out_mat3<T, LDA>(0u, 1u, tmp, R);
+            }
+        }
+    
+        /** @brief Single-thread column-major 3x3 (LDA-strided) → quaternion (Shepperd). See `glass::rot_to_quat`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw, uint32_t LDA = 3>
+        __device__ void rot_to_quat(const T *R, T *q)
+        {
+            lie_detail::rot_to_quat_core<T, L, LDA>(R, q);
+        }
+    
+        /** @brief Single-thread normalize + rotation columns. See `glass::quat_to_basis`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_to_basis(const T *q, T *u, T *v, T *w)
+        {
+            T qn[4]; lie_detail::quat_normalize_core<T, L, false>(q, qn);
+            T R[9];  lie_detail::quat_to_rot_core<T, L>(qn, R);
+            for (uint32_t i = 0; i < 3; i++) { u[i] = R[i]; v[i] = R[3+i]; w[i] = R[6+i]; }
+        }
+    
+        /** @brief Single-thread SO(3) quaternion retract. See `glass::quat_retract`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void quat_retract(const T *q, const T *phi, T *q_new)
+        {
+            T tmp[4]; lie_detail::quat_retract_core<T, L>(q, phi, tmp);
+            for (uint32_t i = 0; i < 4; i++) q_new[i] = tmp[i];
         }
     }
     // END GLASS src/base/lie/quat.cuh
@@ -8429,13 +8655,13 @@ namespace grid {
     
         // serial core: φ = log(R), canonical branch |φ| ≤ π. Route through the
         // Shepperd quaternion (stable at EVERY rotation) then the quaternion log
-        // (quat_detail::quat_log_core) — no near-π axis loss, no trace clamping
+        // (lie_detail::quat_log_core) — no near-π axis loss, no trace clamping
         // games. Shepperd already yields w >= 0, so the log's cover fold is a no-op.
         template <typename T>
         __device__ __forceinline__ void so3_log_core(const T *R, T *phi) {
             T q[4];
-            quat_detail::rot_to_quat_core<T, QuatLayout::xyzw>(R, q);
-            quat_detail::quat_log_core<T, QuatLayout::xyzw>(q, phi);
+            lie_detail::rot_to_quat_core<T, QuatLayout::xyzw>(R, q);
+            lie_detail::quat_log_core<T, QuatLayout::xyzw>(q, phi);
         }
     } // namespace lie_detail
     
@@ -8454,10 +8680,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void skew(const T *v, T *S)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::skew_core(v, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, S);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, S);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8475,10 +8701,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_exp(const T *phi, T *R)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::so3_exp_core(phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, R);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, R);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8499,10 +8725,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_log(const T *R, T *phi)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[3]; lie_detail::so3_log_core(R, tmp);
-        quat_detail::copy_out<T, 3>(rank, size, tmp, phi);
+        lie_detail::copy_out<T, 3>(rank, size, tmp, phi);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8520,10 +8746,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_right_jacobian(const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::so3_right_jacobian_core(phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8542,10 +8768,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_right_jacobian_inv(const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::so3_right_jacobian_inv_core(phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8563,10 +8789,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_left_jacobian(const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::so3_left_jacobian_core(phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -8583,14 +8809,96 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void so3_left_jacobian_inv(const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::so3_left_jacobian_inv_core(phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread SO(3) ops ─────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        // One 32-lane warp owns the result: same serial cores, lane-strided
+        // copy-out, `__syncwarp()` close. Outputs must not alias inputs.
+    
+        /** @brief Single-warp hat map. See `glass::skew`. */
+        template <typename T>
+        __device__ void skew(const T *v, T *S)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::skew_core(v, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, S);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp Rodrigues exponential. See `glass::so3_exp`. */
+        template <typename T>
+        __device__ void so3_exp(const T *phi, T *R)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::so3_exp_core(phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, R);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp SO(3) log (canonical branch). See `glass::so3_log`. */
+        template <typename T>
+        __device__ void so3_log(const T *R, T *phi)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[3]; lie_detail::so3_log_core(R, tmp);
+            lie_detail::copy_out<T, 3>(lane, 32u, tmp, phi);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp right Jacobian. See `glass::so3_right_jacobian`. */
+        template <typename T>
+        __device__ void so3_right_jacobian(const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::so3_right_jacobian_core(phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp inverse right Jacobian. See `glass::so3_right_jacobian_inv`. */
+        template <typename T>
+        __device__ void so3_right_jacobian_inv(const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::so3_right_jacobian_inv_core(phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp left Jacobian (SE(3) "V matrix"). See `glass::so3_left_jacobian`. */
+        template <typename T>
+        __device__ void so3_left_jacobian(const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::so3_left_jacobian_core(phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp inverse left Jacobian. See `glass::so3_left_jacobian_inv`. */
+        template <typename T>
+        __device__ void so3_left_jacobian_inv(const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::so3_left_jacobian_inv_core(phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         // One thread owns the whole 3x3/3-vector result — the same serial cores,
         // serial copy-out. No barriers, no threadIdx read; register operands fine.
@@ -8630,82 +8938,6 @@ namespace grid {
         template <typename T>
         __device__ void so3_left_jacobian_inv(const T *phi, T *J)
         { lie_detail::so3_left_jacobian_inv_core(phi, J); }
-    }
-    
-    // ─── single-warp SO(3) ops ───────────────────────────────────────────────────
-    namespace warp {
-        // One 32-lane warp owns the result: same serial cores, lane-strided
-        // copy-out, `__syncwarp()` close. Outputs must not alias inputs.
-    
-        /** @brief Single-warp hat map. See `glass::skew`. */
-        template <typename T>
-        __device__ void skew(const T *v, T *S)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::skew_core(v, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, S);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp Rodrigues exponential. See `glass::so3_exp`. */
-        template <typename T>
-        __device__ void so3_exp(const T *phi, T *R)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::so3_exp_core(phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, R);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp SO(3) log (canonical branch). See `glass::so3_log`. */
-        template <typename T>
-        __device__ void so3_log(const T *R, T *phi)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[3]; lie_detail::so3_log_core(R, tmp);
-            quat_detail::copy_out<T, 3>(lane, 32u, tmp, phi);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp right Jacobian. See `glass::so3_right_jacobian`. */
-        template <typename T>
-        __device__ void so3_right_jacobian(const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::so3_right_jacobian_core(phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp inverse right Jacobian. See `glass::so3_right_jacobian_inv`. */
-        template <typename T>
-        __device__ void so3_right_jacobian_inv(const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::so3_right_jacobian_inv_core(phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp left Jacobian (SE(3) "V matrix"). See `glass::so3_left_jacobian`. */
-        template <typename T>
-        __device__ void so3_left_jacobian(const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::so3_left_jacobian_core(phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp inverse left Jacobian. See `glass::so3_left_jacobian_inv`. */
-        template <typename T>
-        __device__ void so3_left_jacobian_inv(const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::so3_left_jacobian_inv_core(phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
     }
     // END GLASS src/base/lie/so3.cuh
     
@@ -8796,11 +9028,11 @@ namespace grid {
         __device__ __forceinline__ void se3_retract_core(const T *pose, const T *rho,
                                                          const T *phi, T *out) {
             // orientation: q_new = normalize(q ⊗ exp([φ/2]))
-            quat_detail::quat_retract_core<T, L>(pose + 3, phi, out + 3);
+            lie_detail::quat_retract_core<T, L>(pose + 3, phi, out + 3);
             // position: p_new = p + R(q)·(Jl(φ)·ρ)   (body-frame tangent)
             T V[9];  so3_left_jacobian_core(phi, V);
             T pl[3]; mat3_vec_core(V, rho, pl);
-            T R[9];  quat_detail::quat_to_rot_core<T, L>(pose + 3, R);
+            T R[9];  lie_detail::quat_to_rot_core<T, L>(pose + 3, R);
             T pw[3]; mat3_vec_core(R, pl, pw);
             out[0] = pose[0] + pw[0];
             out[1] = pose[1] + pw[1];
@@ -8815,19 +9047,19 @@ namespace grid {
         template <typename T, QuatLayout L>
         __device__ __forceinline__ void se3_difference_core(const T *pose_from, const T *pose_to,
                                                             T *rho, T *phi) {
-            using QL = quat_detail::layout<L>;
+            using QL = lie_detail::layout<L>;
             // φ = log(q_from⁻¹ ⊗ q_to)
             const T *qf = pose_from + 3;
             T qf_conj[4];
             qf_conj[QL::X] = -qf[QL::X]; qf_conj[QL::Y] = -qf[QL::Y];
             qf_conj[QL::Z] = -qf[QL::Z]; qf_conj[QL::W] =  qf[QL::W];
-            T q_rel[4]; quat_detail::quat_mul_core<T, L>(qf_conj, pose_to + 3, q_rel);
-            quat_detail::quat_log_core<T, L>(q_rel, phi);
+            T q_rel[4]; lie_detail::quat_mul_core<T, L>(qf_conj, pose_to + 3, q_rel);
+            lie_detail::quat_log_core<T, L>(q_rel, phi);
             // ρ = Jl(φ)⁻¹ · R(q_from)ᵀ · (p_to − p_from)   (undo the body-frame V·ρ)
             const T dp[3] = {pose_to[0] - pose_from[0],
                              pose_to[1] - pose_from[1],
                              pose_to[2] - pose_from[2]};
-            T R[9];  quat_detail::quat_to_rot_core<T, L>(qf, R);
+            T R[9];  lie_detail::quat_to_rot_core<T, L>(qf, R);
             T pl[3];   // Rᵀ·dp (R column-major: row i of Rᵀ = column i of R)
             #pragma unroll
             for (uint32_t i = 0; i < 3; ++i)
@@ -9115,10 +9347,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void se3_Q_block(const T *rho, const T *phi, T *Q)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[9]; lie_detail::se3_Q_block_core(rho, phi, tmp);
-        quat_detail::copy_out<T, 9>(rank, size, tmp, Q);
+        lie_detail::copy_out<T, 9>(rank, size, tmp, Q);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -9145,10 +9377,10 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void se3_retract(const T *pose, const T *rho, const T *phi, T *pose_new)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[7]; lie_detail::se3_retract_core<T, L>(pose, rho, phi, tmp);
-        quat_detail::copy_out<T, 7>(rank, size, tmp, pose_new);
+        lie_detail::copy_out<T, 7>(rank, size, tmp, pose_new);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -9172,11 +9404,11 @@ namespace grid {
     template <typename T, QuatLayout L = QuatLayout::xyzw, bool TRAILING_SYNC = true>
     __device__ void se3_difference(const T *pose_from, const T *pose_to, T *rho, T *phi)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tr[3], tp[3]; lie_detail::se3_difference_core<T, L>(pose_from, pose_to, tr, tp);
-        quat_detail::copy_out<T, 3>(rank, size, tr, rho);
-        quat_detail::copy_out<T, 3>(rank, size, tp, phi);
+        lie_detail::copy_out<T, 3>(rank, size, tr, rho);
+        lie_detail::copy_out<T, 3>(rank, size, tp, phi);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -9195,10 +9427,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void se3_retract_jacobian_q(const T *rho, const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[36]; lie_detail::se3_retract_jacobian_q_core(rho, phi, tmp);
-        quat_detail::copy_out<T, 36>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 36>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -9217,10 +9449,10 @@ namespace grid {
     template <typename T, bool TRAILING_SYNC = true>
     __device__ void se3_retract_jacobian_v(const T *rho, const T *phi, T *J)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         T tmp[36]; lie_detail::se3_retract_jacobian_v_core(rho, phi, tmp);
-        quat_detail::copy_out<T, 36>(rank, size, tmp, J);
+        lie_detail::copy_out<T, 36>(rank, size, tmp, J);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
@@ -9250,13 +9482,82 @@ namespace grid {
     template <typename T, bool IS_Q, bool TRAILING_SYNC = true>
     __device__ void se3_retract_hessian(const T *rho, const T *phi, T *J2)
     {
-        uint32_t rank = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y;
-        uint32_t size = blockDim.x * blockDim.y * blockDim.z;
+        uint32_t rank = flat_rank();
+        uint32_t size = flat_size();
         lie_detail::se3_retract_hessian_impl<T, IS_Q>(rank, size, rho, phi, J2);
         if constexpr (TRAILING_SYNC) __syncthreads();
     }
     
-    // ─── single-thread SE(3) ops ─────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // warp:: — one warp per problem (32 lanes, __shfl_*_sync)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    namespace warp {
+        /** @brief Single-warp Barfoot Q block. See `glass::se3_Q_block`. */
+        template <typename T>
+        __device__ void se3_Q_block(const T *rho, const T *phi, T *Q)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[9]; lie_detail::se3_Q_block_core(rho, phi, tmp);
+            lie_detail::copy_out<T, 9>(lane, 32u, tmp, Q);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp SE(3) retract. See `glass::se3_retract`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void se3_retract(const T *pose, const T *rho, const T *phi, T *pose_new)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[7]; lie_detail::se3_retract_core<T, L>(pose, rho, phi, tmp);
+            lie_detail::copy_out<T, 7>(lane, 32u, tmp, pose_new);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp SE(3) difference (boxminus). See `glass::se3_difference`. */
+        template <typename T, QuatLayout L = QuatLayout::xyzw>
+        __device__ void se3_difference(const T *pose_from, const T *pose_to, T *rho, T *phi)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tr[3], tp[3]; lie_detail::se3_difference_core<T, L>(pose_from, pose_to, tr, tp);
+            lie_detail::copy_out<T, 3>(lane, 32u, tr, rho);
+            lie_detail::copy_out<T, 3>(lane, 32u, tp, phi);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp retract Jacobian w.r.t. the base pose. See `glass::se3_retract_jacobian_q`. */
+        template <typename T>
+        __device__ void se3_retract_jacobian_q(const T *rho, const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[36]; lie_detail::se3_retract_jacobian_q_core(rho, phi, tmp);
+            lie_detail::copy_out<T, 36>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp retract Jacobian w.r.t. the tangent. See `glass::se3_retract_jacobian_v`. */
+        template <typename T>
+        __device__ void se3_retract_jacobian_v(const T *rho, const T *phi, T *J)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            T tmp[36]; lie_detail::se3_retract_jacobian_v_core(rho, phi, tmp);
+            lie_detail::copy_out<T, 36>(lane, 32u, tmp, J);
+            __syncwarp();
+        }
+    
+        /** @brief Single-warp retract Hessian (double internals). See `glass::se3_retract_hessian`. */
+        template <typename T, bool IS_Q>
+        __device__ void se3_retract_hessian(const T *rho, const T *phi, T *J2)
+        {
+            uint32_t lane = (flat_rank()) & 31;
+            lie_detail::se3_retract_hessian_impl<T, IS_Q>(lane, 32u, rho, phi, J2);
+            __syncwarp();
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // thread:: — one problem per thread (serial, register-resident)
+    // ═══════════════════════════════════════════════════════════════════════
+    
     namespace thread {
         /** @brief Single-thread Barfoot Q block. See `glass::se3_Q_block`. */
         template <typename T>
@@ -9290,69 +9591,6 @@ namespace grid {
         template <typename T, bool IS_Q>
         __device__ void se3_retract_hessian(const T *rho, const T *phi, T *J2)
         { lie_detail::se3_retract_hessian_impl<T, IS_Q>(0u, 1u, rho, phi, J2); }
-    }
-    
-    // ─── single-warp SE(3) ops ───────────────────────────────────────────────────
-    namespace warp {
-        /** @brief Single-warp Barfoot Q block. See `glass::se3_Q_block`. */
-        template <typename T>
-        __device__ void se3_Q_block(const T *rho, const T *phi, T *Q)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[9]; lie_detail::se3_Q_block_core(rho, phi, tmp);
-            quat_detail::copy_out<T, 9>(lane, 32u, tmp, Q);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp SE(3) retract. See `glass::se3_retract`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void se3_retract(const T *pose, const T *rho, const T *phi, T *pose_new)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[7]; lie_detail::se3_retract_core<T, L>(pose, rho, phi, tmp);
-            quat_detail::copy_out<T, 7>(lane, 32u, tmp, pose_new);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp SE(3) difference (boxminus). See `glass::se3_difference`. */
-        template <typename T, QuatLayout L = QuatLayout::xyzw>
-        __device__ void se3_difference(const T *pose_from, const T *pose_to, T *rho, T *phi)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tr[3], tp[3]; lie_detail::se3_difference_core<T, L>(pose_from, pose_to, tr, tp);
-            quat_detail::copy_out<T, 3>(lane, 32u, tr, rho);
-            quat_detail::copy_out<T, 3>(lane, 32u, tp, phi);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp retract Jacobian w.r.t. the base pose. See `glass::se3_retract_jacobian_q`. */
-        template <typename T>
-        __device__ void se3_retract_jacobian_q(const T *rho, const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[36]; lie_detail::se3_retract_jacobian_q_core(rho, phi, tmp);
-            quat_detail::copy_out<T, 36>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp retract Jacobian w.r.t. the tangent. See `glass::se3_retract_jacobian_v`. */
-        template <typename T>
-        __device__ void se3_retract_jacobian_v(const T *rho, const T *phi, T *J)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            T tmp[36]; lie_detail::se3_retract_jacobian_v_core(rho, phi, tmp);
-            quat_detail::copy_out<T, 36>(lane, 32u, tmp, J);
-            __syncwarp();
-        }
-    
-        /** @brief Single-warp retract Hessian (double internals). See `glass::se3_retract_hessian`. */
-        template <typename T, bool IS_Q>
-        __device__ void se3_retract_hessian(const T *rho, const T *phi, T *J2)
-        {
-            uint32_t lane = (threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.x*blockDim.y) & 31;
-            lie_detail::se3_retract_hessian_impl<T, IS_Q>(lane, 32u, rho, phi, J2);
-            __syncwarp();
-        }
     }
     // END GLASS src/base/lie/se3.cuh
     
@@ -10130,6 +10368,9 @@ namespace grid {
     //
     template <typename T>
     __host__
+    cudaError_t init_topology_helpers_checked(int **out, const char **failed_op = nullptr){ (void)failed_op; *out = nullptr; return cudaSuccess; }
+    template <typename T>
+    __host__
     int *init_topology_helpers(){return nullptr;}
     /**
      * Initializes the Xmats and Imats in GPU memory
@@ -10141,8 +10382,10 @@ namespace grid {
      */
     template <typename T>
     __host__
-    T* init_XImats() {
-        T *h_XImats = (T *)calloc(752,sizeof(T));
+    cudaError_t init_XImats_checked(T **out, const char **failed_op = nullptr) {
+        *out = nullptr;
+        T *h_XImats = (T *)GRID_HOST_ALLOC(calloc(752,sizeof(T)));
+        if (h_XImats == nullptr) { return grid_fail(failed_op, "calloc(h_XImats)", cudaErrorMemoryAllocation); }
         // X[0]
         h_XImats[0] = static_cast<T>(0);
         h_XImats[1] = static_cast<T>(0);
@@ -10927,43 +11170,141 @@ namespace grid {
         h_XImats[749] = static_cast<T>(0);
         h_XImats[750] = static_cast<T>(0);
         h_XImats[751] = static_cast<T>(0);
-        T *d_XImats; gpuErrchk(cudaMalloc((void**)&d_XImats,752*sizeof(T)));
-        gpuErrchk(cudaMemcpy(d_XImats,h_XImats,752*sizeof(T),cudaMemcpyHostToDevice));
+        T *d_XImats = nullptr;
+        cudaError_t _e = GRID_CUDA_CALL(cudaMalloc((void**)&d_XImats,752*sizeof(T)));
+        if (_e != cudaSuccess) { free(h_XImats); return grid_fail(failed_op, "cudaMalloc(d_XImats)", _e); }
+        _e = GRID_CUDA_CALL(cudaMemcpy(d_XImats,h_XImats,752*sizeof(T),cudaMemcpyHostToDevice));
         free(h_XImats);
-        return d_XImats;
+        if (_e != cudaSuccess) { grid_cleanup_free(d_XImats, "cudaFree(d_XImats)", nullptr, nullptr); return grid_fail(failed_op, "cudaMemcpy(d_XImats)", _e); }
+        *out = d_XImats;
+        return cudaSuccess;
+    }
+
+    template <typename T>
+    __host__
+    T* init_XImats() {
+        T *d = nullptr; const char *op = nullptr;
+        cudaError_t e = init_XImats_checked<T>(&d, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
+        return d;
     }
 
     /**
-     * Initializes the robotModel helpers in GPU memory
+     * Releases the nested device arrays a host-side robotModel<T> owns (best effort, reverse order; null members skipped)
+     *
+     * @param h_robotModel is the host copy of the struct; members are nulled as they are released
+     * @return the first cudaFree error (cudaSuccess if none); the failing member is named in *cleanup_op
+     */
+    template <typename T>
+    __host__
+    cudaError_t release_robotModel_members(robotModel<T> &h_robotModel, const char **cleanup_op = nullptr) {
+        cudaError_t first = cudaSuccess;
+        grid_cleanup_free(h_robotModel.d_topology_helpers, "cudaFree(d_topology_helpers)", &first, cleanup_op); h_robotModel.d_topology_helpers = nullptr;
+        grid_cleanup_free(h_robotModel.d_XImats, "cudaFree(d_XImats)", &first, cleanup_op); h_robotModel.d_XImats = nullptr;
+        return first;
+    }
+
+    /**
+     * Library-safe initialization of the robotModel helpers in GPU memory: every owned pointer is null before the first fallible call, construction stops at the first failure, everything acquired by this attempt is released, and *out is published only on complete success (never exit/abort/cudaDeviceReset)
+     *
+     * Notes:
+     *   The allocating device must be current; the model is bound to it (see free_robotModel_checked)
+     *
+     * @param out receives the device-resident struct pointer (nullptr on failure)
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess, or the first CUDA error (cudaErrorMemoryAllocation also stands for a failed host allocation)
+     */
+    template <typename T>
+    __host__
+    cudaError_t init_robotModel_checked(robotModel<T> **out, const char **failed_op = nullptr) {
+        *out = nullptr;
+        robotModel<T> h_robotModel = {};  // every owned pointer null before any fallible work
+        cudaError_t e = cudaSuccess;
+        e = init_XImats_checked<T>(&h_robotModel.d_XImats, failed_op);
+        if (e != cudaSuccess) { release_robotModel_members<T>(h_robotModel); return e; }
+        e = init_topology_helpers_checked<T>(&h_robotModel.d_topology_helpers, failed_op);
+        if (e != cudaSuccess) { release_robotModel_members<T>(h_robotModel); return e; }
+        robotModel<T> *d_robotModel = nullptr;
+        e = GRID_CUDA_CALL(cudaMalloc((void**)&d_robotModel,sizeof(robotModel<T>)));
+        if (e != cudaSuccess) { release_robotModel_members<T>(h_robotModel); return grid_fail(failed_op, "cudaMalloc(d_robotModel)", e); }
+        e = GRID_CUDA_CALL(cudaMemcpy(d_robotModel,&h_robotModel,sizeof(robotModel<T>),cudaMemcpyHostToDevice));
+        if (e != cudaSuccess) { grid_cleanup_free(d_robotModel, "cudaFree(d_robotModel)", nullptr, nullptr); release_robotModel_members<T>(h_robotModel); return grid_fail(failed_op, "cudaMemcpy(d_robotModel)", e); }
+        *out = d_robotModel;
+        return cudaSuccess;
+    }
+
+    /**
+     * Initializes the robotModel helpers in GPU memory (legacy policy: exit on failure, or sticky first error + nullptr under GRID_GPUERRCHK_NO_EXIT; prefer init_robotModel_checked in library code)
      *
      * @return A pointer to the robotModel struct
      */
     template <typename T>
     __host__
     robotModel<T>* init_robotModel() {
-        robotModel<T> h_robotModel;
-        h_robotModel.d_XImats = init_XImats<T>();
-        h_robotModel.d_topology_helpers = init_topology_helpers<T>();
-        robotModel<T> *d_robotModel; gpuErrchk(cudaMalloc((void**)&d_robotModel,sizeof(robotModel<T>)));
-        gpuErrchk(cudaMemcpy(d_robotModel,&h_robotModel,sizeof(robotModel<T>),cudaMemcpyHostToDevice));
+        robotModel<T> *d_robotModel = nullptr; const char *op = nullptr;
+        cudaError_t e = init_robotModel_checked<T>(&d_robotModel, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
         return d_robotModel;
     }
 
     /**
-     * Frees a robotModel allocated by init_robotModel: the NESTED device arrays (d_XImats / d_topology_helpers [+ any flag-gated runtime parameter tables]) AND the struct itself. A bare cudaFree(d_robotModel) frees ONLY the struct and leaks the nested arrays; this recovers them by copying the struct back to host first.
+     * Library-safe destruction of a robotModel allocated by init_robotModel[_checked]: frees the NESTED device arrays (d_XImats / d_topology_helpers [+ any flag-gated runtime parameter tables]) AND the struct itself, without exit/abort/cudaDeviceReset. nullptr is a no-op (cudaSuccess). The struct is copied back to recover the nested pointers; if THAT copy fails nothing further is touched (documented limitation: the nested arrays cannot be recovered and leak) and the copy error is returned. Device affinity: the model must be freed with its allocating device current — a mismatch returns cudaErrorInvalidDevice and frees nothing. Cleanup continues past a failed cudaFree; the FIRST error is returned.
+     *
+     * @param d_robotModel is a pointer returned by init_robotModel[_checked] (or nullptr)
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__
+    cudaError_t free_robotModel_checked(robotModel<T> *d_robotModel, const char **failed_op = nullptr) {
+        if (d_robotModel == nullptr) { return cudaSuccess; }
+        cudaPointerAttributes attr; int current_device = -1;
+        cudaError_t e = GRID_CUDA_CALL(cudaPointerGetAttributes(&attr, d_robotModel));
+        if (e != cudaSuccess) { return grid_fail(failed_op, "cudaPointerGetAttributes(d_robotModel)", e); }
+        e = GRID_CUDA_CALL(cudaGetDevice(&current_device));
+        if (e != cudaSuccess) { return grid_fail(failed_op, "cudaGetDevice", e); }
+        if (attr.type != cudaMemoryTypeDevice || attr.device != current_device) { return grid_fail(failed_op, "device affinity (d_robotModel was allocated on another device)", cudaErrorInvalidDevice); }
+        robotModel<T> h_robotModel = {};
+        e = GRID_CUDA_CALL(cudaMemcpy(&h_robotModel, d_robotModel, sizeof(robotModel<T>), cudaMemcpyDeviceToHost));
+        if (e != cudaSuccess) { return grid_fail(failed_op, "cudaMemcpy(robotModel D2H; nested arrays unrecoverable)", e); }
+        const char *cleanup_op = nullptr;
+        cudaError_t first = release_robotModel_members<T>(h_robotModel, &cleanup_op);
+        if (first != cudaSuccess) { grid_fail(failed_op, cleanup_op, first); }
+        grid_cleanup_free(d_robotModel, "cudaFree(d_robotModel)", &first, failed_op != nullptr && *failed_op == nullptr ? failed_op : nullptr);
+        return first;
+    }
+
+    /**
+     * Frees a robotModel allocated by init_robotModel (legacy policy: exit on failure, or sticky first error under GRID_GPUERRCHK_NO_EXIT; prefer free_robotModel_checked in library code). A bare cudaFree(d_robotModel) frees ONLY the struct and leaks the nested arrays; this recovers them by copying the struct back to host first.
      *
      * @param d_robotModel is a pointer returned by init_robotModel
      */
     template <typename T>
     __host__
     void free_robotModel(robotModel<T> *d_robotModel) {
-        robotModel<T> h_robotModel;
-        gpuErrchk(cudaMemcpy(&h_robotModel, d_robotModel, sizeof(robotModel<T>), cudaMemcpyDeviceToHost));
-        gpuErrchk(cudaFree(h_robotModel.d_XImats));
-        gpuErrchk(cudaFree(h_robotModel.d_topology_helpers));
-        gpuErrchk(cudaFree(d_robotModel));
+        const char *op = nullptr;
+        cudaError_t e = free_robotModel_checked<T>(d_robotModel, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
     }
 
+    // Owning handle for a robotModel<T>: noncopyable, movable; init() constructs via
+    // init_robotModel_checked, free() destroys via free_robotModel_checked (reportable),
+    // the destructor destroys best-effort, release() transfers ownership to the caller.
+    template <typename T>
+    struct robotModel_owner {
+        robotModel<T> *model = nullptr;
+        robotModel_owner() = default;
+        robotModel_owner(const robotModel_owner&) = delete;
+        robotModel_owner& operator=(const robotModel_owner&) = delete;
+        robotModel_owner(robotModel_owner &&o) noexcept : model(o.model) { o.model = nullptr; }
+        robotModel_owner& operator=(robotModel_owner &&o) noexcept { if (this != &o) { free(); model = o.model; o.model = nullptr; } return *this; }
+        ~robotModel_owner() { free(); }
+        __host__ cudaError_t init(const char **failed_op = nullptr) { free(); return init_robotModel_checked<T>(&model, failed_op); }
+        __host__ cudaError_t free(const char **failed_op = nullptr) { robotModel<T> *m = model; model = nullptr; return free_robotModel_checked<T>(m, failed_op); }
+        __host__ robotModel<T>* release() { robotModel<T> *m = model; model = nullptr; return m; }
+        __host__ robotModel<T>* get() const { return model; }
+    };
+    
     template <typename T>
     __host__
     T *grid_host_alloc(size_t bytes) {
@@ -10997,180 +11338,356 @@ namespace grid {
         return p;
     }
     __host__ __device__ constexpr size_t grid_pool_align(size_t b) { return (b + 255) & ~(size_t)255; }
-    __host__ inline cudaError_t grid_device_alloc(void **p, size_t bytes) {
-        grid_device_pool_t &pool = grid_device_pool();
-        if (pool.base != nullptr) {
+    // W04-B B1 (K1): the allocator takes its pool EXPLICITLY so several arenas (runtime
+    // contexts) on one .so never share a cursor; the pool-less overloads below keep the
+    // historical one-liners (HJCD/GATO consumers) on the default pool — same caller API.
+    __host__ inline cudaError_t grid_device_alloc(grid_device_pool_t *pool, void **p, size_t bytes) {
+        if (pool != nullptr && pool->base != nullptr) {
             const size_t need = grid_pool_align(bytes);
-            if (pool.used + need > pool.bytes) { *p = nullptr; return cudaErrorMemoryAllocation; }
-            *p = (void *)((char *)pool.base + pool.used);
-            pool.used += need;
+            if (pool->used + need > pool->bytes) { *p = nullptr; return cudaErrorMemoryAllocation; }
+            *p = (void *)((char *)pool->base + pool->used);
+            pool->used += need;
             return cudaSuccess;
         }
         return cudaMalloc(p, bytes);
     }
+    __host__ inline cudaError_t grid_device_alloc(void **p, size_t bytes) { return grid_device_alloc(&grid_device_pool(), p, bytes); }
     template <typename T>
-    __host__ inline cudaError_t grid_device_free(T *p) {
-        grid_device_pool_t &pool = grid_device_pool();
-        if (pool.base != nullptr && (void *)p >= pool.base && (char *)p < (char *)pool.base + pool.bytes) {
+    __host__ inline cudaError_t grid_device_free(grid_device_pool_t *pool, T *p) {
+        if (pool != nullptr && pool->base != nullptr && (void *)p >= pool->base && (char *)p < (char *)pool->base + pool->bytes) {
             return cudaSuccess;  // carved from the caller-owned slab: nothing to free
         }
         return cudaFree((void *)p);
     }
+    template <typename T>
+    __host__ inline cudaError_t grid_device_free(T *p) { return grid_device_free(&grid_device_pool(), p); }
+    
+    template <typename T>
+    __host__ inline void grid_cleanup_device_free(grid_device_pool_t *pool, T *p, const char *op, cudaError_t *first_cleanup_code, const char **first_cleanup_op) {
+        if (p == nullptr) { return; }
+        cudaError_t e = GRID_CUDA_CALL(grid_device_free(pool, p));
+        if (e != cudaSuccess && first_cleanup_code != nullptr && *first_cleanup_code == cudaSuccess) {
+            *first_cleanup_code = e; if (first_cleanup_op != nullptr) { *first_cleanup_op = op; }
+        }
+    }
+    template <typename T>
+    __host__ inline void grid_cleanup_device_free(T *p, const char *op, cudaError_t *first_cleanup_code, const char **first_cleanup_op) {
+        grid_cleanup_device_free(&grid_device_pool(), p, op, first_cleanup_code, first_cleanup_op);
+    }
     
     /**
-     * Allocated device and host memory for all computations
+     * Releases every device/host buffer a gridData owns (best effort, null members skipped; pool-carved buffers are rewound by the caller); the struct itself is NOT freed
      *
-     * @return A pointer to the gridData struct of pointers
+     * @param hd_data allocated by init_gridData[_checked] (or nullptr)
+     * @return the first cudaFree error (cudaSuccess if none), named in *cleanup_op
      */
-    template <typename T, int NUM_TIMESTEPS, gridDataKind KIND = GRID_DATA_ALL>
+    template <typename T, gridDataKind KIND = GRID_DATA_ALL>
     __host__
-    gridData<T, KIND> *init_gridData(){
-        gridData<T, KIND> *hd_data = (gridData<T, KIND> *)calloc(1, sizeof(gridData<T, KIND>));
+    cudaError_t release_gridData_members(gridData<T, KIND> *hd_data, const char **cleanup_op = nullptr) {
+        cudaError_t first = cudaSuccess;
+        if (hd_data == nullptr) { return first; }
         const bool needs_dynamics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS;
         const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
         // input variables used by dynamics and/or kinematics
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd_u = grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_q = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_q_qd_u, "grid_device_free(d_q_qd_u)", &first, cleanup_op); hd_data->d_q_qd_u = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_q, "grid_device_free(d_q)", &first, cleanup_op); hd_data->d_q = nullptr;
+            grid_host_free(hd_data->h_q_qd_u); hd_data->h_q_qd_u = nullptr;
+            grid_host_free(hd_data->h_q); hd_data->h_q = nullptr;
             // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
             // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
             // copy to d_f_ext to apply external forces.
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_f_ext = (T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_f_ext, "grid_device_free(d_f_ext)", &first, cleanup_op); hd_data->d_f_ext = nullptr;
+            grid_host_free(hd_data->h_f_ext); hd_data->h_f_ext = nullptr;
         }
         if (needs_dynamics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_q_qd, "grid_device_free(d_q_qd)", &first, cleanup_op); hd_data->d_q_qd = nullptr;
+            grid_host_free(hd_data->h_q_qd); hd_data->h_q_qd = nullptr;
         }
         // dynamics outputs and fallback workspace
         if (needs_dynamics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_c, "grid_device_free(d_c)", &first, cleanup_op); hd_data->d_c = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_Minv, "grid_device_free(d_Minv)", &first, cleanup_op); hd_data->d_Minv = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_qdd, "grid_device_free(d_qdd)", &first, cleanup_op); hd_data->d_qdd = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_M, "grid_device_free(d_M)", &first, cleanup_op); hd_data->d_M = nullptr;
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dc_du, "grid_device_free(d_dc_du)", &first, cleanup_op); hd_data->d_dc_du = nullptr;
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_df_du, "grid_device_free(d_df_du)", &first, cleanup_op); hd_data->d_df_du = nullptr;
             #endif
             // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
             #if GRID_HAS_F_EXT_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dtau_dfext, "grid_device_free(d_dtau_dfext)", &first, cleanup_op); hd_data->d_dtau_dfext = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dqdd_dfext, "grid_device_free(d_dqdd_dfext)", &first, cleanup_op); hd_data->d_dqdd_dfext = nullptr;
             #endif
-            hd_data->h_dtau_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_dqdd_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            grid_host_free(hd_data->h_dtau_dfext); hd_data->h_dtau_dfext = nullptr;
+            grid_host_free(hd_data->h_dqdd_dfext); hd_data->h_dqdd_dfext = nullptr;
             // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
             // sizeof(T) leads so the byte count is size_t throughout: the element count
             // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
             #if GRID_HAS_F_EXT_GRADIENT_DQ
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
-            hd_data->h_f_ext_gradient_dq = grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_f_ext_gradient_dq, "grid_device_free(d_f_ext_gradient_dq)", &first, cleanup_op); hd_data->d_f_ext_gradient_dq = nullptr;
+            grid_host_free(hd_data->h_f_ext_gradient_dq); hd_data->h_f_ext_gradient_dq = nullptr;
             #endif
             // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
             #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_Y = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_Y, "grid_device_free(d_Y)", &first, cleanup_op); hd_data->d_Y = nullptr;
+            grid_host_free(hd_data->h_Y); hd_data->h_Y = nullptr;
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dqdd_dpi = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dqdd_dpi, "grid_device_free(d_dqdd_dpi)", &first, cleanup_op); hd_data->d_dqdd_dpi = nullptr;
+            grid_host_free(hd_data->h_dqdd_dpi); hd_data->h_dqdd_dpi = nullptr;
             #endif
             // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
             // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
             #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS));
-            hd_data->h_dY_dx = grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS);
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dY_dx, "grid_device_free(d_dY_dx)", &first, cleanup_op); hd_data->d_dY_dx = nullptr;
+            grid_host_free(hd_data->h_dY_dx); hd_data->h_dY_dx = nullptr;
             #endif
             #if GRID_HAS_IDSVA_SO
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_idsva_so, "grid_device_free(d_idsva_so)", &first, cleanup_op); hd_data->d_idsva_so = nullptr;
             #endif
             #if GRID_HAS_FDSVA_SO
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_df2, "grid_device_free(d_df2)", &first, cleanup_op); hd_data->d_df2 = nullptr;
             #endif
-            hd_data->h_c = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_Minv = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_M = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_qdd = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            grid_host_free(hd_data->h_c); hd_data->h_c = nullptr;
+            grid_host_free(hd_data->h_Minv); hd_data->h_Minv = nullptr;
+            grid_host_free(hd_data->h_M); hd_data->h_M = nullptr;
+            grid_host_free(hd_data->h_qdd); hd_data->h_qdd = nullptr;
             #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            hd_data->h_dc_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            grid_host_free(hd_data->h_dc_du); hd_data->h_dc_du = nullptr;
             #endif
             #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            hd_data->h_df_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            grid_host_free(hd_data->h_df_du); hd_data->h_df_du = nullptr;
             #endif
             #if GRID_HAS_IDSVA_SO
-            hd_data->h_idsva_so = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            grid_host_free(hd_data->h_idsva_so); hd_data->h_idsva_so = nullptr;
             #endif
             #if GRID_HAS_FDSVA_SO
-            hd_data->h_df2 = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
+            grid_host_free(hd_data->h_df2); hd_data->h_df2 = nullptr;
             #endif
             #if GRID_HAS_INTEGRATOR
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_x_kp1 = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_x_kp1, "grid_device_free(d_x_kp1)", &first, cleanup_op); hd_data->d_x_kp1 = nullptr;
+            grid_host_free(hd_data->h_x_kp1); hd_data->h_x_kp1 = nullptr;
             #endif
             #if GRID_HAS_INTEGRATOR_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dAB = grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dAB, "grid_device_free(d_dAB)", &first, cleanup_op); hd_data->d_dAB = nullptr;
+            grid_host_free(hd_data->h_dAB); hd_data->h_dAB = nullptr;
             #endif
         }
         // kinematics outputs
         if (needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_end_effector_pose = grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_gradient = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_hessian = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_frame_jacobian = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_frame_jacobian_dot = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_osc_inertia = grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
-            { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-              gpuErrchk(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); }
-            hd_data->h_eePose = grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_eePoseGrad = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_end_effector_pose, "grid_device_free(d_end_effector_pose)", &first, cleanup_op); hd_data->d_end_effector_pose = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_end_effector_pose_gradient, "grid_device_free(d_end_effector_pose_gradient)", &first, cleanup_op); hd_data->d_end_effector_pose_gradient = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_end_effector_pose_hessian, "grid_device_free(d_end_effector_pose_hessian)", &first, cleanup_op); hd_data->d_end_effector_pose_hessian = nullptr;
+            grid_host_free(hd_data->h_end_effector_pose); hd_data->h_end_effector_pose = nullptr;
+            grid_host_free(hd_data->h_end_effector_pose_gradient); hd_data->h_end_effector_pose_gradient = nullptr;
+            grid_host_free(hd_data->h_end_effector_pose_hessian); hd_data->h_end_effector_pose_hessian = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_frame_jacobian, "grid_device_free(d_frame_jacobian)", &first, cleanup_op); hd_data->d_frame_jacobian = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_frame_jacobian_dot, "grid_device_free(d_frame_jacobian_dot)", &first, cleanup_op); hd_data->d_frame_jacobian_dot = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_osc_inertia, "grid_device_free(d_osc_inertia)", &first, cleanup_op); hd_data->d_osc_inertia = nullptr;
+            grid_host_free(hd_data->h_frame_jacobian); hd_data->h_frame_jacobian = nullptr;
+            grid_host_free(hd_data->h_frame_jacobian_dot); hd_data->h_frame_jacobian_dot = nullptr;
+            grid_host_free(hd_data->h_osc_inertia); hd_data->h_osc_inertia = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_eePose, "grid_device_free(d_eePose)", &first, cleanup_op); hd_data->d_eePose = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_eePoseGrad, "grid_device_free(d_eePoseGrad)", &first, cleanup_op); hd_data->d_eePoseGrad = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_eepose_runtime_offset, "grid_device_free(d_eepose_runtime_offset)", &first, cleanup_op); hd_data->d_eepose_runtime_offset = nullptr;
+            grid_host_free(hd_data->h_eePose); hd_data->h_eePose = nullptr;
+            grid_host_free(hd_data->h_eePoseGrad); hd_data->h_eePoseGrad = nullptr;
         }
         // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
         if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_com = grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_ccrba = grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_energy = grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_com, "grid_device_free(d_com)", &first, cleanup_op); hd_data->d_com = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_ccrba, "grid_device_free(d_ccrba)", &first, cleanup_op); hd_data->d_ccrba = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_energy, "grid_device_free(d_energy)", &first, cleanup_op); hd_data->d_energy = nullptr;
+            grid_host_free(hd_data->h_com); hd_data->h_com = nullptr;
+            grid_host_free(hd_data->h_ccrba); hd_data->h_ccrba = nullptr;
+            grid_host_free(hd_data->h_energy); hd_data->h_energy = nullptr;
             // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_ke_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_pe_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_ke_regressor, "grid_device_free(d_ke_regressor)", &first, cleanup_op); hd_data->d_ke_regressor = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_pe_regressor, "grid_device_free(d_pe_regressor)", &first, cleanup_op); hd_data->d_pe_regressor = nullptr;
+            grid_host_free(hd_data->h_ke_regressor); hd_data->h_ke_regressor = nullptr;
+            grid_host_free(hd_data->h_pe_regressor); hd_data->h_pe_regressor = nullptr;
             // PS5 Coriolis matrix C(q,qd) (nv x nv)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_coriolis = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_coriolis, "grid_device_free(d_coriolis)", &first, cleanup_op); hd_data->d_coriolis = nullptr;
+            grid_host_free(hd_data->h_coriolis); hd_data->h_coriolis = nullptr;
             // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dccrba = grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_cmm_time_variation = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_dccrba, "grid_device_free(d_dccrba)", &first, cleanup_op); hd_data->d_dccrba = nullptr;
+            grid_cleanup_device_free(hd_data->pool, hd_data->d_cmm_time_variation, "grid_device_free(d_cmm_time_variation)", &first, cleanup_op); hd_data->d_cmm_time_variation = nullptr;
+            grid_host_free(hd_data->h_dccrba); hd_data->h_dccrba = nullptr;
+            grid_host_free(hd_data->h_cmm_time_variation); hd_data->h_cmm_time_variation = nullptr;
+        }
+        // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
+            if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
+                grid_cleanup_device_free(hd_data->pool, hd_data->d_workspace, "grid_device_free(d_workspace)", &first, cleanup_op); hd_data->d_workspace = nullptr;
+                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
+                // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
+                // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
+            }
+        return first;
+    }
+
+    /**
+     * Library-safe allocation of the device and host memory for all computations: stops at the first failed allocation/copy, releases everything this attempt acquired, names the failed operation and publishes *out on complete success only (never exit/abort/cudaDeviceReset)
+     *
+     * @param out receives the gridData pointer (nullptr on failure)
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T, int NUM_TIMESTEPS, gridDataKind KIND = GRID_DATA_ALL>
+    __host__
+    cudaError_t init_gridData_checked(gridData<T, KIND> **out, const char **failed_op = nullptr, grid_device_pool_t *pool = nullptr) {
+        grid_device_pool_t *_pool = (pool != nullptr) ? pool : &grid_device_pool();
+        *out = nullptr;
+        gridData<T, KIND> *hd_data = (gridData<T, KIND> *)GRID_HOST_ALLOC(calloc(1, sizeof(gridData<T, KIND>)));
+        if (hd_data == nullptr) { return grid_fail(failed_op, "calloc(gridData)", cudaErrorMemoryAllocation); }
+        hd_data->pool = _pool;
+        const bool needs_dynamics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS;
+        const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
+        // input variables used by dynamics and/or kinematics
+        if (needs_dynamics || needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q_qd_u)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q)", _e); } }
+            hd_data->h_q_qd_u = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q_qd_u == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q_qd_u)", cudaErrorMemoryAllocation); }
+            hd_data->h_q = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q)", cudaErrorMemoryAllocation); }
+            // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
+            // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
+            // copy to d_f_ext to apply external forces.
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_f_ext)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemset(d_f_ext)", _e); } }
+            hd_data->h_f_ext = (T *)GRID_HOST_ALLOC((T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T))); if (hd_data->h_f_ext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_f_ext)", cudaErrorMemoryAllocation); }
+        }
+        if (needs_dynamics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q_qd)", _e); } }
+            hd_data->h_q_qd = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q_qd == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q_qd)", cudaErrorMemoryAllocation); }
+        }
+        // dynamics outputs and fallback workspace
+        if (needs_dynamics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_c)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_Minv)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_qdd)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_M)", _e); } }
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dc_du)", _e); } }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_df_du)", _e); } }
+            #endif
+            // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
+            #if GRID_HAS_F_EXT_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dtau_dfext)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dqdd_dfext)", _e); } }
+            #endif
+            hd_data->h_dtau_dfext = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dtau_dfext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dtau_dfext)", cudaErrorMemoryAllocation); }
+            hd_data->h_dqdd_dfext = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dqdd_dfext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dqdd_dfext)", cudaErrorMemoryAllocation); }
+            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
+            // sizeof(T) leads so the byte count is size_t throughout: the element count
+            // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
+            #if GRID_HAS_F_EXT_GRADIENT_DQ
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_f_ext_gradient_dq)", _e); } }
+            hd_data->h_f_ext_gradient_dq = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS)); if (hd_data->h_f_ext_gradient_dq == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_f_ext_gradient_dq)", cudaErrorMemoryAllocation); }
+            #endif
+            // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_Y)", _e); } }
+            hd_data->h_Y = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_Y == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_Y)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dqdd_dpi)", _e); } }
+            hd_data->h_dqdd_dpi = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dqdd_dpi == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dqdd_dpi)", cudaErrorMemoryAllocation); }
+            #endif
+            // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
+            // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dY_dx)", _e); } }
+            hd_data->h_dY_dx = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS)); if (hd_data->h_dY_dx == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dY_dx)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_idsva_so)", _e); } }
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_df2)", _e); } }
+            #endif
+            hd_data->h_c = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_c == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_c)", cudaErrorMemoryAllocation); }
+            hd_data->h_Minv = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_Minv == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_Minv)", cudaErrorMemoryAllocation); }
+            hd_data->h_M = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_M == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_M)", cudaErrorMemoryAllocation); }
+            hd_data->h_qdd = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_qdd == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_qdd)", cudaErrorMemoryAllocation); }
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            hd_data->h_dc_du = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dc_du == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dc_du)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            hd_data->h_df_du = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_df_du == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_df_du)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            hd_data->h_idsva_so = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (hd_data->h_idsva_so == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_idsva_so)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            hd_data->h_df2 = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (hd_data->h_df2 == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_df2)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_INTEGRATOR
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_x_kp1)", _e); } }
+            hd_data->h_x_kp1 = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_x_kp1 == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_x_kp1)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_INTEGRATOR_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dAB)", _e); } }
+            hd_data->h_dAB = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dAB == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dAB)", cudaErrorMemoryAllocation); }
+            #endif
+        }
+        // kinematics outputs
+        if (needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose_gradient)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose_hessian)", _e); } }
+            hd_data->h_end_effector_pose = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose)", cudaErrorMemoryAllocation); }
+            hd_data->h_end_effector_pose_gradient = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose_gradient == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose_gradient)", cudaErrorMemoryAllocation); }
+            hd_data->h_end_effector_pose_hessian = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose_hessian == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose_hessian)", cudaErrorMemoryAllocation); }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_frame_jacobian)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_frame_jacobian_dot)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_osc_inertia)", _e); } }
+            hd_data->h_frame_jacobian = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_frame_jacobian == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_frame_jacobian)", cudaErrorMemoryAllocation); }
+            hd_data->h_frame_jacobian_dot = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_frame_jacobian_dot == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_frame_jacobian_dot)", cudaErrorMemoryAllocation); }
+            hd_data->h_osc_inertia = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_osc_inertia == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_osc_inertia)", cudaErrorMemoryAllocation); }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eePose)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eePoseGrad)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eepose_runtime_offset)", _e); } }
+            { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+              { cudaError_t _e = GRID_CUDA_CALL(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemcpy(d_eepose_runtime_offset)", _e); } } }
+            hd_data->h_eePose = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_eePose == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_eePose)", cudaErrorMemoryAllocation); }
+            hd_data->h_eePoseGrad = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_eePoseGrad == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_eePoseGrad)", cudaErrorMemoryAllocation); }
+        }
+        // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
+        if (needs_dynamics || needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_com)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_ccrba)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_energy)", _e); } }
+            hd_data->h_com = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_com == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_com)", cudaErrorMemoryAllocation); }
+            hd_data->h_ccrba = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_ccrba == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_ccrba)", cudaErrorMemoryAllocation); }
+            hd_data->h_energy = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_energy == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_energy)", cudaErrorMemoryAllocation); }
+            // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_ke_regressor)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_pe_regressor)", _e); } }
+            hd_data->h_ke_regressor = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_ke_regressor == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_ke_regressor)", cudaErrorMemoryAllocation); }
+            hd_data->h_pe_regressor = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_pe_regressor == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_pe_regressor)", cudaErrorMemoryAllocation); }
+            // PS5 Coriolis matrix C(q,qd) (nv x nv)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_coriolis)", _e); } }
+            hd_data->h_coriolis = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_coriolis == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_coriolis)", cudaErrorMemoryAllocation); }
+            // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dccrba)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_cmm_time_variation)", _e); } }
+            hd_data->h_dccrba = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dccrba == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dccrba)", cudaErrorMemoryAllocation); }
+            hd_data->h_cmm_time_variation = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_cmm_time_variation == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_cmm_time_variation)", cudaErrorMemoryAllocation); }
         }
         // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
             if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
                 const size_t _ws_per_ts = GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS;
                 int _ws_slots = NUM_TIMESTEPS;
                 const char *_ws_env = getenv("GRID_WORKSPACE_TIMESTEP_SLOTS");
-                if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
-                else if (grid_device_pool().base != nullptr && grid_device_pool().ws_slots > 0) { _ws_slots = grid_device_pool().ws_slots < NUM_TIMESTEPS ? grid_device_pool().ws_slots : NUM_TIMESTEPS; }
+                if (_pool->ws_slots > 0) { _ws_slots = _pool->ws_slots < NUM_TIMESTEPS ? _pool->ws_slots : NUM_TIMESTEPS; }
+                else if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
                 else if (_ws_per_ts > 0) {
                     size_t _ws_free = 0, _ws_total = 0;
-                    gpuErrchk(cudaMemGetInfo(&_ws_free, &_ws_total));
+                    { cudaError_t _e = GRID_CUDA_CALL(cudaMemGetInfo(&_ws_free, &_ws_total)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemGetInfo()", _e); } }
                     const size_t _ws_budget = _ws_free - _ws_free/10;  // 10% headroom
                     if (_ws_per_ts*(size_t)NUM_TIMESTEPS > _ws_budget) {
                         _ws_slots = (int)(_ws_budget/_ws_per_ts);
@@ -11178,17 +11695,202 @@ namespace grid {
                     }
                 }
                 hd_data->workspace_timestep_slots = _ws_slots;
-                gpuErrchk(grid_device_alloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_workspace)", _e); } }
                 // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
-                gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_begin_l2_persisting(d_workspace)", _e); } }
             }
+        *out = hd_data;
+        return cudaSuccess;
+    }
+
+    template <typename T, gridDataKind KIND = GRID_DATA_ALL>
+    __host__
+    cudaError_t init_gridData_checked(int NUM_TIMESTEPS, gridData<T, KIND> **out, const char **failed_op = nullptr, grid_device_pool_t *pool = nullptr) {
+        grid_device_pool_t *_pool = (pool != nullptr) ? pool : &grid_device_pool();
+        *out = nullptr;
+        gridData<T, KIND> *hd_data = (gridData<T, KIND> *)GRID_HOST_ALLOC(calloc(1, sizeof(gridData<T, KIND>)));
+        if (hd_data == nullptr) { return grid_fail(failed_op, "calloc(gridData)", cudaErrorMemoryAllocation); }
+        hd_data->pool = _pool;
+        const bool needs_dynamics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS;
+        const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
+        // input variables used by dynamics and/or kinematics
+        if (needs_dynamics || needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q_qd_u)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q)", _e); } }
+            hd_data->h_q_qd_u = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q_qd_u == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q_qd_u)", cudaErrorMemoryAllocation); }
+            hd_data->h_q = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q)", cudaErrorMemoryAllocation); }
+            // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
+            // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
+            // copy to d_f_ext to apply external forces.
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_f_ext)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemset(d_f_ext)", _e); } }
+            hd_data->h_f_ext = (T *)GRID_HOST_ALLOC((T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T))); if (hd_data->h_f_ext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_f_ext)", cudaErrorMemoryAllocation); }
+        }
+        if (needs_dynamics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_q_qd)", _e); } }
+            hd_data->h_q_qd = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_q_qd == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_q_qd)", cudaErrorMemoryAllocation); }
+        }
+        // dynamics outputs and fallback workspace
+        if (needs_dynamics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_c)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_Minv)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_qdd)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_M)", _e); } }
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dc_du)", _e); } }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_df_du)", _e); } }
+            #endif
+            // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
+            #if GRID_HAS_F_EXT_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dtau_dfext)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dqdd_dfext)", _e); } }
+            #endif
+            hd_data->h_dtau_dfext = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dtau_dfext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dtau_dfext)", cudaErrorMemoryAllocation); }
+            hd_data->h_dqdd_dfext = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dqdd_dfext == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dqdd_dfext)", cudaErrorMemoryAllocation); }
+            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
+            // sizeof(T) leads so the byte count is size_t throughout: the element count
+            // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
+            #if GRID_HAS_F_EXT_GRADIENT_DQ
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_f_ext_gradient_dq)", _e); } }
+            hd_data->h_f_ext_gradient_dq = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS)); if (hd_data->h_f_ext_gradient_dq == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_f_ext_gradient_dq)", cudaErrorMemoryAllocation); }
+            #endif
+            // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_Y)", _e); } }
+            hd_data->h_Y = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_Y == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_Y)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dqdd_dpi)", _e); } }
+            hd_data->h_dqdd_dpi = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dqdd_dpi == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dqdd_dpi)", cudaErrorMemoryAllocation); }
+            #endif
+            // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
+            // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dY_dx)", _e); } }
+            hd_data->h_dY_dx = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS)); if (hd_data->h_dY_dx == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dY_dx)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_idsva_so)", _e); } }
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_df2)", _e); } }
+            #endif
+            hd_data->h_c = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_c == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_c)", cudaErrorMemoryAllocation); }
+            hd_data->h_Minv = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_Minv == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_Minv)", cudaErrorMemoryAllocation); }
+            hd_data->h_M = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_M == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_M)", cudaErrorMemoryAllocation); }
+            hd_data->h_qdd = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_qdd == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_qdd)", cudaErrorMemoryAllocation); }
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+            hd_data->h_dc_du = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dc_du == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dc_du)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+            hd_data->h_df_du = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_df_du == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_df_du)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_IDSVA_SO
+            hd_data->h_idsva_so = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (hd_data->h_idsva_so == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_idsva_so)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_FDSVA_SO
+            hd_data->h_df2 = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS)); if (hd_data->h_df2 == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_df2)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_INTEGRATOR
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_x_kp1)", _e); } }
+            hd_data->h_x_kp1 = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_x_kp1 == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_x_kp1)", cudaErrorMemoryAllocation); }
+            #endif
+            #if GRID_HAS_INTEGRATOR_GRADIENT
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dAB)", _e); } }
+            hd_data->h_dAB = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dAB == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dAB)", cudaErrorMemoryAllocation); }
+            #endif
+        }
+        // kinematics outputs
+        if (needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose_gradient)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_end_effector_pose_hessian)", _e); } }
+            hd_data->h_end_effector_pose = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose)", cudaErrorMemoryAllocation); }
+            hd_data->h_end_effector_pose_gradient = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose_gradient == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose_gradient)", cudaErrorMemoryAllocation); }
+            hd_data->h_end_effector_pose_hessian = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_end_effector_pose_hessian == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_end_effector_pose_hessian)", cudaErrorMemoryAllocation); }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_frame_jacobian)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_frame_jacobian_dot)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_osc_inertia)", _e); } }
+            hd_data->h_frame_jacobian = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_frame_jacobian == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_frame_jacobian)", cudaErrorMemoryAllocation); }
+            hd_data->h_frame_jacobian_dot = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_frame_jacobian_dot == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_frame_jacobian_dot)", cudaErrorMemoryAllocation); }
+            hd_data->h_osc_inertia = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_osc_inertia == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_osc_inertia)", cudaErrorMemoryAllocation); }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eePose)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eePoseGrad)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_eepose_runtime_offset)", _e); } }
+            { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+              { cudaError_t _e = GRID_CUDA_CALL(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemcpy(d_eepose_runtime_offset)", _e); } } }
+            hd_data->h_eePose = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_eePose == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_eePose)", cudaErrorMemoryAllocation); }
+            hd_data->h_eePoseGrad = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_eePoseGrad == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_eePoseGrad)", cudaErrorMemoryAllocation); }
+        }
+        // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
+        if (needs_dynamics || needs_kinematics) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_com)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_ccrba)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_energy)", _e); } }
+            hd_data->h_com = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_com == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_com)", cudaErrorMemoryAllocation); }
+            hd_data->h_ccrba = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_ccrba == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_ccrba)", cudaErrorMemoryAllocation); }
+            hd_data->h_energy = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_energy == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_energy)", cudaErrorMemoryAllocation); }
+            // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_ke_regressor)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_pe_regressor)", _e); } }
+            hd_data->h_ke_regressor = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_ke_regressor == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_ke_regressor)", cudaErrorMemoryAllocation); }
+            hd_data->h_pe_regressor = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_pe_regressor == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_pe_regressor)", cudaErrorMemoryAllocation); }
+            // PS5 Coriolis matrix C(q,qd) (nv x nv)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_coriolis)", _e); } }
+            hd_data->h_coriolis = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_coriolis == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_coriolis)", cudaErrorMemoryAllocation); }
+            // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_dccrba)", _e); } }
+            { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_cmm_time_variation)", _e); } }
+            hd_data->h_dccrba = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_dccrba == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_dccrba)", cudaErrorMemoryAllocation); }
+            hd_data->h_cmm_time_variation = (T *)GRID_HOST_ALLOC(grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T))); if (hd_data->h_cmm_time_variation == nullptr) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "host_alloc(h_cmm_time_variation)", cudaErrorMemoryAllocation); }
+        }
+        // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
+            if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
+                const size_t _ws_per_ts = GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS;
+                int _ws_slots = NUM_TIMESTEPS;
+                const char *_ws_env = getenv("GRID_WORKSPACE_TIMESTEP_SLOTS");
+                if (_pool->ws_slots > 0) { _ws_slots = _pool->ws_slots < NUM_TIMESTEPS ? _pool->ws_slots : NUM_TIMESTEPS; }
+                else if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
+                else if (_ws_per_ts > 0) {
+                    size_t _ws_free = 0, _ws_total = 0;
+                    { cudaError_t _e = GRID_CUDA_CALL(cudaMemGetInfo(&_ws_free, &_ws_total)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "cudaMemGetInfo()", _e); } }
+                    const size_t _ws_budget = _ws_free - _ws_free/10;  // 10% headroom
+                    if (_ws_per_ts*(size_t)NUM_TIMESTEPS > _ws_budget) {
+                        _ws_slots = (int)(_ws_budget/_ws_per_ts);
+                        if (_ws_slots < 1) { _ws_slots = 1; }  // one slot must fit; else the malloc below fails loudly
+                    }
+                }
+                hd_data->workspace_timestep_slots = _ws_slots;
+                { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_workspace)", _e); } }
+                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
+                // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
+                // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
+                { cudaError_t _e = GRID_CUDA_CALL(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_begin_l2_persisting(d_workspace)", _e); } }
+            }
+        *out = hd_data;
+        return cudaSuccess;
+    }
+
+    /**
+     * Allocated device and host memory for all computations (legacy policy: exit on failure, or sticky first error + nullptr under GRID_GPUERRCHK_NO_EXIT; prefer init_gridData_checked in library code)
+     *
+     * @return A pointer to the gridData struct of pointers
+     */
+    template <typename T, int NUM_TIMESTEPS, gridDataKind KIND = GRID_DATA_ALL>
+    __host__
+    gridData<T, KIND> *init_gridData(){
+        gridData<T, KIND> *hd_data = nullptr; const char *op = nullptr;
+        cudaError_t e = init_gridData_checked<T, NUM_TIMESTEPS, KIND>(&hd_data, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
         return hd_data;
     }
 
     /**
-     * Allocated device and host memory for all computations
+     * Allocated device and host memory for all computations (legacy policy; prefer init_gridData_checked in library code)
      *
      * @param Max number of timesteps in the trajectory
      * @return A pointer to the gridData struct of pointers
@@ -11196,165 +11898,9 @@ namespace grid {
     template <typename T, gridDataKind KIND = GRID_DATA_ALL>
     __host__
     gridData<T, KIND> *init_gridData(int NUM_TIMESTEPS){
-        gridData<T, KIND> *hd_data = (gridData<T, KIND> *)calloc(1, sizeof(gridData<T, KIND>));
-        const bool needs_dynamics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_DYNAMICS;
-        const bool needs_kinematics = KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS;
-        // input variables used by dynamics and/or kinematics
-        if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd_u, 3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd_u = grid_host_alloc<T>(3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_q = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            // external forces (body-major 6*NUM_BODIES local-frame); zeroed so the
-            // default (no-fext) path subtracts nothing. Users overwrite h_f_ext and
-            // copy to d_f_ext to apply external forces.
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMemset(hd_data->d_f_ext, 0, 6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_f_ext = (T *)calloc(6*NUM_BODIES*NUM_TIMESTEPS, sizeof(T));
-        }
-        if (needs_dynamics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_q_qd, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_q_qd = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-        }
-        // dynamics outputs and fallback workspace
-        if (needs_dynamics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_c, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            #endif
-            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            #endif
-            // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
-            #if GRID_HAS_F_EXT_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            #endif
-            hd_data->h_dtau_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_dqdd_dfext = grid_host_alloc<T>(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
-            // sizeof(T) leads so the byte count is size_t throughout: the element count
-            // alone overflows int on big robots (h2_plus nv=81 @N=1024: 3.06e9 > INT_MAX)
-            #if GRID_HAS_F_EXT_GRADIENT_DQ
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_f_ext_gradient_dq, sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS));
-            hd_data->h_f_ext_gradient_dq = grid_host_alloc<T>(sizeof(T)*NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS);
-            #endif
-            // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
-            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_Y = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            #endif
-            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dqdd_dpi = grid_host_alloc<T>(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            #endif
-            // B.0: dY/dx (dq | dqd halves, each direction an nv x 10NB row-major block).
-            // sizeof(T) leads: 2*nv*nv*10NB*NUM_TIMESTEPS alone overflows int on big robots.
-            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dY_dx, sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS));
-            hd_data->h_dY_dx = grid_host_alloc<T>(sizeof(T)*2*NUM_VEL*NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS);
-            #endif
-            #if GRID_HAS_IDSVA_SO
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_idsva_so, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
-            #endif
-            #if GRID_HAS_FDSVA_SO
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_df2, sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS));
-            #endif
-            hd_data->h_c = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_Minv = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_M = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_qdd = grid_host_alloc<T>(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-            hd_data->h_dc_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            #endif
-            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-            hd_data->h_df_du = grid_host_alloc<T>(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            #endif
-            #if GRID_HAS_IDSVA_SO
-            hd_data->h_idsva_so = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
-            #endif
-            #if GRID_HAS_FDSVA_SO
-            hd_data->h_df2 = grid_host_alloc<T>(sizeof(T)*SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS);
-            #endif
-            #if GRID_HAS_INTEGRATOR
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_x_kp1 = grid_host_alloc<T>(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            #endif
-            #if GRID_HAS_INTEGRATOR_GRADIENT
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dAB = grid_host_alloc<T>(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
-            #endif
-        }
-        // kinematics outputs
-        if (needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose, 6*NUM_EES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_gradient, 6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_end_effector_pose_hessian, 6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_end_effector_pose = grid_host_alloc<T>(6*NUM_EES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_gradient = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_end_effector_pose_hessian = grid_host_alloc<T>(6*NUM_EES*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_frame_jacobian_dot, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_osc_inertia, 36*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_frame_jacobian = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_frame_jacobian_dot = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_osc_inertia = grid_host_alloc<T>(36*NUM_TIMESTEPS*sizeof(T));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePose, 6*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eePoseGrad, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_eepose_runtime_offset, 16*sizeof(T)));
-            { T h_Xtool_identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-              gpuErrchk(cudaMemcpy(hd_data->d_eepose_runtime_offset, h_Xtool_identity, 16*sizeof(T), cudaMemcpyHostToDevice)); }
-            hd_data->h_eePose = grid_host_alloc<T>(6*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_eePoseGrad = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-        }
-        // G2 centroidal quick-wins outputs (com: 3+3*NV ; ccrba: 6*NV+6 ; energy: 3)
-        if (needs_dynamics || needs_kinematics) {
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_com, (3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ccrba, (6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_energy, 3*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_com = grid_host_alloc<T>((3+3*NUM_VEL)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_ccrba = grid_host_alloc<T>((6*NUM_VEL+6)*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_energy = grid_host_alloc<T>(3*NUM_TIMESTEPS*sizeof(T));
-            // PS5 energy regressors (each 10*NUM_BODIES): KE (dynamics) + PE (kinematics)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_ke_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_pe_regressor, 10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_ke_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_pe_regressor = grid_host_alloc<T>(10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            // PS5 Coriolis matrix C(q,qd) (nv x nv)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_coriolis, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_coriolis = grid_host_alloc<T>(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            // PS5 dCCRBA: dccrba tensor (6*nv*nv) + cmm_time_variation Adot (6*nv)
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_dccrba, 6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(grid_device_alloc((void**)&hd_data->d_cmm_time_variation, 6*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
-            hd_data->h_dccrba = grid_host_alloc<T>(6*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-            hd_data->h_cmm_time_variation = grid_host_alloc<T>(6*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
-        }
-        // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
-            if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
-                const size_t _ws_per_ts = GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS;
-                int _ws_slots = NUM_TIMESTEPS;
-                const char *_ws_env = getenv("GRID_WORKSPACE_TIMESTEP_SLOTS");
-                if (_ws_env != nullptr && atoi(_ws_env) > 0) { _ws_slots = atoi(_ws_env) < NUM_TIMESTEPS ? atoi(_ws_env) : NUM_TIMESTEPS; }
-                else if (grid_device_pool().base != nullptr && grid_device_pool().ws_slots > 0) { _ws_slots = grid_device_pool().ws_slots < NUM_TIMESTEPS ? grid_device_pool().ws_slots : NUM_TIMESTEPS; }
-                else if (_ws_per_ts > 0) {
-                    size_t _ws_free = 0, _ws_total = 0;
-                    gpuErrchk(cudaMemGetInfo(&_ws_free, &_ws_total));
-                    const size_t _ws_budget = _ws_free - _ws_free/10;  // 10% headroom
-                    if (_ws_per_ts*(size_t)NUM_TIMESTEPS > _ws_budget) {
-                        _ws_slots = (int)(_ws_budget/_ws_per_ts);
-                        if (_ws_slots < 1) { _ws_slots = 1; }  // one slot must fit; else the malloc below fails loudly
-                    }
-                }
-                hd_data->workspace_timestep_slots = _ws_slots;
-                gpuErrchk(grid_device_alloc((void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
-                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
-                // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
-                // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
-                gpuErrchk(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots));
-            }
+        gridData<T, KIND> *hd_data = nullptr; const char *op = nullptr;
+        cudaError_t e = init_gridData_checked<T, KIND>(NUM_TIMESTEPS, &hd_data, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
         return hd_data;
     }
 
@@ -11465,8 +12011,9 @@ namespace grid {
      */
     template <typename T>
     __host__
-    T* init_joint_limits() {
-        T *h_joint_limits = (T*)malloc(12*sizeof(T));
+    cudaError_t init_joint_limits_checked(T **out, const char **failed_op = nullptr) {
+        *out = nullptr;
+        T h_joint_limits[12];
         h_joint_limits[0] = static_cast<T>(-3.0543261909900767);
         h_joint_limits[6] = static_cast<T>(3.0543261909900767);
         h_joint_limits[1] = static_cast<T>(-3.0543261909900767);
@@ -11479,11 +12026,23 @@ namespace grid {
         h_joint_limits[10] = static_cast<T>(3.0543261909900767);
         h_joint_limits[5] = static_cast<T>(-3.7524578917878086);
         h_joint_limits[11] = static_cast<T>(3.7524578917878086);
-        T *d_joint_limits;
-        gpuErrchk(cudaMalloc((void**)&d_joint_limits, 12*sizeof(T)));
-        gpuErrchk(cudaMemcpy(d_joint_limits, h_joint_limits, 12*sizeof(T), cudaMemcpyHostToDevice));
-        free(h_joint_limits);
-        return d_joint_limits;
+        T *d_joint_limits = nullptr;
+        cudaError_t _e = GRID_CUDA_CALL(cudaMalloc((void**)&d_joint_limits,12*sizeof(T)));
+        if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaMalloc(d_joint_limits)", _e); }
+        _e = GRID_CUDA_CALL(cudaMemcpy(d_joint_limits,h_joint_limits,12*sizeof(T),cudaMemcpyHostToDevice));
+        
+        if (_e != cudaSuccess) { grid_cleanup_free(d_joint_limits, "cudaFree(d_joint_limits)", nullptr, nullptr); return grid_fail(failed_op, "cudaMemcpy(d_joint_limits)", _e); }
+        *out = d_joint_limits;
+        return cudaSuccess;
+    }
+
+    template <typename T>
+    __host__
+    T* init_joint_limits() {
+        T *d = nullptr; const char *op = nullptr;
+        cudaError_t e = init_joint_limits_checked<T>(&d, &op);  // sequenced BEFORE reading op
+        grid_legacy_check(e, op, __FILE__, __LINE__);
+        return d;
     }
 
     /**
@@ -16755,6 +17314,12 @@ namespace grid {
     //   'EE' -> body 5 @ local offset (0, 0, 0.06)
     #define GRID_HAS_CONTACT_FRAMES 1
     const int NUM_CONTACT_FRAMES = 1;
+    // Device-wrapper smem arena (mirrors MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES): s_XmatsHom +
+    // the s_Xworld FK scratch (spilled to d_workspace at TIER_LITE+) + the EE linalg scratch. The
+    // grid_rbd contact_fext launcher sizes on THIS constant — never on another algorithm's
+    // (it used max(F_EXT_GRADIENT, EE_POSE)+4096, borrowed from families a dynamics-only subset
+    // does not even build; a family launcher must size on its own arena constant).
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_CONTACT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(256, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     /**
      * Contact-frame wrenches -> joint-local f_ext
      *
@@ -17372,9 +17937,458 @@ namespace grid {
         f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_f_c, s_dtau_dfext, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
+    
+    // ---- contact-frame positions + tangent Jacobians (GATO ask 2026-09-20): the baked contact ORIGINS
+    //      (the points f_ext_body takes the wrench about) as a suffixed multi-target batch; registration order.
+    // W1b batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS_CONTACT_FRAMES = 1
+    const int NUM_MULTI_TARGETS_CONTACT_FRAMES = 1;
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(256, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(128); }
+    /**
+     * Batched multi-target world positions
+     *
+     * Notes:
+     *   Computes world positions of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   One shared FK (world transforms) + parallel-over-targets offset extraction.
+     *
+     * @param s_out_pos is shared memory of size 3*N_TARGETS (xyz per target), N_TARGETS = 1
+     * @param s_q is the vector of joint positions
+     * @param s_Xhom is the per-joint local homogeneous transforms (already updated for q)
+     * @param s_temp is helper shared memory (holds s_Xworld = 16*NUM_JOINTS)
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
+     * @param d_workspace is the global-memory scratch used when !TEMP_IN_SMEM
+     */
+    template <typename T, bool TEMP_IN_SMEM = true>
+    __device__
+    void multi_target_position_contact_frames_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+        if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
+        (void)s_q; (void)s_linalg_smem;
+        T *s_Xworld = s_temp;   // 16 * 6
+        //
+        // Build world transforms for every joint via BFS-level chain-up
+        //
+        // BFS level 0 -> joints [0]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 0; par = -1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 1 -> joints [1]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 1; par = 0; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 2 -> joints [2]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 2; par = 1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 3 -> joints [3]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 3; par = 2; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 4 -> joints [4]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 4; par = 3; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 5 -> joints [5]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 5; par = 4; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // baked target batch: anchor frame id + LOCAL offset per target
+        static const int mt_anchor[] = { 5 };
+        static const T mt_offset[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.059999999999999998) };
+        //
+        // Extract each target's world position = R_world[anchor] @ offset + p_world
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 3; ind += blockDim.x*blockDim.y){
+            int row = ind % 3; int t = ind / 3;
+            const T *X = &s_Xworld[16 * mt_anchor[t]];
+            const T *o = &mt_offset[3 * t];
+            s_out_pos[3*t + row] = X[row]*o[0] + X[row + 4]*o[1] + X[row + 8]*o[2] + X[row + 12];
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes batched multi-target world positions
+     *
+     * Notes:
+     *   Computes world positions of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   Inline-CUDA / grid_collision users: at TIER_LITE/TIER_MINIMAL the shared FK scratch (s_Xworld, ~128*sizeof(T) bytes) moves from smem to d_workspace, freeing smem for the caller's outer kernel.
+     *   Output placement is the CALLER's choice (the s_out_pos pointer): smem for small batches, a global buffer when 3*N is large.
+     *
+     * @param s_out_pos is a pointer to memory of size 3*N_TARGETS where N_TARGETS = 1 (caller chooses smem for small batches or a global buffer for many spheres)
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param d_workspace is the global scratch buffer; size MULTI_TARGET_POSITION_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 128*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
+     */
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__
+    void multi_target_position_contact_frames_device(T *s_out_pos, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        // GRID shared arena layout
+        //   T s_XmatsHom[128]
+        //   T s_temp[128] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        extern __shared__ __align__(16) unsigned char s_arena[];
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+        T *s_temp;
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            (void)d_workspace;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+        }
+        else {
+            s_temp = d_workspace;
+        }
+        int *s_topology_helpers = nullptr;
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(256, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        else {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(128, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        multi_target_position_contact_frames_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+    }
+
+    // W2a batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(295, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(167); }
+    /**
+     * Batched multi-target world-position gradient
+     *
+     * Notes:
+     *   Position gradient d(world pos)/dv of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   Anchor-deduped geometric Jacobian (built once per distinct anchor) + offset epilogue; NO FK re-walk.
+     *
+     * @param s_out_grad is shared memory of size 3*NUM_VEL*N_TARGETS (3 x nv per target), N_TARGETS = 1, NUM_VEL = 6
+     * @param s_q is the vector of joint positions (unused; kept for signature parity)
+     * @param s_Xhom is the per-joint LOCAL homogeneous transforms (already updated for q)
+     * @param s_temp is helper shared memory (Xworld | Jv | Jw | ro)
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
+     * @param d_workspace is the global-memory scratch used when !TEMP_IN_SMEM
+     */
+    template <typename T, bool TEMP_IN_SMEM = true>
+    __device__
+    void multi_target_position_gradient_contact_frames_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+        if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
+        (void)s_q; (void)s_linalg_smem;
+        // scratch layout: Xworld | Jv (3 x nv x anchor) | Jw (3 x nv x anchor) | ro (3 x target)
+        T *s_Xworld = &s_temp[0];
+        T *s_Jv     = &s_temp[128];
+        T *s_Jw     = &s_temp[146];
+        T *s_ro     = &s_temp[164];
+        //
+        // Step 1: build world transforms for every joint via BFS-level chain-up
+        //
+        // BFS level 0 -> joints [0]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 0; par = -1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 1 -> joints [1]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 1; par = 0; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 2 -> joints [2]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 2; par = 1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 3 -> joints [3]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 3; par = 2; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 4 -> joints [4]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 4; par = 3; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 5 -> joints [5]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 5; par = 4; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        //
+        // Step 2: zero the J_v and J_w scratch (out-of-chain columns stay zero)
+        //
+        glass::set_const<T, 36>(static_cast<T>(0), s_Jv);
+        //
+        // Step 3: per-chain-joint columns of J_v, J_w (one block-parallel work-item per (ee, S-column))
+        //
+        static const int eeg_job_j[] = { 0, 1, 2, 3, 4, 5 };
+        static const int eeg_job_anc[] = { 5, 5, 5, 5, 5, 5 };
+        static const int eeg_job_rev[] = { 1, 1, 1, 1, 1, 1 };
+        static const int eeg_job_base[] = { 0, 3, 6, 9, 12, 15 };
+        static const T eeg_job_ax[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1) };
+        for(int job_idx = threadIdx.x + threadIdx.y*blockDim.x; job_idx < 6; job_idx += blockDim.x*blockDim.y){
+            int j   = eeg_job_j[job_idx];
+            int ee_anchor = eeg_job_anc[job_idx];
+            int col_base = eeg_job_base[job_idx];
+            T ax0 = eeg_job_ax[3*job_idx + 0]; T ax1 = eeg_job_ax[3*job_idx + 1]; T ax2 = eeg_job_ax[3*job_idx + 2];
+            T axw_0 = s_Xworld[16*j + 0]*ax0 + s_Xworld[16*j + 4]*ax1 + s_Xworld[16*j + 8]*ax2;
+            T axw_1 = s_Xworld[16*j + 1]*ax0 + s_Xworld[16*j + 5]*ax1 + s_Xworld[16*j + 9]*ax2;
+            T axw_2 = s_Xworld[16*j + 2]*ax0 + s_Xworld[16*j + 6]*ax1 + s_Xworld[16*j + 10]*ax2;
+            if (eeg_job_rev[job_idx]) {
+                s_Jw[col_base + 0] = axw_0; s_Jw[col_base + 1] = axw_1; s_Jw[col_base + 2] = axw_2;
+                T dx = s_Xworld[16*ee_anchor + 12] - s_Xworld[16*j + 12];
+                T dy = s_Xworld[16*ee_anchor + 13] - s_Xworld[16*j + 13];
+                T dz = s_Xworld[16*ee_anchor + 14] - s_Xworld[16*j + 14];
+                s_Jv[col_base + 0] = axw_1*dz - axw_2*dy;
+                s_Jv[col_base + 1] = axw_2*dx - axw_0*dz;
+                s_Jv[col_base + 2] = axw_0*dy - axw_1*dx;
+            }
+            else {
+                s_Jv[col_base + 0] = axw_0; s_Jv[col_base + 1] = axw_1; s_Jv[col_base + 2] = axw_2;
+            }
+        }
+        __syncthreads();
+        // baked batch: target -> anchor world-frame jid, target -> deduped anchor slot, LOCAL offset
+        static const int mt_anchor[] = { 5 };
+        static const int mt_anchor_idx[] = { 0 };
+        static const T mt_offset[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.059999999999999998) };
+        //
+        // Phase B pre-pass: ro[t] = R_world[anchor(t)] @ offset(t)  (once per target)
+        //
+        for(int t = threadIdx.x + threadIdx.y*blockDim.x; t < 1; t += blockDim.x*blockDim.y){
+            const T *X = &s_Xworld[16 * mt_anchor[t]];
+            const T *o = &mt_offset[3 * t];
+            s_ro[3*t + 0] = X[0]*o[0] + X[4]*o[1] + X[8]*o[2];
+            s_ro[3*t + 1] = X[1]*o[0] + X[5]*o[1] + X[9]*o[2];
+            s_ro[3*t + 2] = X[2]*o[0] + X[6]*o[1] + X[10]*o[2];
+        }
+        __syncthreads();
+        //
+        // Phase B: dpos[t][:,vi] = Jv[anchor,:,vi] + Jw[anchor,:,vi] x ro[t]  (Jw=0 for prismatic -> no cross)
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
+            int vi = ind % 6; int t = ind / 6;
+            int jb = 3 * (6 * mt_anchor_idx[t] + vi);
+            T Jv0 = s_Jv[jb+0], Jv1 = s_Jv[jb+1], Jv2 = s_Jv[jb+2];
+            T Jw0 = s_Jw[jb+0], Jw1 = s_Jw[jb+1], Jw2 = s_Jw[jb+2];
+            T r0 = s_ro[3*t+0], r1 = s_ro[3*t+1], r2 = s_ro[3*t+2];
+            int ob = 3 * (6 * t + vi);
+            s_out_grad[ob + 0] = Jv0 + (Jw1*r2 - Jw2*r1);
+            s_out_grad[ob + 1] = Jv1 + (Jw2*r0 - Jw0*r2);
+            s_out_grad[ob + 2] = Jv2 + (Jw0*r1 - Jw1*r0);
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes batched multi-target world-position gradient
+     *
+     * Notes:
+     *   Position gradient d(world pos)/dv of a baked batch of fixed-offset targets.
+     *   Inline-CUDA / grid_collision users: at TIER_LITE/TIER_MINIMAL the anchor-deduped Jacobian scratch (s_Xworld|Jv|Jw|ro, ~167*sizeof(T) bytes; Jv/Jw dominate on big robots) moves from smem to d_workspace.
+     *   Output placement is the CALLER's choice (the s_out_grad pointer): smem for small batches, a global buffer when 3*nv*N is large.
+     *
+     * @param s_out_grad is a pointer to memory of size 3*NUM_VEL*N_TARGETS where N_TARGETS = 1 (caller chooses smem for small batches or a global buffer for many spheres)
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param d_workspace is the global scratch buffer; size MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 167*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
+     */
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__
+    void multi_target_position_gradient_contact_frames_device(T *s_out_grad, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        // GRID shared arena layout
+        //   T s_XmatsHom[128]
+        //   T s_temp[167] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        extern __shared__ __align__(16) unsigned char s_arena[];
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+        T *s_temp;
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            (void)d_workspace;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(167);
+        }
+        else {
+            s_temp = d_workspace;
+        }
+        int *s_topology_helpers = nullptr;
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(295, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        else {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(128, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        multi_target_position_gradient_contact_frames_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+    }
+
+    // Asked-for names: thin aliases over the suffixed multi-target family. positions = 3*NUM_CONTACT_FRAMES;
+    // Jacobian = 3*NUM_VEL per frame, layout [3*NUM_VEL*f + 3*vi + row], tangent [v_lin; omega; joints] (pin LOCAL chart).
+    // The *_COUNT constants size a caller-provided T scratch for the grid_plant wrappers (XmatsHom + FK scratch +
+    // topology ints + alignment slack, the ee_pos convention); the *_BYTES sizers are the dynamic-smem arena.
+    const int CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT = 256 + TOPOLOGY_HELPERS_COUNT + 8;
+    const int CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT = 295 + TOPOLOGY_HELPERS_COUNT + 8;
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_BYTES() { return MULTI_TARGET_POSITION_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES<T, TIER>(); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CONTACT_FRAME_POSITIONS_DEVICE_INLINE_WORKSPACE_BYTES() { return MULTI_TARGET_POSITION_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES<T, TIER>(); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES<T, TIER>(); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CONTACT_FRAME_POSITIONS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES<T, TIER>(); }
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__ inline void contact_frame_positions_device(T *s_pos, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        multi_target_position_contact_frames_device<T, RESOURCE_TIER>(s_pos, s_q, d_robotModel, d_workspace);
+    }
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__ inline void contact_frame_positions_gradient_device(T *s_dpos, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        multi_target_position_gradient_contact_frames_device<T, RESOURCE_TIER>(s_dpos, s_q, d_robotModel, d_workspace);
+    }
     // W1b batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS = 29
     const int NUM_MULTI_TARGETS = 29;
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED) return grid_shared_arena_bytes<T>(256, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else return grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(256, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(128); }
     /**
      * Batched multi-target world positions
@@ -17560,7 +18574,7 @@ namespace grid {
     }
 
     // W2a batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED) return grid_shared_arena_bytes<T>(559, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else return grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(559, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(128, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(431); }
     /**
      * Batched multi-target world-position gradient
@@ -29593,12 +30607,18 @@ namespace grid {
             }
             __syncthreads();
             // Multiply by -Minv to finish algorithm
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 864; ind += blockDim.x*blockDim.y){
-                int i = ind / 36 % 6; int j = ind / 6 % 6; int k = ind % 6;
-                if (ind < 216) d2a_dqdq[i*36 + j*6 + k] = -dot_prod<T, 6, 6, 36>(&s_Minv[i], &inner_dq[j + k*6]);
-                else if (ind < 432) d2a_dvdq[i*36 + j*6 + k] = -dot_prod<T, 6, 6, 36>(&s_Minv[i], &inner_cross[j + k*6]);
-                else if (ind < 648) d2a_dvdv[i*36 + j*6 + k] = -dot_prod<T, 6, 6, 36>(&s_Minv[i], &d2tau_dvdv[j + k*6]);
-                else d2a_dtdq[i*36 + j*6 + k] = -dot_prod<T, 6, 6, 36>(&s_Minv[i], &inner_tau[j + k*6]);
+            // i-tiled: 3 outputs per thread along i share each strided arena load (bit-identical to the per-cell dot)
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 288; ind += blockDim.x*blockDim.y){
+                int j = ind % 6; int k = ind / 6 % 6; int i0 = (ind / 36 % 2) * 3; int which = ind / 72;
+                const T *src = (which == 0) ? &inner_dq[j + k*6] : (which == 1) ? &inner_cross[j + k*6] : (which == 2) ? &d2tau_dvdv[j + k*6] : &inner_tau[j + k*6];
+                T *dst = (which == 0) ? d2a_dqdq : (which == 1) ? d2a_dvdq : (which == 2) ? d2a_dvdv : d2a_dtdq;
+                T acc[3];
+                for (int r = 0; r < 3; ++r) acc[r] = static_cast<T>(0);
+                for (int L = 0; L < 6; ++L) {
+                    T v = src[L*36];
+                    for (int r = 0; r < 3; ++r) acc[r] += s_Minv[i0 + r + L*6] * v;
+                }
+                for (int r = 0; r < 3; ++r) dst[(i0 + r)*36 + j*6 + k] = -acc[r];
             }
             __syncthreads();
         }
@@ -30344,9 +31364,15 @@ namespace grid {
          * Set MaxDynamicSharedMemorySize for every algorithm kernel (callable from any TU; idempotent). __forceinline__ is REQUIRED so the &kernel<T> expressions resolve to the CALLING TU's host stubs — otherwise the linker merges this function across TUs and we set the attribute on one TU's stubs while the launch goes through a different TU's.
          *
          */
+        /**
+         * Library-safe MaxDynamicSharedMemorySize registration for every algorithm kernel: returns the first cudaFuncSetAttribute/fit-check error and names it (no resources to release)
+         *
+         * @param failed_op (optional) receives a static string naming the failed operation
+         * @return cudaSuccess or the first error
+         */
         template <typename T>
         __host__ __forceinline__
-        void init_grid_kernel_attrs(){
+        cudaError_t init_grid_kernel_attrs_checked(const char **failed_op = nullptr){
             // enable opt-in dynamic shared memory for every algorithm kernel
             // Gate registration on the DEVICE opt-in max (not the codegen target):
             // grid_check_dynamic_shared_memory_bytes and the bench's
@@ -30356,184 +31382,193 @@ namespace grid {
             // them failed with cudaErrorInvalidValue (e.g. the floating idsva_so
             // body-frame diagnostic ~101 KB on g1). Keying on the device max keeps
             // registration, the fit-check, and the launch-skip in lockstep.
-            size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
+            size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
             if (INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics", INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics", INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics)", _e); } }
                 auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
                 auto _grid_kern_alias_1 = static_cast<void (*)(T *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
                 auto _grid_kern_alias_2 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_2)", _e); } }
                 auto _grid_kern_alias_3 = static_cast<void (*)(T *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_3)", _e); } }
             }
             if (MINV_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("minv", MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("minv", MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(minv)", _e); } }
                 auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_4)", _e); } }
                 auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_5)", _e); } }
             }
             if (FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics)", _e); } }
                 auto _grid_kern_alias_6 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_6)", _e); } }
                 auto _grid_kern_alias_7 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_7)", _e); } }
             }
             if (END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose)", _e); } }
                 auto _grid_kern_alias_8 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_8)", _e); } }
                 auto _grid_kern_alias_9 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_9)", _e); } }
             }
             if (END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_gradient)", _e); } }
                 auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_10)", _e); } }
                 auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_11)", _e); } }
             }
             if (INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics_gradient)", _e); } }
                 auto _grid_kern_alias_12 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_12, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_12)", _e); } }
                 auto _grid_kern_alias_13 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_13)", _e); } }
                 auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_14)", _e); } }
                 auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_15)", _e); } }
             }
             if (FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics_gradient)", _e); } }
                 auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_16)", _e); } }
                 auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_17)", _e); } }
                 auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_18)", _e); } }
                 auto _grid_kern_alias_19 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_19)", _e); } }
             }
             if (F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient", F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("f_ext_gradient", F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(f_ext_gradient)", _e); } }
                 auto _grid_kern_alias_20 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_20)", _e); } }
                 auto _grid_kern_alias_21 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_21)", _e); } }
             }
             if (F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("f_ext_gradient_dq", F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("f_ext_gradient_dq", F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(f_ext_gradient_dq)", _e); } }
                 auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_22)", _e); } }
                 auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_23)", _e); } }
             }
             if (IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("idsva_so_body_frame", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("idsva_so_body_frame", IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(idsva_so_body_frame)", _e); } }
                 auto _grid_kern_alias_24 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_24, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_24, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_24)", _e); } }
                 auto _grid_kern_alias_25 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_body_frame_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_25, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_25, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_25)", _e); } }
             }
             if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("fdsva_so", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("fdsva_so", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(fdsva_so)", _e); } }
                 auto _grid_kern_alias_26 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_26, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_26, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_26)", _e); } }
                 auto _grid_kern_alias_27 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_27, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_27, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_27)", _e); } }
             }
             if (INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator)", _e); } }
                 auto _grid_kern_alias_28 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_28, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_28, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_28)", _e); } }
                 auto _grid_kern_alias_29 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_29, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_29, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_29)", _e); } }
                 auto _grid_kern_alias_30 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_30, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_30, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_30)", _e); } }
                 auto _grid_kern_alias_31 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_31, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_31, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_31)", _e); } }
                 auto _grid_kern_alias_32 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_32, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_32, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_32)", _e); } }
                 auto _grid_kern_alias_33 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_33, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_33, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_33)", _e); } }
                 auto _grid_kern_alias_34 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_34, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_34, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_34)", _e); } }
                 auto _grid_kern_alias_35 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_35, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_35, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_35)", _e); } }
                 auto _grid_kern_alias_36 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_36, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_36, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_36)", _e); } }
                 auto _grid_kern_alias_37 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_37, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_37, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_37)", _e); } }
                 auto _grid_kern_alias_38 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_38, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_38, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_38)", _e); } }
                 auto _grid_kern_alias_39 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_39, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_39, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_39)", _e); } }
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_gradient)", _e); } }
                 auto _grid_kern_alias_40 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_40, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_40, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_40)", _e); } }
                 auto _grid_kern_alias_41 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_41, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_41, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_41)", _e); } }
                 auto _grid_kern_alias_42 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_42, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_42, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_42)", _e); } }
                 auto _grid_kern_alias_43 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_43, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_43, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_43)", _e); } }
                 auto _grid_kern_alias_44 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_44, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_44, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_44)", _e); } }
                 auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_45, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_45, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_45)", _e); } }
                 auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_46)", _e); } }
                 auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_47)", _e); } }
                 auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_48)", _e); } }
                 auto _grid_kern_alias_49 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_49)", _e); } }
                 auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_50)", _e); } }
                 auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_51)", _e); } }
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_with_gradient)", _e); } }
                 auto _grid_kern_alias_52 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_52)", _e); } }
                 auto _grid_kern_alias_53 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_53)", _e); } }
                 auto _grid_kern_alias_54 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_54, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_54, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_54)", _e); } }
                 auto _grid_kern_alias_55 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_55, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_55, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_55)", _e); } }
                 auto _grid_kern_alias_56 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_56, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_56, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_56)", _e); } }
                 auto _grid_kern_alias_57 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_57, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_57, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_57)", _e); } }
                 auto _grid_kern_alias_58 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_58)", _e); } }
                 auto _grid_kern_alias_59 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::SEMI_IMPLICIT_EULER>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_59)", _e); } }
                 auto _grid_kern_alias_60 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_60)", _e); } }
                 auto _grid_kern_alias_61 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_61)", _e); } }
                 auto _grid_kern_alias_62 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_62)", _e); } }
                 auto _grid_kern_alias_63 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_63)", _e); } }
             }
             if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
-                gpuErrchk(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian)", _e); } }
                 auto _grid_kern_alias_64 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_64)", _e); } }
                 auto _grid_kern_alias_65 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
-                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_65)", _e); } }
             }
+            return cudaSuccess;
+        }
+
+        template <typename T>
+        __host__ __forceinline__
+        void init_grid_kernel_attrs(){
+            const char *op = nullptr;
+            cudaError_t e = init_grid_kernel_attrs_checked<T>(&op);  // sequenced BEFORE reading op
+            grid_legacy_check(e, op, __FILE__, __LINE__);
         }
 
         /**
@@ -30868,18 +31903,53 @@ namespace grid {
          *
          * @return A pointer to the array of streams
          */
+        /**
+         * Library-safe stream allocation WITHOUT kernel-attribute registration: on failure every stream created by this attempt is destroyed and the failed operation named; *out published on success only
+         *
+         * @param out receives the stream array (nullptr on failure)
+         * @param failed_op (optional)
+         * @return cudaSuccess or the first error
+         */
+        template <typename T>
+        __host__
+        cudaError_t init_grid_streams_checked(cudaStream_t **out, const char **failed_op = nullptr){
+            *out = nullptr;
+            { cudaError_t _e = GRID_CUDA_CALL(cudaDeviceSynchronize()); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaDeviceSynchronize()", _e); } }
+            // allocate streams
+            cudaStream_t *streams = (cudaStream_t *)GRID_HOST_ALLOC(malloc(3*sizeof(cudaStream_t)));
+            if (streams == nullptr) { return grid_fail(failed_op, "malloc(streams)", cudaErrorMemoryAllocation); }
+            int priority, minPriority, maxPriority;
+            { cudaError_t _e = GRID_CUDA_CALL(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority)); if (_e != cudaSuccess) { free(streams); return grid_fail(failed_op, "cudaDeviceGetStreamPriorityRange()", _e); } }
+            for(int i=0; i<3; i++){
+                int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
+                cudaError_t _e = GRID_CUDA_CALL(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on streams[0]; a blocking stream keeps that ordered against the legacy default stream (`cudaStreamNonBlocking` here would let a kernel run BEFORE the H2D copy landed).
+                if (_e != cudaSuccess) { for (int j = 0; j < i; j++) { GRID_CUDA_CALL(cudaStreamDestroy(streams[j])); } free(streams); return grid_fail(failed_op, "cudaStreamCreateWithPriority(streams[i])", _e); }
+            }
+            *out = streams;
+            return cudaSuccess;
+        }
+
+        /**
+         * Library-safe full init: kernel attributes then streams (see init_grid_kernel_attrs_checked / init_grid_streams_checked)
+         *
+         * @param out receives the stream array (nullptr on failure)
+         * @param failed_op (optional)
+         * @return cudaSuccess or the first error
+         */
+        template <typename T>
+        __host__
+        cudaError_t init_grid_checked(cudaStream_t **out, const char **failed_op = nullptr){
+            *out = nullptr;
+            { cudaError_t _e = init_grid_kernel_attrs_checked<T>(failed_op); if (_e != cudaSuccess) { return _e; } }
+            return init_grid_streams_checked<T>(out, failed_op);
+        }
+
         template <typename T>
         __host__
         cudaStream_t *init_grid_streams(){
-            gpuErrchk(cudaDeviceSynchronize());
-            // allocate streams
-            cudaStream_t *streams = (cudaStream_t *)malloc(3*sizeof(cudaStream_t));
-            int priority, minPriority, maxPriority;
-            gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
-            for(int i=0; i<3; i++){
-                int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
-            }
+            cudaStream_t *streams = nullptr; const char *op = nullptr;
+            cudaError_t e = init_grid_streams_checked<T>(&streams, &op);  // sequenced BEFORE reading op
+            grid_legacy_check(e, op, __FILE__, __LINE__);
             return streams;
         }
 
@@ -30891,21 +31961,45 @@ namespace grid {
         template <typename T>
         __host__
         cudaStream_t *init_grid(){
-            init_grid_kernel_attrs<T>();
-            gpuErrchk(cudaDeviceSynchronize());
-            // allocate streams
-            cudaStream_t *streams = (cudaStream_t *)malloc(3*sizeof(cudaStream_t));
-            int priority, minPriority, maxPriority;
-            gpuErrchk(cudaDeviceGetStreamPriorityRange(&minPriority, &maxPriority));
-            for(int i=0; i<3; i++){
-                int adjusted_max = maxPriority - i; priority = adjusted_max > minPriority ? adjusted_max : minPriority;
-                gpuErrchk(cudaStreamCreateWithPriority(&(streams[i]),cudaStreamDefault,priority));  // BLOCKING streams: every generated host wrapper copies inputs on streams[0] and launches kernels on the DEFAULT stream — legacy default-stream sync is the ordering guarantee (nonblocking streams made that copy->launch pair a data race; ps5 fr3 first-call repro 2026-08-11)
-            }
+            cudaStream_t *streams = nullptr; const char *op = nullptr;
+            cudaError_t e = init_grid_checked<T>(&streams, &op);  // sequenced BEFORE reading op
+            grid_legacy_check(e, op, __FILE__, __LINE__);
             return streams;
         }
 
         /**
-         * Frees the memory used by grid
+         * Library-safe teardown of streams, robotModel and gridData: every argument may be nullptr (no-op); cleanup continues past a failed free/destroy and the FIRST error is returned and named; never exit/abort/cudaDeviceReset
+         *
+         * @param streams allocated by init_grid[_checked] (or nullptr)
+         * @param robotModel allocated by init_robotModel[_checked] (or nullptr)
+         * @param data allocated by init_gridData[_checked] (or nullptr)
+         * @param failed_op (optional)
+         * @return cudaSuccess or the first error
+         */
+        template <typename T, gridDataKind KIND = GRID_DATA_ALL>
+        __host__
+        cudaError_t close_grid_checked(cudaStream_t *streams, robotModel<T> *d_robotModel, gridData<T, KIND> *hd_data, const char **failed_op = nullptr){
+            cudaError_t first = cudaSuccess; const char *op = nullptr;
+            { cudaError_t e = free_robotModel_checked<T>(d_robotModel, &op); if (e != cudaSuccess && first == cudaSuccess) { first = e; grid_fail(failed_op, op, e); } }
+            if (hd_data != nullptr) {
+                op = nullptr;
+                { cudaError_t e = release_gridData_members<T, KIND>(hd_data, &op); if (e != cudaSuccess && first == cudaSuccess) { first = e; grid_fail(failed_op, op, e); } }
+                // Phase 3a/b/c/e: end the L2 persisting window opened at init.
+                { cudaError_t e = GRID_CUDA_CALL(grid_end_l2_persisting(0)); if (e != cudaSuccess && first == cudaSuccess) { first = e; grid_fail(failed_op, "grid_end_l2_persisting(0)", e); } }
+                grid_device_pool_t *_pool = hd_data->pool;
+                free(hd_data);
+                // Device-pool mode: rewind the consumed slab (this arena's OWN pool, B1/K1) so a close/re-init cycle re-carves from the top.
+                if (_pool != nullptr) { _pool->used = 0; }
+            }
+            if (streams != nullptr) {
+                for(int i=0; i<3; i++){ cudaError_t e = GRID_CUDA_CALL(cudaStreamDestroy(streams[i])); if (e != cudaSuccess && first == cudaSuccess) { first = e; grid_fail(failed_op, "cudaStreamDestroy(streams[i])", e); } }
+                free(streams);
+            }
+            return first;
+        }
+
+        /**
+         * Frees the memory used by grid (legacy policy: exit on failure, or sticky first error under GRID_GPUERRCHK_NO_EXIT; prefer close_grid_checked in library code)
          *
          * @param streams allocated by init_grid
          * @param robotModel allocated by init_robotModel
@@ -30914,40 +32008,9 @@ namespace grid {
         template <typename T, gridDataKind KIND = GRID_DATA_ALL>
         __host__
         void close_grid(cudaStream_t *streams, robotModel<T> *d_robotModel, gridData<T, KIND> *hd_data){
-            free_robotModel(d_robotModel); // frees nested d_XImats/d_topology_helpers(+runtime tables)+struct (bare cudaFree would leak the nested arrays)
-            gpuErrchk(grid_device_free(hd_data->d_q_qd_u)); gpuErrchk(grid_device_free(hd_data->d_q_qd)); gpuErrchk(grid_device_free(hd_data->d_q));
-            gpuErrchk(grid_device_free(hd_data->d_f_ext)); grid_host_free(hd_data->h_f_ext);
-            gpuErrchk(grid_device_free(hd_data->d_c)); gpuErrchk(grid_device_free(hd_data->d_Minv)); gpuErrchk(grid_device_free(hd_data->d_qdd)); gpuErrchk(grid_device_free(hd_data->d_M));
-            gpuErrchk(grid_device_free(hd_data->d_dc_du)); gpuErrchk(grid_device_free(hd_data->d_df_du));
-            gpuErrchk(grid_device_free(hd_data->d_dtau_dfext)); gpuErrchk(grid_device_free(hd_data->d_dqdd_dfext));
-            grid_host_free(hd_data->h_dtau_dfext); grid_host_free(hd_data->h_dqdd_dfext);
-            gpuErrchk(grid_device_free(hd_data->d_f_ext_gradient_dq)); grid_host_free(hd_data->h_f_ext_gradient_dq);
-            gpuErrchk(grid_device_free(hd_data->d_Y)); gpuErrchk(grid_device_free(hd_data->d_dqdd_dpi));
-            grid_host_free(hd_data->h_Y); grid_host_free(hd_data->h_dqdd_dpi);
-            gpuErrchk(grid_device_free(hd_data->d_dY_dx)); grid_host_free(hd_data->h_dY_dx);
-            gpuErrchk(grid_device_free(hd_data->d_ke_regressor)); gpuErrchk(grid_device_free(hd_data->d_pe_regressor));
-            grid_host_free(hd_data->h_ke_regressor); grid_host_free(hd_data->h_pe_regressor);
-            gpuErrchk(grid_device_free(hd_data->d_coriolis)); grid_host_free(hd_data->h_coriolis);
-            gpuErrchk(grid_device_free(hd_data->d_dccrba)); gpuErrchk(grid_device_free(hd_data->d_cmm_time_variation));
-            grid_host_free(hd_data->h_dccrba); grid_host_free(hd_data->h_cmm_time_variation);
-            gpuErrchk(grid_device_free(hd_data->d_end_effector_pose)); gpuErrchk(grid_device_free(hd_data->d_end_effector_pose_gradient)); gpuErrchk(grid_device_free(hd_data->d_end_effector_pose_hessian));
-            gpuErrchk(grid_end_l2_persisting(0));
-            gpuErrchk(grid_device_free(hd_data->d_workspace));
-            gpuErrchk(grid_device_free(hd_data->d_idsva_so));
-            gpuErrchk(grid_device_free(hd_data->d_df2));
-            grid_host_free(hd_data->h_idsva_so); grid_host_free(hd_data->h_df2);
-            grid_host_free(hd_data->h_q_qd_u); grid_host_free(hd_data->h_q_qd); grid_host_free(hd_data->h_q);
-            grid_host_free(hd_data->h_c); grid_host_free(hd_data->h_Minv); grid_host_free(hd_data->h_qdd); grid_host_free(hd_data->h_M);
-            grid_host_free(hd_data->h_dc_du); grid_host_free(hd_data->h_df_du);
-            grid_host_free(hd_data->h_end_effector_pose); grid_host_free(hd_data->h_end_effector_pose_gradient); grid_host_free(hd_data->h_end_effector_pose_hessian);
-            gpuErrchk(grid_device_free(hd_data->d_frame_jacobian)); gpuErrchk(grid_device_free(hd_data->d_frame_jacobian_dot)); gpuErrchk(grid_device_free(hd_data->d_osc_inertia));
-            grid_host_free(hd_data->h_frame_jacobian); grid_host_free(hd_data->h_frame_jacobian_dot); grid_host_free(hd_data->h_osc_inertia);
-            gpuErrchk(grid_device_free(hd_data->d_eePose)); gpuErrchk(grid_device_free(hd_data->d_eePoseGrad)); gpuErrchk(grid_device_free(hd_data->d_eepose_runtime_offset));
-            grid_host_free(hd_data->h_eePose); grid_host_free(hd_data->h_eePoseGrad);
-            gpuErrchk(grid_device_free(hd_data->d_x_kp1)); gpuErrchk(grid_device_free(hd_data->d_dAB));
-            grid_host_free(hd_data->h_x_kp1); grid_host_free(hd_data->h_dAB);
-            grid_device_pool().used = 0;
-            for(int i=0; i<3; i++){gpuErrchk(cudaStreamDestroy(streams[i]));} free(streams);
+            const char *op = nullptr;
+            cudaError_t e = close_grid_checked<T, KIND>(streams, d_robotModel, hd_data, &op);  // sequenced BEFORE reading op
+            grid_legacy_check(e, op, __FILE__, __LINE__);
         }
 
     }
@@ -31525,6 +32588,101 @@ namespace grid {
             end_effector_pose_inner_EE<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             end_effector_pose_gradient_inner_EE<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
+        }
+
+        /**
+         * contact_frame_positions: RAW contact-frame world positions (GATO ask 2026-09-20)
+         *
+         * Notes:
+         *   Caller-scratch INNER over grid::multi_target_position_contact_frames_inner: the world
+         *   positions of the 1 baked contact-frame ORIGINS (the same points f_ext_body
+         *   takes the wrench about), in registration order.
+         *   s_scratch must hold >= CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+         *
+         * @param s_pos is the 3*NUM_CONTACT_FRAMES position output
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch
+         * @param d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void contact_frame_positions(T *s_pos, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            using namespace grid;
+            // GRID shared arena layout
+            //   T s_XmatsHom[128]
+            //   T s_temp[128]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(256, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
+        }
+
+        /**
+         * contact_frame_positions_gradient: RAW contact-frame positions + tangent Jacobians (GATO ask 2026-09-20)
+         *
+         * Notes:
+         *   Caller-scratch INNER: ONE XmatsHom load feeds both the position and the gradient inner.
+         *   Jacobian layout: s_dpos[3*6*f + 3*vi + row] (position rows only; tangent d/dv
+         *   convention — floating base = [v_lin; omega; joints] in the pin LOCAL chart).
+         *   s_scratch must hold >= CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT elements of T, 16B aligned.
+         *
+         * @param s_pos is the 3*NUM_CONTACT_FRAMES position output
+         * @param s_dpos is the 3*NUM_VEL*NUM_CONTACT_FRAMES Jacobian output
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch
+         * @param d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void contact_frame_positions_gradient(T *s_pos, T *s_dpos, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            using namespace grid;
+            // GRID shared arena layout
+            //   T s_XmatsHom[128]
+            //   T s_temp[167]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(167);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(295, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            __syncthreads();
+            multi_target_position_gradient_contact_frames_inner<T, true>(s_dpos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
         }
 
@@ -32297,7 +33455,7 @@ namespace grid {
         };
 
         #define GRID_PLANT_HAS_STEP_GRADIENT 1
-        template <typename T> __host__ __device__ inline size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(8718); }
+        template <typename T> __host__ __device__ constexpr size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(8718); }
         /**
          * plant_step_hessian kernel: s_d2AB = d^2 integrator([q;qd], u, dt) per timestep (tier-aware scratch; pass-through to grid::integrator_hessian_device)
          *
@@ -32526,7 +33684,7 @@ namespace grid {
             }
         }
 
-        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == grid::TIER_SHARED)    return grid::grid_shared_arena_bytes<T>(9282, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else if constexpr (TIER == grid::TIER_LITE) return grid::grid_shared_arena_bytes<T>(9282, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); else                                        return grid::grid_shared_arena_bytes<T>(564, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(9282, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(9282, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid::grid_shared_arena_bytes<T>(564, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
         static const int GRID_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER = 1;
         #define GRID_PLANT_HAS_STEP_HESSIAN 1
         /**

@@ -16,6 +16,18 @@ Re-baselined 2026-09-20 (Wave 2.A): BSQP.solve() became stateless and its cold
 seed is hold-at-x (initialize_warm_start) instead of the old all-zeros
 trajectory buffer; indy7 (non-zero start config) cases changed, iiwa14/go2
 were bit-identical (their start states make the two seeds coincide).
+Re-baselined 2026-09-26 (GRiD pin 3af782e -> 5904dbd): iiwa14 only. URDFParser
+29d3d78 stopped rationalizing transform coefficients, so iiwa14's emitted
+transforms gained +-1.6e-15 terms (six XImats constants plus the sin/cos-
+dependent XImats / XmatsHom / dXmatsHom / d2XmatsHom update terms) that the
+old parser snapped to exact 0; indy7/go2 emit no such terms and stayed
+bit-identical. SENSITIVITY NOTE: these goldens are 10-iteration UNCONVERGED
+solves — a 1e-7 nudge of one input coordinate moves xu by ~1% (iiwa14) and
+~30% (indy7), so ANY numeric change shows up as an O(1) drift here. A drift
+therefore says "something changed", never how much: attribute it with the
+referee gates (test_dynamics_fingerprint / test_f_ext / test_exact_hessian /
+test_rowgroups vs the pinocchio-pinned tables) plus a compute-sanitizer
+memcheck of the cheapest module BEFORE re-baselining.
 """
 import os
 from pathlib import Path
