@@ -18,7 +18,7 @@ endif()
 option(GATO_FAST_MATH "Compile CUDA with -use_fast_math (disable for tight-tolerance validation)" ON)
 option(GATO_BUILD_DEMO "Build the bsqp C++ demo executable" ON)
 option(GATO_EXACT_HESSIAN "Compile the exact-Hessian (SO-SQP) stage-projection path; OFF keeps the device tree preprocessor-identical to the GN-only solver" OFF)
-option(GATO_CONTACT_FORCES "CL-3a: append a per-knot contact wrench to the control vector (f_c extends u; module-ABI change — build into build_fc/); OFF keeps the baseline solver bit-identical" OFF)
+option(GATO_CONTACT_FORCES "Append a per-knot contact wrench to the control vector (f_c extends u; a module-ABI change, so it builds as the separate _fc module variant); OFF keeps the baseline solver bit-identical" OFF)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # NOTE: -G is an nvcc flag and lives in the CUDA debug flags only; ASan on a CUDA
@@ -48,7 +48,7 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development NumPy)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 

@@ -9,3 +9,7 @@
 
 Each `(plant, N)` module compiles `plant.cuh` with the robot's directory on the
 include path, so adding a robot is purely generative — no C++ edits.
+
+- `integrator.cuh` — the fixed-base step / gradient / integrator-error adapters and their honest scratch sizers.
+- `grid_plant_step.cuh` — the floating-base (SE(3)) step twins, including the contact-wrench (fc) composition.
+- `manifold.cuh` — the floating-base state retract / difference (the SQP's ⊞ / ⊟).

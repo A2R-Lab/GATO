@@ -2,7 +2,6 @@
 // factor_bdsv_batched_kernel + solve_bdsv_factored_batched_kernel) — compiled against
 // the REAL kernel header via test/cuda/plant_shim.cuh (no grid.cuh), so there
 // is no mirror to drift. CL-0 gate of
-// docs/open-tasks/constraint_layer_locomotion_arc_plan_2026-07-10.md.
 //
 // Gates:
 //   1. factor(γ-system) + solve(γ) is BITWISE identical to the monolithic

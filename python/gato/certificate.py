@@ -12,19 +12,24 @@ trajectory row, and reports the same residual set:
 
 CL-0 solves carry no row multipliers (telemetry / relaxed-barrier modes), so
 ``duals=None`` reports primal + n_active and leaves the dual axes None. The
-ADMM / AL bindings (CL-1) pass their per-row dual state to activate them.
+ADMM / AL bindings pass their per-row dual state to activate them.
 Numpy-only — usable as a pytest gate and from notebooks.
 """
 import numpy as np
 
-KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U, KIND_EE_POS = 0, 1, 2, 3
+from .rowkinds import (KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U, KIND_EE_POS, KIND_LIN_U,  # noqa: F401 (re-exported)
+                       KIND_COLLISION, KIND_CONTACT_POS, KIND_NAMES)
 
 
-def row_values(group, xu, nx, nu, ee_fk=None):
+def row_values(group, xu, nx, nu, ee_fk=None, contact_fk=None, clearance_fn=None):
     """(n_knots, n_rows) g values of one row-group over a flat trajectory row.
 
-    ee_fk: callable q -> xyz for KIND_EE_POS rows (e.g. ``BSQP.ee_pos``);
-    required when the group is an EE group."""
+    ee_fk: q -> xyz for KIND_EE_POS rows (e.g. ``BSQP.ee_pos``).
+    contact_fk: q -> (n_frames, 3) for KIND_CONTACT_POS rows (e.g.
+    ``BSQP.contact_positions``); the residual subtracts the group's per-knot
+    target table (``group["tgt"]``). clearance_fn: q -> (n_spheres,) signed
+    clearances for KIND_COLLISION rows (there is no numpy twin of the device
+    clearance evaluator; pass one from your own environment model)."""
     nq = nx // 2
     step = nx + nu
     ks = range(group["knot_lo"], group["knot_hi"])
@@ -32,21 +37,34 @@ def row_values(group, xu, nx, nu, ee_fk=None):
     out = np.empty((len(ks), group["n_rows"]), dtype=np.float64)
     for j, k in enumerate(ks):
         base = k * step
+        q = xu[base:base + nq]
         if kind == KIND_BOX_Q:
-            out[j] = xu[base:base + nq]
+            out[j] = q
         elif kind == KIND_BOX_QD:
             out[j] = xu[base + nq:base + nx]
         elif kind == KIND_BOX_U:
             # rows = the group's n_rows (ACTUATED_SIZE), NOT the xu control
-            # stride: on GATO_CONTACT_FORCES builds nu = actuated + fc but the
+            # stride: on contact-force builds nu = actuated + fc but the
             # canonical torque box covers only the URDF-limited actuated slots
             out[j] = xu[base + nx:base + nx + group["n_rows"]]
         elif kind == KIND_EE_POS:
             if ee_fk is None:
                 raise ValueError("KIND_EE_POS rows need ee_fk (q -> xyz), e.g. BSQP.ee_pos")
-            out[j] = np.asarray(ee_fk(xu[base:base + nq]), dtype=np.float64)[:group["n_rows"]]
+            out[j] = np.asarray(ee_fk(q), dtype=np.float64)[:group["n_rows"]]
+        elif kind == KIND_LIN_U:
+            u = xu[base + nx:base + nx + nu]
+            out[j] = np.asarray(group["C"], dtype=np.float64) @ u + np.asarray(group["d"], dtype=np.float64)
+        elif kind == KIND_CONTACT_POS:
+            if contact_fk is None:
+                raise ValueError("KIND_CONTACT_POS rows need contact_fk (q -> (n_frames, 3)), e.g. BSQP.contact_positions")
+            p = np.asarray(contact_fk(q), dtype=np.float64).reshape(-1)[:group["n_rows"]]
+            out[j] = p - np.asarray(group["tgt"], dtype=np.float64)[k]
+        elif kind == KIND_COLLISION:
+            if clearance_fn is None:
+                raise ValueError("KIND_COLLISION rows need clearance_fn (q -> (n_spheres,) signed clearances)")
+            out[j] = np.asarray(clearance_fn(q), dtype=np.float64)[:group["n_rows"]]
         else:
-            raise ValueError(f"unknown row-group kind {kind}")
+            raise ValueError(f"unknown row-group kind {kind} (known: {sorted(KIND_NAMES)})")
     return out
 
 

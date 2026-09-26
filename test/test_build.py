@@ -28,10 +28,14 @@ def _cleanup(repo_root):
             _REGISTRY_PATH.write_text(json.dumps(reg, indent=2, sort_keys=True) + "\n")
 
 
-def test_build_end_to_end(repo_root, urdfs):
+def test_build_end_to_end(repo_root, urdfs, tmp_path):
     pytest.importorskip("pinocchio")
     try:
-        built = gato.build(urdfs["indy7"], name=NAME, N=[8], jobs=4)
+        # its OWN CMake tree: gato.build reconfigures the tree it is given for exactly
+        # this (plant, N) request, and pointing it at the shared <repo>/build used to
+        # leave that tree on the test plant — the next profile rebuild then failed
+        # on a missing grid.cuh until someone re-ran cmake (2026-09-26, twice)
+        built = gato.build(urdfs["indy7"], name=NAME, N=[8], jobs=4, build_dir=tmp_path / "build")
         assert built == [(NAME, 8)]
         assert (NAME, 8) in gato.available()
         meta = gato.robot_info(NAME)

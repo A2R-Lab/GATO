@@ -1,6 +1,6 @@
 """MPC_GATO: the closed-loop simulation driver used by the paper experiments.
 
-This is a *driver*, not the controller: it owns the pinocchio RK4 simulation
+This is a *driver*, not the controller: it owns the simulation world (pinocchio RK4 or MuJoCo)
 (including the unmodeled pendulum payload and ground-truth disturbance), the
 wall-clock pacing, task logic (figure-8 windowing / goal switching), and stat
 collection. The per-tick solver interaction lives in gato.controller.MPCController

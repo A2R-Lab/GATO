@@ -1,12 +1,12 @@
 # GATO constraint layer — mechanisms, measured defaults, provenance
 
-Reference for the row-group constraint API on `gato.BSQP` (CL-0..CL-3 arcs).
+Reference for the row-group constraint API on `gato.BSQP`.
 The code docstrings carry the CONTRACT (what each call does); this page keeps
 the measured tuning rulings, R1/R2 evaluation provenance and traps that used
-to live inline. Moved out of `interface.py` on 2026-09-20 (plan 2.A).
+to live inline; the docstrings carry a one-line summary and point here.
 
 Ordering rule (enforced, raises): `enable_limit_*` FIRST, then appended groups
-(`add_lin_u_rows` / `enable_u_cone` / `add_fc_box` / `enable_ee_terminal_equality`
+(`add_lin_u_rows` / `enable_u_cone` / `add_fc_box` / `add_fc_cone` / `add_contact_pos_rows` / `enable_ee_terminal_equality`
 / `enable_collision`) — a mechanism enable reinstalls the canonical limit groups.
 
 Mechanisms: `telemetry` (report only) · `barrier` (relaxed log barrier, soft)
@@ -37,7 +37,7 @@ transient enforcement matters more than speed.
 Toggle the SO-SQP stage-Hessian PSD projection for subsequent solves.
 
 Per-TASK feature: wins on EE-terminal tasks, neutral-to-worse on
-full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
+full-rank joint-terminal ones (numpy prototype study).
 Raises if the module was built without -DGATO_EXACT_HESSIAN=ON.
 
 Constraint-mechanism pairing (measured): exact pairs with AL, not ADMM
@@ -76,8 +76,8 @@ a solve; adapt it between solves), ``iters`` the fixed budget.
 R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
 rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
 controls at the warm start (closed-loop MPC parks); the measured
-pocket is ~0.005-0.02 (r1_report_2026-07-11.md).
-iters=10 BOUND by R2 (r2_report_2026-07-30.md): 2/5 park the feasible
+pocket is ~0.005-0.02.
+iters=10 BOUND by R2: 2/5 park the feasible
 cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
 inner cost).
 Duals warm-start across solves (reset_dual() reinitializes) —
@@ -205,7 +205,7 @@ active enable_limit_* mode). Mixing mechanisms across groups composes
 (e.g. AL boxes + ADMM cone). Call AFTER enable_limit_* — mechanism
 enables reinstall the canonical groups and drop appended ones.
 ``rho`` defaults per mechanism, BOUND by the R2 round (2026-07-30,
-docs/open-tasks/r2_report_2026-07-30.md): admm 0.01 (sharp optimum on
+measured): admm 0.01 (sharp optimum on
 the feasible cone cell — 0.002 and 0.05 both park the closed loop),
 al 1.0 (enforces in the stationary/hard regime; NO al rho tracks AND
 enforces on transient cells — prefer admm there), barrier 3e-3 (soft
@@ -303,7 +303,7 @@ knot_lo >= 1 always: x_0 is data — a start pose in collision would
 make knot-0 rows unsatisfiable (the R1 windup lesson).
 
 Telemetry group slot: the clearance group's {max, sum} true violation
-rides get_row_telemetry() at this group's index (see get_row_groups).
+rides `stats.row_{max,sum}_violation` at the group's index (get_row_groups() order) at this group's index (see get_row_groups).
 Call AFTER enable_limit_* (mechanism enables reinstall the canonical
 groups, dropping appended ones).
 
@@ -327,7 +327,7 @@ Mask (knot, foot) rows with `set_row_group_mask` — knot 0 is the measured stat
 so leave it masked off unless the target IS the measured foot position (the
 AL multiplier would otherwise wind up on rows no step can change, the
 limit-box lesson). Mechanism defaults follow `enable_collision` (the rows fold
-onto the Q block: admm rho 1.0, al rho 1.0; the go2 foot gates run AL rho 10).
+onto the Q block: admm rho 1.0, al rho 1.0; the go2 foot gates run AL rho 1e3, GaitProgrammer defaults to the loop-stable 100).
 Returns the group index.
 
 Measured (2026-09-26). The AL outer loop converges/freezes after the first
@@ -340,12 +340,16 @@ frame position to < 2e-4 (f32 FK); on go2 fc the feet stay < 1 mm under a latera
 imu goal and a solver-only foot lift (FR +3 cm from knot 4, wrench pinned, fn on
 three feet) reaches ~3 cm at AL rho 1e3 with the stance feet held < 1 cm. The
 merit's row term is exact against the duals and residuals (zero-dual and dual
-checks agree to 1e-6). CLOSED LOOP (OPEN, CL-4 plan §7): the stiffness the rows
+checks agree to 1e-6). CLOSED LOOP (open work): the stiffness the rows
 need to hold feet within mm breaks the loop's SQP — on the static stand with
 stance rows AL rho 1e3 rejects every line-search step on 26/150 ticks and the base
 sags 4 cm, every ADMM variant collapses, AL rho 100 keeps the stand with a 1.8 cm
-residual; the S2 (weight shift) / S3 (lift-a-foot) closed-loop gates are not
-shipped yet.
+residual. Two fixes landed since: the solver bumps the trust-region rho x100 on a
+non-PD direct factor (the f32 Cholesky failure the stiff rows cause; settings.h
+`NON_PD_RHO_FACTOR`), and the programmer re-anchors stance targets to the measured feet
+every tick — the static stand with stance rows now holds (`test_fc_mpc_stands_with_foot_rows`).
+Lifting a foot is still open: without a support-polygon base plan the model tilts and the
+diagonal foot rises; S2 (weight shift) / S3 (lift-a-foot) closed-loop gates are not shipped.
 
 ## `set_row_group_targets(g, targets)`
 

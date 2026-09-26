@@ -135,6 +135,22 @@ class BSQP {
 
         void set_rho_adaptation(bool enabled) { adapt_rho_ = enabled; }
         void set_collect_stats(bool enabled) { collect_stats_ = enabled; }
+        // (Re)install the canonical three limit groups (BOX_Q / BOX_QD / BOX_U from the
+        // vendored URDF tables) bound to one mechanism; the enable_limit_* methods
+        // validate their own knobs and call this. Appended groups (EE / LIN_U /
+        // collision / contact rows) would be dropped by the reinstall, so they must
+        // be added AFTER the mechanism enable — enforced here, not documented.
+        void install_limit_groups(int32_t mech, T mu, T delta)
+        {
+                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision/contact) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
+                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, mech, mu, delta);
+                gpuErrchk(cudaDeviceSynchronize());
+                n_row_groups_ = 3;
+                admm_active_ = (mech == rows::MECH_ADMM);
+                al_active_ = (mech == rows::MECH_AL);
+                admm_has_eq_rows_ = false;  // the canonical limit boxes are strict intervals
+        }
+
 
         // Constraint row-groups (constraint-layer arc; gato/bsqp/rowgroups.cuh).
         // CL-0: telemetry-only mode — installs the canonical limit box groups
@@ -148,16 +164,7 @@ class BSQP {
         // tangent_*_index); EE and COLLISION rows evaluate on the stored q and
         // fold NV-tangent Jacobians. Fixed base: every map collapses to the
         // historic offsets.
-        void enable_limit_telemetry()
-        {
-                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
-                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0));
-                gpuErrchk(cudaDeviceSynchronize());
-                n_row_groups_ = 3;
-                admm_active_ = false;
-                al_active_ = false;
-                admm_has_eq_rows_ = false;
-        }
+        void enable_limit_telemetry() { install_limit_groups(rows::MECH_TELEMETRY, static_cast<T>(0), static_cast<T>(0)); }
 
         // Same limit groups bound to MECH_BARRIER_RELAXED: a relaxed log-barrier
         // (bounded Hessian, C² quadratic extension below `delta`, infeasible-start
@@ -167,14 +174,8 @@ class BSQP {
         // Telemetry still reports each group's true violation per solve.
         void enable_limit_barrier(T mu, T delta)
         {
-                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(delta > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_barrier: delta must be > 0"); }
-                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_BARRIER_RELAXED, mu, delta);
-                gpuErrchk(cudaDeviceSynchronize());
-                n_row_groups_ = 3;
-                admm_active_ = false;
-                al_active_ = false;
-                admm_has_eq_rows_ = false;
+                install_limit_groups(rows::MECH_BARRIER_RELAXED, mu, delta);
         }
         // Same limit groups bound to MECH_ADMM: OSQP-style interval projection
         // run as a fixed-budget inner loop per SQP iteration on the REUSED bdsv
@@ -186,17 +187,11 @@ class BSQP {
         // y there is an unbounded violation integrator (kernels/admm.cuh).
         void enable_limit_admm(T rho, uint32_t iters)
         {
-                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_admm: rho must be > 0"); }
                 if (iters < 1) { throw std::invalid_argument("enable_limit_admm: iters must be >= 1"); }
-                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_ADMM, rho, static_cast<T>(0));
-                gpuErrchk(cudaDeviceSynchronize());
-                n_row_groups_ = 3;
-                admm_active_ = true;
-                al_active_ = false;
+                install_limit_groups(rows::MECH_ADMM, rho, static_cast<T>(0));
                 admm_iters_ = iters;
                 admm_needs_init_ = true;
-                admm_has_eq_rows_ = false;  // canonical limit boxes are strict intervals
         }
 
         // Same limit groups bound to MECH_AL: PHR augmented Lagrangian
@@ -212,17 +207,11 @@ class BSQP {
         // the solve() dispatch comments).
         void enable_limit_al(T rho)
         {
-                if (n_row_groups_ > 3) { throw std::invalid_argument("enable_limit_*: appended row-groups are installed (EE/LIN_U/collision) and a mechanism enable would drop them — enable the limit mechanism FIRST, or disable_row_groups()"); }
                 if (!(rho > static_cast<T>(0))) { throw std::invalid_argument("enable_limit_al: rho must be > 0"); }
-                rows::init_limit_row_groups_kernel<T><<<1, 32>>>(d_row_groups_, rows::MECH_AL, rho, static_cast<T>(0));
+                install_limit_groups(rows::MECH_AL, rho, static_cast<T>(0));
                 gpuErrchk(cudaMemset(d_lam_hi_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMemset(d_lam_lo_, 0, rows::TOTAL_ROW_STATE_SIZE * batch_size_ * sizeof(T)));
                 reset_al_prev_viol();
-                gpuErrchk(cudaDeviceSynchronize());
-                n_row_groups_ = 3;
-                al_active_ = true;
-                admm_active_ = false;
-                admm_has_eq_rows_ = false;
         }
         // per-solve (r_prim, r_dual) of the LAST ADMM iteration, [solve*2 + {0,1}]
         void copy_admm_residuals_to_host(T* h_out)
@@ -685,7 +674,7 @@ class BSQP {
         }
 
         // Exact-Hessian (SO-SQP) per-TASK toggle: stage-block PSD projection in
-        // setup_kkt (PROJECT-only; so_sqp_prototype/RESULTS_2026-07-17 — wins on
+        // setup_kkt (PROJECT-only per the numpy prototype study — wins on
         // EE-terminal tasks, neutral-to-worse on joint-terminal ones). Needs the
         // path compiled in (cmake -DGATO_EXACT_HESSIAN=ON); enabling without it
         // throws rather than silently running GN.
@@ -933,6 +922,7 @@ class BSQP {
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
+                        bool direct_this_iter = false;   // a direct (bdsv) solve ran: its reported iteration count 2 = non-PD factor
                         if (admm_active_) {
                                 // MECH_ADMM inner loop (kernels/admm.cuh): the rho*G^T*G fold is
                                 // already in Q/R (setup_kkt), so the Schur matrix is CONSTANT
@@ -942,6 +932,7 @@ class BSQP {
                                 gpuErrchk(cudaMemcpyAsync(d_q_base_, kkt_system_batch_.d_q_batch, STATE_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 if (!admm_linsys_pcg_) { factor_bdsv_batched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
+                                direct_this_iter = !admm_linsys_pcg_;
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
                                         rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
                                         compute_gamma_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
@@ -975,6 +966,7 @@ class BSQP {
                                 // (iiwa14 reach: 200/200 iters, |lambda| 1.3 -> 46, every line
                                 // search fails), bdsv descends normally — 2026-07-30 probe.
                                 const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_ || exact_hessian_;
+                                direct_this_iter = use_bdsv;
                                 if (use_bdsv) {
                                         solve_bdsv_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
                                 } else {
@@ -1038,7 +1030,8 @@ class BSQP {
                         // wandering over 30 warm solves; frozen: exactly 0 throughout).
                         const int adapt = (adapt_rho_ && !al_active_) ? 1 : 0;
                         line_search_and_update_batched<T, NUM_ALPHAS>(
-                            batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_);
+                            batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_,
+                            direct_this_iter ? d_pcg_iterations_ : nullptr);   // a non-PD direct factor (count 2) bumps rho (settings.h NON_PD_RHO_FACTOR)
 
                         // stage line-search stats into per-iteration pinned slots; read once
                         // after the final device sync (no per-iteration host stall)

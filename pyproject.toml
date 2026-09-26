@@ -6,7 +6,21 @@ build-backend = "setuptools.build_meta"
 name = "gato"
 version = "0.0.2"
 authors = [
-    { name="Alex Du", email="alexander.du@columbia.edu" },
+    { name="Alexander Du" },
+    { name="Emre Adabag" },
+    { name="Gabriel Bravo" },
+    { name="Brian Plancher" },
+]
+maintainers = [{ name="The Accessible and Accelerated Robotics Lab (A2R Lab)" }]
+license = { text = "MIT" }
+keywords = ["trajectory optimization", "model predictive control", "CUDA", "robotics", "SQP"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Topic :: Scientific/Engineering",
 ]
 description = "GPU-accelerated batched trajectory optimization"
 readme = "README.md"
@@ -32,7 +46,7 @@ dependencies = [
 examples = [
     "torch>=2.6.0",
     "pin>=3.4.0",
-    "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root; CI cpu-lane 2026-09-26, reproduced locally 6/6) — re-test on the next release              # gato.worlds MuJoCoWorld + test_worlds/test_floating_worlds
+    "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root); re-test on the next release
     "scipy>=1.15.2",
     "matplotlib>=3.10.1",
     "seaborn>=0.13.2",
@@ -58,7 +72,7 @@ dev = [
 # test can skip silently; run_gpu_proof.sh refuses a python that lacks it.
 test = [
     "pin>=3.4.0",
-    "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root; CI cpu-lane 2026-09-26, reproduced locally 6/6) — re-test on the next release
+    "mujoco>=3.2,<3.14",   # see the [examples] pin
     "scipy>=1.15.2",
     "gymnasium>=0.29",
 ]

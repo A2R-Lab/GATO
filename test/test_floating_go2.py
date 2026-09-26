@@ -11,14 +11,12 @@ tangent A|B blocks are checked against central finite differences of the
 pinocchio step map, differenced/retracted on the manifold.
 """
 import importlib
-from pathlib import Path
 
 import numpy as np
 import pinocchio as pin   # [test] extra — a missing dep is a broken env, never a skip
 import pytest
 
 import gato
-from conftest import TEST_PARAMS
 
 pytestmark = pytest.mark.gpu   # cpu-lane deselects; on a GPU box the module MUST exist
 

@@ -15,7 +15,7 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T, uint32_t NumAlphas>
-__global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_batched_kernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch)
+__global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_batched_kernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch, const uint32_t* __restrict__ d_direct_iters)
 {
         // launched with batch_size blocks
         const uint32_t solve_idx = blockIdx.x;
@@ -37,7 +37,6 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_ba
         // Each thread handles multiple alphas if needed
         for (uint32_t i = tid; i < NumAlphas; i += blockDim.x) {
                 T merit = d_merit_batch[solve_idx * NumAlphas + i];
-                // printf("alpha: %d, merit: %4f  ", tid, merit);
                 d_merit_batch[solve_idx * NumAlphas + i] = 0;  // reset merit to 0
                 if (merit < local_min_merit) {
                         local_min_merit = merit;
@@ -88,6 +87,21 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_ba
                         d_rho_penalty_batch[solve_idx] = min(d_rho_penalty_batch[solve_idx], RHO_MAX);
                 }
 
+                // A NON-PD direct factor this iteration (the direct solve reports iteration
+                // count 2 on both its paths — the f32 Cholesky of
+                // the Schur system failed — stiff row-group folds such as foot rows at rho
+                // 1e3 push the KKT condition past f32) is a regularisation signal, not a
+                // line-search verdict: the step was never computed. Multiply the trust-region
+                // rho by NON_PD_RHO_FACTOR (independent of adapt_rho — AL mode freezes the
+                // ordinary adaptation, and its x1.2 growth would need ~25 wasted iterations to
+                // reach the 0.1 that restores PD; measured on the go2 stance rows: rho 1e-3 ->
+                // every iteration non-PD, 0.1 -> none). The controller restores rho before each
+                // solve, so the factor is sized to get there in ONE step: one wasted iteration
+                // per solve at most.
+                if (d_direct_iters != nullptr && d_direct_iters[solve_idx] == 2u) {
+                        d_rho_penalty_batch[solve_idx] = min(max(d_rho_penalty_batch[solve_idx] * NON_PD_RHO_FACTOR, RHO_MIN), RHO_MAX);
+                }
+
                 if (!line_search_success) {
                         // rho saturated at RHO_MAX with a failing line search: reset so the
                         // solver can escape (the clamp above makes `>` unreachable; `>=` is
@@ -136,13 +150,13 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_ba
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch)
+__host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch, const uint32_t* d_direct_iters = nullptr)
 {
         dim3 grid(batch_size);
         dim3 thread_block(LINE_SEARCH_THREADS);
         // the kernel's s_merit/s_step_idx arrays are static __shared__ — no dynamic smem needed
 
         line_search_and_update_batched_kernel<T, NumAlphas>
-            <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch);
+            <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch, d_direct_iters);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

@@ -21,6 +21,7 @@ constexpr float RHO_INIT = 1e-3;
 constexpr float RHO_FACTOR = 1.2;
 constexpr float RHO_MIN = 1e-8;
 constexpr float RHO_MAX = 10;
+constexpr float NON_PD_RHO_FACTOR = 100;  // trust-region rho growth on a non-PD direct factor (kernels/line_search.cuh): 1e-3 -> 0.1 in one step, the measured floor that keeps the row-stiffened Schur factor PD in f32
 
 // -D override kept for the thread-invariance gate (same convention as
 // GATO_BDSV_THREADS below); production value 128.
@@ -31,9 +32,9 @@ constexpr uint32_t KKT_THREADS = GATO_KKT_THREADS;
 constexpr uint32_t SCHUR_THREADS = 128;
 constexpr uint32_t PCG_THREADS = 1024;
 // direct-solve kernel thread count (serial knot chain over 14x14 blocks).
-// TUNED 2026-07-10 (bdsv_timing_session, RTX 5090): 512 fastest at every
-// (N, B) swept — N32 297µs, N64 631-641µs, batch-invariant; 256 was 3-7%
-// slower, 128 clearly worse (data/bdsv_timing/BDSV_TIMING_RESULTS.md).
+// Tuned on sm_120 / CUDA 13.2: 512 fastest at every (N, B) swept — N32 297µs,
+// N64 631-641µs, batch-invariant; 256 was 3-7% slower, 128 clearly worse
+// (examples/benchmarks/data/bdsv_timing).
 // -D override kept for the thread-invariance gate + retuning on new arches.
 #ifndef GATO_BDSV_THREADS
     #define GATO_BDSV_THREADS 512
@@ -46,7 +47,7 @@ constexpr uint32_t DZ_THREADS = 128;
 // gate holds by construction). Build with cmake -DGATO_EXACT_HESSIAN=ON
 // (-DUSE_EXACT_HESSIAN=1) and enable per solver via set_exact_hessian(true):
 // per-TASK toggle — the projection wins on EE-terminal tasks, is neutral-to-
-// worse on full-rank joint-terminal ones (so_sqp_prototype/RESULTS_2026-07-17).
+// worse on full-rank joint-terminal ones (numpy prototype study).
 #ifndef USE_EXACT_HESSIAN
     #define USE_EXACT_HESSIAN 0
 #endif
@@ -56,10 +57,9 @@ constexpr uint32_t DZ_THREADS = 128;
 // by construction). 1 appends a per-knot world-aligned contact WRENCH decision
 // variable (6 per contact frame) to every control slot — f_c extends u; the KKT/
 // Schur/merit/batch machinery sees one wider control and is structurally
-// unchanged. Requires a grid.cuh generated with contact_frames (2b.1+). Build
-// with cmake -DGATO_CONTACT_FORCES=ON into build_fc/ (module-ABI change: .so
-// variants, the build_eh pattern). SSOT: docs/open-tasks/
-// cl3a_contact_forces_2026-08-02.md.
+// unchanged. Requires a grid.cuh generated with contact_frames. Built as the
+// separate `_fc` module variant (cmake -DGATO_CONTACT_FORCES=ON or a MODULES
+// entry `plant:N:fc`; a module-ABI change, so it is its own .so).
 #ifndef GATO_CONTACT_FORCES
     #define GATO_CONTACT_FORCES 0
 #endif

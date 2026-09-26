@@ -59,8 +59,9 @@
 //
 // v1 semantics (documented in the arc plan): fixed iteration budget
 // (approximately-hard); residuals reported per solve, no in-loop early exit;
-// the merit/line search is UNCHANGED (no constraint term for ADMM rows —
-// telemetry reports the true violation of whatever the line search accepts).
+// the merit/line search excludes the ADMM rows by default (telemetry reports the
+// true violation of whatever the line search accepts); set_admm_merit adds the
+// AL-form (z, y) term for the rows' own residual.
 
 using namespace sqp;
 

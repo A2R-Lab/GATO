@@ -1,4 +1,4 @@
-"""Gait ORACLE for the fixed-gait locomotion arc (CL-4, 2026-09-20).
+"""Gait ORACLE for the fixed-gait locomotion arc .
 
 The solver never discovers a gait: a ``GaitSchedule`` is data the controller
 feeds it every tick — a rolling per-knot STANCE MASK for the contact frames,
@@ -153,7 +153,7 @@ class GaitProgrammer:
     pins (one all-slot ``add_fc_box(0, 0)`` group, masked per knot), the per-knot
     fn reference (mg / n_stance up on stance feet), and, when cone groups were
     installed through ``install_cones``, the stance-only cone masks, and, when
-    ``install_foot_rows`` was called, the foot POSITION rows (CL-4 §1.3): stance
+    ``install_foot_rows`` was called, the foot POSITION rows: stance
     knots pin each foot to the foothold frozen at its touchdown, swing knots
     track the swing curve toward the planned landing. Everything is data on
     the solver; no solve is issued. ``pin_mech`` defaults to AL.
@@ -171,7 +171,7 @@ class GaitProgrammer:
         self.cone_groups = []
         self.stance_group = self.swing_group = None
         self.foothold = self.lift = self._prev_stance = None
-        self.foothold_planner = None   # callable(f, p_now (n_feet,3), t) -> landing xyz; None = land where it lifted
+        self.foothold_planner = None   # callable(f, p_now (n_feet,3), t) -> landing xyz; None = land where it lifted off
         self.t = None
 
     def install_cones(self, mu, mech="al", rho=10.0, **kw):
@@ -185,7 +185,7 @@ class GaitProgrammer:
         return self.cone_groups
 
     def install_foot_rows(self, mech="al", rho=100.0, sigma=0.0, swing=True, swing_rho=None, swing_sigma=None):
-        """Foot POSITION rows (CL-4 §1.3) on the baked contact frames: a STANCE
+        """Foot POSITION rows on the baked contact frames: a STANCE
         group (equality residual, masked to stance knots, target = the foothold
         frozen at touchdown) and, with ``swing``, a SWING group (masked to swing
         knots, target = the swing curve from the lift-off point to the planned
@@ -200,7 +200,7 @@ class GaitProgrammer:
         with stance rows, AL rho 1e3 rejects every line-search step on 26 of 150
         ticks and the base sags 4 cm; every ADMM variant collapses; AL rho 100
         keeps the stand (residual 1.8 cm). The default is therefore the
-        loop-stable rho 100 — the S2/S3 closed-loop gates are OPEN (CL-4 plan §7)."""
+        loop-stable rho 100 — the S2/S3 closed-loop gates are open work (docs/constraints.md)."""
         self.stance_group = self.solver.add_contact_pos_rows(mech=mech, rho=rho, sigma=sigma)
         self.swing_group = (self.solver.add_contact_pos_rows(mech=mech, rho=swing_rho if swing_rho is not None else rho,
                                                              sigma=swing_sigma if swing_sigma is not None else sigma)
@@ -209,33 +209,33 @@ class GaitProgrammer:
         return self.stance_group, self.swing_group
 
     def _foot_targets(self, t, q, stance):
-        """(N, n_feet, 3) stance targets and swing targets from the world state."""
+        """(N, n_feet, 3) stance targets and swing targets from the world state.
+
+        Stance rows are RE-ANCHORED to the MEASURED foot position every tick: the
+        row then says "this foot does not move from where it is now" (the no-slip
+        contact constraint), and the world's own millimetre drift is absorbed
+        instead of accumulating as a residual the rows fight (a foothold frozen at
+        touchdown let the static stand degrade, 2026-09-26). A stance that begins
+        inside the window after a swing targets the planned landing (the
+        ``foothold_planner``, default: where the foot lifted off)."""
         sched, N, nf = self.schedule, self.schedule.N, self.schedule.n_feet
         p = self.solver.contact_positions(np.asarray(q, dtype=np.float64))   # (n_feet, 3) now
         st_now = sched.stance(t)
-        if self.foothold is None:                       # first tick: every foot's reference is where it is
-            self.foothold, self.lift, self._prev_stance = p.copy(), p.copy(), st_now.copy()
-        rising = st_now & ~self._prev_stance
-        # touchdown: freeze where the foot IS in the plane, at the height it LEFT
-        # from (the ground): the schedule's touchdown and the foot's real landing
-        # differ by the tracking lag, and a foothold frozen a few mm in the air
-        # keeps the stance rows holding that foot above the plane while the fc
-        # explanation says it pushes — the base sags onto that corner (S3, 2026-09-26)
-        self.foothold[rising] = np.concatenate([p[rising][:, :2], self.lift[rising][:, 2:3]], axis=1)
+        if self.lift is None:                           # first tick
+            self.lift, self._prev_stance = p.copy(), st_now.copy()
         self.lift[~st_now & self._prev_stance] = p[~st_now & self._prev_stance]       # lift-off: remember
         self._prev_stance = st_now.copy()
+        self.foothold = p.copy()                        # the live anchors (exposed for drivers/tests)
         sw = sched.swing_window(t)                      # (N, n_feet) swing progress
         tgt_st = np.zeros((N, nf, 3)); tgt_sw = np.zeros((N, nf, 3))
         for f in range(nf):
             lift = self.lift[f] if not st_now[f] else p[f]
             land = (np.asarray(self.foothold_planner(f, p, t), dtype=np.float64) if self.foothold_planner is not None
-                    else self.foothold[f])
+                    else lift)
             col = stance[:, f]
-            # the current stance (until the first swing knot) keeps the frozen foothold;
-            # a stance that begins inside the window lands at the planned foothold
             k_swing = int(np.argmax(~col)) if (~col).any() else N
-            tgt_st[:k_swing, f] = self.foothold[f]
-            tgt_st[k_swing:, f] = land
+            tgt_st[:k_swing, f] = p[f]                  # the current stance: stay where you are
+            tgt_st[k_swing:, f] = land                  # a stance after a swing: the planned landing
             tgt_sw[:, f] = sched.swing_curve(lift, land, sw[:, f])
         return tgt_st, tgt_sw
 

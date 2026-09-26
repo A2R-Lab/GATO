@@ -5,28 +5,14 @@ device residual is pinocchio's (telemetry), AL/ADMM pin an arm's EE at every
 knot, the per-knot mask and target table select (knot, row) slots, go2 keeps
 its feet under a lateral base goal, GaitProgrammer.install_foot_rows programs
 the same thing from a schedule."""
-import importlib.util
-
 import numpy as np
 import pytest
 
 import gato
-from conftest import GO2_FEET, GO2_FC, go2_solver, go2_standing_x, go2_goals_at, GO2_URDF
-from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
+from conftest import (GO2_FC, go2_solver, go2_standing_x, go2_goals_at, GO2_URDF, ARM_START, arm_problem, go2_fc as _go2_fc,
+                      go2_mg, q_at as _q_at, contact_frames_along as _frames, outer_solve as _outer, require_module)
 
 pytestmark = pytest.mark.gpu
-START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
-GOAL = (0.35, 0.25, 0.5)
-_go2_fc = pytest.mark.skipif(importlib.util.find_spec("gato.bsqpN16_go2_fc") is None,
-                             reason="go2 fc module (receipt profile)")
-
-
-def _arm_problem(plant, N):
-    q0 = np.asarray(START[plant], dtype=np.float32)
-    x = np.concatenate([q0, np.zeros_like(q0)])[None]
-    goals = np.zeros((1, N * 6), dtype=np.float32)
-    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = GOAL
-    return x, goals
 
 
 # The GENTLE arm scenario of test_row_masks (indy7 N8, receipt-profile module,
@@ -38,10 +24,9 @@ GENTLE = ("indy7", 8)
 
 def _gentle(make_solver):
     plant, N = GENTLE
-    if (plant, N) not in gato.available():
-        pytest.fail("bsqpN8_indy7 is a receipt-profile module and must be built")
+    require_module("bsqpN8_indy7")
     s = make_solver(plant, N, u_cost=1e-4)
-    q0 = np.asarray(START[plant], dtype=np.float32)
+    q0 = np.asarray(ARM_START[plant], dtype=np.float32)
     x = np.concatenate([q0, np.zeros_like(q0)])[None]
     goals = np.zeros((1, N * 6), dtype=np.float32)
     goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = s.ee_pos(q0.astype(np.float64)) + np.array([0.0, 0.0, 0.03])
@@ -77,7 +62,7 @@ def test_contact_rows_telemetry_is_the_device_residual(make_solver, smallest_mod
     so the residual is exactly the programmed offset. The descriptor round-trips
     kind 6, three rows per frame and the per-knot target table."""
     plant, N = smallest_module
-    x, goals = _arm_problem(plant, N)
+    x, goals = arm_problem(plant, N)
     s = make_solver(plant, N)
     s.enable_limit_telemetry()
     p0 = s.contact_positions(x[0, :s.nq])                    # (1, 3): the arm EE
@@ -103,7 +88,7 @@ def test_contact_rows_telemetry_is_the_device_residual(make_solver, smallest_mod
 # 10, 1.3 cm at rho 100, 0.8 mm at rho 1e3 (the terminal EE_POS row does not move
 # the EE at all here: KKT-converged at start at every rho). ADMM projects per inner
 # iteration and reaches the same at rho ~1e2. On the go2 standing costs the foot
-# rows use AL rho 1e3 (GaitProgrammer default).
+# rows need AL rho 1e3 solver-level (GaitProgrammer defaults to the loop-stable 100).
 ROW_RHO = {"al": 1000.0, "admm": 100.0}
 
 
@@ -159,7 +144,7 @@ def test_go2_contact_rows_keep_the_feet_under_a_lateral_goal():
     rows hold them below 1 mm at every knot."""
     import pinocchio as pin
     model = pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
-    mg = sum(i.mass for i in model.inertias) * 9.81
+    mg = go2_mg(model)
     x = go2_standing_x().astype(np.float32)
     goals = go2_goals_at(model, x.astype(np.float64), 1)
     goals[:, 1::6] += 0.04
@@ -192,7 +177,7 @@ def test_go2_gait_programmer_installs_foot_rows():
     import pinocchio as pin
     from gato.gait import GaitSchedule, GaitProgrammer
     model = pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
-    mg = sum(i.mass for i in model.inertias) * 9.81
+    mg = go2_mg(model)
     x = go2_standing_x().astype(np.float32)
     goals = go2_goals_at(model, x.astype(np.float64), 1)
     s = go2_solver(1, variant="fc", q_cost=5.0, N_cost=25.0)

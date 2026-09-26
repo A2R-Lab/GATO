@@ -31,14 +31,23 @@ _LAZY = {
     "ArmTrackEnv": ".envs",
     "ForceEstimator": ".estimators",
     "CEMForceEstimator": ".estimators",
+    "GaitSchedule": ".gait",
+    "GaitProgrammer": ".gait",
+    "MuJoCoWorld": ".worlds",
+    "PinocchioWorld": ".worlds",
 }
+# submodules reachable as attributes (gato.fingerprint.check, gato.worlds, ...) — plain
+# `import gato` must not pull their optional dependencies, so they resolve lazily too
+_LAZY_MODULES = {"fingerprint", "worlds", "gait", "certificate", "linsys_autotune", "envs", "rowkinds"}
 
 
 def __getattr__(name):
-    if name in _LAZY:
-        import importlib
+    import importlib
 
+    if name in _LAZY:
         return getattr(importlib.import_module(_LAZY[name], __name__), name)
+    if name in _LAZY_MODULES:
+        return importlib.import_module("." + name, __name__)
     raise AttributeError(f"module 'gato' has no attribute {name!r}")
 
 

@@ -21,12 +21,11 @@ import importlib.util
 import numpy as np
 import pytest
 
-from conftest import TEST_PARAMS
+from conftest import GO2_TAU_MAX, go2_mg, TEST_PARAMS
 
 pin = pytest.importorskip("pinocchio")
 
 from gato.common import rk4, state_difference, check_floating_state
-from gato.config import GO2_START_CONFIGS
 
 from conftest import GO2_URDF, GO2_NQ as NQ, GO2_NV as NV, GO2_NU as NU, go2_standing_x as _standing_x, mujoco_world  # noqa: E402
 
@@ -152,7 +151,7 @@ def test_device_dynamics_match_go2_fingerprint():
     """Device qdd (via the exact SI-EULER sim identity) vs the committed
     table — the drift tripwire for the GRiD fold-in regen."""
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-        pytest.skip("bsqpN16_go2 module not built")
+        pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     import gato
     from gato import fingerprint
     s = gato.BSQP(model_path=URDF, batch_size=1, N=16, dt=0.01, plant_type="go2")
@@ -198,7 +197,7 @@ def _mpc_standing_run(model, steps=150):
     umax = 0.0
     for _ in range(steps):
         r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
-        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)  # go2 effort limit
+        u = np.clip(np.asarray(r.u, np.float64), -GO2_TAU_MAX, GO2_TAU_MAX)  # go2 effort limit
         umax = max(umax, float(np.abs(u).max()))
         for _ in range(10):
             q, dq = w.step(q, dq, u, 1e-3)
@@ -209,7 +208,7 @@ def _mpc_standing_run(model, steps=150):
 @pytest.mark.slow
 def test_mpc_closed_loop_settles_upright(model):
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-        pytest.skip("bsqpN16_go2 module not built")
+        pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     w, q, dq, umax = _mpc_standing_run(model)  # 1.5 s of sim
     mg = sum(i.mass for i in model.inertias) * 9.81
     c = w.last_contact
@@ -229,7 +228,7 @@ def test_mpc_closed_loop_settles_upright(model):
 @pytest.mark.slow
 def test_mpc_closed_loop_deterministic(model):
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-        pytest.skip("bsqpN16_go2 module not built")
+        pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     _, q1, dq1, _ = _mpc_standing_run(model, steps=60)
     _, q2, dq2, _ = _mpc_standing_run(model, steps=60)
     np.testing.assert_array_equal(q1, q2)
@@ -239,7 +238,7 @@ def test_mpc_closed_loop_deterministic(model):
 @pytest.mark.gpu
 def test_controller_floating_state_checks_and_pred_err(model):
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-        pytest.skip("bsqpN16_go2 module not built")
+        pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     import gato
     from gato.controller import MPCController
     s = gato.BSQP(model_path=URDF, batch_size=1, N=16, dt=0.01, params=TEST_PARAMS.replace(q_cost=1.0, qd_cost=1e-2, u_cost=1e-4, N_cost=5.0, q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0),
@@ -297,7 +296,7 @@ FOOT_RADIUS = 0.022   # go2.urdf *_foot collision sphere
 
 
 def _mg(model):
-    return sum(i.mass for i in model.inertias) * 9.81
+    return go2_mg(model)
 
 
 def _stance_x(model):
@@ -358,7 +357,7 @@ def _closed_loop(s, x, goals, steps, drop=0.01, **ctrl_kw):
     umax, z_hist, r = 0.0, [], None
     for _ in range(steps):
         r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
-        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        u = np.clip(np.asarray(r.u, np.float64), -GO2_TAU_MAX, GO2_TAU_MAX)
         umax = max(umax, float(np.abs(u).max()))
         for _ in range(10):
             q, dq = w.step(q, dq, u, 1e-3)
@@ -451,7 +450,7 @@ def test_fc_mpc_stands_through_gait_programmer(model):
     for k in range(150):
         assert prog.apply(k * s.dt).all()
         r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
-        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        u = np.clip(np.asarray(r.u, np.float64), -GO2_TAU_MAX, GO2_TAU_MAX)
         for _ in range(10):
             q, dq = w.step(q, dq, u, 1e-3)
         z.append(q[2])
@@ -490,7 +489,7 @@ def test_fc_mpc_stands_with_friction_cones(model):
     for k in range(120):
         prog.apply(k * s.dt)
         r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
-        u = np.clip(np.asarray(r.u, np.float64), -23.7, 23.7)
+        u = np.clip(np.asarray(r.u, np.float64), -GO2_TAU_MAX, GO2_TAU_MAX)
         for _ in range(10):
             q, dq = w.step(q, dq, u, 1e-3)
     c = w.last_contact
@@ -501,3 +500,56 @@ def test_fc_mpc_stands_with_friction_cones(model):
         fx, fy, fz = (fc[:, s.fc_slots(f, "f")[i]] for i in range(3))
         assert np.all(fz > 0.5 * mg / 4), fz
         assert np.all(np.hypot(fx, fy) <= 0.6 * fz + 1e-3), (f, np.hypot(fx, fy).max(), fz.min())
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_fc_mpc_stands_with_foot_rows(model):
+    """CL-4 closed loop, static: the S1 stand with STANCE ROWS installed through
+    GaitProgrammer.install_foot_rows (AL rho 1e3, targets re-anchored to the
+    measured feet every tick — the no-slip semantics). Two things this gates:
+    the stance holds (height band, four feet loaded, mm residual on the rows)
+    and the solver copes with the stiffened KKT — the direct factor may go
+    non-PD in f32 on a solve's FIRST iteration (stats.pcg_iters == 2; the
+    controller restores the trust-region rho every tick) but the bump on that
+    signal (settings.h NON_PD_RHO_FACTOR) keeps every later iteration PD and
+    the loop converging (measured: with rho frozen at 1e-3 every iteration was
+    non-PD and the base sagged 4 cm; targets frozen at touchdown drifted the
+    same way)."""
+    from gato.controller import MPCController
+    from gato.gait import GaitSchedule, GaitProgrammer
+    s = _go2_solver(1, variant="fc", **_STAND_PARAMS)
+    x = _stance_x(model).astype(np.float32)
+    s.set_q_nom(x[:NQ])
+    s.set_q_pos_cost(50.0)
+    goals = _imu_goals(model, x)
+    mg = _mg(model)
+    prog = GaitProgrammer(s, GaitSchedule(gait="stand", period=1.0, dt=s.dt, N=s.N), mg)
+    g_st, _ = prog.install_foot_rows(mech="al", rho=1000.0)
+    w = _mujoco_world(plane={"z": 0.0, "pos_xy": (0.0, 0.0), "size_xy": (1.0, 1.0)})
+    ctrl = MPCController(s)
+    ctrl.reset(x)
+    q, dq = np.asarray(x[:NQ], np.float64).copy(), np.asarray(x[NQ:], np.float64).copy()
+    q[2] += 0.01
+    p0 = s.contact_positions(q)
+    z, viol, nonpd, r = [], [], 0, None
+    for k in range(150):
+        prog.apply(k * s.dt, q)
+        r = ctrl.step(np.concatenate([q, dq]).astype(np.float32), goals)
+        st = r.solve.stats
+        viol.append(float(np.asarray(st.row_max_violation)[g_st, 0]))
+        if k >= 20:
+            nonpd += int((np.asarray(st.pcg_iters) == 2).sum())   # non-PD factors after the bump settled
+        u = np.clip(np.asarray(r.u, np.float64), -GO2_TAU_MAX, GO2_TAU_MAX)
+        for _ in range(10):
+            q, dq = w.step(q, dq, u, 1e-3)
+        z.append(q[2])
+    z = np.asarray(z)
+    c = w.last_contact
+    assert abs(q[2] - x[2]) < 0.015 and np.ptp(z[-50:]) < 0.01, (q[2], x[2])
+    assert 0.9 * mg < c["fn"] < 1.1 * mg and c["ncon"] >= 4, c
+    per_foot = [c["fn_by_body"].get(FOOT_BODY[f], 0.0) for f in GO2_FEET]
+    assert min(per_foot) > 0.6 * mg / 4 and max(per_foot) < 1.4 * mg / 4, per_foot
+    assert max(viol[50:]) < 0.01, max(viol[50:])                          # rows hold the model's feet
+    assert nonpd <= 130, nonpd    # at most the FIRST iteration of a solve (the controller restores rho every tick; one bump reaches PD)
+    assert np.linalg.norm((s.contact_positions(q) - p0)[:, :2], axis=1).max() < 0.03   # the S1 stand's own drift

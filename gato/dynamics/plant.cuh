@@ -52,7 +52,7 @@ namespace plant {
         // NU-wide); gato::constants::CONTROL_SIZE = NU + FC is the solver-facing width.
         // The fixed-base adapters below carry the fc chain in generalized dims (NQ ==
         // NV there); the floating base consumes fc through the grid step twins in
-        // grid_plant_step.cuh (Wave F, 2026-09-20) and the composed cost below.
+        // grid_plant_step.cuh  and the composed cost below.
         inline constexpr int FC         = 6 * grid::NUM_CONTACT_FRAMES; // wrench slots appended to u
         inline constexpr int FEXT_COUNT = 6 * grid::NUM_BODIES;         // per-body wrench array
         // Persistent fc scratch APPENDED after the FD/FD_DU arenas (inner-call scratch
@@ -68,11 +68,6 @@ namespace plant {
         inline constexpr int CS = NU + FC;   // solver-facing control width (== gato::constants::CONTROL_SIZE)
         static_assert(CS == (int)gato::constants::CONTROL_SIZE, "plant CS must be the solver's CONTROL_SIZE");
 
-        template<class T>
-        __host__ __device__ constexpr T PI()
-        {
-                return static_cast<T>(3.14159);
-        }
         template<class T>
         __host__ __device__ constexpr T GRAVITY()
         {
@@ -282,7 +277,7 @@ namespace plant {
                 d_f_ext = s_fext;
 #endif
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                // TODO: there is a slightly faster way as s_v does not change -- thus no recompute needed
+                // s_v does not change between these two inners: a fused minv+ID call could skip its recompute (perf, not done)
                 grid::minv_inner<T>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, /*d_workspace*/nullptr);
                 T* s_c = s_temp;
                 grid::inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[6], d_f_ext, GRAVITY<T>());
@@ -668,7 +663,7 @@ namespace plant {
         //     slots 6..NV, stored q slots 7..NQ; the NU-row limit tables align
         //     with the actuated joints by construction). d_q_nom /
         //     d_q_pos_w_vec are STORED-q indexed (base slots unread).
-        //   - fc terms (fc builds, Wave F): 0.5*fc_cost*|fc - fc_ref|^2 over the
+        //   - fc terms (fc builds): 0.5*fc_cost*|fc - fc_ref|^2 over the
         //     fc tail of the CONTROL_SIZE-wide control on running knots (the
         //     terminal knot has no control), gradient rows NU.. and a diagonal
         //     Hessian block — the same term the arms' generated fc preset adds.

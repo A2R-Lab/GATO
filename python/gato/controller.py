@@ -63,7 +63,7 @@ class MPCController:
             trades a tighter max for a fatter p90). Calibrate per task from
             StepResult.pred_err (see tools/autotune_linsys.py).
         task_tag: optional workload tag into the autotuned linsys table
-            (python/gato/linsys_tuning.json, written by
+            (linsys_tuning.json (written at runtime next to _registry.json, gitignored; $GATO_LINSYS_TUNING overrides the path), written by
             tools/autotune_linsys.py; $GATO_LINSYS_TUNING overrides the
             location). With linsys=None, a tuned (plant, N, task_tag) entry
             overrides the wired default; an explicit linsys arg always wins.

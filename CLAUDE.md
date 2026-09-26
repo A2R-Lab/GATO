@@ -80,8 +80,8 @@ solve destabilizes (pin with fc_cost≈1e6 or box rows instead). ⚠ Cross-build
 comparisons must not add AL rows to only one arm: ANY AL group freezes trust-region
 adaptation and legitimately changes the trajectory.
 
-`gato/utils/linalg.cuh` keeps only GATO-specific helpers: `block::reduce` (kept — several
-consumers), the `getOffset*` batch-layout accessors, and printers. All other `block::` linalg was
+`gato/utils/linalg.cuh` keeps only the `get_offset_*` batch-layout accessors (one offset expression
+per accessor, const + non-const overloads generated from it). All other `block::` linalg was
 migrated to `glass::`.
 
 ## Source layout
@@ -224,7 +224,7 @@ receipt is committed yet, so code can push before a receipt lands). Config in
 regenerate the receipt with (or right after) such a push. The workflow's
 `cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
-`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 34 goldens (pcg + bdsv
+`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 36 goldens (pcg + bdsv
 per receipt module, an arm ADMM/EE-row case, the fc/eh variants) — a kernel edit that keeps
 them bitwise is safe; one that changes them needs `GATO_GOLDEN_REBASELINE=1` and the reason in
 the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cuda/` harnesses

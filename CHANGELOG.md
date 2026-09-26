@@ -2,6 +2,37 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-26 — Closed-loop foot rows: non-PD regularization bump, re-anchored stance targets; release hygiene
+
+- Solver: a non-PD direct factor (`stats.pcg_iters == 2`, the f32 Cholesky of the Schur
+  system failing once stiff row groups are folded into Q) now multiplies the trust-region
+  rho by `NON_PD_RHO_FACTOR` (settings.h, 100: 1e-3 -> 0.1 in one step) independent of the
+  AL mode's frozen adaptation. Measured on the go2 stance rows at AL rho 1e3: every
+  iteration non-PD before, none after the first iteration of a solve now. The two
+  exact-Hessian goldens moved (each hits one non-PD factor mid-solve) and end at a lower
+  merit; re-baselined.
+- `GaitProgrammer`: stance targets are RE-ANCHORED to the measured feet every tick (the
+  no-slip contact semantics) instead of frozen at touchdown; the static stand with stance
+  rows now holds height within 2 mm at 2-5 mm residual (gate:
+  `test_fc_mpc_stands_with_foot_rows`). The swing itself remains open: lifting a foot without
+  a support-polygon base plan tips the model (docs/constraints.md, closed-loop section).
+- Bug fix: masked-off COLLISION knots no longer fold gradient/Hessian/merit (the row-mask
+  contract already promised it; the fold and value sites lacked the gate).
+- `test_build` compiles in its own CMake tree (it used to reconfigure the shared `build/`
+  to the test plant).
+- Release hygiene: `gato.rowkinds` (the row-kind / mechanism ids, shared by the API, the KKT
+  certificate — now covering LIN_U / COLLISION / CONTACT_POS — and the tests);
+  `gato.fingerprint` / `gato.worlds` / `gato.gait` reachable as attributes; the seven
+  constraint docstrings that duplicated docs/constraints.md now summarize and point there;
+  `add_contact_pos_rows` defaults to knots 1..N-1; batch accessors, the four limit enables,
+  the mechanism/rho boilerplate and six copies of the test reach problem deduplicated;
+  dangling references to internal notes removed from tracked code and docs; dead
+  `expected_skips.txt`, `tools/clean.sh`, unused helpers deleted; README/docs corrected
+  (import forms, submodule story, Fig-3 reproduction, contact-frame order, telemetry
+  semantics); `docs/baselines.md` (orphaned, self-contradictory) removed and
+  `docs/archaeology.md` trimmed to the provenance table; sdist now ships docs/ and the
+  changelog; packaging metadata (authors, license, classifiers) completed.
+
 ## 2026-09-26 — CL-4: contact-frame POSITION rows (stance/swing feet), solver-level gates
 
 - Row kind `CONTACT_POS` (`BSQP.add_contact_pos_rows`, `set_row_group_targets`,
@@ -19,7 +50,7 @@ Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, pl
   AL/ADMM move an arm EE to a violated target within 3 mm on the active knots only,
   masks select knots, go2 keeps its feet < 1 mm under a lateral goal, solver-only S3
   (FR lifts ~3 cm at knot 12 with the stance feet held), programmer plumbing.
-- OPEN (measured, CL-4 plan §7): the closed loop. The stiffness that holds feet within
+- OPEN (measured, docs/constraints.md, closed-loop section): the closed loop. The stiffness that holds feet within
   mm (AL rho 1e3) makes the loop's SQP reject every line-search step on 26/150 ticks of a
   static stand (base sags 4 cm); every ADMM variant collapses; AL rho 100 stands with a
   1.8 cm residual. S2 weight shift / S3 lift-a-foot closed-loop gates are not shipped.
@@ -45,7 +76,7 @@ Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, pl
 ## 2026-09-21 — D14: the Fig-3 CPU baseline pin is public
 
 - `examples/benchmarks/baselines/sqpcpu` now points at `A2R-Lab/sqpcpu` (the public
-  fork of EmreAdabag/sqpcpu), branch `fig3-fair-sigma` = upstream master + the two
+  fork of the upstream sqpcpu), branch `fig3-fair-sigma` = upstream master + the two
   fair-comparison commits GATO pins. The `update = none` opt-in gating is gone: a plain
   recursive clone and `tools/install.sh` fetch it like every other submodule.
 
@@ -123,7 +154,7 @@ Fixed:
 Infrastructure:
 - pytest-gpu-proof 0.4.0 (schema 3, restricted signer, weekly CI cron); receipt module
   profile `test/receipt_modules.txt` (arms × 6 horizons + go2 N16 + fc/eh arms N16); golden
-  bitwise gate (`test/golden/`, 34 cases); kernel harnesses run from pytest; distribution
+  bitwise gate (`test/golden/`, 36 cases); kernel harnesses run from pytest; distribution
   contract (pure-python wheel, buildable sdist) gated; HTTPS submodules; one `.venv`.
 - GRiD → 3af782e, GLASS → e83b086; regen emits only the consumed families (headers −21%).
 - CUDA: GLASS banded block movers in the Schur assembly, shared gamma/BDSV/ADMM helpers,

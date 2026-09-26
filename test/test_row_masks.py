@@ -2,27 +2,18 @@
 solve; a fully masked-off AL group is bitwise the group's absence; a masked
 fc pin acts only on its knots; telemetry ignores inactive rows. The gates run
 on the arms (LIN_U on the actuated slots) and on go2 fc (foot pins)."""
-import importlib.util
 
 import numpy as np
 import pytest
 
 import gato
-from conftest import GO2_FEET, GO2_FC, go2_solver, go2_standing_x, go2_goals_at, GO2_URDF
+from conftest import GO2_FC, go2_solver, go2_standing_x, go2_goals_at, GO2_URDF, arm_problem, go2_mg, go2_fc  # noqa: E402
 
 pytestmark = pytest.mark.gpu
 
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS  # noqa: E402
 
 START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
-
-
-def _arm_problem(plant, N):
-    q0 = np.asarray(START[plant], dtype=np.float32)
-    x = np.concatenate([q0, np.zeros_like(q0)])[None]
-    goals = np.zeros((1, N * 6), dtype=np.float32)
-    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = 0.35, 0.25, 0.5
-    return x, goals
 
 
 def _u_box(s, lo=-3.0, hi=3.0, mech="al"):
@@ -35,7 +26,7 @@ def _u_box(s, lo=-3.0, hi=3.0, mech="al"):
 @pytest.mark.parametrize("mech", ["al", "admm"])
 def test_all_true_mask_is_bitwise_unmasked(make_solver, smallest_module, mech):
     plant, N = smallest_module
-    x, goals = _arm_problem(plant, N)
+    x, goals = arm_problem(plant, N)
     a = make_solver(plant, N)
     _u_box(a, mech=mech)
     ra = a.solve(x, goals)
@@ -55,7 +46,7 @@ def test_fully_masked_al_group_is_bitwise_absent(make_solver, smallest_module):
     """AL rows masked off everywhere contribute nothing: bitwise the solve
     with only the limit groups installed."""
     plant, N = smallest_module
-    x, goals = _arm_problem(plant, N)
+    x, goals = arm_problem(plant, N)
     a = make_solver(plant, N)
     a.enable_limit_al()
     ra = a.solve(x, goals)
@@ -124,14 +115,14 @@ def test_vector_kind_mask_is_knot_level(make_solver, smallest_module):
         s.set_row_group_mask(gi + 7, m)
 
 
-@pytest.mark.skipif(importlib.util.find_spec("gato.bsqpN16_go2_fc") is None, reason="go2 fc module (receipt profile)")
+@go2_fc
 def test_go2_masked_fc_pin_acts_on_its_knots():
     """fc-on-feet: pin FR's six wrench slots to zero on knots [4, 9) only (the
     swing-window pattern of the gait schedule). Elsewhere the fc_ref pulls the
     vertical force to ~mg/4; on the pinned knots it is ~0."""
     import pinocchio as pin
     model = pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
-    mg = sum(i.mass for i in model.inertias) * 9.81
+    mg = go2_mg(model)
     s = go2_solver(1, variant="fc")
     x = go2_standing_x().astype(np.float32)
     goals = go2_goals_at(model, x.astype(np.float64), 1)
@@ -155,7 +146,7 @@ def test_go2_masked_fc_pin_acts_on_its_knots():
     assert fl_z.min() > 0.5 * mg / 4                 # other feet untouched by the mask
 
 
-@pytest.mark.skipif(importlib.util.find_spec("gato.bsqpN16_go2_fc") is None, reason="go2 fc module (receipt profile)")
+@go2_fc
 def test_go2_per_knot_fc_ref():
     """set_fc_ref((N, n_fc)): a uniform per-knot table is BITWISE the broadcast;
     a knot-varying table is consumed per knot (the fc cost pulls each knot's
@@ -176,7 +167,7 @@ def test_go2_per_knot_fc_ref():
         c.set_fc_ref(np.zeros((c.N + 1, GO2_FC)))
 
 
-@pytest.mark.skipif(importlib.util.find_spec("gato.bsqpN16_go2_fc") is None, reason="go2 fc module (receipt profile)")
+@go2_fc
 def test_go2_gait_programmer_stand_is_the_standing_setpoint():
     """A 'stand' schedule programmed through GaitProgrammer reproduces the S1
     standing solve bitwise (moment pins everywhere, mg/4 up on every foot, no
@@ -185,7 +176,7 @@ def test_go2_gait_programmer_stand_is_the_standing_setpoint():
     import pinocchio as pin
     from gato.gait import GaitSchedule, GaitProgrammer
     model = pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
-    mg = sum(i.mass for i in model.inertias) * 9.81
+    mg = go2_mg(model)
     x = go2_standing_x().astype(np.float32)
     goals = go2_goals_at(model, x.astype(np.float64), 1)
     # reference: the S1 recipe by hand

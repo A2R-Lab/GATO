@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -91,7 +90,7 @@ def _write_limits(robot, out_path, name, urdf_name):
 
     Floating base: the synthesized base free-joint carries no <limit> tags and
     its dofs are unbounded by construction — the tables cover the ACTUATED
-    joints only (CL-3; fixed base is unchanged: every joint is actuated).
+    joints only.
     ⚠ do not consume grid::init_joint_limits() instead: it is misaligned /
     uninitialized for floating robots (GRiD gen_init_joint_limits bug, ask
     filed 2026-08-09)."""
@@ -184,7 +183,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     out_dir/register let tests generate elsewhere without touching the repo.
 
     collision_res: sphere spacing in meters for the grid_collision namespace
-    (CL-2). The URDF's <collision> geometry is spherized at this resolution
+   . The URDF's <collision> geometry is spherized at this resolution
     (GRiD's spherizer; meshes need trimesh) and grid.cuh grows the
     grid_collision:: device ABI (config_free + the differentiable clearance
     family). REQUIRED for solver modules — the constraint layer
@@ -195,12 +194,11 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     row set, so keep it small (0.15 ⇒ ~30-45 spheres on the vendored arms).
 
     contact_frames: list of URDF fixed-joint names to bake as contact frames
-    (CL-3 prep): grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
+   : grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
     None (default) bakes [ee_frame] — every GATO plant carries its EE contact
     map; pass [] to opt out.
 
-    floating_base: parse/generate with a quaternion free-flyer root (CL-3;
-    go2 nq=19, nv=18): the modules run the grid_plant SE(3) step/linearization
+    floating_base: parse/generate with a quaternion free-flyer root: the modules run the grid_plant SE(3) step/linearization
     path (SI-EULER integrator, tangent state cost). ee_frame is then the
     base-pose target frame (go2: imu_joint).
     """
@@ -224,7 +222,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     # iiwa14/indy7 grid.cuh were (accidentally) generated with that miss
     # ("KUKAiiwa14"/"indy" ≠ stem), so wiring the id for fixed base would
     # change their baked launch tables — a perf re-baseline, not a correctness
-    # fix; queued for a timing window (SSOT cl3_floating_base_2026-08-09.md).
+    # fix; queued for a timing window.
     gen_kwargs = dict(DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
     if floating_base:
         gen_kwargs["LAUNCH_CONFIG_ROBOT"] = Path(urdf_path).stem
@@ -261,7 +259,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         kwargs["contact_frames"] = contact_frames_from_urdf(robot, list(contact_frames))
     gen.gen_all_code(**kwargs)
     # (gato_abi.cuh is gone since 2026-08-13: GRiD emits the arena carve
-    # structs + EE-target aliases itself — ASK 6, asks_from_gato_2026-08-09.md.)
+    # structs + EE-target aliases itself.)
     stale_abi = out_dir / "gato_abi.cuh"
     if stale_abi.exists():
         stale_abi.unlink()
@@ -289,7 +287,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     Args:
         urdf_path: robot URDF (fixed-base serial chain, or floating_base=True
-            for a quaternion free-flyer root — CL-3: the solver runs the
+            for a quaternion free-flyer root — the solver runs the
             grid_plant SE(3) step/linearization path, SI-EULER integrator).
         name: plant name (module suffix, dynamics dir); default = URDF stem.
         N: iterable of horizon lengths to build.
@@ -297,7 +295,9 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         arch: CMAKE_CUDA_ARCHITECTURES override (default: native detection).
         jobs: parallel compile jobs (each TU pulls the large grid.cuh; keep small).
         build_dir: CMake build tree (default <repo>/build). NOTE: the tree is
-            reconfigured for exactly this (plant, N) request.
+            reconfigured for exactly this (plant, N) request — a developer
+            tree configured with a profile (-DGATO_RECEIPT_PROFILE=ON) loses
+            that configuration; pass a dedicated directory to keep it.
         collision_res / contact_frames: see codegen() — collision sphere
             spacing (enables the grid_collision clearance rows) and CL-3
             contact-frame baking.

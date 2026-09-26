@@ -1,6 +1,0 @@
-# Tests the receipt run is ALLOWED to skip (gpu-proof verify --expected-skips).
-#
-# EMPTY since 2026-09-20: the receipt profile (test/receipt_modules.txt)
-# builds the fc and eh module VARIANTS side by side with the defaults, so the
-# contact-force and exact-Hessian gates run on the attested suite. A skip on
-# the receipt run is a broken environment, not an expected outcome.

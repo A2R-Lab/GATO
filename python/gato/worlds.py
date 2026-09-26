@@ -11,7 +11,7 @@ sensor-rate substep at a time through a WORLD object::
   existing pool) is bit-identical to the pre-worlds harness.
 - :class:`MuJoCoWorld` — an INDEPENDENT simulator for contact experiments: the
   same URDF loaded by MuJoCo (verified the same robot by
-  ``gato.fingerprint`` — see ``test_worlds.py``), plus an optional contact
+  ``gato.fingerprint`` (``import gato.fingerprint as fp; fp.check(...)``) — see ``test_worlds.py``), plus an optional contact
   plane. Uses MuJoCo's own integrator/contact solver: plant-model mismatch vs
   the solver's rigid fc model is deliberate.
 
@@ -115,7 +115,7 @@ class MuJoCoWorld:
         under the iiwa14 'ready' workspace), ``size_xy`` (half-extents,
         default (0.25, 0.25)).
     timestep : float
-        MuJoCo integrator step; ``step(sim_dt)`` asserts sim_dt matches.
+        MuJoCo integrator step; ``step(q, dq, u, sim_dt)`` asserts sim_dt matches.
 
     Notes
     -----

@@ -80,7 +80,7 @@ __host__ __device__ constexpr uint32_t setup_kkt_base_smem_ct()
 
 #if USE_EXACT_HESSIAN
 // Exact-Hessian (SO-SQP) stage-block PSD projection — PROJECT-only per the
-// numpy prototype verdict (docs/open-tasks/so_sqp_prototype/RESULTS_2026-07-17).
+// numpy prototype verdict.
 // eps = 1e-5 * (1 + max|diag|) per block (the f32 clip floor; every thread
 // computes it redundantly from shared diagonals — deterministic, no staging).
 // __noinline__: these bodies land in the same TU that hit the cicc inlining
@@ -176,7 +176,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                                             T*    d_B_batch,
                                             T*    d_c_batch,
                                             T*    d_xu_traj_batch,         // X, U trajectories
-                                            void* d_GRiD_mem,              // dynamics constraint TODO: can be const?
+                                            void* d_GRiD_mem,            
                                             T*    d_x_s_batch,             // initial state
                                             T*    d_reference_traj_batch,  // end effector position trajectory
                                             T*    d_f_ext_batch,
@@ -319,7 +319,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                             qd_w_k, u_w_k, q_lim_cost, vel_lim_cost, ctrl_lim_cost, /*ee_weight=*/ee_w_k, q_pos_cost, d_q_nom, fc_cost, d_u_cost_vec, d_q_pos_w_vec, d_fc_ref_k);
                         __syncthreads();
 
-                        // terminal knot k+1: EE weight N_cost, at state x_{k+1} (PR #17 fix:
+                        // terminal knot k+1: EE weight N_cost, at state x_{k+1} (historical:
                         // the OLD _lastblock used x_k + q_cost here, so N_cost had no effect).
                         // R block discarded (the terminal state has no control).
                         T* s_xkp1 = s_xux_k + XU_KNOT_STRIDE;  // stored-format x_{k+1}

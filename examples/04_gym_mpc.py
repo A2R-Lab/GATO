@@ -13,7 +13,7 @@ Two policies run the same task:
 This demo exercises the full MPCPolicy / MPCController / ArmTrackEnv /
 HypothesisBatch API. The estimator converges to the true wrench (~0.35 N
 steady-state on the 20 N task) and B=16 tracks ~1.3x better than B=1 here;
-radius-schedule tuning remains open R&D (see docs/open-tasks).
+radius-schedule tuning remains open R&D.
 
 Needs the bsqpN64_indy7 module and the [examples] extra (gymnasium, pinocchio);
 runs from any cwd:
@@ -27,7 +27,8 @@ import gato
 from gato import BSQP, MPCController, MPCPolicy, ForceEstimator, ForceHypothesisBatch
 from gato.envs import ArmTrackEnv
 from gato.policy import TrajectoryReference
-from gato.common import figure8, _require_pin
+from gato.common import figure8
+import pinocchio as pin  # noqa: F401  (the [examples] extra)
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
 REPO = Path(__file__).resolve().parents[1]
@@ -48,8 +49,7 @@ def rollout(batch_size, with_hypotheses):
 
     hypotheses = None
     if with_hypotheses:
-        pin = _require_pin()
-        model = pin.buildModelFromUrdf(URDF)
+            model = pin.buildModelFromUrdf(URDF)
         estimator = ForceEstimator(batch_size=batch_size, initial_radius=5.0,
                                    min_radius=2.0, max_radius=40.0,
                                    smoothing_factor=0.5, seed=0, alpha=0.6, beta=0.5)

@@ -7,12 +7,11 @@
 #include "utils/linalg.cuh"
 #include "glass.cuh"
 
-// Constraint row-group layer (constraint-layer arc CL-0).
-// Architecture: docs/open-tasks/constraint_layer_locomotion_arc_plan_2026-07-10.md.
+// Constraint row-group layer.
 //
 // A row-group = {evaluator kind, target block, mechanism binding, knot mask,
-// interval bounds}. Per the CL-0 cross-term audit (cl0_cross_term_audit_2026-07-10.md)
-// every group is PURE-X or PURE-U within a knot — the `block` field states which,
+// interval bounds}. Every group is PURE-X or PURE-U within a knot (a mixed
+// group would put cross terms into the block-diagonal KKT) — the `block` field states which,
 // and formSchur's block-diagonal Hessian assumption depends on it. A row that
 // couples (x_k, u_k) is a design error this layer rejects by construction.
 //
@@ -28,7 +27,7 @@
 //                          folds here, outer dual update once per SOLVE
 //                          (al_dual_update_batched_kernel; the solve is the inner
 //                          minimization); equality rows (lo == hi) always
-//                          active. Default bindings decided by round R1.
+//                          active.
 
 using namespace sqp;
 
@@ -47,8 +46,9 @@ enum Kind : int32_t {
         EE_POS = 3,  // g_i = ee_pos_i(q_k), i < 3 (block X; equality when lo == hi).
                      // NOT a selection row: needs a block-COOPERATIVE FK eval
                      // (gato::plant::ee_pos[Grad]) — handled at dedicated sites,
-                     // never through the per-thread eval_row switch. v1:
-                     // terminal knot, MECH_AL / MECH_TELEMETRY, single EE (ee 0).
+                     // never through the per-thread eval_row switch. Installed
+                     // terminal-only by enable_ee_terminal_equality (single EE,
+                     // ee 0; any mechanism); per-knot position rows are CONTACT_POS.
         LIN_U = 4,   // g_i = C[i,:]·u_k + d_i (block U, host-supplied map; CL-2).
                      // Per-thread evaluable like the boxes, but the Jacobian is
                      // C (dense fold onto R/r, not diagonal). With grp.cone the
@@ -131,7 +131,7 @@ struct RowGroupDesc {
         int32_t knot_hi;
         T       lo[MAX_ROWS_PER_GROUP];  // interval bounds (equalities: lo == hi)
         T       hi[MAX_ROWS_PER_GROUP];
-        T       mu;     // MECH_BARRIER_RELAXED weight
+        T       mu;     // the mechanism weight: barrier mu / ADMM rho / AL rho
         T       delta;  // relaxed-barrier switch distance (> 0)
         T       sigma;  // soft/slack toggle (TurboMPC delta_xi pattern):
                         // <= 0 = HARD (exact legacy path); > 0 = elastic
@@ -143,7 +143,7 @@ struct RowGroupDesc {
         int32_t cone;   // 0 = interval rows; 1 = SOC on the row vector
         T       Cmat[MAX_ROWS_PER_GROUP * constants::CONTROL_SIZE];  // row-major map
         T       dvec[MAX_ROWS_PER_GROUP];                            // constant offset
-        // Per-knot ROW-ACTIVITY MASK (CL-4, 2026-09-20): bit i of active[k] = row i
+        // Per-knot ROW-ACTIVITY MASK : bit i of active[k] = row i
         // is live at knot k (inside [knot_lo, knot_hi) — the window still gates
         // first). All-ones = the historic behaviour, bitwise. An inactive
         // (knot, row) gets exactly the treatment the group already gives knots
@@ -182,7 +182,7 @@ __host__ __device__ __forceinline__ void set_mask_all(uint64_t* active)
         for (uint32_t k = 0; k < KNOT_POINTS; k++) { active[k] = ~0ull; }
 }
 
-// ---- stored/tangent slot maps (CL-3 floating base) -----------------------
+// ---- stored/tangent slot maps (floating base) -----------------------
 //
 // Selection rows are ACTUATED-ONLY (n_rows = ACTUATED_SIZE): the floating
 // base pose/velocity/twist slots have no limit-table rows and are never
@@ -477,6 +477,7 @@ __device__ __noinline__ void apply_collision_row_grad_hess(const RowGroupDesc<T>
                 if (grp.kind != COLLISION) continue;
                 if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && grp.mech != MECH_ADMM) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+                if (!knot_on<T>(grp, knot)) continue;   // masked-off knot: nothing folds / counts (the row-mask contract)
 
                 T* s_dist = s_scratch;
                 T* s_ddist = s_dist + NS;
@@ -537,6 +538,7 @@ __device__ __noinline__ T collision_row_cost_value(const RowGroupDesc<T>* __rest
                 const bool admm_term = grp.mech == MECH_ADMM && d_z_admm != nullptr;
                 if (grp.mech != MECH_AL && grp.mech != MECH_BARRIER_RELAXED && !admm_term) continue;
                 if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+                if (!knot_on<T>(grp, knot)) continue;   // masked-off knot: nothing folds / counts (the row-mask contract)
                 T* s_dist = s_scratch;
                 T* s_arena = align16_ptr<T>(s_dist + NS);
                 gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
@@ -989,8 +991,8 @@ __device__ void apply_row_grad_hess(const RowGroupDesc<T>* __restrict__ groups,
 
 // scalar mechanism cost of one knot (merit seam): RB barrier value or AL
 // value (must mirror apply_row_grad_hess or the line search accepts against a
-// different objective; MECH_ADMM adds nothing here — v1 leaves the merit
-// unchanged). Every thread computes the same serial sum (a few dozen evals)
+// different objective; MECH_ADMM contributes only under set_admm_merit — the
+// AL-form (z, y) term below). Every thread computes the same serial sum (a few dozen evals)
 // — uniform, deterministic, thread-invariant.
 template<typename T>
 __device__ __noinline__ T row_cost_value(const RowGroupDesc<T>* __restrict__ groups,

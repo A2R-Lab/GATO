@@ -83,7 +83,7 @@ class ForceHypothesisBatch(HypothesisBatch):
     """
 
     def __init__(self, estimator, model, ee_frame="EE"):
-        pin = _require_pin()
+        _require_pin()
         self.estimator = estimator
         self.batch_size = estimator.batch_size
         self.model = model                      # solver model (no pendulum augmentation)
@@ -142,7 +142,7 @@ class IdentifiedWrenchBatch(HypothesisBatch):
     """
 
     def __init__(self, identifier, model, ee_frame="EE", n_actuated=None):
-        pin = _require_pin()
+        _require_pin()
         self.identifier = identifier
         self.batch_size = 1
         self.model = model

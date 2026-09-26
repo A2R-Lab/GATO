@@ -2,7 +2,7 @@
 
 Committed, runnable scripts that regenerate the data and figures from the GATO paper
 ([arXiv:2510.07625](https://arxiv.org/abs/2510.07625)). Each script regenerates its
-data on the GPU **by default** and re-renders from saved/recovered data with
+data on the GPU **by default** (Fig-3 assembles from the committed CSVs; its GPU lanes are `--run-*`) and re-renders from saved/recovered data with
 `--replot`; `--quick` runs a tiny wiring smoke (not paper numbers). The scripts run
 from any cwd.
 

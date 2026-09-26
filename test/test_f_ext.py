@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 import gato
+from conftest import arm_problem  # noqa: E402
 
 from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
 
@@ -19,14 +20,7 @@ START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["
 
 
 def _inputs(plant, N, B):
-    q0 = np.asarray(START[plant], dtype=np.float32)
-    nq = q0.size
-    x0 = np.concatenate([q0, np.zeros(nq, dtype=np.float32)])
-    rng = np.random.default_rng(1234)
-    X = np.tile(x0, (B, 1)) + rng.normal(0, 0.01, (B, 2 * nq)).astype(np.float32)
-    goals = np.zeros((B, N * 6), dtype=np.float32)
-    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = 0.35, 0.25, 0.5
-    return X, goals
+    return arm_problem(plant, N, B, jitter=0.01)   # the reach problem with the suite's state jitter
 
 
 def _wrench(B, seed=7):

@@ -33,9 +33,9 @@ GPU, cmake) and tells you exactly what's missing.
 ./tools/install.sh --all      #   + examples + test + dev
 ```
 
-(The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is an
-opt-in submodule initialised by its own build script — the recursive clone
-skips it.) The lean default is all you need to generate code, build the solver, and run
+(The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is fetched
+like every other submodule; `examples/benchmarks/baselines/build_cpu_baseline.sh`
+compiles it — osqp and osqp-eigen into a local prefix — only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
 `gato.BSQP` (numpy + the built module). Pinocchio and MuJoCo are needed only by
 the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
 test suite — `--test` pulls exactly those in; `--examples` adds torch and the
@@ -43,7 +43,7 @@ viz stack. Then activate and build:
 
 ```sh
 source .venv/bin/activate
-./tools/build.sh              # incremental; --clean to reconfigure; PLANT=/KNOTS=/ARCH= to subset
+./tools/build.sh              # incremental; --clean to reconfigure; PLANT=/KNOTS= subset the modules, JOBS= caps compile jobs (RAM), ARCH= overrides the CUDA arch
 ```
 
 Docker (`./tools/docker.sh`) is an **optional prerequisites image** — CUDA
@@ -64,7 +64,7 @@ You can control which Python extension modules are built by selecting plant mode
 cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;32;128"   # PLANT x KNOTS cross-product
 cmake -S . -B build -DMODULES="indy7:8,32;go2:16"                # explicit per-plant horizons
 cmake -S . -B build -DGATO_RECEIPT_PROFILE=ON                     # exactly test/receipt_modules.txt
-cmake --build build --parallel 2                                  # each TU pulls the large grid.cuh (RAM-bound)
+cmake --build build --parallel 4                                  # each TU pulls the large grid.cuh (RAM-bound: ~1-7 GB per job; tools/build.sh defaults JOBS=4)
 ```
 
 - `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `go2`).
@@ -137,7 +137,7 @@ See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve.
 | `gato.MPC_GATO` | the paper's closed-loop SIMULATION driver (pinocchio-RK4 / MuJoCo world, pacing, task loops) | `run_mpc_fig8`, `run_mpc_goals` — not a controller |
 | `gato.worlds.{PinocchioWorld, MuJoCoWorld}` | an independent simulator to close the loop against | contact / disturbance experiments |
 | `gato.ForceHypothesisBatch` + `ForceEstimator` / `CEMForceEstimator` | the batch-as-identity disturbance layer | each batch entry solves under its own wrench hypothesis; reality picks the winner |
-| `gato.build` / `gato.available` / `gato.robot_info` / `gato.fingerprint` | codegen + compile, module discovery, registry, the dynamics fingerprint | adding robots, checking that an external simulator is the same robot |
+| `gato.build` / `gato.available` / `gato.robot_info` / `gato.fingerprint` (a submodule: `import gato.fingerprint as fp`) | codegen + compile, module discovery, registry, the dynamics fingerprint | adding robots, checking that an external simulator is the same robot |
 
 ### Linear system: pcg / bdsv / auto
 
@@ -148,14 +148,14 @@ bdsv floating base); `MPCController(linsys="auto", bdsv_threshold=0.1)` (the
 fixed-base default) picks per step from warm-startedness: a cold step (large
 `‖x_measured − x_predicted‖`, or a PCG cap-out) takes one exact solve. The
 threshold is per-workload: `tools/autotune_linsys.py` probes a task and persists
-a tuned entry in `python/gato/linsys_tuning.json` (timing runs — quiet box only).
+a tuned entry in `linsys_tuning.json` (written at runtime next to the registry, gitignored; timing runs — quiet box only).
 
 ### Floating base (quadruped)
 
 `go2` is vendored as a floating-base plant (quaternion free-flyer root, SE(3)
 step/linearization from GRiD's `grid_plant`, SI-Euler integrator, tangent-space
 state cost; N16-only module). The stored state is `[p(3); quat xyzw(4); q_j; qd]`
-and every knot's tangent is `[v_lin; omega; qd_j]`; `gato.common.state_difference`
+and every knot's tangent is `[v_lin; omega; Δq_j; Δqd]` (2·nv); `gato.common.state_difference`
 / `check_floating_state` are the manifold helpers, `gato.worlds.MuJoCoWorld(floating=True)`
 the ground-plane simulator.
 
@@ -187,12 +187,12 @@ point: the rows fold onto the Q block against the standing costs, so solver-leve
 enforcement needs AL rho ~1e3 (ADMM ~1e2; rho 10 is dominated) — verified solver-only
 (feet held < 1 mm, a 3 cm foot lift in the horizon, `test_contact_rows.py`). In the
 closed loop that stiffness breaks the SQP's line search (the stand sags), so the
-S2/S3 walking gates are open work (`docs/constraints.md`, CL-4 plan).
+S2/S3 walking gates are open work (`docs/constraints.md`).
 
 ### Same robot? The dynamics fingerprint
 
 Before comparing controllers across simulators, run
-`gato.fingerprint.check(my_qdd_fn, "iiwa14")` — per-joint inertia-response
+`import gato.fingerprint as fp; fp.check(my_qdd_fn, "iiwa14")` — per-joint inertia-response
 ratios against `test/dynamics_fingerprint.json` (pinned URDF sha + probes).
 A ratio away from 1 is a model mismatch, not a solver bug
 ([docs/consumer_contract.md](docs/consumer_contract.md)).
@@ -214,7 +214,7 @@ controls. Groups bind to one of four mechanisms:
 ```python
 solver.enable_limit_al(rho=1.0)              # boxes from the URDF limit tables
 res = solver.solve(x0, goals)
-res.stats.row_max_violation                  # (group, batch) telemetry, always on
+res.stats.row_max_violation                  # (group, batch) telemetry, always on once a row group exists
 
 # EE terminal-position equality on top of the boxes (reach-to-point)
 solver.enable_ee_terminal_equality(target_xyz, rho=10.0)
@@ -242,9 +242,11 @@ map `C` is large, scale `rho` down by `‖C‖²` — the fold lands `rho * Cᵀ
 the control Hessian block. Per-solve duals and ADMM state are inspectable via
 `get_row_duals()` / `get_admm_state()`; `set_row_group_soft(g, sigma)` turns a
 hard group into a slack-penalized one. The full parameter surface is in the
-`BSQP` docstrings.
+[docs/constraints.md](docs/constraints.md) (measured defaults and provenance per method).
 
 ### Adding a robot
+
+The dynamics layer's file map is in [gato/dynamics/README.md](gato/dynamics/README.md).
 
 One call generates the dynamics code (via GRiD), the limit tables, and compiles
 the solver modules from a URDF:
@@ -253,7 +255,7 @@ the solver modules from a URDF:
 import gato
 gato.build("path/to/robot.urdf", name="myrobot", N=[32, 64], ee_frame="EE")
 gato.build("path/to/quad.urdf", name="quad", N=[16], ee_frame="imu_joint",
-           floating_base=True, contact_frames=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])
+           floating_base=True, contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"])
 gato.build("path/to/robot.urdf", name="myrobot", N=[16], contact_forces=True)   # the "fc" variant
 # then: gato.BSQP(model_path="path/to/robot.urdf", N=32, plant_type="myrobot", ...)
 ```
@@ -297,9 +299,10 @@ on ANY host-tier skip. Sign receipts from the project `.venv` (`--test --dev`).
 
 Committed scripts that regenerate the data and figures from
 [the paper](https://arxiv.org/abs/2510.07625) live in
-**[examples/paper-figures/](examples/paper-figures/)** — one `reproduce_figN_*.py` per figure. Each
-regenerates its data on the GPU **by default**, re-renders from saved/recovered data with `--replot`,
-and runs a fast smoke with `--quick`. Run from the repo root:
+**[examples/paper-figures/](examples/paper-figures/)** — one `reproduce_figN_*.py` per figure. Fig-4/5/7
+regenerate their data on the GPU **by default**, re-render from saved/recovered data with `--replot`,
+and run a fast smoke with `--quick`; Fig-3 assembles the table and plots from the committed sweep CSVs
+(no GPU) and re-runs a lane only on request (`--run-gato`, `--run-bt`, `--run-mpcgpu`). Run from the repo root:
 
 ```bash
 python examples/paper-figures/reproduce_fig4_hparam.py --replot   # Tier A: no GPU, bundled data
@@ -315,7 +318,7 @@ every paper horizon + go2 N16 + the fc/eh variants).
 | **Fig-3** scalability (iiwa14 fig-8, GATO vs BatchThneed-CPU vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); the June single-robot chain is in `examples/archive/` |
 | **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` |
 | **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | force sweep + EE trajectories |
-| **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | unblocked since 07-30 (EE-frame fix); the residual goal-4 miss tail is task difficulty, not the solver (roadmap 08-12) |
+| **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | unblocked (f_ext frame-convention fix, then the EE-frame metric fix); the residual goal-4 miss tail is task difficulty, not the solver |
 
 See [examples/paper-figures/README.md](examples/paper-figures/README.md) for the full build matrix,
 reproducibility tiers, hardware/config delta, and caveats (MPCGPU/CPU baselines). Fig-6 (sim

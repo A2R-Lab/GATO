@@ -3,7 +3,6 @@
 // GATO stores its Schur complement: NEGATED strips + matching-sign rhs
 // (schur_linsys.cuh stores −theta_k on the main diagonal, so −S_stored is SPD
 // and the bdsv path must solve (−S)λ = (−γ) — same λ). Gate §5.3 of
-// docs/open-tasks/hybrid_pcg_bdsv_plan_2026-07-07.md.
 //
 // The bdsv kernel below mirrors gato/bsqp/kernels/bdsv.cuh's sequence exactly
 // (eta0 guard → in-place negate → bdsv_factor<CHECK> → bdsv_solve), so its

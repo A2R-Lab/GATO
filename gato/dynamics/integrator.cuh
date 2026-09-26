@@ -28,7 +28,7 @@ namespace gato::plant {
 // from these, never from the adapter's arena alone: setup_kkt/merit used to,
 // which under-sized the linearization by the qdd|dqdd prefix (114 floats on
 // indy7) — hidden for months by unrelated layout slack, exposed by memcheck
-// when the slack was reclaimed (Wave F, 2026-09-20).
+// when the slack was reclaimed.
 template<typename T>
 __host__ __device__ constexpr uint32_t simStep_TempMemCt()
 {

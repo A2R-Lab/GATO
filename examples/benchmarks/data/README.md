@@ -8,7 +8,7 @@
 > already quarantined by provenance.
 
 These are **measured** GPU/solver results recovered during the cross-branch consolidation
-(see [`docs/archaeology.md`](../docs/archaeology.md)). They let the paper figures re-plot
+(see [`docs/archaeology.md`](../../../docs/archaeology.md)). They let the paper figures re-plot
 **without re-running on a GPU**. Provenance is recorded per directory below.
 
 ## `fig3_scalability_p2p/` — Fig 3 scalability grid (Indy7, point-to-point)
@@ -36,4 +36,4 @@ These are **measured** GPU/solver results recovered during the cross-branch cons
 ## Recovered elsewhere (not in this directory)
 - **CS1 hyperparameter results** (Fig 4): `examples/gato_hparam_batch_results.pkl` (84 KB, the
   `agg` dict of normalized merit-vs-SQP-iter curves per batch size) — restored into `examples/`
-  next to its notebook `gato_hparam_batch.ipynb`, which re-plots Fig 4 directly from it.
+  (its notebook was folded into `examples/explore.ipynb`; `reproduce_fig4_hparam.py --replot` re-plots Fig 4 from it).

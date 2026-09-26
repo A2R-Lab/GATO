@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .common import _require_pin, _pin_available, initialize_warm_start
+from .rowkinds import MECHS, KIND_CONTACT_POS, is_vector_kind
 from .config import SolverParams, COST_FIELDS
 from .linsys_autotune import resolve_linsys
 
@@ -45,7 +46,8 @@ def available(variant="default"):
 
 
 def robot_info(plant_type):
-    """Registry metadata for a plant ({nq, nv, ee_frame, urdf}), or {} if unregistered.
+    """Registry metadata for a plant ({nq, nv, ee_frame, urdf, floating_base,
+    contact_frames, collision, codegen_key}), or {} if unregistered.
 
     The registry (_registry.json) is written by gato.build / tools/regen_grid.py."""
     from .builder import load_registry
@@ -78,9 +80,10 @@ class SolverStats:
     # non-PD pivot — barely-regularized costs; λ kept its warm start and rho
     # adaptation retries). Only == 0 carries meaning downstream.
     linsys: str = "pcg"         # "pcg" | "bdsv" | "bdsv_first"
-    # constraint row-group telemetry (None unless enable_limit_telemetry()):
-    # (n_groups, B) true violation of the RETURNED trajectory per row-group
-    # (group order: BOX_Q, BOX_QD, BOX_U)
+    # constraint row-group telemetry (None until a row group exists — any
+    # enable_limit_* mode or an appended group): (n_groups, B) true violation of
+    # the RETURNED trajectory per group, in get_row_groups() order (the three
+    # limit boxes first, then the appended groups)
     row_max_violation: np.ndarray = None
     row_sum_violation: np.ndarray = None
     # (B,) last-iteration ADMM residuals (None unless enable_limit_admm())
@@ -261,10 +264,7 @@ class BSQP:
         self._model = None
         self._data = None
         self._ee_frame_id = None
-        if hasattr(base, "NQ"):
-            self.nq, self.nv = int(base.NQ), int(base.NV)
-        else:  # pre-CL-3 modules did not export the state layout: fall back to pinocchio
-            self.nq, self.nv = self.model.nq, self.model.nv
+        self.nq, self.nv = int(base.NQ), int(base.NV)
         if _pin_available():
             if (self.nq, self.nv) != (self.model.nq, self.model.nv):
                 raise ValueError(
@@ -452,95 +452,76 @@ class BSQP:
                            n_actuated=self.n_actuated)
 
     # rows::Mechanism enum values (rowgroups.cuh)
-    _MECHS = {"telemetry": 0, "barrier": 1, "admm": 2, "al": 3}
+    _MECHS = MECHS
+
+    def _resolve_mech_rho(self, mech, rho, admm_rho):
+        """(mech name, rho): the active enable_limit_* mode by default; per-mechanism
+        rho defaults, with the ADMM one passed by the caller (0.01 for control-block
+        rows whose Hessian scale is the control cost, 1.0 for rows that fold onto
+        the state block)."""
+        if mech is None:
+            mech = self._row_mech or "telemetry"
+        if mech not in self._MECHS:
+            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
+        if rho is None:
+            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": admm_rho, "al": 1.0}[mech]
+        return mech, float(rho)
+
+    def _require_fc(self, what):
+        if self.n_fc == 0:
+            raise RuntimeError(f"{what} needs a GATO_CONTACT_FORCES build (this module has no fc slots)")
+
+    @staticmethod
+    def _bcast(v, n):
+        """scalar -> (n,) float32, or an array reshaped to (n,)"""
+        return np.ascontiguousarray((np.full(n, v) if np.ndim(v) == 0 else np.asarray(v)).astype(np.float32).reshape(n))
 
     def enable_limit_telemetry(self):
-        """Install the canonical limit row-groups (position/velocity/torque boxes
-        from the URDF limit tables) in TELEMETRY mode: every solve() reports each
-        group's true violation of the returned trajectory in
-        ``stats.row_{max,sum}_violation`` (group order BOX_Q, BOX_QD, BOX_U).
-        Telemetry never touches the solver path — trajectories are bit-identical
-        with it on or off. Part of the constraint row-group layer (CL-0)."""
+        """Install the canonical limit row-groups (URDF position/velocity/torque boxes)
+        in TELEMETRY mode: solves report each group's true violation in
+        ``stats.row_{max,sum}_violation``; trajectories stay bit-identical.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_telemetry`)."""
         self._check_no_appended_groups("enable_limit_telemetry")
         self.solver.enable_limit_telemetry()
         self._row_mech = "telemetry"
 
     def enable_limit_barrier(self, mu=3e-3, delta=0.05):
-        """Bind the limit row-groups to the RELAXED log-barrier mechanism: a
-        C² barrier with bounded Hessian (quadratic extension within ``delta``
-        of a bound) folded into the KKT cost and merit — infeasible-start safe,
-        the constraint layer's soft prior mode. Additive to grid_plant's own
-        clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
-        comparison. Telemetry (stats.row_*_violation) stays on."""
+        """Bind the limit row-groups to the RELAXED log-barrier mechanism (soft prior;
+        C² barrier with bounded Hessian, quadratic extension within ``delta``).
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_barrier`)."""
         self._check_no_appended_groups("enable_limit_barrier")
         self.solver.enable_limit_barrier(float(mu), float(delta))
         self._row_mech = "barrier"
 
     def enable_limit_admm(self, rho=0.01, iters=10):
-        """Bind the limit row-groups to the ADMM-projection mechanism: an
-        OSQP-style fixed-budget inner loop per SQP iteration on a REUSED
-        direct (bdsv) factorization — the constraint layer's
-        "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
-        a solve; adapt it between solves), ``iters`` the fixed budget.
-        R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
-        rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
-        controls at the warm start (closed-loop MPC parks); the measured
-        pocket is ~0.005-0.02 (r1_report_2026-07-11.md).
-        iters=10 BOUND by R2 (r2_report_2026-07-30.md): 2/5 park the feasible
-        cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
-        inner cost).
-        Duals warm-start across solves (reset_dual() reinitializes) —
-        EXCEPT equality rows (lo == hi, e.g. enable_ee_terminal_equality),
-        whose (z, y) reinit every solve: a warm-started dual on a row the
-        primal may not reach is an unbounded violation integrator (measured).
-        stats gain admm_r_prim/admm_r_dual; telemetry stays on."""
+        """Bind the limit row-groups to the ADMM-projection mechanism: a fixed-budget
+        (``iters``) OSQP-style inner loop per SQP iteration on the reused direct
+        factor — the layer's "approximately hard" mode; ``rho`` is the ADMM penalty.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_admm`)."""
         self._check_no_appended_groups("enable_limit_admm")
         self.solver.enable_limit_admm(float(rho), int(iters))
         self._row_mech = "admm"
 
     def enable_limit_al(self, rho=1.0):
-        """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
-        hinge-activated grad/GN-Hessian and C¹ AL value folded into the KKT
-        cost and merit, with the outer dual update
-        ``lam <- max(0, lam + rho*violation)`` run ONCE per solve on the final
-        trajectory (equality rows ``lo == hi`` always active) — warm-started
-        repeat solves are the outer loop, so feasibility converges across MPC
-        steps. The update is gated on TRUE-violation acceptance (feasible or
-        strictly improved), so a stalled primal freezes the duals instead of
-        drifting. ``rho`` is fixed per enable; duals persist across solves
-        (reset_dual() zeroes them). Violation is honestly telemetry-reported;
-        ``get_row_duals()`` exposes the multipliers. While active, solves use
-        the direct (bdsv) linear solver and freeze trust-region rho
-        adaptation — both required for outer convergence (measured; see
-        bsqp.cuh dispatch comments). REQUIRES the trust-region floor
-        (constructor rho > 0, the default): f32 bdsv on an unregularized
-        Schur system returns garbage steps (R1). R1 default rho=1.0 — the
-        fold lands rho on ACTIVE rows whose natural Hessian scale is tiny
-        (qd rows ~1e-4): rho >= 10 makes the f32 factor error large enough
-        that closed-loop MPC destabilizes on tight-limit plants (measured:
-        iiwa14 pickplace spins at 100 rad/s at rho=100, final 5mm at
-        rho=1). Higher rho = tighter transients — raise it only within the
-        f32 ceiling (rho ~ 1e4 x the block's natural Hessian scale)."""
+        """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism: the
+        outer dual update runs once per solve on the final trajectory, so
+        warm-started repeat solves are the outer loop (``rho`` fixed per enable;
+        duals persist across solves, reset_dual() zeroes them).
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_al`)."""
         self._check_no_appended_groups("enable_limit_al")
         self.solver.enable_limit_al(float(rho))
         self._row_mech = "al"
 
     def enable_ee_terminal_equality(self, target, rho=10.0):
-        """Append an EE terminal-position equality row-group: the returned
-        trajectory's final-knot EE position is constrained to ``target`` (xyz,
-        ``lo == hi``). The first non-selection row kind — evaluated by
-        on-device FK, in the SOLVER's EE frame (``ee_pos(q, frame="solver")``
-        — the same frame the tracking cost optimizes; see ee_pos for the
-        frame-offset caveat). Mechanism follows the current mode: AL when
-        enable_limit_al() is active (always-active equality, signed
-        multiplier in lam_hi), ADMM when enable_limit_admm() is active
-        (linearized inner-loop projection: z pins to target, y accumulates
-        the equality multiplier), telemetry-only reporting otherwise. Call
-        AFTER enable_limit_* — mechanism enables reinstall the canonical
-        groups and drop appended ones. R1 binding ruling: ADMM binding measured
-        best for closed-loop MPC (2mm finals at rho=10); AL binding works at
-        SOFT rho (al rho=1, ee rho=1: ~5mm finals) — at rho=100 the equality
-        multiplier winds up through the f32 factor error and diverges."""
+        """Append an EE terminal-position equality row-group (final-knot EE position ==
+        ``target``, on-device FK in the solver's EE frame). The mechanism follows the
+        active enable_limit_* mode; call it AFTER the mechanism enable.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_ee_terminal_equality`)."""
         self.solver.enable_ee_terminal_equality(
             np.asarray(target, dtype=np.float32).reshape(3), float(rho))
         self._n_appended_groups += 1
@@ -579,15 +560,16 @@ class BSQP:
         return self.solver.get_admm_state()
 
     def set_row_group_bounds(self, g, lo, hi):
-        """Override group ``g``'s interval bounds (arrays of n_rows each).
-        ``lo == hi`` rows become always-active equalities under AL. ADMM's
-        auxiliary state reinitializes on the next solve (re-clip)."""
+        """Override group ``g``'s interval bounds (n_rows each); ``lo == hi`` rows are
+        always-active equalities under AL, ADMM's auxiliary state re-clips next solve.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_row_group_bounds`)."""
         self.solver.set_row_group_bounds(int(g),
                                          np.asarray(lo, dtype=np.float32),
                                          np.asarray(hi, dtype=np.float32))
 
     def set_row_group_mask(self, g, mask):
-        """Per-knot row-activity mask for row group ``g`` (CL-4 gait scheduling).
+        """Per-knot row-activity mask for row group ``g``.
 
         ``mask`` is an (N, n_rows) boolean array (row i live at knot k), or (N,)
         for vector kinds (SOC cones, collision groups — gated per knot). The
@@ -602,7 +584,7 @@ class BSQP:
             raise ValueError(f"row group {g} out of range (have {len(groups)})")
         grp = groups[g]
         n_rows = int(grp["n_rows"])
-        vector_kind = bool(grp["cone"]) or int(grp["kind"]) == 5   # SOC cone / COLLISION: bit 0 gates the knot
+        vector_kind = is_vector_kind(grp["kind"], grp["cone"])   # SOC cone / COLLISION: bit 0 gates the knot
         if mask is None:
             words = np.full(self.N, np.uint64(2**64 - 1), dtype=np.uint64)
         else:
@@ -619,19 +601,14 @@ class BSQP:
         self.solver.set_row_group_mask(int(g), words)
 
     def set_row_group_soft(self, g, sigma):
-        """Soft/slack toggle (TurboMPC delta_xi) for group ``g``: sigma > 0
-        makes its rows ELASTIC — transient violation is traded against the
-        elastic weight instead of forced to zero. AL: L1 slack — the
-        effective multiplier saturates at sigma (the outer update caps
-        |lam| <= sigma; the principled lambda-cap for conflict regimes).
-        ADMM: quadratic slack — smoothed z-projection (slope
-        rho/(rho+sigma) past a bound; sigma -> inf recovers the hard clamp).
-        sigma = 0 restores the exact hard path. Telemetry always reports
-        the TRUE violation, slack notwithstanding."""
+        """Soft/slack toggle for group ``g``: sigma > 0 makes its rows ELASTIC (AL: the
+        multiplier saturates at sigma; ADMM: smoothed projection); 0 = hard.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_row_group_soft`)."""
         self.solver.set_row_group_soft(int(g), float(sigma))
 
     def set_admm_merit(self, on=True):
-        """R1 ablation toggle: include the AL-form ADMM constraint value
+        """Ablation toggle: include the AL-form ADMM constraint value
 y'(g - z) + (rho/2)|g - z|^2 (current row state) in the line-search
 merit. v1 ADMM's merit is tracking-only, so the line search rejects
 steps that trade tracking for feasibility (measured: closed-loop MPC
@@ -674,12 +651,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         if C.ndim != 2 or C.shape[1] != self.nu:
             raise ValueError(f"C must be (m, {self.nu}); got {C.shape}")
         m = C.shape[0]
-        if mech is None:
-            mech = self._row_mech or "telemetry"
-        if mech not in self._MECHS:
-            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
-        if rho is None:
-            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 0.01, "al": 1.0}[mech]
+        mech, rho = self._resolve_mech_rho(mech, rho, admm_rho=0.01)
         # ascontiguousarray: the binding consumes raw .ptr buffers — a strided view
         # (e.g. np.broadcast_to) must be densified here (belt; the binding also
         # forces c_style since 2026-08-02)
@@ -712,8 +684,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         the 6-wide block [n(3); f(3)] (world-aligned, about the frame origin), or
         just its ``"n"`` (moment) / ``"f"`` (force) half. Feeds add_fc_box /
         set_fc_ref / SolveResult.fc_at slicing on multi-contact (fc-on-feet) plants."""
-        if self.n_fc == 0:
-            raise RuntimeError("fc_slots needs a GATO_CONTACT_FORCES build (this module has no fc slots)")
+        self._require_fc("fc_slots")
         i = self.contact_frames.index(frame) if isinstance(frame, str) else int(frame)
         if i < 0 or i >= len(self.contact_frames):
             raise ValueError(f"contact frame {frame!r} not in {self.contact_frames}")
@@ -733,9 +704,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         Pin the wrench torque rows of a point contact with
         ``add_fc_box(0, 0, slots=range(3))`` (wrench layout is [n; f]).
         Extra kwargs go to add_lin_u_rows (mech/rho/knot range/...)."""
-        if self.n_fc == 0:
-            raise RuntimeError("add_fc_box needs a GATO_CONTACT_FORCES build "
-                               "(this module has no fc slots)")
+        self._require_fc("add_fc_box")
         slots = list(range(self.n_fc)) if slots is None else list(slots)
         if any(s < 0 or s >= self.n_fc for s in slots):
             raise ValueError(f"fc slots must be in [0, {self.n_fc}); got {slots}")
@@ -743,9 +712,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         C = np.zeros((m, self.nu), dtype=np.float32)
         for i, s in enumerate(slots):
             C[i, self.n_actuated + s] = 1.0
-        lo_a = np.full(m, lo, dtype=np.float32) if np.ndim(lo) == 0 else np.asarray(lo, dtype=np.float32)
-        hi_a = np.full(m, hi, dtype=np.float32) if np.ndim(hi) == 0 else np.asarray(hi, dtype=np.float32)
-        return self.add_lin_u_rows(C, lo=lo_a, hi=hi_a, **kw)
+        return self.add_lin_u_rows(C, lo=self._bcast(lo, m), hi=self._bcast(hi, m), **kw)
 
     def add_fc_cone(self, frame, mu, mech=None, rho=None, form="soc", **kw):
         """Friction cone on one contact frame's fc FORCE slots (fc builds):
@@ -753,8 +720,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         world-aligned, so the map is CONSTANT (no freezing at q, unlike the arm
         EE cone) and holds at every knot. Mask it to stance knots with
         ``set_row_group_mask``. Returns the group index."""
-        if self.n_fc == 0:
-            raise RuntimeError("add_fc_cone needs a GATO_CONTACT_FORCES build (this module has no fc slots)")
+        self._require_fc("add_fc_cone")
         if not mu > 0:
             raise ValueError("mu must be > 0")
         fx, fy, fz = self.fc_slots(frame, "f")
@@ -764,7 +730,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         C[2, self.n_actuated + fy] = 1.0
         return self.enable_u_cone(C, mech=mech, rho=rho, form=form, **kw)
 
-    # ---- contact-frame POSITION rows (CL-4 §1.3) ------------------------------
+    # ---- contact-frame POSITION rows ------------------------------
     @property
     def n_contact_rows(self):
         """3 rows per baked contact frame (the CONTACT_POS group width)."""
@@ -786,7 +752,7 @@ cross-term audit's contact-frame rule for config-dependent maps).
         return np.ascontiguousarray(t.reshape(self.N, n))
 
     def add_contact_pos_rows(self, targets=None, lo=0.0, hi=0.0, mech=None, rho=None,
-                             delta=0.05, sigma=0.0, knot_lo=0, knot_hi=None, admm_iters=0):
+                             delta=0.05, sigma=0.0, knot_lo=1, knot_hi=None, admm_iters=0):
         """Append a CONTACT_POS row-group: for every baked contact frame f and
         knot k, three rows g = p_f(q_k) - tgt_k[f] (world xyz of the frame
         origin, on-device FK over GRiD's contact_frame_positions surface) with
@@ -795,23 +761,17 @@ cross-term audit's contact-frame rule for config-dependent maps).
         row (lo = clearance, hi = inf, other rows masked off) is a swing
         clearance. ``targets`` is (N, n_rows), (n_frames, 3) or (n_rows,) (the
         latter two broadcast over knots; None = zeros = the raw position).
-        Rows fold at EVERY knot of [knot_lo, knot_hi) (default: the whole
-        horizon) — mask (knot, foot) rows per tick with set_row_group_mask and
-        retarget with set_row_group_targets; knot 0 is the measured state, so
-        mask it off unless the target is exactly the measured foot position.
-        Returns the group index. Mechanism defaults follow enable_collision
-        (rows fold onto the Q block: admm rho 1.0)."""
+        Rows fold at EVERY knot of [knot_lo, knot_hi) (default knots 1..N-1:
+        knot 0 is the measured state, a row there is unsatisfiable by any step)
+        — mask (knot, foot) rows per tick with set_row_group_mask and retarget
+        with set_row_group_targets. Returns the group index. Mechanism defaults
+        follow enable_collision (rows fold onto the Q block: admm rho 1.0, al rho
+        1.0; the rho that actually enforces is measured in docs/constraints.md)."""
         if not self.contact_frames:
             raise RuntimeError("this plant bakes no contact frames (regen with contact_frames=[...])")
-        if mech is None:
-            mech = self._row_mech or "telemetry"
-        if mech not in self._MECHS:
-            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
-        if rho is None:
-            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 1.0, "al": 1.0}[mech]
+        mech, rho = self._resolve_mech_rho(mech, rho, admm_rho=1.0)
         n = self.n_contact_rows
-        lo_a = np.ascontiguousarray((np.full(n, lo) if np.ndim(lo) == 0 else np.asarray(lo)).astype(np.float32).reshape(n))
-        hi_a = np.ascontiguousarray((np.full(n, hi) if np.ndim(hi) == 0 else np.asarray(hi)).astype(np.float32).reshape(n))
+        lo_a, hi_a = self._bcast(lo, n), self._bcast(hi, n)
         if knot_hi is None:
             knot_hi = self.N
         gi = self.solver.add_contact_pos_group(self._MECHS[mech], lo_a, hi_a, self._contact_targets(targets),
@@ -825,15 +785,14 @@ cross-term audit's contact-frame rule for config-dependent maps).
         (n_frames, 3) or (n_rows,) (broadcast over knots). ADMM z/y re-init
         on the next solve (the residual moved)."""
         groups = self.get_row_groups()
-        if g < 0 or g >= len(groups) or int(groups[g]["kind"]) != 6:
+        if g < 0 or g >= len(groups) or int(groups[g]["kind"]) != KIND_CONTACT_POS:
             raise ValueError(f"row group {g} is not a CONTACT_POS group")
         self.solver.set_row_group_targets(int(g), self._contact_targets(targets))
 
     def enable_u_cone(self, C, d=None, mech=None, rho=None, form="soc",
                       facets=8, facet_scale="inscribed", **kw):
         """Cone constraint on a mapped control quantity g = C @ u + d
-(CL-2 demo surface: e.g. an EE contact-force friction cone with
-C = S @ pinv(J(q).T), rows [mu*f_n; f_t1; f_t2], frozen at q).
+.T), rows [mu*f_n; f_t1; f_t2], frozen at q).
 
         Measured defaults, rulings and provenance: docs/constraints.md (`enable_u_cone`)."""
         C = np.asarray(C, dtype=np.float64)
@@ -859,7 +818,7 @@ C = S @ pinv(J(q).T), rows [mu*f_n; f_t1; f_t2], frozen at q).
     def set_collision_environment(self, spheres=None, capsules=None,
                                   cuboids=None, planes=None):
         """Upload the runtime obstacle set for the COLLISION clearance rows
-(CL-2). Lists of tuples, one per obstacle (all in world frame, meters):
+. Lists of tuples, one per obstacle (all in world frame, meters):
 
         Measured defaults, rulings and provenance: docs/constraints.md (`set_collision_environment`)."""
         def arr(x, w):
@@ -878,14 +837,7 @@ The covering spheres are already conservative (inflated by the
 spherizer), so margin is extra safety on top.
 
         Measured defaults, rulings and provenance: docs/constraints.md (`enable_collision`)."""
-        if mech is None:
-            mech = self._row_mech or "telemetry"
-        if mech not in self._MECHS:
-            raise ValueError(f"mech must be one of {sorted(self._MECHS)}, got {mech!r}")
-        if rho is None:
-            # admm 1.0 (NOT the cone/box 0.01): clearance rows fold onto the
-            # Q block — see the docstring's 2b binding paragraph
-            rho = {"telemetry": 0.0, "barrier": 3e-3, "admm": 1.0, "al": 1.0}[mech]
+        mech, rho = self._resolve_mech_rho(mech, rho, admm_rho=1.0)   # admm 1.0: clearance rows fold onto the Q block
         self.solver.enable_collision(self._MECHS[mech], float(margin), float(rho),
                                      float(delta), float(sigma), int(knot_lo),
                                      int(admm_iters))
@@ -979,9 +931,7 @@ spherizer), so margin is extra safety on top.
         wrench (e.g. [0,0,0, 0,0,+F] for an F-newton press reaction), fc_cost =
         the force-tracking weight. Pair with cone rows on the fc columns
         (add_lin_u_rows / enable_u_cone with a selection C) for friction limits."""
-        if self.n_fc == 0:
-            raise RuntimeError("set_fc_ref needs a GATO_CONTACT_FORCES build "
-                               "(this module has no fc slots)")
+        self._require_fc("set_fc_ref")
         if ref is None:
             self.solver.set_fc_ref(np.empty(0, dtype=np.float32))
             return
@@ -1013,7 +963,7 @@ spherizer), so margin is extra safety on top.
         if self._model is None:
             pin = _require_pin()
             if self.floating_base:
-                # floating-base modules (CL-3): the stored state carries the
+                # floating-base modules: the stored state carries the
                 # free-flyer q [p; quat xyzw] — mirror it in the pin model so
                 # nq/nv/nx and every oracle computation match the module.
                 self._model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())

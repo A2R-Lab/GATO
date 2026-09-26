@@ -27,12 +27,12 @@ all 24 branches (2026-06-21). Paper = *GATO: GPU-Accelerated Batched Trajectory 
 
 | Paper element | Canonical source branch:path | Measured data recovered? | Now in this repo |
 |---|---|---|---|
-| **CS1 hyperparameter** (Fig 4): iiwa14 per-batch ρ, normalized-merit-vs-SQP-iter | clean nb `case_study_1:examples/gato_hparam_batch.ipynb` | **YES** — `batch_rho:examples/gato_hparam_batch_results_adaptive_rho_2.pkl` (84 KB) | `examples/gato_hparam_batch.ipynb` + `examples/gato_hparam_batch_results.pkl` (re-plots Fig 4, **no GPU needed**) |
+| **CS1 hyperparameter** (Fig 4): iiwa14 per-batch ρ, normalized-merit-vs-SQP-iter | clean nb `case_study_1:examples/explore.ipynb` | **YES** — `batch_rho:examples/gato_hparam_batch_results_adaptive_rho_2.pkl` (84 KB) | `examples/explore.ipynb` + `examples/gato_hparam_batch_results.pkl` (re-plots Fig 4, **no GPU needed**) |
 | **Fig 3 scalability** (Indy7 batch×N solve-time) | `experiment_plots:benchmark_fig8.py` (fig8, modern API, batch≤1024) **and** `a2rlab03:benchmark.py` (`class Benchmark`, mujoco point-to-point — produced the surviving data) | **PARTIAL** — 23/24 point-to-point cells (missing `batch128_N64`); fig8-heatmap input data **lost** | `data/fig3_scalability_p2p/` (p2p grid); harness consolidation pending |
-| **Fig 3 heatmap** | `experiment_plots:plots/fig8_benchmark_heatmap.ipynb` (+ rendered PNG) | input `benchmark_fig8_*.pkl` **lost** → re-run | `examples/benchmarks/plots/fig8_benchmark_heatmap.ipynb` + `examples/benchmarks/plots/gato_solve_time_heatmap.png` |
+| **Fig 3 heatmap** | `experiment_plots:plots/fig8_benchmark_heatmap.ipynb` (+ rendered PNG) | input `benchmark_fig8_*.pkl` **lost** → re-run | `examples/paper-figures/` (the reproduce_fig*.py renders) + `examples/paper-figures/` (the reproduce_fig*.py renders) |
 | **Fig 3 CPU baseline** | `a2rlab03:benchmark_pinocchio.py` (pinocchio-sim MPC driving the GPU solver — **not** OSQP) | none | pending (port: dead ctor kwargs `f_ext_B_std=` to remove) |
 | **CS2 disturbance** (Fig 5): Indy7 fig8 under random external force | old `benchmark.py` (`usefext`/`f_ext_std` random-force batch) + modern `MPC_GATO.setup_external_forces` | **none** (figures only) → re-run from scratch | pending |
-| **CS3a pick-place / Table I**: iiwa14 + pendulum, success-rate-vs-batch | `hardware:examples/gato_pick&place.ipynb` (batch sweep) + `_cem.ipynb` (success-aggregation figure) + `_sept_9.ipynb` (cleanest MPC class) | none → re-run | `examples/gato_pickplace.ipynb` (basic demo); batch-sweep + Table-I driver pending |
+| **CS3a pick-place / Table I**: iiwa14 + pendulum, success-rate-vs-batch | `hardware:examples/gato_pick&place.ipynb` (batch sweep) + `_cem.ipynb` (success-aggregation figure) + `_sept_9.ipynb` (cleanest MPC class) | none → re-run | `examples/paper-figures/reproduce_fig7_pickplace.py` (basic demo); batch-sweep + Table-I driver pending |
 | **CS3b hardware** (physical robot) | `demo_flexiv:python/bsqp/hardware_controller.py::MPCHardwareController` (robot-agnostic dual-thread driver = the reusable bit) | n/a | pending (hardware-blocked) |
 | **MPCGPU baseline** (Fig 3 GPU competitor) | `adu/multisolve-v1` (only branch pinning `dependencies/MPCGPU` + harnesses + CMake + README + citation) | `bchol-integration:benchmark_results/` (bchol batch-SQP, secondary) | pending (frozen-pin build) |
 
@@ -44,8 +44,8 @@ all 24 branches (2026-06-21). Paper = *GATO: GPU-Accelerated Batched Trajectory 
 and `CEMForceEstimator` — only the generic `ForceEstimator` survived. Source: `hardware`/
 `iiwa14_demo` `force_estimator*.py`.
 
-**API note:** the current `python/bsqp/interface.py` still exposes the old `BSQP` surface
-(`solve`/`get_stats`/`reset_dual`/`set_f_ext_B`), so most harness ports are trivial renames
+**API note:** the current `python/gato/interface.py` still exposes the old `BSQP` surface
+(`solve`/`stats`/`reset_dual`/`set_f_ext_B`), so most harness ports are trivial renames
 (e.g. `set_f_ext_batch` → `set_f_ext_B`), not rewrites.
 
 ## Recovered measured data (so figures re-plot without a GPU)
@@ -53,92 +53,3 @@ and `CEMForceEstimator` — only the generic `ForceEstimator` survived. Source: 
 - `data/fig3_scalability_p2p/` — 23/24 Indy7 point-to-point solve-time cells. See `data/README.md`.
 - `data/legacy_mpcgpu_solvetime_csv/` — 11 early SQP solve-time CSVs (unique to `dev`/`ROS_dev`/`adu/multisolve-v2`).
 
-## Branch disposition (24 branches)
-
-### KEEP (do not delete)
-| Branch | Why |
-|---|---|
-| `main` / `ICRA-26` | the migrated solver trunk (this history) |
-| `gh-pages` | **live** ICRA-2026 paper website — unique demo media (disturbance CDF, hardware photo, fig8/heatmap plots, an 18.9 MB demo video) + deploy workflow; deleting it takes the site down |
-
-### PORT-SOURCE → DROP after consolidation lands & is verified
-Harness/data mined; nothing unique remains once Phase-1 consolidation is committed.
-| Branch | Unique content (now mined) |
-|---|---|
-| `batch_rho` | CS1 84 KB results pickle (recovered) + full demo notebook suite |
-| `case_study_1` | clean CS1 notebook (no embedded outputs) — superset's portable copy |
-| `experiment_plots` | Fig3 `benchmark_fig8.py` (only copy) + heatmap notebook + CS2 disturbance figures |
-| `a2rlab03` | Fig3 measured p2p data (recovered) + `benchmark.py` + `benchmark_pinocchio.py` baseline |
-| `a2rlab-02` | byte-identical Fig3 data (redundant with a2rlab03) |
-| `hardware` | CS3a pick-place trio + `force_estimator*.py` (Improved/CEM) |
-| `iiwa14_demo` | CS3a + C++ force-estimator path (`force_estimator.hpp`, `batch_utils.cuh`) |
-| `demo_flexiv` | CS3b `MPCHardwareController` (reusable) + Flexiv Rizon one-off port |
-
-### MPCGPU baseline — KEEP until the baseline is built
-| Branch | Why |
-|---|---|
-| `adu/multisolve-v1` | **canonical** MPCGPU baseline (submodule pin `MPCGPU @ 0efde8c`, old `GRiD @ 032ed027`, harnesses, CMake, citation arXiv:2309.08079) |
-| `bchol-integration`, `point-mass-example`, `docs` | byte-identical `track_iiwa_{pcg,qdldl}.cu` harnesses (redundant once v1 is built) |
-
-> MPCGPU build = **frozen pins**, not the migrated GRiD. Bounded porting: add CUDA arch `120`,
-> CUDA ≥ 12.8 (pin hardcodes 12.2), strip `-G` debug flag before timing, fix CWD/trajfile paths.
-
-### DROP-safe (verified — nothing unique lost)
-| Branch | Verdict |
-|---|---|
-| `benchmark-ckpt`, `working-dev`, `a2rlab-01` | pre-`main` multisolve dev checkpoints; notebooks/data byte-identical to experiment-branch copies, or source superseded by `main` |
-| `ROS_dev` | **no ROS code here** — the ROS/MuJoCo integration is the external `A2R-Lab/indy7-mpc` submodule (only a pointer was pinned); unique CSVs salvaged to `data/legacy_mpcgpu_solvetime_csv/` |
-| `dev`, `adu/multisolve-v2` | earlier dev checkpoints superseded by `main`; their unique CSV set salvaged (above) |
-
-### USER-CALL (low stakes)
-| Branch | Note |
-|---|---|
-| `main-deprecated` | genuine pre-migration "old main" + a unique `experiments/MPCGPU/` harness (already mined). Tag-then-drop candidate, or keep as a historical marker. |
-
-## Staging method (why not literal `git cherry-pick`)
-The old branches are **unrelated histories with disjoint file trees** (old pre-migration `gato/`
-source vs the migrated tree), so a per-commit cherry-pick produces conflicts on nearly every file.
-Instead, consolidation brings the canonical artifacts onto `cleanup-modernization` as
-**provenance-credited file ports** — each commit names its source `branch:SHA`, and this document is
-the history record. The old branches remain on `origin` until consolidation is verified and deletion
-is explicitly approved.
-
----
-
-# Phase-3 disposition — working branches created 2026-06-22..24 (this campaign)
-
-The 24-branch table above is the *origin archaeology* (old pre-migration worlds). This section is the
-**delete / merge / keep call for the branches THIS campaign created**, plus the current gate status.
-GATO has two remotes: `origin` = A2R-Lab/GATO (canonical), `adu-fork` = alexanderdu15/GATO (the
-student fork that holds the MPCGPU `adu/multisolve-v1` lineage). All four branches below are
-**local-only / UNPUSHED**.
-
-### GATO repo (`~/Desktop/GATO`)
-| Branch | Base | Disposition | Why / next step |
-|---|---|---|---|
-| `cleanup-modernization` | `main` (migrated trunk) | **MERGE → origin/main** (via PR, when ready) | The consolidation trunk: iiwa14 dynamics fixes (`f6f8d71` NaN, `8462c04` gravity, `1f3d297` EE-frame), OSQP/MPCGPU baseline harnesses, `archaeology.md`/`baselines.md`. This is the keeper; everything lands here. Not yet pushed. |
-| `fix/sm120-runtime-smem` | `adu/multisolve-v1` (MPCGPU) | **MERGE → MPCGPU upstream** (feature-branch PR; we own it, keep minimal) | Two genuine shared-memory bugs in the frozen MPCGPU baseline, fatal on Blackwell sm_120 (FD `s_XITemp` split 1008→504 / 864→432; `end_effector_positions_kernel` launched with no dynamic-smem arg). Real fixes worth upstreaming. Worktree `/tmp/gato_mpcgpu`. |
-| `fig3/indy7-mpcgpu` | `fix/sm120-runtime-smem` | **KEEP** (paused-baseline artifact) | MPCGPU iiwa14→indy7 port for the fair Fig-3 (KNOT=64, h=0.01, 1 SQP iter, indy7 trajfiles). Baselines are **PAUSED** pending fairness fixes — keep as the repro artifact; revisit when baselines resume. Do NOT merge into the modern GATO trunk (different lineage). |
-
-### sqpcpu submodule (`examples/benchmarks/baselines/sqpcpu`, student repo EmreAdabag/sqpcpu)
-| Branch | Base | Disposition | Why / next step |
-|---|---|---|---|
-| `fig3-fair-sigma` | `master` (`4bbd9ee`) | **KEEP local** (paused-baseline; PR to student repo later) | Adds optional `sigma` (OSQP primal Levenberg reg) to `Thneed` for a fair 1-SQP-iter run. Not pushed to the student's `master` (fork pulls held pending the student). |
-
-### Submodule pins (informational — not GATO-campaign branches)
-`external/GRiD @ modernizing-tests fc8787c`, `external/GLASS @ main ac3c6cc` are the unification
-pins; their own branches (`gato-unification`, `perf-cleanup`, `t4-mimic-fold`, …) belong to the
-GRiD/GLASS projects, not this campaign — dispositioned by their own memories.
-
-### ⛔ Deletion gate — NOT cleared (no branch deletions yet)
-Deletion of the origin PORT-SOURCE / DROP-safe branches was gated on **all** of:
-1. iiwa14 dynamics validated — ✅ done (`f6f8d71`/`8462c04`/`1f3d297`).
-2. Baselines complete (Fig-3 assembled) — ❌ **PAUSED** (3 open fairness gaps, see `baselines.md`).
-3. Consolidation merged to `origin/main` — ❌ `cleanup-modernization` still local/unpushed.
-4. Explicit user approval to delete — ❌ not given.
-
-→ **No deletions are performed.** When (2)–(4) clear: PR `cleanup-modernization`→`origin/main`,
-verify the consolidated artifacts, then delete the origin PORT-SOURCE/DROP-safe branches per the
-24-branch table; PR `fix/sm120-runtime-smem` to MPCGPU; decide `fig3/indy7-mpcgpu` + `fig3-fair-sigma`
-fate alongside the resumed baselines. Fork-side branch deletions (the `gato-unification` twins, etc.)
-stay held until the student sync lands.

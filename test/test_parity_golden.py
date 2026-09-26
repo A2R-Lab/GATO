@@ -28,6 +28,12 @@ therefore says "something changed", never how much: attribute it with the
 referee gates (test_dynamics_fingerprint / test_f_ext / test_exact_hessian /
 test_rowgroups vs the pinocchio-pinned tables) plus a compute-sanitizer
 memcheck of the cheapest module BEFORE re-baselining.
+Re-baselined 2026-09-26 (evening): the two exact-Hessian cases only. A non-PD
+direct factor now bumps the trust-region rho x100 (settings.h
+NON_PD_RHO_FACTOR) instead of the ordinary x1.2 line-search adaptation; both
+eh solves hit exactly one such factor mid-solve and end at a LOWER merit
+(indy7 11.23 -> 10.39, iiwa14 21.61 -> 18.02, same 10 iterations). No other
+golden solve hits a non-PD factor, so the rest stayed bit-identical.
 """
 import os
 from pathlib import Path
@@ -36,16 +42,14 @@ import numpy as np
 import pytest
 
 import gato
-from conftest import TEST_PARAMS
-from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
+from conftest import TEST_PARAMS, arm_problem, ARM_GOAL
 
 pytestmark = pytest.mark.gpu
 
 HERE = Path(__file__).resolve().parent
 GOLDEN = HERE / "golden"
 REBASELINE = os.environ.get("GATO_GOLDEN_REBASELINE") == "1"
-ARM_START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
-GOAL_XYZ = (0.35, 0.25, 0.5)
+GOAL_XYZ = ARM_GOAL
 
 
 def receipt_modules():
@@ -60,11 +64,7 @@ def receipt_modules():
 
 
 def _arm_problem(plant, N):
-    q0 = np.asarray(ARM_START[plant], dtype=np.float32)
-    x = np.concatenate([q0, np.zeros_like(q0)])[None, :]
-    goals = np.zeros((1, N * 6), dtype=np.float32)
-    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = GOAL_XYZ
-    return x, goals
+    return arm_problem(plant, N)          # ARM_START at rest, ARM_GOAL at every knot (the golden problem)
 
 
 def _go2_problem(N):

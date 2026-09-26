@@ -82,7 +82,7 @@ def test_linsys_defaults_floating():
     """Floating-base wired default = bdsv, solver AND controller."""
     import importlib.util
     if importlib.util.find_spec("gato.bsqpN16_go2") is None:
-        pytest.skip("bsqpN16_go2 module not built")
+        pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     import gato
     from pathlib import Path
     urdf = Path(gato.__file__).resolve().parents[2] / "external" / "GRiD" \

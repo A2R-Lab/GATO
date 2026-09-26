@@ -33,7 +33,7 @@
 // ee_pos_cost pattern); only the gradient path goes through the grid_plant
 // wrapper (plant_step_gradient_and_value is caller-scratch all the way down).
 //
-// ─── Contact-force controls on the floating base (Wave F, 2026-09-20) ─────
+// ─── Contact-force controls on the floating base (fc x floating base) ─────
 //
 // On GATO_CONTACT_FORCES builds the control slice is [tau(ACTUATED); fc(FC)]
 // with fc = one world-aligned wrench [n; f] per baked contact frame (the go2

@@ -28,7 +28,6 @@ TEST_PARAMS = SolverParams(max_sqp_iters=10, max_pcg_iters=100, pcg_tol=1e-4, so
                            q_lim_cost=1e-3, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
 
 HAVE_MODULES = bool(gato.available())
-HAVE_PIN = importlib.util.find_spec("pinocchio") is not None
 
 INDY7_URDF = REPO / "examples" / "indy7_description" / "indy7.urdf"
 IIWA14_URDF = REPO / "examples" / "iiwa_description" / "iiwa14.urdf"
@@ -94,7 +93,65 @@ def mujoco_world(urdf, **kw):
     return MuJoCoWorld(str(urdf), **kw)
 
 
-KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U = 0, 1, 2
+from gato.rowkinds import KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U, KIND_EE_POS, KIND_LIN_U, KIND_COLLISION, KIND_CONTACT_POS, BLOCK_X, BLOCK_U  # noqa: E402,F401
+
+# ---- the arm reach problem every constraint gate solves ----
+from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS  # noqa: E402
+ARM_START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
+ARM_GOAL = (0.35, 0.25, 0.5)          # a reach goal well outside the horizon: the tracking pull is strong
+JOINT_LIMIT_MARGIN = -0.1             # gato/dynamics/plant.cuh JOINT_LIMIT_MARGIN: limits TIGHTENED by |margin|
+GO2_TAU_MAX = 23.7                    # go2.urdf effort limit (the closed-loop gates clip the applied torque)
+
+
+def arm_problem(plant, N, B=1, jitter=0.0, seed=1234):
+    """(x (B, nx), goals (B, N*6)) for the arm reach problem: the plant's start
+    configuration at rest (+ optional Gaussian state jitter) and ARM_GOAL at every knot."""
+    import numpy as np
+    q0 = np.asarray(ARM_START[plant], dtype=np.float32)
+    x0 = np.concatenate([q0, np.zeros_like(q0)])
+    x = np.tile(x0, (B, 1))
+    if jitter:
+        x = (x + np.random.default_rng(seed).normal(0, jitter, x.shape)).astype(np.float32)
+    goals = np.zeros((B, N * 6), dtype=np.float32)
+    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = ARM_GOAL
+    return x, goals
+
+
+def go2_mg(model):
+    """go2 weight [N] from the pinocchio model."""
+    return sum(i.mass for i in model.inertias) * 9.81
+
+
+def q_at(s, r, k, b=0):
+    """stored configuration at knot k of batch entry b of a SolveResult (float64)"""
+    import numpy as np
+    st = s.nx + s.nu
+    return np.asarray(r.xu[b][k * st:k * st + s.nq], np.float64)
+
+
+def contact_frames_along(s, r, b=0):
+    """(N, n_frames, 3) contact-frame positions along the returned trajectory"""
+    import numpy as np
+    return np.stack([s.contact_positions(q_at(s, r, k, b)) for k in range(s.N)])
+
+
+def outer_solve(s, x, goals, n):
+    """n warm-started repeat solves — the AL / ADMM outer loop; returns the last result"""
+    r, warm = None, None
+    for _ in range(n):
+        r = s.solve(x, goals, warm)
+        warm = r.xu
+    return r
+
+
+def require_module(name):
+    """A receipt-profile module that is not built is a broken environment, never a skip."""
+    if importlib.util.find_spec(f"gato.{name}") is None:
+        pytest.fail(f"{name} is a receipt-profile module (test/receipt_modules.txt) and must be built")
+
+
+go2_fc = pytest.mark.skipif(importlib.util.find_spec("gato.bsqpN16_go2_fc") is None,
+                            reason="go2 fc module (receipt profile) — a skip here fails the signed receipt")
 
 
 def oracle_box_violations(xu, groups, nq, nv, nu, floating=False):

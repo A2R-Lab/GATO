@@ -39,7 +39,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 
 ## 2. Limits and barriers
 
-- **`JOINT_LIMIT_MARGIN` = −0.1 rad** (plant.cuh): the baked barrier limits are
+- **`JOINT_LIMIT_MARGIN` = −0.1** (plant.cuh; units per table — rad, rad/s, N·m): the baked barrier limits are
   the URDF limits SHRUNK by 0.1 rad on each side (position AND torque tables).
   A reference that is "in-limit" by the URDF can still sit past the barrier's
   effective limit. Provenance: this explained an entire experiment matrix of
@@ -133,14 +133,12 @@ The signed receipt (`gpu-proof.json`, verified in CI) attests the committed
 test suite ON THE DEFAULT BUILD at the fingerprinted sources: default-path
 bitwise parity, determinism, FD gates, the KKT-level cost gates. It does NOT
 attest: whichever variant modules are absent from the receipt profile
-(`test/receipt_modules.txt`; `test/expected_skips.txt` lists exactly which
+(`test/receipt_modules.txt`; a skip on the receipt run is a broken environment, not an expected outcome — nothing lists which
 tests skip when a variant is not built),
 your driver's closed-loop behavior, or timing. If you depend on a feature,
 check a test exercises it — "the suite is green" is scoped by the suite.
 
-## 6. Filing issues across agents
+## 6. Reporting a solver discrepancy
 
-Cross-repo asks live as docs (`docs/open-tasks/ask_from_*.md`, relayed by the
-human). What makes rounds converge fast, measured over five of them: send the
-exact interface crossing (npz of x0/ref/warm/kwargs of ONE failing call) —
-a replayable artifact settles in one round what config tables cannot.
+Open a GitHub issue with the URDF, the module name (`gato.module_name(plant, N, variant)`), the
+`SolverParams`, and a replayable `.npz` of `(x, goals, xu_warm)` plus the observed vs expected numbers.

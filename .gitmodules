@@ -10,9 +10,7 @@
 	path = examples/benchmarks/baselines/sqpcpu
 	url = https://github.com/A2R-Lab/sqpcpu.git
 	branch = fig3-fair-sigma
-	# Paper Fig-3 CPU baseline: A2R-Lab/sqpcpu is the public FORK of
-	# EmreAdabag/sqpcpu; branch fig3-fair-sigma carries the fair-comparison
-	# patches GATO pins (optional OSQP sigma, one-stage time-shift warm start).
-	# Plan D14 resolved 2026-09-21: the recursive clone / tools/install.sh fetch it
-	# like every other submodule; build_cpu_baseline.sh compiles it (osqp +
-	# osqp-eigen into a local prefix). Development copy: A2R-Lab/sqpcpu-dev.
+	# Paper Fig-3 CPU baseline (a public fork of the upstream sqpcpu); branch
+	# fig3-fair-sigma carries the fair-comparison patches GATO pins (optional OSQP
+	# sigma, one-stage time-shift warm start). Fetched like every other submodule;
+	# build_cpu_baseline.sh compiles it (osqp + osqp-eigen into a local prefix).
