@@ -133,7 +133,7 @@ The signed receipt (`gpu-proof.json`, verified in CI) attests the committed
 test suite ON THE DEFAULT BUILD at the fingerprinted sources: default-path
 bitwise parity, determinism, FD gates, the KKT-level cost gates. It does NOT
 attest: whichever variant modules are absent from the receipt profile
-(`test/receipt_modules.txt`; a skip on the receipt run is a broken environment, not an expected outcome — nothing lists which
+(`test/receipt_modules.txt`; `test/expected_skips.txt` is the allow-list of skips the CI verifier accepts — EMPTY by design, so ANY skip on the receipt run fails verification; it lists which
 tests skip when a variant is not built),
 your driver's closed-loop behavior, or timing. If you depend on a feature,
 check a test exercises it — "the suite is green" is scoped by the suite.

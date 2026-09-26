@@ -27,7 +27,8 @@ Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, pl
   `add_contact_pos_rows` defaults to knots 1..N-1; batch accessors, the four limit enables,
   the mechanism/rho boilerplate and six copies of the test reach problem deduplicated;
   dangling references to internal notes removed from tracked code and docs; dead
-  `expected_skips.txt`, `tools/clean.sh`, unused helpers deleted; README/docs corrected
+  `tools/clean.sh` and unused helpers deleted (`test/expected_skips.txt` stays: it is the CI
+  verifier's empty allow-list of skips, i.e. the zero-skip gate); README/docs corrected
   (import forms, submodule story, Fig-3 reproduction, contact-frame order, telemetry
   semantics); `docs/baselines.md` (orphaned, self-contradictory) removed and
   `docs/archaeology.md` trimmed to the provenance table; sdist now ships docs/ and the
