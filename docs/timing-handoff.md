@@ -4,6 +4,43 @@ Prepared 2026-09-27. This document prepares work; it does **not** declare a quie
 window or launch a job. Run only in the exclusive slot assigned by the user.
 Repository on the shared box: `/home/plancher/Desktop/GATO`.
 
+## Coordinator intake: the six required fields
+
+1. **Launcher:** `GATO_QUIET_WINDOW=1 bash examples/benchmarks/run_timing_handoff.sh --suite all`.
+   Use `--suite checkpoint`, `compile`, or `calibrate` to split the reservation.
+   The persistent `nohup` launch recipe below records the launcher PID and log.
+   Preparation only: append `--dry-run` (no quiet-window declaration needed).
+2. **Working directory:** `/home/plancher/Desktop/GATO`.
+3. **Estimated runtime / reservation:** allow **120 minutes total**: checkpoint
+   60, compile 30, optional calibration 30. These are unmeasured scheduling
+   allowances, not guaranteed runtimes or kill deadlines. Release early.
+4. **Prerequisites:** user-assigned exclusive CPU/GPU slot; cooperating agents
+   honor `/tmp/a2rlab-timing.lock`; clean tracked source, initialized pinned
+   submodules, valid `gpu-proof.json`, and green receipt/CPU CI. Use the existing
+   `.venv/bin/python` with GATO, numpy, pinocchio, matplotlib and pybind11.
+   Prebuilt default modules: iiwa14 N16/N64 for checkpoint and indy7/iiwa14 N64
+   for calibration. Required host tools: bash, git, flock, rg, nvidia-smi, nvcc,
+   cmake and standard GNU utilities; compile also needs GNU make, a compatible
+   C++ toolchain, `/usr/bin/time`, and a working `systemd-run --user --scope`.
+   This compile recipe targets the current **sm120** box; do not transplant it
+   blindly. Require ≥40 GiB available RAM before each build; enforced cap is
+   36 GiB, no swap, two jobs. Dependencies/modules are already prepared here;
+   if something is missing, report it and prepare outside the timing slot.
+5. **Output location:** launcher log `/tmp/gato-timing-launch.XXXXXXXX.log`;
+   bundle logs/results under
+   `/home/plancher/Desktop/GATO/examples/benchmarks/night_logs/handoff_*`;
+   nested runtime outputs under the sibling `merge_checkpoint_*` directory.
+   Both exact directory names are announced in logs. Fig-7 also writes uniquely
+   tagged `data/<tag>.pkl`, `<tag>_cdf.png`, and `<tag>_table_I.txt` under
+   `/home/plancher/Desktop/GATO/examples/paper-figures/`.
+6. **Stop/resume:** create `STOP` in the exact announced `handoff_*` directory
+   to stop before the next outer leg; this does **not** interrupt the current
+   leg or the nested checkpoint. There is **no in-place resume**. After the
+   old job/descendants have exited and the box is released, launch only the
+   unfinished suite in a newly assigned slot; it gets fresh output paths.
+   Preserve old outputs and label interrupted results incomplete. Detailed
+   rules and exit codes are in “Stop and resume” below.
+
 ## Reservation and scope
 
 Request **two hours for the complete GATO bundle**, releasing the box as soon as
@@ -83,13 +120,41 @@ the slot explicitly with all agents; idle preflight alone is not permission.
 Watch the launcher log and the announced `SUMMARY.txt`; actual progress goes
 to each leg's log. A checkpoint has its own nested summary/output directory,
 announced in `checkpoint.log`. While a leg runs, do not launch tests/builds as
-"health checks." No timeouts automatically kill work. Creating an empty `STOP`
-file in the announced `handoff_*` output directory prevents the **next outer
-leg** from starting (exit 3 = deferred). It does not interrupt a running leg,
-including the whole nested checkpoint. If a leg is stuck or overruns its slot,
-coordinate before stopping only its verified process tree; never kill another
-agent or assume killing a parent released the GPU. Confirm no descendants or
-GPU compute contexts remain before handing the box to the next project.
+"health checks."
+
+## Stop and resume
+
+- **Graceful stop:** create an empty `STOP` file in the exact `handoff_*`
+  directory printed by the current runner. Do not use a glob that could select
+  another run. It prevents the next outer leg from starting; it does not pause
+  or interrupt the current process. The entire runtime checkpoint is one outer
+  leg, so it can finish all three repeats and ten scenarios before honoring
+  the request. If no outer legs remain, the run finishes normally.
+- **Urgent stop / hang:** no automatic timeout or process-tree cancellation is
+  implemented. Coordinate first, identify the exact launcher and descendants
+  (including any compile systemd scope), and stop only that verified GATO tree.
+  Do not kill by broad process name, delete the shared lock, or assume the
+  parent's exit means its children exited. Do not SIGSTOP/SIGCONT a timing run:
+  suspension would contaminate measurements and retain the reservation.
+- **Release:** inspect logs and confirm all GATO descendants, compiler scopes
+  and GPU compute contexts from the run have ended. Only then return the slot.
+  A released advisory lock alone is not proof that every child is gone.
+- **Resume:** first inspect `SUMMARY.txt`, leg logs and provenance. Keep valid
+  completed suites; launch the unfinished suite using the same launcher with
+  `--suite checkpoint`, `--suite compile`, or `--suite calibrate` in a new
+  exclusive slot. Do not rerun `all` unless intentionally repeating everything.
+  There is no per-repeat, per-scenario, per-target or per-plant resume switch:
+  an interrupted suite is rerun in full with new outputs. In particular, never
+  call a resumed partially built tree a cold compile measurement. Preserve the
+  old partial results as incomplete; do not append them to the new result pool.
+  Record both source/binary provenances if anything changed between slots.
+- **Exit interpretation:** `0` plus final `DONE` means all selected legs finished
+  (still subject to contamination/quality review); `3` plus `DEFERRED` means the
+  STOP request was honored; `75` plus the lock-refusal message means no work
+  started because another runner holds the lock. Other nonzero exits indicate
+  refusal/failure; inspect the message rather than inferring from the number
+  alone (child commands propagate their own codes). A launcher log may be the
+  only artifact if refusal occurred before output-directory creation.
 
 ## Outputs and acceptance
 
