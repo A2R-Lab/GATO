@@ -1,8 +1,7 @@
 """gato.build dogfood: codegen + compile + import + smoke solve on a temp name.
 
-NOTE: gato.build reconfigures the repo's CMake build tree for its (plant, N)
-request; re-run your usual `cmake -S . -B build -DPLANT=... -DKNOTS=...` after
-this test if you drive builds by hand.
+The test uses its own temporary CMake tree and leaves the receipt profile's
+configuration intact.
 """
 import json
 import shutil
@@ -35,7 +34,7 @@ def test_build_end_to_end(repo_root, urdfs, tmp_path):
         # this (plant, N) request, and pointing it at the shared <repo>/build used to
         # leave that tree on the test plant — the next profile rebuild then failed
         # on a missing grid.cuh until someone re-ran cmake (2026-09-26, twice)
-        built = gato.build(urdfs["indy7"], name=NAME, N=[8], jobs=4, build_dir=tmp_path / "build")
+        built = gato.build(urdfs["indy7"], name=NAME, N=[8], jobs=2, build_dir=tmp_path / "build")
         assert built == [(NAME, 8)]
         assert (NAME, 8) in gato.available()
         meta = gato.robot_info(NAME)

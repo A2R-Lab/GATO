@@ -94,6 +94,8 @@ def _cases():
             cases.append((plant, N, variant, linsys))
         if plant != "go2" and N == 16 and variant == "default":
             cases.append((plant, N, variant, "admm_ee_pcg"))   # constraint layer: limit ADMM + EE terminal row
+        if plant == "go2" and variant == "fc":
+            cases.extend((plant, N, variant, f"masked_contact_{mech}") for mech in ("al", "admm"))
     return cases
 
 
@@ -105,7 +107,20 @@ def test_golden(plant, N, variant, case, urdfs):
     x, goals = _go2_problem(N) if plant == "go2" else _arm_problem(plant, N)
     if variant == "fc":
         s.set_fc_ref(np.tile([0.0, 0.0, 0.0, 0.0, 0.0, 5.0], s.n_fc // 6).astype(np.float32))  # a 5 N press reference
-    if case == "admm_ee_pcg":
+    if case.startswith("masked_contact_"):
+        # Exercise both knot and individual-row masks, changing targets, and the
+        # cooperative CONTACT_POS Jacobian on the floating tangent chart.
+        s.set_linsys("bdsv")
+        p0 = s.contact_positions(x[0, :s.nq])
+        targets = np.tile(p0.reshape(1, -1), (N, 1)).astype(np.float32)
+        targets[N // 2:, 2] += 0.02
+        mech = case.removeprefix("masked_contact_")
+        gi = s.add_contact_pos_rows(targets=targets, mech=mech, rho=1000.0 if mech == "al" else 100.0)
+        mask = np.ones((N, s.n_contact_rows), dtype=bool)
+        mask[0] = False
+        mask[1:N // 2, :3] = False
+        s.set_row_group_mask(gi, mask)
+    elif case == "admm_ee_pcg":
         s.set_linsys("pcg")
         s.enable_limit_admm()
         s.enable_ee_terminal_equality(np.asarray(GOAL_XYZ, dtype=np.float32), rho=10.0)

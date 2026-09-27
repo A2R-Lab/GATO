@@ -212,12 +212,14 @@ class GaitProgrammer:
         """(N, n_feet, 3) stance targets and swing targets from the world state.
 
         Stance rows are RE-ANCHORED to the MEASURED foot position every tick: the
-        row then says "this foot does not move from where it is now" (the no-slip
-        contact constraint), and the world's own millimetre drift is absorbed
+        row then says "this foot does not move from where it is now" over the
+        prediction horizon, and the world's own millimetre drift is absorbed
         instead of accumulating as a residual the rows fight (a foothold frozen at
         touchdown let the static stand degrade, 2026-09-26). A stance that begins
         inside the window after a swing targets the planned landing (the
-        ``foothold_planner``, default: where the foot lifted off)."""
+        ``foothold_planner``, default: where the foot lifted off). These moving
+        anchors do not bound accumulated world-frame slip: evaluate measured foot
+        displacement and velocity separately from the model's row residual."""
         sched, N, nf = self.schedule, self.schedule.N, self.schedule.n_feet
         p = self.solver.contact_positions(np.asarray(q, dtype=np.float64))   # (n_feet, 3) now
         st_now = sched.stance(t)

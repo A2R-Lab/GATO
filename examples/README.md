@@ -61,5 +61,5 @@ matrix, the go2 linsys sweep) share [`benchmarks/_bench.py`](benchmarks/_bench.p
 (URDF/model lookup, the quiet-GPU guard, provenance, the kicked-arm MPC probe) and
 refuse to time on a busy box. The one staged overnight driver is
 [`benchmarks/run_timing_night.sh`](benchmarks/run_timing_night.sh). `contact-task/`
-is the fc-vs-baselines contact-wipe study. Superseded scripts are kept for provenance
+is the [fc-vs-baselines contact-wipe study](contact-task/README.md). Superseded scripts are kept for provenance
 in [`archive/`](archive/README.md).

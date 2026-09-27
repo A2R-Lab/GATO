@@ -1,5 +1,9 @@
 # STALE: pre-Drake-swap iiwa14 fig7 pools (rotated 2026-08-03)
 
+This is an archive manifest for local, gitignored experiment outputs. The named
+pickles and plots are not distributed with the repository. Numbers below record
+the historical analysis and should not be treated as current benchmark results.
+
 These pools were generated BEFORE the Wave-H iiwa14 Drake-family inertial swap
 (GATO @74df831 / attest @67f461a, 2026-08-02 night). The arm is ~5 kg heavier with
 a different mass distribution, so every closed-loop success/time number here is for
@@ -23,6 +27,5 @@ protocol, so the CL-3a W3 comparison is apples-to-apples on the Drake model.
 **4/11/82/87/87/87/86%** vs this pool's 11/21/74/76/81/85/85%. The 100 scenario dicts
 are identical (seed 0) so the two are properly paired; 82/100 scenarios flipped outcome
 at ≥1 batch size, low B degraded and B≥8 improved, and batching now saturates at B≈16
-rather than B≈64. No single-B delta is significant on its own — see the W3 block in
-`docs/open-tasks/cl3a_contact_forces_2026-08-02.md` for the full read and the McNemar
-numbers. Nothing here should be quoted except as the pre-swap contrast.
+rather than B≈64. No single-B delta was significant on its own in that analysis.
+Nothing here should be quoted except as the pre-swap contrast.

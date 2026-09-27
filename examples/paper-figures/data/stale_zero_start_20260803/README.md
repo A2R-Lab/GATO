@@ -1,5 +1,9 @@
 # STALE: pick-place pools started from the all-zeros (singular) configuration
 
+This is an archive manifest for local, gitignored experiment outputs. The named
+pickle pools are not distributed with the repository. Numbers below record the
+historical analysis; reproducing them requires the original data and configuration.
+
 Rotated 2026-08-03. Every pool here ran with `start_config='home'`, which for
 iiwa14 is **all-zeros** — the arm extended straight up. That pose is a kinematic
 singularity, and a consequential one for these experiments:

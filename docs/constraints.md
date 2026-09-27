@@ -348,6 +348,9 @@ residual. Two fixes landed since: the solver bumps the trust-region rho x100 on 
 non-PD direct factor (the f32 Cholesky failure the stiff rows cause; settings.h
 `NON_PD_RHO_FACTOR`), and the programmer re-anchors stance targets to the measured feet
 every tick — the static stand with stance rows now holds (`test_fc_mpc_stands_with_foot_rows`).
+These are horizon-local targets: the measured feet may accumulate world-frame
+drift while the model's residual stays small. The standing gate separately bounds
+measured horizontal drift to 3 cm; it does not establish a no-slip locomotion gate.
 Lifting a foot is still open: without a support-polygon base plan the model tilts and the
 diagonal foot rises; S2 (weight shift) / S3 (lift-a-foot) closed-loop gates are not shipped.
 
@@ -356,4 +359,5 @@ diagonal foot rises; S2 (weight shift) / S3 (lift-a-foot) closed-loop gates are 
 Per-knot target table of a CONTACT_POS group (`(N, n_rows)`, `(n_frames, 3)` or
 `(n_rows,)`); ADMM z/y re-initialize on the next solve because the residual
 moved. `GaitProgrammer.apply(t, q)` writes it every tick (stance targets
-frozen at touchdown, swing targets along `GaitSchedule.swing_curve`).
+re-anchored to measured feet, future touchdown targets at planned landings, and
+swing targets along `GaitSchedule.swing_curve`).

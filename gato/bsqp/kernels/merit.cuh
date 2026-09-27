@@ -22,7 +22,7 @@ using namespace gato::constants;
 template<typename T>
 __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
 {
-        constexpr size_t a = gato::plant::trackingCostValue_TempMemCt<T>();
+        constexpr size_t a = gato::plant::tracking_cost_value_smem_ct<T>();
 #if GATO_FLOATING_STEP
         // floating: the integrator-error scratch is the grid value-step arena
         // (also covers the terminal knot's trial-x0 + tangent-gap carve:
@@ -164,7 +164,7 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // EE_POS rows: cooperative FK at the CANDIDATE state (true nonlinear
                 // value — the fold linearizes, the merit must not). s_temp is free
                 // between tracking_cost_value and the constraint-error section, and
-                // trackingCostValue_TempMemCt >= the EE value carve.
+                // tracking_cost_value_smem_ct >= the EE value carve.
                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
                         cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);

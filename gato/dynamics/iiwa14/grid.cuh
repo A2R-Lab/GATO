@@ -245,9 +245,9 @@ namespace grid {
     enum gridDataKind { GRID_DATA_ALL = 0, GRID_DATA_DYNAMICS = 1, GRID_DATA_KINEMATICS = 2 };
     enum gridSharedTier { GRID_SHARED_FULL = 0, GRID_SPILL_DA_DF_OUTPUT = 1, GRID_SPILL_DV_DA_DF_OUTPUT = 2 };
     // Time integrator family selected by integrator kernels at compile time.
-    // EULER / SEMI_IMPLICIT_EULER / TRAPEZOIDAL are single-stage; MIDPOINT / RK3 / RK4
+    // EULER / SEMI_IMPLICIT_EULER / CONSTANT_ACCELERATION are single-stage; MIDPOINT / TRAPEZOIDAL / RK4
     // are multi-stage (driven inline from integrator_inner). TRAPEZOIDAL = 5 (NOT MIDPOINT=2).
-    enum class IntegratorType { EULER = 0, SEMI_IMPLICIT_EULER = 1, MIDPOINT = 2, RK3 = 3, RK4 = 4, TRAPEZOIDAL = 5 };
+    enum class IntegratorType { EULER = 0, SEMI_IMPLICIT_EULER = 1, MIDPOINT = 2, RK4 = 3, TRAPEZOIDAL = 4, CONSTANT_ACCELERATION = 5 };
     
     #ifndef GRID_CUDA_ENABLE_L2_PERSISTING
     #define GRID_CUDA_ENABLE_L2_PERSISTING 0
@@ -826,7 +826,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: e83b0861fcc274989a89a8f7e63bb6f19445e5c0
+    // Pinned commit: 8ce68a29bceb30c7764c9391d517a182d061697d
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -26563,7 +26563,7 @@ namespace grid {
             s_x_kp1[7 + ind] = s_qd[ind] + dt * s_qdd[ind];
         }
         __syncthreads();
-        if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+        if constexpr (IT == IntegratorType::CONSTANT_ACCELERATION) {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                 s_x_kp1[ind] = s_q[ind] + dt * s_qd[ind] + static_cast<T>(0.5) * dt * dt * s_qdd[ind];
             }
@@ -26574,7 +26574,7 @@ namespace grid {
                 s_x_kp1[ind] = s_q[ind] + dt * s_src_v[ind];
             }
         }
-        static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL,
+        static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION,
                       "integrator_finish only handles single-stage IT; multi-stage uses inner directly.");
     }
 
@@ -26584,7 +26584,7 @@ namespace grid {
      * Notes:
      *   Assumes s_XImats is updated already for the current s_q
      *   MINV_F_IN_SMEM selects where the FD inner's Minv 6*NV*NV F-region lives (s_temp vs d_workspace)
-     *   For Midpoint/RK3/RK4, re-runs forward_dynamics at intermediate states and weights stage qdd outputs.
+     *   For Midpoint/TRAPEZOIDAL/RK4, re-runs forward_dynamics at intermediate states and weights stage qdd outputs.
      *
      * @param s_x_kp1 is a pointer to memory for the next state (size NUM_POS + NUM_VEL)
      * @param s_q is the vector of joint positions
@@ -26606,7 +26606,7 @@ namespace grid {
     void integrator_inner(T *s_x_kp1, const T *s_q, const T *s_qd, const T *s_u, T *s_qdd, T *s_stage_qdd, T *s_stage_point, T *s_XImats, int *s_topology_helpers, const robotModel<T> *d_robotModel, T *s_temp, T *d_workspace, T *d_f_ext, const T gravity, const T dt) {
         forward_dynamics_inner<T, MINV_F_IN_SMEM>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, d_workspace, d_f_ext, gravity);
         __syncthreads();
-        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL) {
+        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION) {
             integrator_finish<T, IT>(s_x_kp1, s_q, s_qd, s_qdd, dt);
         }
         else {
@@ -26619,7 +26619,7 @@ namespace grid {
             T *s_qdd_4 = &s_stage_qdd[14];
             T *s_p3_q  = &s_stage_point[28];
             T *s_p3_qd = &s_stage_point[35];
-            constexpr T c1 = static_cast<T>(0.5);
+            constexpr T c1 = (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1) : static_cast<T>(0.5);
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                 s_p1_qd[ind] = s_qd[ind] + c1 * dt * s_qdd[ind];
             }
@@ -26632,14 +26632,14 @@ namespace grid {
             __syncthreads();
             forward_dynamics_inner<T, MINV_F_IN_SMEM>(s_qdd_2, s_p1_q, s_p1_qd, s_u, s_XImats, s_topology_helpers, s_temp, d_workspace, d_f_ext, gravity);
             __syncthreads();
-            if constexpr (IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                constexpr T c2 = (IT == IntegratorType::RK3) ? static_cast<T>(0.75) : static_cast<T>(0.5);
+            if constexpr (IT == IntegratorType::RK4) {
+                constexpr T c2 = static_cast<T>(0.5);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_p2_qd[ind] = s_qd[ind] + c2 * dt * s_qdd_2[ind];
                 }
                 __syncthreads();
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_p2_q[ind]  = s_q[ind]  + c2 * dt * s_qd[ind];
+                    s_p2_q[ind] = s_q[ind] + c2 * dt * s_p1_qd[ind];
                 }
                 __syncthreads();
                 load_update_XImats_helpers<T>(s_XImats, s_p2_q, s_topology_helpers, d_robotModel, s_temp);
@@ -26654,7 +26654,7 @@ namespace grid {
                 }
                 __syncthreads();
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_p3_q[ind]  = s_q[ind]  + c3 * dt * s_qd[ind];
+                    s_p3_q[ind] = s_q[ind] + c3 * dt * s_p2_qd[ind];
                 }
                 __syncthreads();
                 load_update_XImats_helpers<T>(s_XImats, s_p3_q, s_topology_helpers, d_robotModel, s_temp);
@@ -26665,26 +26665,28 @@ namespace grid {
             // final assembly: v_{k+1} part — qd + dt * sum(b_i * qdd_i)
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                 T accel = static_cast<T>(0);
+                T velocity = static_cast<T>(0);
                 if constexpr (IT == IntegratorType::MIDPOINT) {
                     accel = s_qdd_2[ind];
-                } else if constexpr (IT == IntegratorType::RK3) {
-                    constexpr T b1 = static_cast<T>(2.0/9.0);
-                    constexpr T b2 = static_cast<T>(3.0/9.0);
-                    constexpr T b3 = static_cast<T>(4.0/9.0);
-                    accel = b1 * s_qdd[ind] + b2 * s_qdd_2[ind] + b3 * s_qdd_3[ind];
+                    velocity = s_p1_qd[ind];
+                } else if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                    accel = static_cast<T>(0.5) * (s_qdd[ind] + s_qdd_2[ind]);
+                    velocity = static_cast<T>(0.5) * (s_qd[ind] + s_p1_qd[ind]);
                 } else if constexpr (IT == IntegratorType::RK4) {
                     constexpr T b1 = static_cast<T>(1.0/6.0);
                     constexpr T b2 = static_cast<T>(2.0/6.0);
                     constexpr T b3 = static_cast<T>(2.0/6.0);
                     constexpr T b4 = static_cast<T>(1.0/6.0);
                     accel = b1 * s_qdd[ind] + b2 * s_qdd_2[ind] + b3 * s_qdd_3[ind] + b4 * s_qdd_4[ind];
+                    velocity = b1 * s_qd[ind] + b2 * s_p1_qd[ind] + b3 * s_p2_qd[ind] + b4 * s_p3_qd[ind];
                 }
                 s_x_kp1[7 + ind] = s_qd[ind] + dt * accel;
+                s_p1_q[ind] = velocity;
             }
             __syncthreads();
-            // q_{k+1} part — Euler-style integrate(q, dt*qd) (TrajoptPlant convention)
+            // q_{k+1} = integrate(q, dt * sum(b_i * v_i))
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                s_x_kp1[ind] = s_q[ind] + dt * s_qd[ind];
+                s_x_kp1[ind] = s_q[ind] + dt * s_p1_q[ind];
             }
         }
     }
@@ -27402,7 +27404,7 @@ namespace grid {
     void integrator_gradient_device(T *s_dAB, T *s_q, T *s_qd, const T *s_u, T *s_df_du, T *s_dc_du, T *s_vaf, T *s_Minv, T *s_qdd, T *s_q_orig, T *s_qd_orig, T *s_stage_grad_qdd, T *s_D_qdd_stage, T *s_dInt_q_6x6, T *s_dInt_v_6x6, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace, T *d_temp_spill, const robotModel<T> *d_robotModel, T *d_f_ext, const T gravity, const T dt) {
         if constexpr(!SCRATCH_IN_SMEM){ s_temp = d_workspace; } else { (void)d_workspace; }
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL) {
+        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION) {
             minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
             inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[7], d_f_ext, gravity);
             forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -27493,7 +27495,7 @@ namespace grid {
                     }
                     s_dAB[ind] = val;
                 }
-                else if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                else if constexpr (IT == IntegratorType::CONSTANT_ACCELERATION) {
                     T val = static_cast<T>(0);
                     T dt2h = static_cast<T>(0.5) * dt * dt;
                     if (col < 7) {
@@ -27531,8 +27533,8 @@ namespace grid {
                     s_dAB[ind] = val;
                 }
                 else {
-                    static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL,
-                                  "dAB assembly handles single-stage IT only; Midpoint/RK3/RK4 are routed through gen_integrator_gradient_multistage.");
+                    static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION,
+                                  "dAB assembly handles single-stage IT only; Midpoint/TRAPEZOIDAL/RK4 are routed through gen_integrator_gradient_multistage.");
                 }
             }
         }
@@ -27546,7 +27548,7 @@ namespace grid {
             }
             __syncthreads();
             // --- multi-stage gradient: stage 1 ---
-            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
+            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::TRAPEZOIDAL || IT == IntegratorType::RK4) {
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[7], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -27589,8 +27591,8 @@ namespace grid {
                 __syncthreads();
             }
             // --- multi-stage gradient: stage 2 ---
-            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                constexpr T c_offset = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::RK3) ? static_cast<T>(0.5) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::TRAPEZOIDAL || IT == IntegratorType::RK4) {
+                constexpr T c_offset = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[0 + ind];
@@ -27619,7 +27621,7 @@ namespace grid {
                     s_stage_grad_qdd[7 + ind] = s_qdd[ind];
                 }
                 __syncthreads();
-                constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::RK3) ? static_cast<T>(0.5) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -27645,10 +27647,11 @@ namespace grid {
                 __syncthreads();
             }
             // --- multi-stage gradient: stage 3 ---
-            if constexpr (IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                constexpr T c_offset = (IT == IntegratorType::RK3) ? static_cast<T>(0.75) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+            if constexpr (IT == IntegratorType::RK4) {
+                constexpr T c_offset = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_previous = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
+                    s_q[ind] = s_q_orig[ind] + c_offset * dt * (s_qd_orig[ind] + c_previous * dt * s_stage_grad_qdd[0 + ind]);
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[7 + ind];
                 }
                 __syncthreads();
@@ -27675,7 +27678,7 @@ namespace grid {
                     s_stage_grad_qdd[14 + ind] = s_qdd[ind];
                 }
                 __syncthreads();
-                constexpr T c_prev_s3 = (IT == IntegratorType::RK3) ? static_cast<T>(0.75) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[147];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -27696,6 +27699,10 @@ namespace grid {
                     for (int k = 0; k < 7; ++k) {
                         chain += s_df_du[49 + k * 7 + r] * s_D_qdd_prev[c * 7 + k];
                     }
+                    for (int k = 0; k < 7; ++k) {
+                        T jq_dv = s_df_du[k * 7 + r];
+                        chain += c_previous * dt * jq_dv * s_D_qdd_stage[0 + c * 7 + k];
+                    }
                     s_D_qdd_cur[c * 7 + r] = base + c_prev_s3 * dt * chain;
                 }
                 __syncthreads();
@@ -27703,8 +27710,9 @@ namespace grid {
             // --- multi-stage gradient: stage 4 ---
             if constexpr (IT == IntegratorType::RK4) {
                 constexpr T c_offset = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
+                constexpr T c_previous = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
+                    s_q[ind] = s_q_orig[ind] + c_offset * dt * (s_qd_orig[ind] + c_previous * dt * s_stage_grad_qdd[7 + ind]);
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[14 + ind];
                 }
                 __syncthreads();
@@ -27752,10 +27760,30 @@ namespace grid {
                     for (int k = 0; k < 7; ++k) {
                         chain += s_df_du[49 + k * 7 + r] * s_D_qdd_prev[c * 7 + k];
                     }
+                    for (int k = 0; k < 7; ++k) {
+                        T jq_dv = s_df_du[k * 7 + r];
+                        chain += c_previous * dt * jq_dv * s_D_qdd_stage[147 + c * 7 + k];
+                    }
                     s_D_qdd_cur[c * 7 + r] = base + c_prev_s4 * dt * chain;
                 }
                 __syncthreads();
             }
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+                T weighted_velocity = s_qd_orig[ind];
+                if constexpr (IT == IntegratorType::MIDPOINT) {
+                    weighted_velocity += static_cast<T>(0.5) * dt * s_stage_grad_qdd[0 + ind];
+                }
+                if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                    weighted_velocity += static_cast<T>(0.5) * dt * s_stage_grad_qdd[0 + ind];
+                }
+                if constexpr (IT == IntegratorType::RK4) {
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[0 + ind];
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[7 + ind];
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[14 + ind];
+                }
+                s_qd[ind] = weighted_velocity;
+            }
+            __syncthreads();
             // --- multi-stage gradient: assemble final dAB ---
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 int row = ind % 14;
@@ -27769,6 +27797,22 @@ namespace grid {
                     } else {
                         val = static_cast<T>(0);
                     }
+                    if constexpr (IT == IntegratorType::MIDPOINT) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.5) * projected_1;
+                    }
+                    if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.5) * projected_1;
+                    }
+                    if constexpr (IT == IntegratorType::RK4) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_1;
+                        T projected_2 = s_D_qdd_stage[147 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_2;
+                        T projected_3 = s_D_qdd_stage[294 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_3;
+                    }
                 } else {
                     int r = row - 7;
                     // bottom half: qd_{k+1} = qd + dt * sum(b_i * qdd_i)
@@ -27777,10 +27821,9 @@ namespace grid {
                     if constexpr (IT == IntegratorType::MIDPOINT) {
                         accel_term += static_cast<T>(1.0) * s_D_qdd_stage[147 + col * 7 + r];
                     }
-                    if constexpr (IT == IntegratorType::RK3) {
-                        accel_term += static_cast<T>(0.2222222222222222) * s_D_qdd_stage[0 + col * 7 + r];
-                        accel_term += static_cast<T>(0.3333333333333333) * s_D_qdd_stage[147 + col * 7 + r];
-                        accel_term += static_cast<T>(0.4444444444444444) * s_D_qdd_stage[294 + col * 7 + r];
+                    if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                        accel_term += static_cast<T>(0.5) * s_D_qdd_stage[0 + col * 7 + r];
+                        accel_term += static_cast<T>(0.5) * s_D_qdd_stage[147 + col * 7 + r];
                     }
                     if constexpr (IT == IntegratorType::RK4) {
                         accel_term += static_cast<T>(0.16666666666666666) * s_D_qdd_stage[0 + col * 7 + r];
@@ -27823,7 +27866,7 @@ namespace grid {
     void integrator_with_gradient_device(T *s_dAB, T *s_x_kp1, T *s_q, T *s_qd, const T *s_u, T *s_df_du, T *s_dc_du, T *s_vaf, T *s_Minv, T *s_qdd, T *s_q_orig, T *s_qd_orig, T *s_stage_grad_qdd, T *s_D_qdd_stage, T *s_dInt_q_6x6, T *s_dInt_v_6x6, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace, T *d_temp_spill, const robotModel<T> *d_robotModel, T *d_f_ext, const T gravity, const T dt) {
         if constexpr(!SCRATCH_IN_SMEM){ s_temp = d_workspace; } else { (void)d_workspace; }
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL) {
+        if constexpr (IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION) {
             minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
             inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[7], d_f_ext, gravity);
             forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -27914,7 +27957,7 @@ namespace grid {
                     }
                     s_dAB[ind] = val;
                 }
-                else if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                else if constexpr (IT == IntegratorType::CONSTANT_ACCELERATION) {
                     T val = static_cast<T>(0);
                     T dt2h = static_cast<T>(0.5) * dt * dt;
                     if (col < 7) {
@@ -27952,8 +27995,8 @@ namespace grid {
                     s_dAB[ind] = val;
                 }
                 else {
-                    static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::TRAPEZOIDAL,
-                                  "dAB assembly handles single-stage IT only; Midpoint/RK3/RK4 are routed through gen_integrator_gradient_multistage.");
+                    static_assert(IT == IntegratorType::EULER || IT == IntegratorType::SEMI_IMPLICIT_EULER || IT == IntegratorType::CONSTANT_ACCELERATION,
+                                  "dAB assembly handles single-stage IT only; Midpoint/TRAPEZOIDAL/RK4 are routed through gen_integrator_gradient_multistage.");
                 }
             }
             __syncthreads();
@@ -27969,7 +28012,7 @@ namespace grid {
             }
             __syncthreads();
             // --- multi-stage gradient: stage 1 ---
-            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
+            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::TRAPEZOIDAL || IT == IntegratorType::RK4) {
                 minv_inner<T, true>(s_Minv, s_q, s_XImats, s_topology_helpers, s_temp, nullptr);
                 inverse_dynamics_inner<T>(s_temp, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, &s_temp[7], d_f_ext, gravity);
                 forward_dynamics_finish<T>(s_qdd, s_u, s_temp, s_Minv);
@@ -28012,8 +28055,8 @@ namespace grid {
                 __syncthreads();
             }
             // --- multi-stage gradient: stage 2 ---
-            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                constexpr T c_offset = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::RK3) ? static_cast<T>(0.5) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+            if constexpr (IT == IntegratorType::MIDPOINT || IT == IntegratorType::TRAPEZOIDAL || IT == IntegratorType::RK4) {
+                constexpr T c_offset = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[0 + ind];
@@ -28042,7 +28085,7 @@ namespace grid {
                     s_stage_grad_qdd[7 + ind] = s_qdd[ind];
                 }
                 __syncthreads();
-                constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::RK3) ? static_cast<T>(0.5) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -28068,10 +28111,11 @@ namespace grid {
                 __syncthreads();
             }
             // --- multi-stage gradient: stage 3 ---
-            if constexpr (IT == IntegratorType::RK3 || IT == IntegratorType::RK4) {
-                constexpr T c_offset = (IT == IntegratorType::RK3) ? static_cast<T>(0.75) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+            if constexpr (IT == IntegratorType::RK4) {
+                constexpr T c_offset = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_previous = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
+                    s_q[ind] = s_q_orig[ind] + c_offset * dt * (s_qd_orig[ind] + c_previous * dt * s_stage_grad_qdd[0 + ind]);
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[7 + ind];
                 }
                 __syncthreads();
@@ -28098,7 +28142,7 @@ namespace grid {
                     s_stage_grad_qdd[14 + ind] = s_qdd[ind];
                 }
                 __syncthreads();
-                constexpr T c_prev_s3 = (IT == IntegratorType::RK3) ? static_cast<T>(0.75) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
+                constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[147];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -28119,6 +28163,10 @@ namespace grid {
                     for (int k = 0; k < 7; ++k) {
                         chain += s_df_du[49 + k * 7 + r] * s_D_qdd_prev[c * 7 + k];
                     }
+                    for (int k = 0; k < 7; ++k) {
+                        T jq_dv = s_df_du[k * 7 + r];
+                        chain += c_previous * dt * jq_dv * s_D_qdd_stage[0 + c * 7 + k];
+                    }
                     s_D_qdd_cur[c * 7 + r] = base + c_prev_s3 * dt * chain;
                 }
                 __syncthreads();
@@ -28126,8 +28174,9 @@ namespace grid {
             // --- multi-stage gradient: stage 4 ---
             if constexpr (IT == IntegratorType::RK4) {
                 constexpr T c_offset = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
+                constexpr T c_previous = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                    s_q[ind] = s_q_orig[ind] + c_offset * dt * s_qd_orig[ind];
+                    s_q[ind] = s_q_orig[ind] + c_offset * dt * (s_qd_orig[ind] + c_previous * dt * s_stage_grad_qdd[7 + ind]);
                     s_qd[ind] = s_qd_orig[ind] + c_offset * dt * s_stage_grad_qdd[14 + ind];
                 }
                 __syncthreads();
@@ -28175,10 +28224,30 @@ namespace grid {
                     for (int k = 0; k < 7; ++k) {
                         chain += s_df_du[49 + k * 7 + r] * s_D_qdd_prev[c * 7 + k];
                     }
+                    for (int k = 0; k < 7; ++k) {
+                        T jq_dv = s_df_du[k * 7 + r];
+                        chain += c_previous * dt * jq_dv * s_D_qdd_stage[147 + c * 7 + k];
+                    }
                     s_D_qdd_cur[c * 7 + r] = base + c_prev_s4 * dt * chain;
                 }
                 __syncthreads();
             }
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+                T weighted_velocity = s_qd_orig[ind];
+                if constexpr (IT == IntegratorType::MIDPOINT) {
+                    weighted_velocity += static_cast<T>(0.5) * dt * s_stage_grad_qdd[0 + ind];
+                }
+                if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                    weighted_velocity += static_cast<T>(0.5) * dt * s_stage_grad_qdd[0 + ind];
+                }
+                if constexpr (IT == IntegratorType::RK4) {
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[0 + ind];
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[7 + ind];
+                    weighted_velocity += static_cast<T>(0.16666666666666666) * dt * s_stage_grad_qdd[14 + ind];
+                }
+                s_qd[ind] = weighted_velocity;
+            }
+            __syncthreads();
             // --- multi-stage gradient: assemble final dAB ---
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 int row = ind % 14;
@@ -28192,6 +28261,22 @@ namespace grid {
                     } else {
                         val = static_cast<T>(0);
                     }
+                    if constexpr (IT == IntegratorType::MIDPOINT) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.5) * projected_1;
+                    }
+                    if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.5) * projected_1;
+                    }
+                    if constexpr (IT == IntegratorType::RK4) {
+                        T projected_1 = s_D_qdd_stage[0 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_1;
+                        T projected_2 = s_D_qdd_stage[147 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_2;
+                        T projected_3 = s_D_qdd_stage[294 + col * 7 + row];
+                        val += dt * dt * static_cast<T>(0.16666666666666666) * projected_3;
+                    }
                 } else {
                     int r = row - 7;
                     // bottom half: qd_{k+1} = qd + dt * sum(b_i * qdd_i)
@@ -28200,10 +28285,9 @@ namespace grid {
                     if constexpr (IT == IntegratorType::MIDPOINT) {
                         accel_term += static_cast<T>(1.0) * s_D_qdd_stage[147 + col * 7 + r];
                     }
-                    if constexpr (IT == IntegratorType::RK3) {
-                        accel_term += static_cast<T>(0.2222222222222222) * s_D_qdd_stage[0 + col * 7 + r];
-                        accel_term += static_cast<T>(0.3333333333333333) * s_D_qdd_stage[147 + col * 7 + r];
-                        accel_term += static_cast<T>(0.4444444444444444) * s_D_qdd_stage[294 + col * 7 + r];
+                    if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                        accel_term += static_cast<T>(0.5) * s_D_qdd_stage[0 + col * 7 + r];
+                        accel_term += static_cast<T>(0.5) * s_D_qdd_stage[147 + col * 7 + r];
                     }
                     if constexpr (IT == IntegratorType::RK4) {
                         accel_term += static_cast<T>(0.16666666666666666) * s_D_qdd_stage[0 + col * 7 + r];
@@ -28222,10 +28306,9 @@ namespace grid {
                 if constexpr (IT == IntegratorType::MIDPOINT) {
                     accel += static_cast<T>(1.0) * s_stage_grad_qdd[7 + ind];
                 }
-                if constexpr (IT == IntegratorType::RK3) {
-                    accel += static_cast<T>(0.2222222222222222) * s_stage_grad_qdd[0 + ind];
-                    accel += static_cast<T>(0.3333333333333333) * s_stage_grad_qdd[7 + ind];
-                    accel += static_cast<T>(0.4444444444444444) * s_stage_grad_qdd[14 + ind];
+                if constexpr (IT == IntegratorType::TRAPEZOIDAL) {
+                    accel += static_cast<T>(0.5) * s_stage_grad_qdd[0 + ind];
+                    accel += static_cast<T>(0.5) * s_stage_grad_qdd[7 + ind];
                 }
                 if constexpr (IT == IntegratorType::RK4) {
                     accel += static_cast<T>(0.16666666666666666) * s_stage_grad_qdd[0 + ind];
@@ -28237,7 +28320,7 @@ namespace grid {
             }
             __syncthreads();
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
-                s_x_kp1[ind] = s_q_orig[ind] + dt * s_qd_orig[ind];
+                s_x_kp1[ind] = s_q_orig[ind] + dt * s_qd[ind];
             }
             __syncthreads();
         }
@@ -32235,11 +32318,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_43, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_43)", _e); } }
                 auto _grid_kern_alias_44 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_44, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_44)", _e); } }
-                auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_45 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_45, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_45)", _e); } }
-                auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_46 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_46, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_46)", _e); } }
-                auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_47 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_47, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_47)", _e); } }
                 auto _grid_kern_alias_48 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_48, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_48)", _e); } }
@@ -32247,11 +32330,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_49, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_49)", _e); } }
                 auto _grid_kern_alias_50 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_50, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_50)", _e); } }
-                auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_51 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_51, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_51)", _e); } }
-                auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_52 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_52, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_52)", _e); } }
-                auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_53 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_53, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_53)", _e); } }
             }
             // integrator: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32264,11 +32347,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_55, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_55)", _e); } }
                 auto _grid_kern_alias_56 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_56, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_56)", _e); } }
-                auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_57 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_57, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_57)", _e); } }
-                auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_58 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_58, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_58)", _e); } }
-                auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_59 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_59, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_59)", _e); } }
                 auto _grid_kern_alias_60 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_60, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_60)", _e); } }
@@ -32276,11 +32359,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_61, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_61)", _e); } }
                 auto _grid_kern_alias_62 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_62, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_62)", _e); } }
-                auto _grid_kern_alias_63 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_63 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_63, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_63)", _e); } }
-                auto _grid_kern_alias_64 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_64 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_64)", _e); } }
-                auto _grid_kern_alias_65 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_65 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_65)", _e); } }
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
@@ -32291,11 +32374,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_67, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_67)", _e); } }
                 auto _grid_kern_alias_68 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_68, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_68)", _e); } }
-                auto _grid_kern_alias_69 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_69 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_69, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_69)", _e); } }
-                auto _grid_kern_alias_70 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_70 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_70, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_70)", _e); } }
-                auto _grid_kern_alias_71 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_71 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_71, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_71)", _e); } }
                 auto _grid_kern_alias_72 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_72, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_72)", _e); } }
@@ -32303,11 +32386,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_73, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_73)", _e); } }
                 auto _grid_kern_alias_74 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_74, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_74)", _e); } }
-                auto _grid_kern_alias_75 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_75 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_75, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_75)", _e); } }
-                auto _grid_kern_alias_76 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_76 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_76, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_76)", _e); } }
-                auto _grid_kern_alias_77 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_77 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_77, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_77)", _e); } }
             }
             // integrator_gradient: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32320,11 +32403,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_79, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_79)", _e); } }
                 auto _grid_kern_alias_80 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_80, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_80)", _e); } }
-                auto _grid_kern_alias_81 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_81 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_81, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_81)", _e); } }
-                auto _grid_kern_alias_82 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_82 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_82, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_82)", _e); } }
-                auto _grid_kern_alias_83 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_83 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_83, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_83)", _e); } }
                 auto _grid_kern_alias_84 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_84, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_84)", _e); } }
@@ -32332,11 +32415,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_85, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_85)", _e); } }
                 auto _grid_kern_alias_86 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_86, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_86)", _e); } }
-                auto _grid_kern_alias_87 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_87 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_87, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_87)", _e); } }
-                auto _grid_kern_alias_88 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_88 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_88, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_88)", _e); } }
-                auto _grid_kern_alias_89 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_89 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_89, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_89)", _e); } }
             }
             if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
@@ -32347,11 +32430,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_91, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_91)", _e); } }
                 auto _grid_kern_alias_92 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_92, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_92)", _e); } }
-                auto _grid_kern_alias_93 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_93 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_93, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_93)", _e); } }
-                auto _grid_kern_alias_94 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_94 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_94, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_94)", _e); } }
-                auto _grid_kern_alias_95 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_95 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_95, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_95)", _e); } }
                 auto _grid_kern_alias_96 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_96, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_96)", _e); } }
@@ -32359,11 +32442,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_97, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_97)", _e); } }
                 auto _grid_kern_alias_98 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_98, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_98)", _e); } }
-                auto _grid_kern_alias_99 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_99 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_99, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_99)", _e); } }
-                auto _grid_kern_alias_100 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_100 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_100, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_100)", _e); } }
-                auto _grid_kern_alias_101 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_101 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_101, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_101)", _e); } }
             }
             // integrator_with_gradient: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32376,11 +32459,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_103, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_103)", _e); } }
                 auto _grid_kern_alias_104 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_104, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_104)", _e); } }
-                auto _grid_kern_alias_105 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_105 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_105, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_105)", _e); } }
-                auto _grid_kern_alias_106 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_106 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_106, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_106)", _e); } }
-                auto _grid_kern_alias_107 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_107 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_107, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_107)", _e); } }
                 auto _grid_kern_alias_108 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_108, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_108)", _e); } }
@@ -32388,11 +32471,11 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_109, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_109)", _e); } }
                 auto _grid_kern_alias_110 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_110, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_110)", _e); } }
-                auto _grid_kern_alias_111 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_111 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_111, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_111)", _e); } }
-                auto _grid_kern_alias_112 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_112 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_112, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_112)", _e); } }
-                auto _grid_kern_alias_113 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_113 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_113, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_113)", _e); } }
             }
             if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
@@ -32695,11 +32778,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_6 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
@@ -32707,11 +32790,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_8 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             // integrator: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32724,11 +32807,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
@@ -32736,11 +32819,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_20 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
             }
         }
@@ -32761,11 +32844,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_6 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
@@ -32773,11 +32856,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_8 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             // integrator_gradient: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32790,11 +32873,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_14 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_15 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_16 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_17 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_18 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
@@ -32802,11 +32885,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_20 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_21 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_22 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_23 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
             }
         }
@@ -32827,11 +32910,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_2 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_3 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_3 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_4 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_4 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_5 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_5 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_6 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
@@ -32839,11 +32922,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
                 auto _grid_kern_alias_8 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_9 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3>);
+                auto _grid_kern_alias_9 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_10 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4>);
+                auto _grid_kern_alias_10 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
-                auto _grid_kern_alias_11 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL>);
+                auto _grid_kern_alias_11 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>()));
             }
             // integrator_with_gradient: baked launch_cfg tier TIER_MINIMAL != default — the launchers
@@ -32856,11 +32939,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_13, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_14 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_14, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_15 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_15 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_15, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_16 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_16 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_16, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_17 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_17 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_17, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_18 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::EULER, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_18, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
@@ -32868,11 +32951,11 @@ namespace grid {
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_19, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
                 auto _grid_kern_alias_20 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::MIDPOINT, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_20, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_21 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK3, TIER_MINIMAL>);
+                auto _grid_kern_alias_21 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_21, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_22 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::RK4, TIER_MINIMAL>);
+                auto _grid_kern_alias_22 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_22, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
-                auto _grid_kern_alias_23 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::TRAPEZOIDAL, TIER_MINIMAL>);
+                auto _grid_kern_alias_23 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel_single_timing<T, IntegratorType::CONSTANT_ACCELERATION, TIER_MINIMAL>);
                 gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_23, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
             }
         }
@@ -34108,7 +34191,8 @@ namespace grid {
             }
         }
 
-        // [grid_plant] com_cost/momentum_cost skipped: require grid::com_device/ccrba_device (need 'com'+'ccrba').
+        // [grid_plant] com_cost skipped: requires 'com'+'ccrba'.
+        // [grid_plant] momentum_cost skipped: requires 'dccrba' for the full tangent-state Jacobian.
         /**
          * quadratic_state_cost_kernel: value + gradient + GN-diag hessian per timestep
          *

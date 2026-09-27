@@ -30,8 +30,8 @@ __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
 #else
         constexpr uint32_t dyn_ct = gato::plant::linearizedDynamics_TempMemCt<T>();   // qdd|dqdd prefix + adapter arena
 #endif
-        return gato::plant::trackingCostGradHess_TempMemCt<T>() > dyn_ct
-                   ? gato::plant::trackingCostGradHess_TempMemCt<T>()
+        return gato::plant::tracking_cost_grad_hess_smem_ct<T>() > dyn_ct
+                   ? gato::plant::tracking_cost_grad_hess_smem_ct<T>()
                    : dyn_ct;
 }
 
@@ -65,7 +65,7 @@ struct SetupKktSmem {
         static constexpr uint32_t r_dummy = R_dummy + CONTROL_SIZE_SQ;
         static constexpr uint32_t temp_terminal = r_dummy + CONTROL_SIZE;
         static constexpr uint32_t running_ct = setup_kkt_temp_mem_ct<T>();
-        static constexpr uint32_t terminal_ct = (temp_terminal - temp) + gato::plant::trackingCostGradHess_TempMemCt<T>();
+        static constexpr uint32_t terminal_ct = (temp_terminal - temp) + gato::plant::tracking_cost_grad_hess_smem_ct<T>();
         static constexpr uint32_t temp_ct = running_ct > terminal_ct ? running_ct : terminal_ct;
         static constexpr uint32_t total = temp + temp_ct;
         // dead scratch past the terminal chain (where the collision carve overlays)
@@ -94,7 +94,7 @@ template<typename T>
 __host__ __device__ inline uint32_t setup_kkt_exact_hess_smem_ct()
 {
         const uint32_t proj_ct = (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
-        const uint32_t so_ct = gato::plant::exactHessianSO_TempMemCt<T>();
+        const uint32_t so_ct = gato::plant::exact_hessian_so_smem_ct<T>();
         return STATE_S_CONTROL * STATE_S_CONTROL + (so_ct > proj_ct ? so_ct : proj_ct);
 }
 
@@ -335,7 +335,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                                 // EE_POS rows (cooperative FK; dense J^T J fold — v1 installs
                                 // them terminal-only, so this is their single fold site).
                                 // s_temp is free here (tracking_cost_grad_hess above is done) and
-                                // trackingCostGradHess_TempMemCt >= the EE grad carve.
+                                // tracking_cost_grad_hess_smem_ct >= the EE grad carve.
                                 if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();  // s_Q_last/s_q_last selection writes above
                                         gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel, admm_rho_scale);

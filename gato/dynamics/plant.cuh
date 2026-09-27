@@ -17,6 +17,12 @@ using namespace sqp;
 namespace gato {
 namespace plant {
 
+        template<typename T>
+        __host__ __device__ constexpr unsigned ee_linalg_pad_ct()
+        {
+                return (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+        }
+
         // Dimension aliases (the generated grid.cuh exposes NUM_JOINTS / NUM_POS /
         // NUM_VEL / NUM_EES). ⚠ grid::NUM_JOINTS == NUM_POS (= nq), NOT nv —
         // on floating base (CL-3) nq = nv + 1 and the two must not be mixed:
@@ -245,7 +251,7 @@ namespace plant {
                 grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, /*d_workspace*/nullptr, d_f_ext, gato::plant::GRAVITY<T>());
         }
 
-        __host__ __device__ constexpr unsigned forwardDynamics_TempMemSize_Shared()
+        __host__ __device__ constexpr unsigned forward_dynamics_smem_ct()
         {
                 return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
         }
@@ -346,7 +352,7 @@ namespace plant {
 #endif
         }
 
-        __host__ __device__ constexpr unsigned forwardDynamicsAndGradient_TempMemSize_Shared()
+        __host__ __device__ constexpr unsigned forward_dynamics_gradient_smem_ct()
         {
                 return grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
         }
@@ -361,7 +367,7 @@ namespace plant {
         // XImats + the SO temp pool, whose element count == the per-timestep SO
         // workspace band the generated TIER_LITE path would use instead).
         template<typename T>
-        __host__ __device__ inline unsigned exactHessianSO_TempMemCt()
+        __host__ __device__ inline unsigned exact_hessian_so_smem_ct()
         {
                 return NQ + NQ + NQ * NQ + 2 * NQ * NQ + 2 * grid::SECOND_ORDER_TENSOR_SIZE + XIMATS_COUNT
                        + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T));
@@ -460,7 +466,7 @@ namespace plant {
 
         // Worst-case scratch (T elements) for the value / grad+hess adapters.
         template<typename T>
-        __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
+        __host__ __device__ constexpr unsigned tracking_cost_value_smem_ct()
         {
                 // weights/targets (s_Q+s_R+s_W+s_x_des+s_u_des+s_ee_des) + bounds
                 // (q/qd/u lower+upper) + s_eePos(6*NEE) + value EE-pose arena.
@@ -468,7 +474,7 @@ namespace plant {
                        + grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT;
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
+        __host__ __device__ constexpr unsigned tracking_cost_grad_hess_smem_ct()
         {
                 // + s_end_effector_pose_gradient (6*NUM_VEL*NEE) + the larger gradient arena
                 // (+ the NU*NU tracking_cost_hessian_fc base-composition scratch under
@@ -518,7 +524,7 @@ namespace plant {
 
         // VALUE adapter (replaces trackingcost). Returns the total scalar cost for one knot.
         // is_terminal picks N_cost EE weight + drops the control reg/barrier (matches GATO's
-        // per-knot terminal handling). s_temp >= trackingCostValue_TempMemCt().
+        // per-knot terminal handling). s_temp >= tracking_cost_value_smem_ct().
         template<typename T>
         __device__ T tracking_cost_value(
             const T* s_x, const T* s_u, const T* s_eePos_traj, T* s_temp,
@@ -573,7 +579,7 @@ namespace plant {
         // GRAD+HESS adapter (replaces trackingCostGradientAndHessian). Writes s_qk/s_Qk
         // (state block) + s_rk/s_Rk (input block). ee_weight = q_cost (running, at state
         // s_x) or N_cost (terminal, at state x_{k+1} — see _lastblock rewire / PR #17).
-        // For a terminal R-less call, pass throwaway s_rk/s_Rk. s_temp >= trackingCostGradHess_TempMemCt().
+        // For a terminal R-less call, pass throwaway s_rk/s_Rk. s_temp >= tracking_cost_grad_hess_smem_ct().
         template<typename T>
         __device__ void tracking_cost_grad_hess(
             const T* s_x, const T* s_u, const T* s_eePos_traj,
@@ -672,7 +678,7 @@ namespace plant {
         static_assert(NQ == NV + 1, "floating tracking composition expects the free-flyer layout");
 
         template<typename T>
-        __host__ __device__ constexpr unsigned trackingCostValue_TempMemCt()
+        __host__ __device__ constexpr unsigned tracking_cost_value_smem_ct()
         {
                 // W(3) + ee_pos(6*NEE) + Q_diag(2*NV) + x_des(NX) + max(EE value
                 // arena incl. topology ints, the tangent state-cost value
@@ -680,21 +686,21 @@ namespace plant {
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
                     + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                    + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                    + ee_linalg_pad_ct<T>();
                 constexpr unsigned partials = (unsigned)(3 * NU + FC);
                 constexpr unsigned tsc = 54u;
                 constexpr unsigned mx0 = arena > partials ? arena : partials;
                 return 3 + 6 * NEE + 2 * NV + NX + (mx0 > tsc ? mx0 : tsc);
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned trackingCostGradHess_TempMemCt()
+        __host__ __device__ constexpr unsigned tracking_cost_grad_hess_smem_ct()
         {
                 // W(3) + ee_pos(6*NEE) + J(6*NV*NEE) + Q_diag(2*NV) + x_des(NX)
                 // + max(EE gradient arena, tangent state-cost GN scratch (90))
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
                     + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                    + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                    + ee_linalg_pad_ct<T>();
                 constexpr unsigned tsc = 90u;
                 return 3 + 6 * NEE + 6 * NV * NEE + 2 * NV + NX + (arena > tsc ? arena : tsc);
         }
@@ -905,18 +911,18 @@ namespace plant {
         // Counts include the topology-helper int region (0 on fixed serial
         // chains — identical values there) and the constexpr linalg bytes pad.
         template<typename T>
-        __host__ __device__ constexpr unsigned eePos_TempMemCt()
+        __host__ __device__ constexpr unsigned ee_pos_smem_ct()
         {
                 return grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned eePosGrad_TempMemCt()
+        __host__ __device__ constexpr unsigned ee_pos_grad_smem_ct()
         {
                 return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
 
         // Contact-frame positions (CL-4 §1.3, GRiD contact_frame_positions surface
@@ -931,16 +937,16 @@ namespace plant {
         // says, so the tier-dependent BYTES sizer is NOT the right bound); the
         // constexpr linalg bytes pad rides along as for the EE pair.
         template<typename T>
-        __host__ __device__ constexpr unsigned contactPos_TempMemCt()
+        __host__ __device__ constexpr unsigned contact_pos_smem_ct()
         {
                 return (unsigned)grid::CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned contactPosGrad_TempMemCt()
+        __host__ __device__ constexpr unsigned contact_pos_grad_smem_ct()
         {
                 return (unsigned)grid::CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
 
         // Carve helper for the remaining hand-carved inner compositions (the
@@ -1018,13 +1024,13 @@ namespace plant {
         // Vendored arms: 144+144 (value) / 144+570 (gradient) — the historic
         // hardcoded carve, byte-identical there.
         template<typename T>
-        __host__ __device__ constexpr unsigned mtPos_T_Ct()
+        __host__ __device__ constexpr unsigned mt_pos_t_ct()
         {
                 return (unsigned)grid::XHOM_T_COUNT
                        + (unsigned)(grid::MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() / sizeof(T));
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned mtPosGrad_T_Ct()
+        __host__ __device__ constexpr unsigned mt_pos_grad_t_ct()
         {
                 return (unsigned)grid::XHOM_T_COUNT
                        + (unsigned)(grid::MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() / sizeof(T));
@@ -1032,26 +1038,26 @@ namespace plant {
         template<typename T>
         __host__ __device__ constexpr unsigned mt_pos_arena_ct()
         {
-                return mtPos_T_Ct<T>()
+                return mt_pos_t_ct<T>()
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
         template<typename T>
         __host__ __device__ constexpr unsigned mt_pos_grad_arena_ct()
         {
-                return mtPosGrad_T_Ct<T>()
+                return mt_pos_grad_t_ct<T>()
                        + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
+                       + ee_linalg_pad_ct<T>();
         }
 
         template<typename T>
-        __host__ __device__ constexpr unsigned collisionDist_TempMemCt()
+        __host__ __device__ constexpr unsigned collision_dist_smem_ct()
         {
                 // FK arena + sphere pos/radii + normals + align slop
                 return mt_pos_arena_ct<T>() + 3 * NCC + NCC + 3 * NCC + 16 / sizeof(T) + 1;
         }
         template<typename T>
-        __host__ __device__ constexpr unsigned collisionDistGrad_TempMemCt()
+        __host__ __device__ constexpr unsigned collision_dist_grad_smem_ct()
         {
                 // FK arena + pos/radii/normals + dp/dq batch (NV tangent columns)
                 return mt_pos_grad_arena_ct<T>() + 3 * NCC + NCC + 3 * NCC + 3 * NV * NCC + 16 / sizeof(T) + 1;
@@ -1067,7 +1073,7 @@ namespace plant {
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
                 unsigned char* s_linalg_smem;
-                ee_carve<T, mtPos_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                ee_carve<T, mt_pos_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
                 T* s_pos = s_scratch + mt_pos_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
@@ -1093,7 +1099,7 @@ namespace plant {
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
                 unsigned char* s_linalg_smem;
-                ee_carve<T, mtPosGrad_T_Ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                ee_carve<T, mt_pos_grad_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
                 T* s_pos = s_scratch + mt_pos_grad_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 T* s_normal = s_r + NCC;

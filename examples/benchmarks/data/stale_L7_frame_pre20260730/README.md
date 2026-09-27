@@ -1,5 +1,9 @@
 # STALE: pre-2026-07-30 L7-frame data — DO NOT MIX
 
+This is an archive manifest. The CSV/pickle artifacts described below are local,
+gitignored experiment outputs; a fresh clone contains this README only. Historical
+values are provenance, not measurements reproducible by opening this directory.
+
 Everything here was measured BEFORE the 2026-07-30 named-target regen
 (`fixed_target_name="EE"`): the solver cost, the MPCGPU trajfiles, and the
 tracking metric all moved from the L7 link frame to the URDF "EE" fixed joint

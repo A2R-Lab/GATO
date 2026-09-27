@@ -77,6 +77,9 @@ def test_mask_window_gates_knots(make_solver, smallest_module):
     goals = np.zeros((1, N * 6), np.float32)
     goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = p
 
+    # Gentle 3 cm reach: +/-0.5 Nm binds both selected joints; rho=10 and
+    # eight outer solves resolve the active box to 0.03 Nm without turning
+    # this mask-semantics gate into a convergence/tuning benchmark.
     def run(mask):
         s = make_solver(plant, N, u_cost=1e-4)
         C = np.zeros((2, s.nu), np.float32); C[0, 0] = 1.0; C[1, 1] = 1.0
@@ -155,6 +158,9 @@ def test_go2_per_knot_fc_ref():
     model = pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
     x = go2_standing_x().astype(np.float32)
     goals = go2_goals_at(model, x.astype(np.float64), 1)
+    # 40 N approximates mg/4; the deliberately large fc cost isolates table
+    # indexing from the standing objective. The 8 N tolerance is loose versus
+    # the imposed 35 N step; this is not a closed-loop force-accuracy claim.
     ref = np.zeros(GO2_FC, np.float32); ref[5::6] = 40.0
     a = go2_solver(1, variant="fc"); a.set_fc_ref(ref); a.set_fc_cost(1e2)
     b = go2_solver(1, variant="fc"); b.set_fc_ref(np.tile(ref, (b.N, 1))); b.set_fc_cost(1e2)

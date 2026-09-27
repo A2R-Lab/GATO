@@ -116,6 +116,73 @@ __device__ __forceinline__ void admm_commit_row(T w, T z, uint32_t idx, T rho, T
 // z = sel(x) (feasible x) the first gradient modification vanishes.
 // eq_rows_only: touch ONLY equality rows (lo == hi; z = lo, y = 0), leaving
 // interval rows' warm-started state intact — fired every solve (see header).
+
+template<typename T, int KIND>
+__device__ __forceinline__ void cooperative_admm_init(const RowGroupDesc<T>& grp, int gi,
+        const T* d_xu, T* d_z, T* scratch, const grid::robotModel<T>* model,
+        const grid_collision::Environment<T>& env)
+{
+        using E = CooperativeRows<T, KIND>;
+        for (int knot = grp.knot_lo; knot < grp.knot_hi; ++knot) {
+                const T* x = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                const T* g = E::value(grp, knot, x, scratch, model, &env);
+                for (int i = threadIdx.x; i < grp.n_rows; i += blockDim.x) {
+                        const int bi = E::bound(i);
+                        T z = g[i];
+                        if constexpr (KIND != COLLISION) { if (z > grp.hi[bi]) z = grp.hi[bi]; }
+                        if (z < grp.lo[bi]) z = grp.lo[bi];
+                        d_z[E::state(gi, knot, i)] = z;
+                }
+                __syncthreads();
+        }
+}
+
+template<typename T, int KIND>
+__device__ __forceinline__ void cooperative_admm_gradient(const RowGroupDesc<T>& grp, int gi, int knot,
+        const T* x, const T* d_y, const T* d_z, T rho, T* q, T* scratch,
+        const grid::robotModel<T>* model, const grid_collision::Environment<T>& env)
+{
+        using E = CooperativeRows<T, KIND>;
+        T *g, *J, *mod, *h;
+        E::gradient(grp, knot, x, scratch, model, &env, g, J, mod, h);
+        for (int i = threadIdx.x; i < grp.n_rows; i += blockDim.x) {
+                const auto idx = E::state(gi, knot, i);
+                mod[i] = row_on<T>(grp, knot, i) ? d_y[idx] - rho * (d_z[idx] - g[i]) : static_cast<T>(0);
+        }
+        __syncthreads();
+        for (int qi = threadIdx.x; qi < E::NV; qi += blockDim.x) {
+                T acc = static_cast<T>(0);
+                for (int i = 0; i < grp.n_rows; ++i) acc += mod[i] * J[E::jac(i, qi)];
+                q[qi] += acc;
+        }
+        __syncthreads();
+}
+
+template<typename T, int KIND>
+__device__ __forceinline__ void cooperative_admm_project(const RowGroupDesc<T>& grp, int gi,
+        const T* d_xu, const T* d_dz, T* d_y, T* d_z, T rho, T* prim, T* dual, T* scratch,
+        const grid::robotModel<T>* model, const grid_collision::Environment<T>& env)
+{
+        using E = CooperativeRows<T, KIND>;
+        for (int knot = grp.knot_lo; knot < grp.knot_hi; ++knot) {
+                const T* x = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
+                const T* dz = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
+                T *g, *J, *gr, *h;
+                E::gradient(grp, knot, x, scratch, model, &env, g, J, gr, h);
+                for (int i = threadIdx.x; i < grp.n_rows; i += blockDim.x) {
+                        const int e = (knot - grp.knot_lo) * grp.n_rows + i;
+                        const auto idx = E::state(gi, knot, i);
+                        if (!row_on<T>(grp, knot, i)) { prim[e] = static_cast<T>(0); dual[e] = static_cast<T>(0); continue; }
+                        T w = g[i];
+                        for (int qi = 0; qi < E::NV; ++qi) w += J[E::jac(i, qi)] * dz[qi];
+                        const int bi = E::bound(i);
+                        const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[bi], grp.hi[bi], rho, grp.sigma);
+                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, prim[e], dual[e]);
+                }
+                __syncthreads();
+        }
+}
+
 template<typename T>
 __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T* __restrict__ d_z_batch,
                                                                            T* __restrict__ d_y_batch,
@@ -163,51 +230,15 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_ADMM) continue;
                 if (grp.kind == COLLISION) {
-                        // cooperative clearance per knot; z = clip(d_i(x_warm))
-                        // onto [margin, +inf) — band-indexed state
-                        T* s_dist = s_ee_scratch;
-                        T* s_arena = align16_ptr<T>(s_dist + gato::plant::NCC);
-                        const T margin = grp.lo[0];
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                gato::plant::collision_dist<T>(s_dist, xu_k, s_arena, d_robot_model, env);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        T z = s_dist[i];
-                                        if (z < margin) z = margin;
-                                        d_z[collision_row_state_index((uint32_t)knot, (uint32_t)i)] = z;
-                                }
-                                __syncthreads();  // s_dist reused next knot
-                        }
+                        cooperative_admm_init<T, COLLISION>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == CONTACT_POS) {
-                        // cooperative contact-frame residual per knot; z = clip(g(x_warm))
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                const T* s_g = contact_eval<T>(grp, knot, xu_k, s_ee_scratch, d_robot_model);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        T z = s_g[i];
-                                        if (z > grp.hi[i]) z = grp.hi[i];
-                                        if (z < grp.lo[i]) z = grp.lo[i];
-                                        d_z[row_state_index(gi, knot, i)] = z;
-                                }
-                                __syncthreads();  // s_ee_scratch reused next knot
-                        }
+                        cooperative_admm_init<T, CONTACT_POS>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == EE_POS) {
-                        // cooperative FK per knot (barriers inside — ALL threads)
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                const T* s_pose = ee_eval_pose<T>(xu_k, s_ee_scratch, d_robot_model);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        T z = s_pose[i];
-                                        if (z > grp.hi[i]) z = grp.hi[i];
-                                        if (z < grp.lo[i]) z = grp.lo[i];
-                                        d_z[row_state_index(gi, knot, i)] = z;
-                                }
-                                __syncthreads();  // s_ee_scratch reused next knot
-                        }
+                        cooperative_admm_init<T, EE_POS>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == LIN_U && grp.cone) {
@@ -287,68 +318,15 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
                 if (grp.block == BLOCK_U && !has_control) continue;
                 const T rho = grp.mu * rho_sc;  // mu = rho (x per-solve adaptation scale)
                 if (grp.kind == COLLISION) {
-                        // cooperative clearance + J, then the dense J^T scatter onto
-                        // the q half: q += sum_i J_i * (y_i - rho*(z_i - d_i(x))).
-                        // Same carve as apply_collision_row_grad_hess (mod in gr slot).
-                        constexpr int32_t NS = gato::plant::NCC;
-                        T* s_dist = s_ee_scratch;
-                        T* s_ddist = s_dist + NS;
-                        T* s_mod = s_ddist + NS * NQ;
-                        T* s_arena = align16_ptr<T>(s_mod + 2 * NS);
-                        gato::plant::collision_dist_grad<T>(s_dist, s_ddist, d_xu_k, s_arena, d_robot_model, env);
-                        const bool on = knot_on<T>(grp, (int32_t)knot_idx);
-                        for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                const uint32_t idx = collision_row_state_index(knot_idx, (uint32_t)i);
-                                s_mod[i] = on ? d_y[idx] - rho * (d_z[idx] - s_dist[i]) : static_cast<T>(0);
-                        }
-                        __syncthreads();
-                        for (int32_t qi = rank; qi < NQ; qi += size) {
-                                T acc = static_cast<T>(0);
-                                for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_ddist[i * NQ + qi]; }
-                                d_q_k[qi] += acc;
-                        }
-                        __syncthreads();
+                        cooperative_admm_gradient<T, COLLISION>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == CONTACT_POS) {
-                        // cooperative residual + J, then the dense J^T scatter onto the
-                        // tangent q half (same carve as apply_contact_row_grad_hess;
-                        // s_mod in the gr slot)
-                        T *s_g, *s_J, *s_mod, *s_h;
-                        contact_eval_grad<T>(grp, (int32_t)knot_idx, d_xu_k, s_ee_scratch, d_robot_model, s_g, s_J, s_mod, s_h);
-                        for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                const uint32_t idx = row_state_index(gi, knot_idx, i);
-                                s_mod[i] = row_on<T>(grp, (int32_t)knot_idx, i) ? d_y[idx] - rho * (d_z[idx] - s_g[i]) : static_cast<T>(0);
-                        }
-                        __syncthreads();
-                        for (int32_t qi = rank; qi < NQ; qi += size) {
-                                T acc = static_cast<T>(0);
-                                for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_J[contact_J_index(i, qi)]; }
-                                d_q_k[qi] += acc;
-                        }
-                        __syncthreads();
+                        cooperative_admm_gradient<T, CONTACT_POS>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == EE_POS) {
-                        // cooperative pose + J, then the dense J^T scatter onto the q
-                        // half: q += sum_i J_i * (y_i - rho*(z_i - g_i(x))). Same
-                        // scratch carve as apply_ee_row_grad_hess (s_mod in the gr slot).
-                        T* s_pose = s_ee_scratch;
-                        T* s_grad = s_pose + 6 * gato::plant::NEE;
-                        T* s_mod = s_grad + 6 * NQ * gato::plant::NEE;
-                        T* s_arena = align16_ptr<T>(s_mod + 2 * MAX_ROWS_PER_GROUP);
-                        gato::plant::ee_pos_grad<T>(s_pose, s_grad, d_xu_k, s_arena, d_robot_model);
-                        for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                const uint32_t idx = row_state_index(gi, knot_idx, i);
-                                s_mod[i] = row_on<T>(grp, (int32_t)knot_idx, i) ? d_y[idx] - rho * (d_z[idx] - s_pose[i]) : static_cast<T>(0);
-                        }
-                        __syncthreads();
-                        for (int32_t qi = rank; qi < NQ; qi += size) {
-                                T acc = static_cast<T>(0);
-                                for (int32_t i = 0; i < grp.n_rows; i++) { acc += s_mod[i] * s_grad[6 * qi + i]; }
-                                d_q_k[qi] += acc;
-                        }
-                        __syncthreads();
+                        cooperative_admm_gradient<T, EE_POS>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
                         continue;
                 }
                 if (grp.kind == LIN_U) {
@@ -427,72 +405,11 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                 const T rho = grp.mu * rho_sc;  // mu = rho (x per-solve adaptation scale)
                 const int32_t n_elems = (grp.knot_hi - grp.knot_lo) * grp.n_rows;
                 if (grp.kind == COLLISION) {
-                        // linearized step value w = d_i(x) + J_i*dz_q; cooperative
-                        // clearance+J per knot, then the identical clip (one-sided
-                        // [margin, +inf)) / dual update / residual writes
-                        constexpr int32_t NS = gato::plant::NCC;
-                        T* s_dist = s_ee_scratch;
-                        T* s_ddist = s_dist + NS;
-                        T* s_arena = align16_ptr<T>(s_ddist + NS * NQ + 2 * NS);
-                        const T margin = grp.lo[0];
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
-                                gato::plant::collision_dist_grad<T>(s_dist, s_ddist, xu_k, s_arena, d_robot_model, env);
-                                const bool on = knot_on<T>(grp, knot);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
-                                        const uint32_t idx = collision_row_state_index((uint32_t)knot, (uint32_t)i);
-                                        if (!on) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
-                                        T w = s_dist[i];
-                                        for (int32_t qi = 0; qi < NQ; qi++) { w += s_ddist[i * NQ + qi] * dz_k[qi]; }
-                                        const T z = admm_z_update<T>(w + d_y[idx] / rho, margin, grp.hi[0], rho, grp.sigma);
-                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
-                                }
-                                __syncthreads();  // scratch reused next knot; writes visible below
-                        }
+                        cooperative_admm_project<T, COLLISION>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
                 } else if (grp.kind == CONTACT_POS) {
-                        // linearized step value w = g(x) + J*dz_q on the residual rows;
-                        // cooperative contact_eval_grad per knot, then the identical
-                        // clip / dual update / residual writes
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
-                                T *s_g, *s_J, *s_gr, *s_h;
-                                contact_eval_grad<T>(grp, knot, xu_k, s_ee_scratch, d_robot_model, s_g, s_J, s_gr, s_h);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
-                                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                        if (!row_on<T>(grp, knot, i)) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
-                                        T w = s_g[i];
-                                        for (int32_t qi = 0; qi < NQ; qi++) { w += s_J[contact_J_index(i, qi)] * dz_k[qi]; }
-                                        const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
-                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
-                                }
-                                __syncthreads();  // scratch reused next knot; writes visible below
-                        }
+                        cooperative_admm_project<T, CONTACT_POS>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
                 } else if (grp.kind == EE_POS) {
-                        // linearized step value w = g(x) + J*dz_q (position rows -> the
-                        // q half of dz); cooperative ee_pos_grad per knot, then the
-                        // identical clip / dual update / residual writes
-                        T* s_pose = s_ee_scratch;
-                        T* s_grad = s_pose + 6 * gato::plant::NEE;
-                        T* s_arena = align16_ptr<T>(s_grad + 6 * NQ * gato::plant::NEE + 2 * MAX_ROWS_PER_GROUP);
-                        for (int32_t knot = grp.knot_lo; knot < grp.knot_hi; knot++) {
-                                const T* xu_k = d_xu + (size_t)knot * constants::XU_KNOT_STRIDE;
-                                const T* dz_k = d_dz + (size_t)knot * constants::DZ_KNOT_STRIDE;
-                                gato::plant::ee_pos_grad<T>(s_pose, s_grad, xu_k, s_arena, d_robot_model);
-                                for (int32_t i = rank; i < grp.n_rows; i += size) {
-                                        const int32_t e = (knot - grp.knot_lo) * grp.n_rows + i;
-                                        const uint32_t idx = row_state_index(gi, (uint32_t)knot, (uint32_t)i);
-                                        if (!row_on<T>(grp, knot, i)) { s_prim[e] = static_cast<T>(0); s_dual[e] = static_cast<T>(0); continue; }
-                                        T w = s_pose[i];
-                                        for (int32_t qi = 0; qi < NQ; qi++) { w += s_grad[6 * qi + i] * dz_k[qi]; }
-                                        const T z = admm_z_update<T>(w + d_y[idx] / rho, grp.lo[i], grp.hi[i], rho, grp.sigma);
-                                        admm_commit_row<T>(w, z, idx, rho, d_z, d_y, s_prim[e], s_dual[e]);
-                                }
-                                __syncthreads();  // scratch reused next knot; writes visible below
-                        }
+                        cooperative_admm_project<T, EE_POS>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
                 } else if (grp.cone) {  // LIN_U cone: SOC projection per knot vector
                         const int32_t n_knots = grp.knot_hi - grp.knot_lo;
                         const int32_t m = grp.n_rows;

@@ -2,6 +2,22 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-26 — GRiD integration and cooperative-row cleanup
+
+- GRiD pinned to `65fd051`: public HTTPS nested dependencies, declared trimesh
+  dependency, and updated integrator/plant surfaces. Regenerated all three robot
+  headers. GATO's floating adapter continues to select Euler/semi-implicit Euler
+  by enum name; its integration scheme is unchanged.
+- Added masked floating CONTACT_POS goldens for AL and ADMM before consolidating
+  the cooperative EE, collision and contact fold/merit/ADMM implementations.
+  Traits retain each evaluator's scratch layout, Jacobian layout, bounds, masks
+  and dual-state indexing. Existing noinline boundaries are preserved.
+- Consolidated binding input uploads and row-state downloads, named owned
+  scratch counts consistently, and shared the plant's linalg arena padding.
+- Corrected notebook package shadowing, documented contact-wipe reproduction and
+  the local-only stale data archives, and added package project URLs. Stance
+  documentation now distinguishes moving prediction targets from measured slip.
+
 ## 2026-09-26 — Closed-loop foot rows: non-PD regularization bump, re-anchored stance targets; release hygiene
 
 - Solver: a non-PD direct factor (`stats.pcg_iters == 2`, the f32 Cholesky of the Schur

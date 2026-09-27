@@ -32,18 +32,18 @@ namespace gato::plant {
 template<typename T>
 __host__ __device__ constexpr uint32_t simStep_TempMemCt()
 {
-        return STATE_SIZE / 2 + forwardDynamics_TempMemSize_Shared();
+        return STATE_SIZE / 2 + forward_dynamics_smem_ct();
 }
 template<typename T>
 __host__ __device__ constexpr uint32_t integratorError_TempMemCt()
 {
-        return STATE_SIZE + forwardDynamics_TempMemSize_Shared();
+        return STATE_SIZE + forward_dynamics_smem_ct();
 }
 template<typename T>
 __host__ __device__ constexpr uint32_t linearizedDynamics_TempMemCt()
 {
         return STATE_SIZE / 2 + (STATE_SIZE / 2) * (STATE_SIZE + CONTROL_SIZE)
-               + forwardDynamicsAndGradient_TempMemSize_Shared();
+               + forward_dynamics_gradient_smem_ct();
 }
 
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>

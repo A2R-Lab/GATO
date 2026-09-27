@@ -321,6 +321,9 @@ def _imu_goals(model, x):
     return goals
 
 
+# S1 operating point: IMU position tracking (terminal weight = 5x running),
+# modest velocity damping and cheap torque; separate q_pos_cost=50 anchors
+# joint posture. These are regression settings, not a locomotion cost design.
 _STAND_PARAMS = dict(q_cost=5.0, qd_cost=1e-1, u_cost=1e-4, N_cost=25.0,
                      q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
 
@@ -507,7 +510,7 @@ def test_fc_mpc_stands_with_friction_cones(model):
 def test_fc_mpc_stands_with_foot_rows(model):
     """CL-4 closed loop, static: the S1 stand with STANCE ROWS installed through
     GaitProgrammer.install_foot_rows (AL rho 1e3, targets re-anchored to the
-    measured feet every tick — the no-slip semantics). Two things this gates:
+    measured feet every tick — a horizon-local stance target). Two things this gates:
     the stance holds (height band, four feet loaded, mm residual on the rows)
     and the solver copes with the stiffened KKT — the direct factor may go
     non-PD in f32 on a solve's FIRST iteration (stats.pcg_iters == 2; the
@@ -515,7 +518,8 @@ def test_fc_mpc_stands_with_foot_rows(model):
     signal (settings.h NON_PD_RHO_FACTOR) keeps every later iteration PD and
     the loop converging (measured: with rho frozen at 1e-3 every iteration was
     non-PD and the base sagged 4 cm; targets frozen at touchdown drifted the
-    same way)."""
+    same way). The final measured-foot drift check is independent of the moving
+    targets; it allows the existing 3 cm standing drift, not a no-slip claim."""
     from gato.controller import MPCController
     from gato.gait import GaitSchedule, GaitProgrammer
     s = _go2_solver(1, variant="fc", **_STAND_PARAMS)

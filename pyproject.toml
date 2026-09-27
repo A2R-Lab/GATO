@@ -41,6 +41,12 @@ dependencies = [
     "ninja>=1.11.1.4",
 ]
 
+[project.urls]
+Repository = "https://github.com/A2R-Lab/GATO"
+Documentation = "https://github.com/A2R-Lab/GATO/blob/cleanup-modernization/README.md"
+Issues = "https://github.com/A2R-Lab/GATO/issues"
+Paper = "https://arxiv.org/abs/2510.07625"
+
 [project.optional-dependencies]
 # Full runtime to actually run the MPC / benchmark examples and notebooks.
 # Heavy (torch, pinocchio, Qt/meshcat viz). Install with: pip install -e ".[examples]"

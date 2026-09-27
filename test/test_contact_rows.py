@@ -38,24 +38,6 @@ def _accepted(r):
     return int((ss[:, 0] > 0).sum()) if ss.size else 0
 
 
-def _q_at(s, r, k):
-    st = s.nx + s.nu
-    return np.asarray(r.xu[0][k * st:k * st + s.nq], np.float64)
-
-
-def _frames(s, r):
-    """(N, n_frames, 3) contact-frame positions along the returned trajectory."""
-    return np.stack([s.contact_positions(_q_at(s, r, k)) for k in range(s.N)])
-
-
-def _outer(s, x, goals, n):
-    r, warm = None, None
-    for _ in range(n):
-        r = s.solve(x, goals, warm)
-        warm = r.xu
-    return r
-
-
 def test_contact_rows_telemetry_is_the_device_residual(make_solver, smallest_module):
     """Telemetry rows report max |p_f(q_0) - tgt| over the frame's xyz at knot 0
     (the measured state): the on-device contact-origin FK agrees with pinocchio,

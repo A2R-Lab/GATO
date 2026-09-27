@@ -65,22 +65,7 @@ class PyBSQP {
 
         py::dict solve(py::array_t<T, py::array::c_style | py::array::forcecast> xu_traj_batch, T timestep, py::array_t<T, py::array::c_style | py::array::forcecast> x_s_batch, py::array_t<T, py::array::c_style | py::array::forcecast> reference_traj_batch)
         {
-                py::buffer_info xu_buf = xu_traj_batch.request();
-                py::buffer_info xs_buf = x_s_batch.request();
-                py::buffer_info ref_buf = reference_traj_batch.request();
-                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
-                check_size(xs_buf, (size_t)XU_STATE_SIZE * batch_size_, "x_s_batch");
-                check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
-
-                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-
-                ProblemInputs<T> inputs;
-                inputs.timestep = timestep;
-                inputs.d_x_s_batch = d_x_s_batch_;
-                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+                auto inputs = upload_problem(xu_traj_batch, timestep, x_s_batch, reference_traj_batch);
 
                 // Solve
                 SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
@@ -447,21 +432,7 @@ class PyBSQP {
         // debug/test: KKT setup only (no solve) on the given trajectory + block readback
         py::dict debug_setup_kkt(py::array_t<T, py::array::c_style | py::array::forcecast> xu_traj_batch, T timestep, py::array_t<T, py::array::c_style | py::array::forcecast> x_s_batch, py::array_t<T, py::array::c_style | py::array::forcecast> reference_traj_batch)
         {
-                py::buffer_info xu_buf = xu_traj_batch.request();
-                py::buffer_info xs_buf = x_s_batch.request();
-                py::buffer_info ref_buf = reference_traj_batch.request();
-                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
-                check_size(xs_buf, (size_t)XU_STATE_SIZE * batch_size_, "x_s_batch");
-                check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
-                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
-                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
-
-                ProblemInputs<T> inputs;
-                inputs.timestep = timestep;
-                inputs.d_x_s_batch = d_x_s_batch_;
-                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+                auto inputs = upload_problem(xu_traj_batch, timestep, x_s_batch, reference_traj_batch);
                 solver_.debug_setup_kkt(d_xu_traj_batch_, inputs);
 
                 const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
@@ -584,56 +555,55 @@ class PyBSQP {
         void clear_cost_weights_per_knot() { solver_.clear_cost_weights_per_knot(); }
 
       private:
-        std::pair<py::array_t<T>, py::array_t<T>> row_state_pair(bool admm)
+        using DenseArray = py::array_t<T, py::array::c_style | py::array::forcecast>;
+        ProblemInputs<T> upload_problem(const DenseArray& xu_traj_batch, T timestep,
+                                       const DenseArray& x_s_batch, const DenseArray& reference_traj_batch)
         {
-                // device buffers are TOTAL_ROW_STATE_SIZE-strided per solve (dense
-                // per-group slots + the collision band); this view exposes the DENSE
-                // prefix — the collision band has its own getter below
-                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
-                const py::ssize_t G = (py::ssize_t)gato::rows::MAX_ROW_GROUPS;
-                const py::ssize_t K = (py::ssize_t)KNOT_POINTS;
-                const py::ssize_t R = (py::ssize_t)gato::rows::MAX_ROWS_PER_GROUP;
-                const size_t      TOT = gato::rows::TOTAL_ROW_STATE_SIZE;
-                const size_t      DENSE = gato::rows::ROW_STATE_SIZE;
-                py::array_t<T>    a({B, G, K, R}), b({B, G, K, R});
-                std::vector<T>    ha(TOT * batch_size_), hb(TOT * batch_size_);
-                if (admm) {
-                        solver_.copy_admm_state_to_host(ha.data(), hb.data());
-                } else {
-                        solver_.copy_row_duals_to_host(ha.data(), hb.data());
-                }
-                T* pa = static_cast<T*>(a.request().ptr);
-                T* pb = static_cast<T*>(b.request().ptr);
-                for (uint32_t s = 0; s < batch_size_; s++) {
-                        memcpy(pa + (size_t)s * DENSE, ha.data() + (size_t)s * TOT, DENSE * sizeof(T));
-                        memcpy(pb + (size_t)s * DENSE, hb.data() + (size_t)s * TOT, DENSE * sizeof(T));
+                py::buffer_info xu_buf = xu_traj_batch.request();
+                py::buffer_info xs_buf = x_s_batch.request();
+                py::buffer_info ref_buf = reference_traj_batch.request();
+                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                check_size(xs_buf, (size_t)XU_STATE_SIZE * batch_size_, "x_s_batch");
+                check_size(ref_buf, (size_t)REFERENCE_TRAJ_SIZE * batch_size_, "reference_traj_batch");
+
+                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, xs_buf.ptr, XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, ref_buf.ptr, REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+
+                ProblemInputs<T> inputs;
+                inputs.timestep = timestep;
+                inputs.d_x_s_batch = d_x_s_batch_;
+                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+
+                return inputs;
+        }
+
+        std::pair<py::array_t<T>, py::array_t<T>> state_pair(bool admm, size_t offset, size_t width,
+                                                                        const std::vector<py::ssize_t>& shape)
+        {
+                constexpr size_t stride = gato::rows::TOTAL_ROW_STATE_SIZE;
+                py::array_t<T> a(shape), b(shape);
+                std::vector<T> ha(stride * batch_size_), hb(stride * batch_size_);
+                if (admm) solver_.copy_admm_state_to_host(ha.data(), hb.data());
+                else solver_.copy_row_duals_to_host(ha.data(), hb.data());
+                for (uint32_t s = 0; s < batch_size_; ++s) {
+                        memcpy(a.mutable_data() + s * width, ha.data() + s * stride + offset, width * sizeof(T));
+                        memcpy(b.mutable_data() + s * width, hb.data() + s * stride + offset, width * sizeof(T));
                 }
                 return {a, b};
         }
 
+        std::pair<py::array_t<T>, py::array_t<T>> row_state_pair(bool admm)
+        {
+                return state_pair(admm, 0, gato::rows::ROW_STATE_SIZE,
+                                  {(py::ssize_t)batch_size_, gato::rows::MAX_ROW_GROUPS, KNOT_POINTS, gato::rows::MAX_ROWS_PER_GROUP});
+        }
+
         std::pair<py::array_t<T>, py::array_t<T>> collision_state_pair(bool admm)
         {
-                // the collision band: (B, KNOT_POINTS, NCC) per array
-                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
-                const py::ssize_t K = (py::ssize_t)KNOT_POINTS;
-                const py::ssize_t S = (py::ssize_t)gato::plant::NCC;
-                const size_t      TOT = gato::rows::TOTAL_ROW_STATE_SIZE;
-                const size_t      DENSE = gato::rows::ROW_STATE_SIZE;
-                const size_t      BAND = gato::rows::COLLISION_ROW_STATE_SIZE;
-                py::array_t<T>    a({B, K, S}), b({B, K, S});
-                std::vector<T>    ha(TOT * batch_size_), hb(TOT * batch_size_);
-                if (admm) {
-                        solver_.copy_admm_state_to_host(ha.data(), hb.data());
-                } else {
-                        solver_.copy_row_duals_to_host(ha.data(), hb.data());
-                }
-                T* pa = static_cast<T*>(a.request().ptr);
-                T* pb = static_cast<T*>(b.request().ptr);
-                for (uint32_t s = 0; s < batch_size_; s++) {
-                        memcpy(pa + (size_t)s * BAND, ha.data() + (size_t)s * TOT + DENSE, BAND * sizeof(T));
-                        memcpy(pb + (size_t)s * BAND, hb.data() + (size_t)s * TOT + DENSE, BAND * sizeof(T));
-                }
-                return {a, b};
+                return state_pair(admm, gato::rows::ROW_STATE_SIZE, gato::rows::COLLISION_ROW_STATE_SIZE,
+                                  {(py::ssize_t)batch_size_, KNOT_POINTS, gato::plant::NCC});
         }
 
         uint32_t       batch_size_;
