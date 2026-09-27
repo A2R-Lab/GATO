@@ -12,6 +12,7 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
 | What remains before merging? | [Merge checklist](merge-readiness.md) |
+| How does an overnight agent run the timing bundle? | [Timing handoff and reservation](timing-handoff.md) |
 | Where did historical datasets come from? | [Dated archaeology](archaeology.md) — history, not current API guidance |
 
 The [paper website](https://a2r-lab.org/GATO/) presents the published experiments.

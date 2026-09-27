@@ -41,6 +41,11 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 
 ## 3. Focused quiet-window checkpoint
 
+For an overnight coordinator, use the [timing handoff](timing-handoff.md): its
+wrapper adds a shared advisory lock and separately selectable compile/calibration
+legs. Reserve provisionally two hours for the full bundle, or one hour for the
+runtime checkpoint alone; release the box early when finished.
+
 Ready to preview; NOT scheduled or run by this document:
 
 ```bash
