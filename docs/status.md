@@ -1,6 +1,6 @@
 # Feature status and limitations
 
-Scope: the modernization branch, reviewed 2026-09-26. “Covered” means specific
+Scope: the modernization branch, reviewed 2026-09-27. “Covered” means specific
 committed tests exercise a capability; it is not a guarantee for every problem,
 hardware configuration or combination of features. This remains source-installed
 research software, not a certified robot controller.
@@ -42,6 +42,15 @@ research software, not a certified robot controller.
   based solely on a newer version number.
 
 ## What the receipt proves
+
+Latest follow-up: source `d91ab5a`, receipt commit `3b1a051`, **356 passed,
+zero skips**, with all 38 existing bitwise goldens unchanged. New gates cover
+explicit controller seeds, pendulum state assembly, floating effort-vector
+width and codegen fallback refusal. Bounded effort-vector memcheck passed both
+default/fc cases with zero errors. Fresh lean onboarding also built indy7 N64
+and ran examples 01/02 without Pinocchio. This is correctness/install evidence,
+not a new performance result. Corrected pick-place v2 remains 8/10 on the ten
+seeded diagnostic cases (different failures from the old invalid simulation).
 
 The source commit `4c8ab22` was attested by receipt commit `5b309d3`: 328 tests,
 zero skips, including 38 bitwise goldens across the 18-module profile. This is a

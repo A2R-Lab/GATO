@@ -14,9 +14,11 @@ window is authorized merely by this checklist. Updated 2026-09-27.
   2026-09-27; 03 uses fixed pacing. Example 08's timing display remains deferred;
   its syntax and the underlying linsys paths are tested. Custom-robot build is
   covered by the receipt. Shared-box durations are not performance evidence.
-- [ ] Repeat the beginner install/build path from a fresh checkout of the final
-  candidate. CI's anonymous recursive clone/host install complements but does
-  not replace a fresh CUDA build.
+- [x] Fresh development candidate `d91ab5a`: separate checkout + lean venv,
+  anonymous pinned recursive submodules, byte-identical regeneration, capped
+  indy7 N64 CUDA build and examples 01/02 passed. No Pinocchio installed.
+  Repeat if final integration changes the install/build path; this is not a
+  pre-emptive validation of a future merge commit.
 - [ ] Finish the small website quick-start/links update alongside the merge,
   preserving the paper plots and identifying their numbers as published results.
   Do not publish new-API instructions linked to `main` before that API lands.
@@ -39,6 +41,9 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 - [x] Full signed receipt for source `78fc5d4`: 341 passed, zero skips on the
   18-module profile (2026-09-27); all 38 goldens passed. Refresh again if later
   fingerprinted sources change, and require green receipt/CPU CI before merge.
+- [x] Follow-up source `d91ab5a`, receipt `3b1a051`: 356 passed, zero skips,
+  all 38 goldens unchanged. Floating effort-vector memcheck: two passes, zero
+  errors. No new timing measurements; see the September 27 checkpoint review.
 - [ ] Compare with the latest remote main, preserve its independent changes,
   review API removals and generated/pinned dependency changes, and test the
   resulting merge candidate. Do not blindly squash/rebase away the receipt's
@@ -72,7 +77,9 @@ autotuning are hidden inside this runner.
   seed changed from zero-tail to hold during harness migration. Attribution open.
 - [ ] Run controlled seed-policy A/B on frozen inputs; investigate any residual
   source/binary performance gap before declaring performance unchanged.
-- [ ] Check numerical quality alongside latency. The Fig-3 sweep follows the
+- [x] Check numerical quality alongside latency: both seeds pass 400-step raw/
+  controller parity at B1/8/128. Corrected pick-place v2 is deterministic 8/10
+  (scenarios 3/9 fail at goal five); preserve those limitations. The Fig-3 sweep follows the
   predicted state, not an independent plant; use the fixed-pacing regression
   gates and matched tracking harness when diagnosing changed results.
 - [x] Report internal solver latency as such. Full Python/controller latency

@@ -6,6 +6,12 @@ Repository on the shared box: `/home/plancher/Desktop/GATO`.
 
 ## Next slot: isolate the benchmark seed change
 
+Prepared source `d91ab5a`, receipt commit `3b1a051`: 356 passed / zero skips,
+38 unchanged goldens. Both zero-tail and hold policies passed 400-step finite,
+bitwise raw/controller trajectory and PCG-count parity at B1/8/128. Native
+modules are rebuilt; require green CI and record the actual launch HEAD.
+Subsequent documentation-only commits need no new receipt fingerprint.
+
 The original bundle completed (checkpoint 127.4 s, compile 64.3 s, calibration
 45.3 s). Do not repeat it blindly. The [review](checkpoint-2026-09-27.md) found
 that the historical Fig-3 sweep used a zero-tail initial guess while the

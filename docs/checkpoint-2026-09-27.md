@@ -109,12 +109,21 @@ codegen dependency, rejects voxelization fallback warnings, and invalidates
 older cache keys. An injected missing-dependency gate must fail before writing
 headers. No GRiD source change is involved.
 
-1. Complete correctness validation and a fresh signed receipt for these fixes.
+Validation complete on source `d91ab5a` / receipt `3b1a051`: **356 passed,
+zero skips, 38 unchanged bitwise goldens**. Effort-vector memcheck: two passed,
+zero errors. The repaired fresh checkout's lean install (no Pinocchio) regenerates
+all robot headers/registry byte-for-byte, builds indy7 N64 with two jobs under
+the 36 GiB cap, and runs examples 01/02. Fifteen synthetic timing-runner tests
+pass with fake GPU/compiler/lock commands; the new timing suite remains unrun.
+
+1. Require green receipt/CPU CI for the validated source and preserve this evidence.
 2. Review the seed A/B once a quiet slot is assigned; do not run timing on the
    shared box or install the calibration recommendations automatically.
-3. Finish fresh-checkout onboarding, latest-main integration review and final
+3. Finish latest-main integration review and final
    candidate verification. Citation metadata now matches the README's ICRA
    entry; temporary branch URLs stay until the API is actually on main.
+   The current development candidate's fresh-checkout onboarding passed; repeat
+   if integration changes its install/build behavior.
 4. Keep full paper refreshes and Go2 walking separate. Render the prepared
    website quick-start/link update before any authorized deployment.
 
