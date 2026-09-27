@@ -31,8 +31,9 @@ window is authorized merely by this checklist. Updated 2026-09-27.
   golden diagnostic remains incomplete; do not claim exhaustive race coverage.
 - [ ] Reconcile floating effort-vector width/documentation before advertising
   that API; scalar-weight standing is the covered configuration meanwhile.
-- [ ] Refresh the full signed receipt after final source/test changes; require
-  zero skips and green receipt/CPU CI. Review the 18-module profile explicitly.
+- [x] Full signed receipt for source `78fc5d4`: 341 passed, zero skips on the
+  18-module profile (2026-09-27); all 38 goldens passed. Refresh again if later
+  fingerprinted sources change, and require green receipt/CPU CI before merge.
 - [ ] Compare with the latest remote main, preserve its independent changes,
   review API removals and generated/pinned dependency changes, and test the
   resulting merge candidate. Do not blindly squash/rebase away the receipt's

@@ -42,7 +42,9 @@ research software, not a certified robot controller.
 
 The source commit `4c8ab22` was attested by receipt commit `5b309d3`: 328 tests,
 zero skips, including 38 bitwise goldens across the 18-module profile. This is a
-dated checkpoint; inspect the current `gpu-proof.json` for the latest coverage.
+dated checkpoint. The 2026-09-27 documentation/example/test update (`78fc5d4`)
+passed 341 tests with zero skips and the same 38 goldens; inspect the current
+`gpu-proof.json` for the latest coverage.
 The two masked-contact golden cases passed memory checking. The original full
 ADMM race check was interrupted. A subsequent bounded masked-contact gate (one
 SQP/ADMM iteration, AL/barrier/ADMM) passed racecheck with zero errors/warnings;

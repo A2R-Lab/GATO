@@ -32,6 +32,18 @@ cd "$REPO"
   echo 'REFUSED: commit source changes before collecting results.' >&2; exit 2;
 }
 [[ -f gpu-proof.json ]] || { echo 'Missing correctness receipt.' >&2; exit 2; }
+"$PY" - <<'PY'
+import importlib.util
+import gato
+missing = [name for name in ('numpy', 'pinocchio', 'matplotlib')
+           if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit('Missing checkpoint dependencies: ' + ', '.join(missing)
+                     + '; install the examples extra before reserving the GPU.')
+required = {('iiwa14', 16), ('iiwa14', 64)}
+if not required <= set(gato.available()):
+    raise SystemExit('Build iiwa14 N16 and N64 before reserving the GPU.')
+PY
 command -v nvidia-smi >/dev/null
 command -v rg >/dev/null
 nvidia-smi >/dev/null  # fail closed if the device/driver query fails
