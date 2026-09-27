@@ -12,8 +12,10 @@ and lets reality pick the winner each tick.
 
 We sweep disturbance magnitude (20..80 N) x batch size and record the steady-state
 tracking error and total joint velocity (Fig-5 left), plus the realized EE
-trajectories at 50 N for M in {1,32,128} (Fig-5 right) — modest batch sizes (~32)
-reject the disturbance best before added latency dominates.
+trajectories at 50 N for M in {1,32,128} (Fig-5 right). This implementation uses
+FIXED simulation pacing: it measures disturbance-rejection quality, not the
+paper's latency-induced degradation at large batches. See README.md for the
+separate latency experiment needed before making that claim.
 
 Examples::
     python examples/paper-figures/reproduce_fig5_disturbance.py            # full sweep

@@ -49,7 +49,7 @@ def rollout(batch_size, with_hypotheses):
 
     hypotheses = None
     if with_hypotheses:
-            model = pin.buildModelFromUrdf(URDF)
+        model = pin.buildModelFromUrdf(URDF)
         estimator = ForceEstimator(batch_size=batch_size, initial_radius=5.0,
                                    min_radius=2.0, max_radius=40.0,
                                    smoothing_factor=0.5, seed=0, alpha=0.6, beta=0.5)

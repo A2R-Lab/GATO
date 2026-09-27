@@ -38,6 +38,28 @@ def _accepted(r):
     return int((ss[:, 0] > 0).sum()) if ss.size else 0
 
 
+@_go2_fc
+@pytest.mark.parametrize("mech", ["al", "barrier", "admm"])
+def test_masked_contact_sanitizer_smoke(mech):
+    """Bounded instrumentation gate: one SQP/ADMM iteration, changing targets
+    and row masks. Full convergence and numerical parity are tested elsewhere.
+    Small enough to run under compute-sanitizer racecheck on the shared box.
+    """
+    s = go2_solver(1, variant="fc", max_sqp_iters=1, rho=0.1)
+    x = go2_standing_x().astype(np.float32)
+    goals = go2_goals_at(s.model, x.astype(np.float64), 1)
+    targets = np.tile(s.contact_positions(x[:s.nq]).reshape(1, -1), (s.N, 1))
+    targets[s.N // 2:, 2] += 0.005
+    gi = s.add_contact_pos_rows(targets=targets, mech=mech, rho=100.0, admm_iters=1)
+    mask = np.ones((s.N, s.n_contact_rows), dtype=bool)
+    mask[0] = False
+    mask[1:s.N // 2, :3] = False
+    s.set_row_group_mask(gi, mask)
+    r = s.solve(x[None], goals)
+    assert np.isfinite(r.xu).all()
+    assert np.isfinite(r.stats.final_merit).all()
+
+
 def test_contact_rows_telemetry_is_the_device_residual(make_solver, smallest_module):
     """Telemetry rows report max |p_f(q_0) - tgt| over the frame's xyz at knot 0
     (the measured state): the on-device contact-origin FK agrees with pinocchio,

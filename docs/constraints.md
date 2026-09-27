@@ -10,7 +10,7 @@ Ordering rule (enforced, raises): `enable_limit_*` FIRST, then appended groups
 / `enable_collision`) — a mechanism enable reinstalls the canonical limit groups.
 
 Mechanisms: `telemetry` (report only) · `barrier` (relaxed log barrier, soft)
-· `admm` (OSQP-style projection inner loop on the reused bdsv factor,
+· `admm` (OSQP-style projection inner loop with PCG or reused BDSV factor,
 approximately hard) · `al` (PHR augmented Lagrangian, outer loop = warm-started
 repeat solves — pass `xu_warm` explicitly).
 
@@ -69,8 +69,8 @@ comparison. Telemetry (stats.row_*_violation) stays on.
 ## `enable_limit_admm(rho, iters)`
 
 Bind the limit row-groups to the ADMM-projection mechanism: an
-OSQP-style fixed-budget inner loop per SQP iteration on a REUSED
-direct (bdsv) factorization — the constraint layer's
+OSQP-style fixed-budget inner loop per SQP iteration (warm PCG by default;
+optionally a reused direct BDSV factorization) — the constraint layer's
 "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
 a solve; adapt it between solves), ``iters`` the fixed budget.
 R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —

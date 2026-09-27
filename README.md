@@ -1,9 +1,18 @@
 # GATO
 > GPU-Accelerated Trajectory Optimization
 
-Numerical experiments and the open-source solver from  ["GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"](https://arxiv.org/abs/2510.07625)
+Numerical experiments and the open-source solver from ["GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"](https://arxiv.org/abs/2510.07625).
 
-## Installation (host-native — no Docker needed)
+[Documentation](docs/README.md) · [Feature status and limitations](docs/status.md) ·
+[API migration](docs/consumer_contract.md#6-migrating-from-the-paper-era-api) ·
+[Examples](examples/README.md) · [Paper reproduction](examples/paper-figures/README.md)
+
+The software has grown beyond the paper. Paper figures describe the published
+experiments, not performance guarantees for the latest code. Floating-base
+standing and contact-row examples are available; closed-loop walking is still
+in development. See the feature-status page for the tested scope.
+
+## Quick start (host-native — no Docker needed)
 
 Prerequisites (Linux):
 
@@ -11,19 +20,29 @@ Prerequisites (Linux):
   (e.g. RTX 50xx / sm_120 needs CUDA ≥ 12.8) with `nvcc` on `PATH`
 - `apt install build-essential cmake python3-dev python3-venv git`
   (CMake ≥ 3.24 recommended so the build auto-detects your GPU arch; older
-  CMake falls back to a fixed arch list — override with
-  `-DCMAKE_CUDA_ARCHITECTURES=...`)
+  CMake requires an explicit architecture, e.g. `ARCH=120` for sm_120)
 - Python ≥ 3.10
 
 ```sh
-git clone https://github.com/A2R-Lab/GATO.git
+git clone --branch cleanup-modernization https://github.com/A2R-Lab/GATO.git
 cd GATO
+./tools/install.sh
+MODULES="indy7:64" JOBS=2 ./tools/build.sh
+source .venv/bin/activate
+python examples/01_single_solve.py
+python examples/02_batched_solve.py
 ```
+
+This builds one solver module, sufficient for the two introductory demos and
+the usage snippet below. Each demo reports solve results; printed durations on
+a shared GPU are not benchmark measurements. The branch selection is temporary
+until this API is merged into `main`.
 
 GATO installs host-native into a project-local `.venv`, using only the Python
 standard-library `venv` + `pip` — no Docker, no `uv` (same lightweight model as
 GRiD's `base_install.sh`). The install script runs a preflight check (nvcc,
-GPU, cmake) and tells you exactly what's missing.
+GPU, cmake) and tells you exactly what's missing. Optional install choices
+(pick the extras you need; there is no need to run every line):
 
 ```sh
 ./tools/install.sh            # lean: codegen + build deps + submodules + regen grid.cuh
@@ -39,11 +58,12 @@ compiles it — osqp and osqp-eigen into a local prefix — only when you reprod
 `gato.BSQP` (numpy + the built module). Pinocchio and MuJoCo are needed only by
 the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
 test suite — `--test` pulls exactly those in; `--examples` adds torch and the
-viz stack. Then activate and build:
+viz stack. To run the fixed-pacing MPC and gym demos, add the test runtime:
 
 ```sh
-source .venv/bin/activate
-./tools/build.sh              # incremental; --clean to reconfigure; PLANT=/KNOTS= subset the modules, JOBS= caps compile jobs (RAM), ARCH= overrides the CUDA arch
+./tools/install.sh --test
+python examples/03_mpc_loop.py
+python examples/04_gym_mpc.py
 ```
 
 Docker (`./tools/docker.sh`) is an **optional prerequisites image** — CUDA
@@ -51,10 +71,12 @@ toolkit, CMake, Python — that drops you into a shell with the repo mounted; yo
 then run the same `tools/install.sh` + `tools/build.sh` inside it. It does not
 build GATO for you.
 
-**Distribution:** GATO is installed from a source tree only (a recursive clone,
-or the sdist — both carry the full CMake tree). The pure-python wheel holds the
-`gato` package without solver modules; there is no binary wheel (modules are
-GPU-arch/CUDA/ABI-specific CMake products). See `test/test_distribution_artifacts.py`.
+**Distribution:** the supported native build path is a Git checkout with its
+pinned submodules initialized (the install script does this). The pure-python
+wheel contains no solver modules; these are GPU-arch/CUDA/ABI-specific CMake
+products. The sdist contains GATO's own build sources but does not bundle the
+external GRiD/GLASS trees, so it is NOT a standalone native-build distribution.
+See [merge/release boundaries](docs/merge-readiness.md).
 
 ### Build Options
 
@@ -64,7 +86,7 @@ You can control which Python extension modules are built by selecting plant mode
 cmake -S . -B build -DPLANT="indy7;iiwa14" -DKNOTS="8;32;128"   # PLANT x KNOTS cross-product
 cmake -S . -B build -DMODULES="indy7:8,32;go2:16"                # explicit per-plant horizons
 cmake -S . -B build -DGATO_RECEIPT_PROFILE=ON                     # exactly test/receipt_modules.txt
-cmake --build build --parallel 4                                  # each TU pulls the large grid.cuh (RAM-bound: ~1-7 GB per job; tools/build.sh defaults JOBS=4)
+cmake --build build --parallel 2                                # RAM-bound: roughly 1-7 GB per job
 ```
 
 - `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `go2`).
@@ -73,6 +95,10 @@ cmake --build build --parallel 4                                  # each TU pull
   horizons are compile blowups).
 - `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
   attests (`test/receipt_modules.txt`).
+- `tools/build.sh` defaults to four jobs; use `JOBS=2` on a shared or RAM-limited
+  machine. CMake caches `MODULES`: an old explicit list overrides `PLANT`/`KNOTS`.
+  Clear it with `-DMODULES=""` when returning to the cross-product. The receipt
+  profile takes precedence over both. `--clean` deletes `build/`, not just its cache.
 
 Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}[_{variant}].so`.
 **Variants** are separate ABIs that live side by side: `_fc` (contact-force
@@ -96,14 +122,14 @@ controls appended to `u`; `-DGATO_CONTACT_FORCES=ON`, `./tools/build.sh --varian
 import numpy as np
 import gato
 
-# one batched solve: B trajectories in a single GPU launch. Configuration is
-# ONE object (gato.SolverParams; defaults = the paper/MPC set, max_sqp_iters=1);
+# one batched solve: B trajectories across the solver's CUDA kernel pipeline.
+# Configuration is ONE object (gato.SolverParams; max_sqp_iters=1 by default);
 # keyword overrides of its fields are accepted directly.
 solver = gato.BSQP(model_path="examples/indy7_description/indy7.urdf",
-                   batch_size=8, N=32, dt=0.01, plant_type="indy7",
+                   batch_size=8, N=64, dt=0.01, plant_type="indy7",
                    params=gato.SolverParams(max_sqp_iters=10))
 x0 = np.zeros((8, solver.nx), dtype=np.float32)          # [q, dq] per batch entry
-goals = np.zeros((8, 32 * 6), dtype=np.float32)          # (x,y,z,0,0,0) per knot
+goals = np.zeros((8, 64 * 6), dtype=np.float32)          # (x,y,z,0,0,0) per knot
 goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
 res = solver.solve(x0, goals)                            # -> SolveResult (cold start: hold at x0)
 res = solver.solve(x0, goals, xu_warm=res.xu)            # warm-started from the previous solution
@@ -170,7 +196,8 @@ collapses from the same start (`test_floating_worlds.py`). Two traps: the standi
 keyframe (base z 0.35) has the feet 8.5 cm in the air — derive the stance pose from
 FK (feet touch at z ≈ 0.287); and an asymmetric `fc_ref` does NOT shift weight — the
 world's split follows the centre of mass, so the solver plans for an imagined split
-and tips over (weight shift / foot lift need contact-consistency rows: next arc).
+and can tip over. Weight shift / foot lift also need a base-tracking cost and
+a pre-liftoff support plan; contact rows alone do not establish walking.
 `python examples/07_go2_floating.py --fc` runs the standing recipe.
 
 **Foot position rows and the gait oracle** (CL-4): `add_contact_pos_rows` puts
@@ -186,8 +213,11 @@ with `install_foot_rows`, the stance/swing foot rows (`apply(t, q)`). Operating
 point: the rows fold onto the Q block against the standing costs, so solver-level
 enforcement needs AL rho ~1e3 (ADMM ~1e2; rho 10 is dominated) — verified solver-only
 (feet held < 1 mm, a 3 cm foot lift in the horizon, `test_contact_rows.py`). In the
-closed loop that stiffness breaks the SQP's line search (the stand sags), so the
-S2/S3 walking gates are open work (`docs/constraints.md`).
+closed loop, static standing with AL stance rows now passes its regression gate
+after non-PD factor recovery and measured-foot target re-anchoring. Moving targets
+constrain each prediction horizon; they do not prove zero accumulated physical
+slip. S2 weight shift and S3 foot lift remain open work; see
+[feature status](docs/status.md) and [constraints](docs/constraints.md).
 
 ### Same robot? The dynamics fingerprint
 
@@ -237,7 +267,7 @@ down: `add_lin_u_rows(C, d, lo=..., hi=...)` appends interval rows
 
 Mechanisms mix across groups (e.g. AL boxes + an ADMM cone). Two rules:
 call `add_lin_u_rows`/`enable_u_cone` **after** `enable_limit_*` (mechanism
-enables reinstall the canonical groups, dropping appended ones), and when the
+enables reinstall the canonical groups and therefore reject that ordering), and when the
 map `C` is large, scale `rho` down by `‖C‖²` — the fold lands `rho * CᵀC` on
 the control Hessian block. Per-solve duals and ADMM state are inspectable via
 `get_row_duals()` / `get_admm_state()`; `set_row_group_soft(g, sigma)` turns a
@@ -320,8 +350,8 @@ every paper horizon + go2 N16 + the fc/eh variants).
 |---|---|---|
 | **Fig-3** scalability (iiwa14 fig-8, GATO vs BatchThneed-CPU vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); the June single-robot chain is in `examples/archive/` |
 | **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` |
-| **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | force sweep + EE trajectories |
-| **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | unblocked (f_ext frame-convention fix, then the EE-frame metric fix); the residual goal-4 miss tail is task difficulty, not the solver |
+| **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | fixed-pacing force sweep + EE trajectories; not a reproduction of latency-induced degradation |
+| **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | runnable; success magnitudes and protocol/metric provenance remain unresolved; full refresh deferred |
 
 See [examples/paper-figures/README.md](examples/paper-figures/README.md) for the full build matrix,
 reproducibility tiers, hardware/config delta, and caveats (MPCGPU/CPU baselines). Fig-6 (sim
@@ -337,13 +367,19 @@ QUIET-BOX runs — never on a shared machine. Provenance for every recovered dat
 ## Cite
 
 ```bibtex
-@misc{du2025gatogpuacceleratedbatchedtrajectory,
+@inproceedings{du2026gato,
       title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
       author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
-      year={2025},
-      eprint={2510.07625},
-      archivePrefix={arXiv},
-      primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2510.07625}, 
+    booktitle={IEEE International Conference on Robotics and Automation (ICRA)},
+    year={2026},
+    month={June}
 }
 ```
+
+## Funding acknowledgement
+
+This material is based upon work supported by the National Science Foundation
+(under Awards [2411369](https://www.nsf.gov/awardsearch/show-award/?AWD_ID=2411369)
+and [2246022](https://www.nsf.gov/awardsearch/show-award?AWD_ID=2246022)). Any opinions,
+findings, conclusions, or recommendations expressed in this material are those
+of the authors and do not necessarily reflect those of the funding organizations.

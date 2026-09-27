@@ -12,7 +12,7 @@ DEFAULT = REGENERATE on the GPU (this reproduces our bundled
 targets). Use ``--replot`` to skip the GPU and render from that bundled data.
 
 NOTE on paper fidelity: the paper text states "100 runs each with 81 different
-values for Q and R". Our recovered/bundled data (the actual published figure)
+values for Q and R". Our recovered/bundled data
 used 50 targets x a 24-combo Q/R grid; the defaults here reproduce THAT. Override
 with --num-targets / --max-iters; the exact paper Q/R grid is a backlog item
 pending the student's confirmation.

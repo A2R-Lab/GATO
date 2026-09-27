@@ -2,13 +2,14 @@
 
 Floating-base modules (gato.build(..., floating_base=True); the vendored go2 is
 N16-only) store the state as [p; quat xyzw; joints; v], and the EE target frame
-is the trunk imu — the "EE" cost pins the base pose. The recipe (from the w36
+is the trunk imu — the "EE" cost tracks its position, not base orientation.
+The recipe (from the w36
 linsys sweep / the floating gates):
   * standing keyframe from gato.config.GO2_START_CONFIGS as the posture anchor
     (set_q_nom + set_q_pos_cost — the tracking cost alone leaves the legs free),
   * imu goal = the imu position at the standing pose (solver.ee_pos),
   * MPCController with the wired floating defaults (linsys "bdsv": the direct
-    solve wins at every batch size on the 36-state Schur blocks) plus a
+    solve is the selected path for the 36-state Schur blocks) plus a
     reseed_threshold — a stale warm-start tail is a merit local minimum here.
 The world is MuJoCo (gato.worlds.MuJoCoWorld, floating=True, a ground box under
 the feet) when mujoco is installed, else the solver's own device integrator.

@@ -2,6 +2,22 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-27 — Merge-readiness documentation and example validation
+
+- Added a documentation index, feature-status boundaries, API migration notes
+  and a bounded merge checklist. Corrected standing, ADMM dispatch, receipt
+  coverage and paper-protocol claims; restored main's citation/acknowledgement
+  in the README. Quick start builds one module with capped concurrency.
+- Fixed the gym example's indentation error and added introductory syntax
+  gates. The basic MPC example now uses fixed simulation pacing. Added a short
+  masked-contact AL/barrier/ADMM gate suitable for race instrumentation.
+- Added a GATO-only, opt-in quiet-window checkpoint runner with a GPU-free
+  dry run, unique result paths and source/binary/environment provenance. It
+  samples Fig-3 and Fig-7, not a full research reproduction or autotune run.
+- Corrected the distribution contract: Git checkout plus pinned submodules
+  is the supported native build; the sdist does not bundle external trees.
+  Excluded local working notes from sdists and added a packaging canary gate.
+
 ## 2026-09-26 — GRiD integration and cooperative-row cleanup
 
 - GRiD pinned to `65fd051`: public HTTPS nested dependencies, declared trimesh

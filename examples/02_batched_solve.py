@@ -4,7 +4,7 @@ Solves M=8 figure-8-tracking problems simultaneously in one GPU call, each batch
 member using a different damping parameter rho (log-spaced) — the batched
 hyperparameter idea from Case Study 1. Prints the per-instance final merit and
 which member converged best. This is GATO's core differentiator: tens-to-hundreds
-of solves in one block-parallel launch.
+of solves through a block-parallel kernel pipeline.
 
 Needs the bsqpN64_indy7 module built; runs from any cwd:
     python examples/02_batched_solve.py
@@ -34,7 +34,7 @@ res = solver.solve(np.tile(x0, (M, 1)), np.tile(ref, (M, 1)))
 
 merits = res.stats.final_merit
 best = int(np.argmin(merits))
-print(f"GATO batched solve (Indy7, N={N}, M={M}) in one launch:")
+print(f"GATO batched solve (Indy7, N={N}, M={M}) in one solver call:")
 print(f"  GPU solve time : {res.solve_time_us / 1000.0:.3f} ms for all {M} solves")
 for i in range(M):
     mark = "  <- best" if i == best else ""

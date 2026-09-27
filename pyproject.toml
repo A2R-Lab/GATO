@@ -96,9 +96,9 @@ include = ["gato*"]
 # layer only. Solver modules (bsqpN{N}_{plant}.so) are arch/CUDA/ABI-specific
 # CMake products and are NEVER packaged — a "py3-none-any" wheel with native
 # modules inside is a lie (observed 18 MiB, checkout-state dependent). They are
-# built from a source tree (checkout or sdist) with tools/build.sh; gato.BSQP
-# raises with the build command when none is present. The sdist ships the full
-# CMake source tree (see MANIFEST.in) so it IS buildable. Gate:
+# built from a Git checkout with initialized submodules; gato.BSQP raises with
+# the build command when none is present. The sdist includes owned sources but
+# NOT the external dependency trees; it is not a standalone native build. Gate:
 # test/test_distribution_artifacts.py.
 [tool.setuptools.package-data]
 gato = ["_registry.json"]

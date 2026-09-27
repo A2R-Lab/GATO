@@ -1,112 +1,125 @@
-# Reproducing the GATO paper figures
+# Paper experiments: protocols and reproduction status
 
-Committed, runnable scripts that regenerate the data and figures from the GATO paper
-([arXiv:2510.07625](https://arxiv.org/abs/2510.07625)). Each script regenerates its
-data on the GPU **by default** (Fig-3 assembles from the committed CSVs; its GPU lanes are `--run-*`) and re-renders from saved/recovered data with
-`--replot`; `--quick` runs a tiny wiring smoke (not paper numbers). The scripts run
-from any cwd.
+These scripts evaluate experiments associated with the [GATO paper](https://arxiv.org/abs/2510.07625).
+Runnable does not mean numerically reproduced. Keep published results, historical
+datasets and fresh evaluations of the current code distinct. A correctness
+receipt is not a timing report.
 
-```bash
-# EVERYTHING, overnight, on a quiet box: the staged timing night (rebuild -> gates ->
-# 3-way parity -> fig3 fair sweeps -> constraint-eval timing legs -> fig5/fig4/fig7
-# regen; ~6-7 h; per-leg logs + SUMMARY in examples/benchmarks/night_logs/<stamp>/)
-examples/benchmarks/run_timing_night.sh
+## Setup and modes
 
-# one figure
-python examples/paper-figures/reproduce_fig4_hparam.py            # GPU re-run
-python examples/paper-figures/reproduce_fig4_hparam.py --replot   # no GPU, bundled data
-python examples/paper-figures/reproduce_fig4_hparam.py --quick    # fast smoke
-
-# everything
-python examples/paper-figures/make_all.py --quick                 # smoke all
-python examples/paper-figures/make_all.py                         # full regen
-```
-
-Python = the project `.venv` (`./tools/install.sh --test` gives it pinocchio, mujoco,
-scipy); the scripts import the installed `gato` package, no path setup needed.
-
-## Figures
-
-| Script | Paper | What it does | Status |
-|---|---|---|---|
-| **`reproduce_fig3_fair.py`** | **Fig-3 (both)** | **FAIR iiwa14 fig8 parity harness (2026-07): identical problem for GATO / BatchThneed-CPU / MPCGPU-GPU; left = B∈[1..128] total-time table + GATO speedups at every B; right = GATO N×B heat map (B to 512). THE current data path.** | ✅ (see below) |
-| `reproduce_fig4_hparam.py` | Fig-4 (CS1) | iiwa14 online ρ sweep; normalized merit vs SQP iter per batch. **Regenerates by default**; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` | ✅ |
-| `reproduce_fig5_disturbance.py` | Fig-5 (CS2) | Indy7 fig-8 + EE disturbance; tracking err + joint vel vs force, and EE trajectories at 50 N | ✅ |
-| `reproduce_fig7_pickplace.py` | Fig-7 + Table-I (CS3) | iiwa14 pick-place + 15 kg pendulum; success rate + completion-time CDF | ✅ runs; success *magnitudes* carry the FE caveat in the script header |
-
-The superseded June indy7 Fig-3 chain (`reproduce_fig3_scalability.py`,
-`reproduce_fig3_heatmap.py`, `benchmark_fig8.py`, the BatchThneed/MPCGPU indy7 runners
-and the Phase-0 pick-place diagnostic) lives in [`../archive/`](../archive/README.md).
-
-Not reproducible in software: **Fig-6** (meshcat sim snapshot) and **Fig-8 / Table-II**
-(physical-hardware pick-place). Documented for completeness only.
-
-## Reproducibility tiers
-- **Tier A — no GPU (`--replot`):** Fig-4 from the bundled pkl; Fig-3 reports from saved
-  pkls. Render-only.
-- **Tier B — GPU re-run (default):** every script regenerates its data on the GPU. This
-  is the canonical path (Fig-4 regenerates by default per the project requirement).
-- **Tier C — hardware-only (not reproducible):** Fig-6, Fig-8, Table-II.
-
-## Build matrix
-Each `(plant, N)` is a compile-time module `python/gato/bsqpN{N}_{plant}.so`. Build all
-the suite needs in one shot from the repo root:
+Use the project `.venv`; `./tools/install.sh --examples` supplies simulation AND
+plotting dependencies (`--test` alone does not include matplotlib). Build with
+`JOBS=2 ./tools/build.sh --profile receipt`, or select only the needed modules.
+Scripts resolve inputs independently of cwd; run the commands below from the repo root.
 
 ```bash
-./tools/build.sh --profile receipt      # the attested module set (test/receipt_modules.txt)
+# No GPU or result writes: preview the focused checkpoint.
+examples/benchmarks/run_merge_checkpoint.sh --dry-run
+# Render trusted saved data; does not evaluate the current solver.
+.venv/bin/python examples/paper-figures/reproduce_fig4_hparam.py --replot
+# Small correctness smoke, NOT paper numbers (uses GPU).
+.venv/bin/python examples/paper-figures/make_all.py --only fig4,fig5 --quick
 ```
 
-| Figure | Modules |
-|---|---|
-| Fig-3 left (fair) | iiwa14 N64 |
-| Fig-3 heatmap (fair) | iiwa14 N∈{8,16,32,64,128} |
-| Fig-5 | indy7 N64 |
-| Fig-4 | iiwa14 N64 |
-| Fig-7 | iiwa14 N16 |
+- Fig-3 assembles saved CSVs by default. Timing lanes need `--run-gato`,
+  `--run-bt` or `--run-mpcgpu` and an exclusive quiet window.
+- Fig-4/5/7 regenerate on the GPU by default. `--replot` loads existing data;
+  `--quick` is a plumbing smoke, not a statistical reproduction.
+- Pickles are trusted local artifacts; never load arbitrary downloaded pickles.
+- Generated pools/plots need not exist in a fresh clone. Fig-4 has a bundled
+  fallback; other replot commands require their inputs first.
 
-Scripts emit a clear "module not built" error naming the cmake line if a module is missing.
+## Figure scope
 
-## The FAIR Fig-3 path (2026-07, current)
-`reproduce_fig3_fair.py` replaces the June indy7 data path with the parity harness: all
-three solvers solve the IDENTICAL iiwa14 fig8 problem (`examples/benchmarks/
-iiwa_fig8_shared.py` — same goal file, same EE metric frame (the URDF "EE" fixed joint,
-since the 2026-07-30 named-target regen; pre-regen L7-frame data is NOT comparable), same
-costs/warm-start) under
-the matched config (SQP=1, PCG≤200 rel 1e-4, ρ=0.01; MPCGPU = `GATO_REG_PATTERN` + native
-exit). Provenance + measured tables: `MPCGPU docs/benchmark_3way_2026-07-06.md`. Data
-generators (each stage is a TIMING run — quiet box, one at a time):
-- GATO: `examples/benchmarks/sweep_batch_iiwa_fig8.py --N {8..128} --batches 1..512`
-- BatchThneed: `examples/benchmarks/baselines/track_iiwa_fig8_bt.py <sim> <B> <N> <csv>`
-- MPCGPU: `MPCGPU tools/time_persolve.sh <N> pcg 3 <csv>` (per-solve; no batch axis → ×B)
-CSVs land in `examples/benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`; the assembler
-(default, no GPU) writes `fig3_fair_scalability.{txt,png}` + `fig3_fair_heatmap.{txt,png}`.
-NOTE the robot delta vs the published figure: the paper used **Indy7**; the fair harness
-is **iiwa14** (the archived June indy7 chain in `../archive/` is the indy7 provenance).
+| Script | Modules | Meaning and current limitation |
+|---|---|---|
+| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; fresh timing pending |
+| `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
+| `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
+| `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical task-completion time; success gap unresolved; full refresh deferred |
 
-## Known caveats (honest reproduction status)
-- **Old June Fig-3 path (archived):** its `mpcgpu_indy7_fig8_N64.csv` predates the
-  2026-07-06 terminal-cost fix (MPCGPU kkt.cuh 88c3853) and the fair config — do NOT mix it
-  with fair-path numbers. The fair path times MPCGPU via `tools/time_persolve.sh` and uses
-  the paper's real threaded C++ `BatchThneed` (`baselines/build_cpu_baseline.sh`) as the CPU arm.
-- **Fig-7 / Table-I (iiwa14 pick-place):** UNBLOCKED 2026-07-07 — the failures were an
-  f_ext frame-convention bug (hypothesis wrenches uploaded with swapped [angular;linear]
-  halves and a wrong frame chain; fixed in gato.common.world_wrench_to_joint_local et
-  al.). Post-fix quick probe: batch=8 reaches 10/10 goals vs 0/10 at batch=1 — the
-  paper's Table-I shape. The full 100-scenario × batch sweep still needs a long quiet-GPU
-  window (~hours) to produce citable numbers. NOTE the same bug invalidates any Fig-5
-  disturbance data generated before 2026-07-07 (the sim applied the world force wrong)
-  — Fig-5 must be regenerated.
-- **Fig-4 grid:** our bundled/recovered figure used 50 random targets × a 24-combo Q/R
-  grid; the paper text states 100 runs × 81 Q/R values. Defaults reproduce *our* bundled
-  data; `--num-targets` overrides. The exact paper Q/R grid is pending confirmation.
+Fig-6 is a simulation snapshot, not a numerical regression target. Fig-8 /
+Table-II require physical hardware; preserve them as published results unless
+new hardware experiments are performed.
 
-## Hardware / config delta
-Paper: RTX 4090, Ryzen 9 7900X (24-core), Ubuntu 22.04, CUDA 12.6, g++ 11.4, `-O3
--use_fast_math`, timed with Python `timeit` around the wrappers. Reproductions on other
-GPU/CPU/CUDA versions will differ in absolute numbers; the scaling trends should hold.
+### Fig-3: matched comparison, different robot
 
-## Data provenance
-Regenerated pkls land in `data/` (gitignored). `_common.load_data` prefers a regenerated
-pkl, else falls back to a bundled/recovered dataset (e.g. Fig-4's
-`examples/gato_hparam_batch_results.pkl`), printing which source it used. See
-`docs/archaeology.md` for the provenance of each recovered dataset.
+The current harness uses iiwa14; the published scalability figure used Indy7.
+`benchmarks/iiwa_fig8_shared.py` defines the common trajectory, EE frame, costs
+and budget (SQP=1, PCG cap 200 / relative tolerance 1e-4, rho=0.01).
+
+- GATO: `../benchmarks/sweep_batch_iiwa_fig8.py` (N and batch sweeps).
+- CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, threaded C++ BatchThneed
+  built by `build_cpu_baseline.sh`.
+- MPCGPU: sibling repository's `tools/time_persolve.sh`, matched configuration;
+  no batch axis, so the displayed baseline is sequential B × single-solve.
+
+The assembler consumes `../benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`.
+Old Indy7 point-to-point data is NOT a baseline for the iiwa14 fig8 sweep.
+Pre-July-30 data used the wrong terminal frame; do not mix it with named-EE
+results. [Archived June scripts](../archive/README.md) preserve history, not
+interchangeable benchmark implementations.
+
+The current GATO sweep records internal solver duration, not full Python or
+controller latency. The paper describes timing around wrappers. Match these
+boundaries before quoting speedups; record both when adding an end-to-end lane.
+Historical local iiwa14 numbers are not measurements of the current commit.
+
+### Fig-4: choose and name the grid
+
+Defaults evaluate 50 random targets × 24 Q/R combinations, matching the
+recovered dataset. The paper text describes 100 runs × 81 cost choices.
+`--num-targets` changes the target count, not the missing cost-grid definition.
+Document the chosen grid before refreshing the figure; do not claim exact
+paper reproduction without reconciling that difference.
+
+### Fig-5: quality and latency are different experiments
+
+The script uses `pace_by_solve_time=False`. Its force sweep and 50 N trajectories
+measure control quality at fixed simulation pacing, useful even on a shared GPU.
+They do not model additional actuation delay from larger batches. The paper's
+latency-induced degradation needs a separately specified delay/pacing experiment
+on a quiet box. Replotting historical data is not a refresh; data predating the
+July force/frame fixes is unsuitable for current validation.
+
+### Fig-7 / Table I: preserve the unresolved gap
+
+A historical local 100-scenario `fig7_paper_ready` table exists, so “full sweep
+never run” is outdated. It reports 83% episode success at B128 versus 99.2% in
+the paper; it is NOT a result for the current revision. Reconcile success
+aggregation, velocity norm, initial conditions, force-estimator configuration
+and pacing before attributing this to a solver regression or calling the task
+“strictly harder.” The current script uses fixed simulation pacing and a
+Euclidean velocity norm; paper wording and recovered implementations need an
+explicit protocol decision. Timing alone cannot resolve this question.
+
+The merge checkpoint samples ten seeded B128 scenarios: a regression sample,
+not a replacement success-rate estimate or CDF. Full Fig-7 refresh and estimator
+research are deferred; never overwrite the old pool.
+
+## Merge checkpoint versus research refresh
+
+The [focused runner](../benchmarks/run_merge_checkpoint.sh) samples Fig-3 at
+N64 / B=1,8,128 with three process repeats and Fig-7 at B128 / ten seeded
+scenarios. It does NOT refresh the full Fig-3 grid, Fig-4, Fig-5 or full Fig-7.
+Compiler measurements and autotuning are separate opt-in legs in the
+[merge checklist](../../docs/merge-readiness.md).
+
+Next research refresh: Fig-3's matched full sweep, Fig-4's explicitly chosen
+grid, and Fig-5's quality and separately specified latency experiment. The legacy
+`../benchmarks/run_timing_night.sh` also runs sibling-repo work and full Fig-7.
+Its historical 6–7 hour estimate is not a promise for the current code; do not
+launch it blindly for the focused checkpoint.
+
+## Provenance and interpretation
+
+The paper used an RTX 4090 / CUDA 12.6 setup. Different hardware, compilers,
+models and budgets can change absolute times AND relative speedups. Re-run all
+compared lanes with matched accuracy before making a new performance claim.
+
+Retain source/submodule SHAs, binary/configuration provenance, hardware/toolchain,
+seeds, pacing, sample counts, metric definitions and exact commands. Record
+missing provenance rather than mixing pools. `_common.load_data` prefers a
+regenerated local pickle over its bundled fallback and prints the selected
+source: check that output. [Archaeology](../../docs/archaeology.md) is a dated
+record of recovered data, not the current reproduction verdict.

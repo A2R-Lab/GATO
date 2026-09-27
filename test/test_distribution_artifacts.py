@@ -5,8 +5,9 @@ and asserts the honest contract:
   * the wheel is pure-python (universal tag) and carries NO native solver
     modules — they are CMake/arch/CUDA-specific and must come from a source
     tree build;
-  * the sdist is a buildable source tree: CMakeLists.txt, gato/, the bindings
-    TU, tools/build.sh and the vendored robot descriptions are inside.
+  * the sdist includes GATO-owned build sources: CMakeLists.txt, gato/, the
+    bindings TU, tools/build.sh and vendored arm descriptions. It does NOT
+    include external dependency trees and is not a standalone native build.
 Needs the `build` package (pip install build) and network for the isolated
 build env; slow, host-only.
 """
@@ -29,6 +30,10 @@ def artifacts(repo_root, tmp_path_factory):
                    stdout=open(src / "tree.tar", "wb"), check=True)
     with tarfile.open(src / "tree.tar") as t:
         t.extractall(src / "tree")
+    # A working-checkout sdist must not ship gitignored local handoffs/notes.
+    notes = src / "tree" / "docs" / "open-tasks"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "packaging-canary.md").write_text("Local working note; not distribution content.\n")
     out = tmp_path_factory.mktemp("dist")
     r = subprocess.run([sys.executable, "-m", "build", "--outdir", str(out), str(src / "tree")],
                        capture_output=True, text=True)
@@ -50,7 +55,7 @@ def test_wheel_is_pure_python_without_native_modules(artifacts):
     assert whl.stat().st_size < 2_000_000, "wheel should be the python layer only"
 
 
-def test_sdist_is_a_buildable_source_tree(artifacts):
+def test_sdist_contains_owned_build_sources(artifacts):
     _, sdist = artifacts
     names = [Path(*Path(n).parts[1:]).as_posix() for n in tarfile.open(sdist).getnames()]
     required = ["CMakeLists.txt", "python/bindings.cu", "tools/build.sh", "tools/regen_grid.py",
@@ -58,5 +63,6 @@ def test_sdist_is_a_buildable_source_tree(artifacts):
                 "gato/dynamics/indy7/grid.cuh", "gato/dynamics/iiwa14/grid.cuh", "gato/dynamics/go2/grid.cuh",
                 "examples/indy7_description/indy7.urdf", "test/receipt_modules.txt"]
     missing = [r for r in required if r not in names]
-    assert not missing, f"sdist cannot build the solver without: {missing}"
+    assert not missing, f"sdist is missing owned build sources: {missing}"
     assert not [n for n in names if n.endswith(".so")]
+    assert not [n for n in names if n.startswith("docs/open-tasks/")]

@@ -1,9 +1,8 @@
 # GATO consumer contract — conventions external integrations depend on
 
 Audience: anyone driving GATO from outside this repo (closed-loop harnesses,
-other lab solvers, hardware pipelines, comparison benchmarks). Every item here
-has bitten a real integration; the provenance notes say how. Updated 2026-09-20
-(SolverParams / stateless solve / module variants — see §4).
+other lab solvers, hardware pipelines, comparison benchmarks). Updated 2026-09-26.
+For supported configurations and experimental boundaries, see [feature status](status.md).
 
 ## 0. First thing to run: the dynamics fingerprint
 
@@ -64,8 +63,11 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   gradient only. (b) It closes position feedback on previously-uncontrolled
   nullspace joints — if your sim disagrees with our model there (see §0), the
   anchor is what exposes it.
-- **Per-joint weights**: `set_u_cost_vec([...])` and `set_q_pos_cost([...])`
-  accept length-nq arrays — the knob for pricing a single joint's channel
+- **Per-joint weights**: the current native bindings for `set_u_cost_vec([...])`
+  and `set_q_pos_cost([...])` both require `grid::NUM_JOINTS` entries (nq for
+  the vendored plants). The effort-vector docstring's n_actuated description
+  is only consistent on fixed-base arms: use scalar weights for floating-base
+  recipes until that vector contract has a dedicated gate. On an arm, the knob prices a single joint's channel
   (e.g. a near-massless wrist in a 100 Hz loop) without touching the rest.
 - Weights land literally on the KKT diagonals — `debug_setup_kkt` exposes the
   blocks, and `test/test_anchor.py` shows the pattern for verifying any cost
@@ -75,14 +77,16 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 
 - **ONE configuration object**: `gato.SolverParams` (frozen dataclass; derive
   with `.replace(...)`). `BSQP(model_path, batch_size, N, dt, params=...)`, or
-  keyword overrides of its fields. Its defaults are the values every paper
-  experiment ran with (max_sqp_iters=1 = real-time iteration; mu=10, rho=0.01,
+  keyword overrides of its fields. Defaults are the fixed-base real-time-iteration
+  baseline, NOT every paper experiment's configuration (max_sqp_iters=1; mu=10, rho=0.01,
   qd_cost=1e-2, u_cost=2e-6, q_lim_cost=0.01, pcg_tol=1e-4, max_pcg_iters=200).
   Provenance: until 2026-09-20 the constructor carried a SECOND default set
   (mu=1, rho=1e-3, max_sqp_iters=10, ...) that no harness ever ran — if you
   copied constructor defaults, re-check against `SolverParams()`. `kkt_tol`
   is gone (it never terminated anything; convergence is merit/step based).
-  `solver.params` is always truthful: every `set_*` writes through.
+  `solver.params` records configuration fields; setters for those fields update
+  it. Row groups, vector weights and target tables have their own state and are
+  not a complete replay configuration in `SolverParams` alone.
 - **linsys**: `SolverParams.linsys` None = the wired static default (pcg fixed
   base, bdsv floating base) — the static arm of `MPCController`'s per-step
   policy ("auto" = pcg warm / bdsv_first cold, same resolver:
@@ -129,16 +133,33 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 
 ## 5. What the gpu-proof receipt does and does not attest
 
-The signed receipt (`gpu-proof.json`, verified in CI) attests the committed
-test suite ON THE DEFAULT BUILD at the fingerprinted sources: default-path
-bitwise parity, determinism, FD gates, the KKT-level cost gates. It does NOT
-attest: whichever variant modules are absent from the receipt profile
-(`test/receipt_modules.txt`; `test/expected_skips.txt` is the allow-list of skips the CI verifier accepts — EMPTY by design, so ANY skip on the receipt run fails verification; it lists which
-tests skip when a variant is not built),
-your driver's closed-loop behavior, or timing. If you depend on a feature,
-check a test exercises it — "the suite is green" is scoped by the suite.
+The signed receipt (`gpu-proof.json`, verified in CI) attests the recorded tests
+at the fingerprinted sources and pinned dependencies, using the modules in
+[`test/receipt_modules.txt`](../test/receipt_modules.txt). This includes default,
+contact-force (`fc`) and exact-Hessian (`eh`) variants—not just default builds.
+[`test/expected_skips.txt`](../test/expected_skips.txt) is an EMPTY allow-list:
+any skipped test fails receipt verification.
 
-## 6. Reporting a solver discrepancy
+Coverage includes bitwise goldens, determinism, finite-difference and KKT gates,
+and specific simulator scenarios. It does NOT establish correctness for all
+robots/settings, arbitrary variant combinations, your hardware controller, or
+runtime/compile performance. Check which test exercises the feature you use.
+
+## 6. Migrating from the paper-era API
+
+- Import `gato`, not `bsqp`; native modules live under `python/gato/`.
+- Use `SolverParams` for solver settings. Removed `kkt_tol` was not a working
+  stopping criterion; do not replace it with an unrelated tolerance.
+- Pass `xu_warm=previous.xu` explicitly when repeating raw solves. For a moving
+  horizon, let `MPCController` own the shift and reset policy.
+- Load `variant="fc"` or `variant="eh"` explicitly; never swap `.so` files.
+- Apply `StepResult.u` / `SolveResult.u0()`, not the contact-wrench tail.
+- Install canonical limit groups before appended groups; the reverse order raises.
+- Check your simulator with the dynamics fingerprint before retuning a controller.
+- `gato.build` reconfigures its selected build directory. Supply `build_dir=`
+  for an isolated custom build, or restore the receipt profile afterwards.
+
+## 7. Reporting a solver discrepancy
 
 Open a GitHub issue with the URDF, the module name (`gato.module_name(plant, N, variant)`), the
 `SolverParams`, and a replayable `.npz` of `(x, goals, xu_warm)` plus the observed vs expected numbers.

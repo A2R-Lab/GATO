@@ -33,9 +33,10 @@ mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=M, plant_type="ind
 fig8 = figure8(DT, **FIG8_DEFAULT_PARAMS)
 x0 = np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(model.nv)))
 
-# pace_by_solve_time=True is the real-time MPC default (sim advances by the measured
-# solve time, so a faster solver re-plans more often) — matches the paper benchmark.
-_, stats = mpc.run_mpc_fig8(x0, fig8, sim_dt=0.001, sim_time=3.0, pace_by_solve_time=True)
+# Fixed simulation pacing makes this a correctness demo even on a shared GPU.
+# The printed duration is diagnostic only, not a benchmark. Wall-clock-paced
+# experiments belong in an explicitly reserved quiet-window benchmark run.
+_, stats = mpc.run_mpc_fig8(x0, fig8, sim_dt=0.001, sim_time=3.0, pace_by_solve_time=False)
 
 err = np.asarray(stats["goal_distances_knot0"])
 solve_ms = np.asarray(stats["solve_times"])

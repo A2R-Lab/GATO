@@ -1,7 +1,9 @@
-# sdist = a BUILDABLE source tree (plan D10): everything CMake needs to build
-# the solver modules, plus tests. Built .so modules are never packaged.
+# sdist contains GATO-owned build sources, not a standalone native build:
+# pinned external GRiD/GLASS trees are not bundled. Use an initialized Git
+# checkout to build solver modules. Built .so modules are never packaged.
 include CMakeLists.txt LICENSE README.md CHANGELOG.md CITATION.cff pyproject.toml
 recursive-include docs *.md
+prune docs/open-tasks
 recursive-include gato *.cuh *.h *.cu
 recursive-include python *.cu
 recursive-include tools *.py *.sh

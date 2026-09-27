@@ -10,32 +10,15 @@ randomized scenarios (pendulum length 0.3-0.7 m, initial angle 0-0.6 rad, dampin
 iters, PCG tol 1e-6, 1 kHz RK4 sim. Success = EE within 5 cm of each goal in <5 s
 with total joint velocity < 1.0 rad/s.
 
->>> STATUS (2026-06-25, see docs/baselines.md "pick-place Phase-0"):
-The dominant Table-I bug is FIXED — the ForceEstimator (the CS3 batched-robustness
-mechanism) was silently disabled by a CWD-relative import, so every batch size behaved
-like batch-1 (all-zero Table-I). With it live, batching now demonstrably helps (batch>1
-succeeds where batch=1 fails), and the FE sampling is now SEEDED (reproducible runs).
->>> CAVEAT: a residual FE-robustness gap remains (parked Phase-2 R&D): the estimate is
-high-variance and doesn't fully converge to a large *swinging* payload, so the success
-*magnitudes* may not match the paper exactly. The curve SHAPE (success rising with batch)
-and the CDF are correct; ship with this caveat. The script runs and produces the figure
-regardless (NaN scenarios are caught per-batch and counted as failures, not crashes).
->>> METRICS (2026-07-08): PICKPLACE_MPC_DEFAULTS now uses the paper-comparable
-success gate + clock — Euclidean velocity norm (the old L1-sum gate was stricter and
-capped success) and fixed dt pacing (completion time = physical task time; the old
-wall-clock pacing reported cumulative wall time and was non-reproducible). Table-I
-data generated before this change is on the old metrics — do not mix pools.
->>> PROTOCOL (2026-08-02): the randomized 100-scenario 15 kg protocol above has NO
-committed paper-era implementation (archaeology: the Sep-2025 experiment branches run
-single fixed-seed tuned scenarios — indy7 10 kg/0.6 m, iiwa14 as light as 0-8 kg;
-`sample_pendulum_params` first appears June 2026 on ICRA-26). It is a June-2026
-protocol that is strictly harder than anything the paper code demonstrably ran.
-The pendulum-distribution knobs below (--pend-mass, --length-range, --damping-range,
---angle-range) select the protocol; the pkl + Table-I header record it. Pools from
-different protocols must never be mixed. Taxonomy (2026-08-02, seed-0 pool): SHORT
-length is the dominant hardness axis (r=+0.43 success~length; swing frequency vs FE
-bandwidth), angle is uncorrelated; per-(scenario,B) success is knife-edge (94/100
-scenarios flip outcome across batch sizes).
+Reproduction status (2026-09-27): runnable, not an exact paper reproduction.
+The current loop uses fixed simulation pacing and a Euclidean joint-velocity
+norm. Historical local 100-scenario results exist, but their success magnitudes
+differ from Table I. Reconcile success aggregation, initial conditions, pacing
+and force-estimator settings before attributing the gap to solver performance
+or claiming this is a strictly harder protocol. Earlier force/frame/metric bugs
+were fixed; older pools are not interchangeable with present runs. See README.md
+for the current protocol checklist. Full Fig-7 refresh remains deferred; the
+merge checkpoint is only ten seeded B128 scenarios, not a success-rate estimate.
 
 Examples::
     python examples/paper-figures/reproduce_fig7_pickplace.py            # 100 scenarios (slow)
