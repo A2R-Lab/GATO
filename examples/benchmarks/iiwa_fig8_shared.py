@@ -10,8 +10,11 @@ All three solvers must track the IDENTICAL goal, measured at the IDENTICAL end-e
         center = EE(q0)              # so ee(0) == center  => zero initial error
         ee(t)  = [cx + A*sin(wt), cy, cz + 0.5*A*sin(2 wt)]   with wt = 2*pi/period * t*dt
     theta = 0 (vertical fig8 in the y=const plane); q0 = "readyC".
-  - warm-start (all three): x_curr replicated + ZERO controls (infeasible on purpose; a gravity-comp
-    feasible hold is a strict merit min that traps the SQP).
+  - closed-loop tracking starts from x_curr replicated + ZERO controls.
+    The historical GATO open-loop batch sweep instead uses x_curr at knot 0
+    and a zero tail; its CLI records this separately from the hold seed.
+    Do not substitute a gravity-compensated feasible hold (a strict merit
+    minimum that can trap the SQP) or silently mix these initialization protocols.
 
 Load path: prefer the MPCGPU-generated goal file (<MPCGPU>/examples/trajfiles/0_0_eepos.traj,
 MPCGPU = $MPCGPU_ROOT or <repo>/../MPCGPU) so the goal is BYTE-identical across repos; else

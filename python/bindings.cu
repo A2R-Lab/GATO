@@ -526,7 +526,7 @@ class PyBSQP {
         {
                 auto buf = w.request();
                 if (buf.size == 0) { solver_.set_u_cost_vec(nullptr); return; }  // empty -> scalar u_cost
-                if (buf.size != (py::ssize_t)grid::NUM_JOINTS) throw std::runtime_error("u_cost_vec must have NUM_JOINTS entries (or be empty to reset)");
+                if (buf.size != (py::ssize_t)ACTUATED_SIZE) throw std::runtime_error("u_cost_vec must have ACTUATED_SIZE entries (or be empty to reset)");
                 solver_.set_u_cost_vec(static_cast<T*>(buf.ptr));
         }
         void set_q_pos_cost_vec(py::array_t<T, py::array::c_style | py::array::forcecast> w)

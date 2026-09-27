@@ -33,3 +33,18 @@ def test_merge_checkpoint_requires_quiet_declaration(repo_root, tmp_path):
     assert result.returncode == 2
     assert "user-declared quiet window" in result.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def test_seed_ab_preview_and_refusal(repo_root, tmp_path):
+    script = repo_root / 'examples/benchmarks/run_timing_handoff.sh'
+    subprocess.run(['bash', '-n', str(script)], check=True)
+    preview = subprocess.run(['bash', str(script), '--suite', 'seed-ab', '--dry-run'],
+                              cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert 'same frozen reference' in preview.stdout
+    env = dict(os.environ)
+    env.pop('GATO_QUIET_WINDOW', None)
+    refused = subprocess.run(['bash', str(script), '--suite', 'seed-ab'], cwd=tmp_path,
+                              env=env, capture_output=True, text=True)
+    assert refused.returncode == 2
+    assert 'user-declared quiet window' in refused.stderr
+    assert list(tmp_path.iterdir()) == []

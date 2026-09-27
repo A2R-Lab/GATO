@@ -4,6 +4,36 @@ Prepared 2026-09-27. This document prepares work; it does **not** declare a quie
 window or launch a job. Run only in the exclusive slot assigned by the user.
 Repository on the shared box: `/home/plancher/Desktop/GATO`.
 
+## Next slot: isolate the benchmark seed change
+
+The original bundle completed (checkpoint 127.4 s, compile 64.3 s, calibration
+45.3 s). Do not repeat it blindly. The [review](checkpoint-2026-09-27.md) found
+that the historical Fig-3 sweep used a zero-tail initial guess while the
+September checkpoint used a hold. The next requested suite is **seed-ab**:
+
+- **Launcher:** `GATO_QUIET_WINDOW=1 bash examples/benchmarks/run_timing_handoff.sh --suite seed-ab`.
+- **Working directory:** `/home/plancher/Desktop/GATO`.
+- **Reservation:** provisionally **15–30 minutes**, releasing early. Six short
+  sweeps plus quiet-settling/preflight, no builds or Fig-7; not a hard timeout.
+- **Prerequisites:** explicit exclusive CPU/GPU slot, clean source, updated
+  receipt/CI and prebuilt default iiwa14 N64. Same cooperative lock and tool
+  requirements as below. Correctness-only raw/controller parity must pass first.
+- **Outputs:** unique `examples/benchmarks/night_logs/handoff_*` with six CSVs,
+  `.runs.jsonl` provenance, frozen goal `.npy`, per-leg logs and snapshots.
+- **Stop/resume:** `STOP` in that exact handoff directory stops before the next
+  sweep. Preserve partial results; rerun the incomplete seed-ab suite into a
+  fresh directory in another assigned slot. No process suspension or in-place resume.
+
+Three repeats per seed alternate order. Every sweep after the first explicitly
+loads the first sweep's saved reference. Compare seed effects on this one
+source/binary, not historical-versus-current CUDA speed. Check hashes and all
+repeats before interpreting a residual gap. `all` still means the original
+checkpoint/compile/calibration bundle and deliberately does NOT include seed-ab.
+
+Safe preview: `bash examples/benchmarks/run_timing_handoff.sh --suite seed-ab --dry-run`.
+The original intake/reservations below are retained as historical runbook context;
+they are superseded by this section for the next slot.
+
 ## Coordinator intake: the six required fields
 
 1. **Launcher:** `GATO_QUIET_WINDOW=1 bash examples/benchmarks/run_timing_handoff.sh --suite all`.

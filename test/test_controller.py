@@ -59,6 +59,37 @@ def test_warm_start_mode_validated(make_solver, smallest_module):
         MPCController(solver, warm_start="roll")
 
 
+@pytest.mark.parametrize("hold", [False, True], ids=["zero-tail", "hold"])
+def test_explicit_seed_matches_raw_rti_loop(make_solver, smallest_module, hold):
+    """The benchmark's public controller and raw solve loop do identical work.
+
+    No latency comparison: compare trajectories at every step, including the
+    nonzero initial state that exposed the zero-tail -> hold migration drift.
+    """
+    from gato.common import initialize_warm_start
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=2, max_sqp_iters=1)
+    raw = make_solver(plant, N, batch_size=2, max_sqp_iters=1)
+    ctrl = MPCController(s, linsys="pcg", reset_rho_each_step=False)
+    x = np.full(s.nx, 0.1, dtype=np.float32)
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+    seed = (initialize_warm_start(x, N, s.nx, s.nu).astype(np.float32)
+            if hold else np.zeros(s.xu_size, dtype=np.float32))
+    ctrl.reset(x, xu_warm=seed)
+    xu = np.tile(seed, (2, 1))
+    raw.reset_dual()
+    raw.reset_rho()
+    stride = s.nx + s.nu
+    for _ in range(5):
+        xu[:, :s.nx] = x
+        a = raw.solve(np.tile(x, (2, 1)), np.tile(ref, (2, 1)), xu)
+        b = ctrl.step(x, ref)
+        np.testing.assert_array_equal(a.xu, b.solve.xu)
+        np.testing.assert_array_equal(a.stats.pcg_iters, b.solve.stats.pcg_iters)
+        x = a.xu[0, stride:stride + s.nx].copy()
+        xu = np.concatenate([a.xu[:, stride:], a.xu[:, -stride:]], axis=1)
+
+
 def test_linsys_defaults_fixed_base(make_solver, smallest_module):
     """Wired defaults (08-12): fixed-base controller = auto @ tau 0.1; the raw
     solver default stays pcg; explicit args always win."""

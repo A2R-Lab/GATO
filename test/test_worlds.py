@@ -152,6 +152,25 @@ def test_default_world_fixed_pacing_deterministic():
 
 
 @pytest.mark.gpu
+def test_fig8_with_pendulum_keeps_augmented_state_out_of_solver():
+    """Both task loops share valid sim initialization, but the solver sees only
+    robot q/v (the spherical payload's four q / three v slots stay in the sim)."""
+    from gato.mpc_gato import MPC_GATO
+    model = pin.buildModelFromUrdf(URDF)
+    x = np.concatenate([IIWA14_START_CONFIGS['ready'], np.zeros(model.nv)])
+    mpc = MPC_GATO(model, URDF, N=16, batch_size=1, linsys='pcg',
+                   pendulum_config=dict(mass=5.0, length=0.5, initial_angle=[0.2, 0, 0]))
+    ref = np.tile(np.r_[mpc.solver.ee_pos(x[:model.nq]), np.zeros(3)], 200)
+    _, stats = mpc.run_mpc_fig8(x, ref, sim_time=0.03, pace_by_solve_time=False)
+    assert len(stats['timestamps']) > 0
+    assert stats['joint_positions'].shape[1] == model.nq + 4
+    assert stats['joint_velocities'].shape[1] == model.nv + 3
+    assert np.isfinite(stats['joint_positions']).all()
+    np.testing.assert_allclose(np.linalg.norm(stats['joint_positions'][:, model.nq:], axis=1),
+                               1.0, atol=1e-12)
+
+
+@pytest.mark.gpu
 def test_custom_world_rejects_pendulum_and_fext():
     from gato.mpc_gato import MPC_GATO
     from gato.worlds import MuJoCoWorld

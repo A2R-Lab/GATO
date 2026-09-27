@@ -14,7 +14,7 @@ authors:
   - family-names: Plancher
     given-names: Brian
 preferred-citation:
-  type: article
+  type: conference-paper
   title: "GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control"
   authors:
     - family-names: Du
@@ -25,6 +25,7 @@ preferred-citation:
       given-names: Gabriel
     - family-names: Plancher
       given-names: Brian
-  year: 2025
-  journal: "arXiv preprint arXiv:2510.07625"
+  year: 2026
+  month: 6
+  collection-title: "IEEE International Conference on Robotics and Automation (ICRA)"
   url: "https://arxiv.org/abs/2510.07625"

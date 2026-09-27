@@ -14,7 +14,7 @@ research software, not a certified robot controller.
 | Contact-force (`fc`) and exact-Hessian (`eh`) variants | Named N16 arm variants in the receipt | Separate variants, not an arbitrary combined fc+eh configuration; exact Hessian is workload-dependent |
 | Go2 floating-base dynamics and contact-force standing | N16 default/fc modules, manifold/derivative tests, MuJoCo standing gates | Longer horizons are not supported by the receipt; standing is not walking |
 | Gait schedule, foot masks and swing targets | Solver-level foot-lift and programmer-plumbing tests | Schedule is supplied, not discovered; closed-loop S2 weight shift / S3 lift remain in development |
-| Current runtime and compilation performance | Historical measurements only until a new quiet-window report | Numerical parity does not establish speed; do not carry paper speedups forward as current measurements |
+| Runtime and compilation performance | [September 27 checkpoint](checkpoint-2026-09-27.md): repeatable runtime and isolated single-module builds | Benchmark seed drift needs a controlled timing A/B; no refreshed paper speedup claims |
 
 ## Important operating limits
 
@@ -22,10 +22,13 @@ research software, not a certified robot controller.
   tracking and a support-polygon plan before liftoff, then S2 and S3 gates.
   Re-anchoring stance targets to measured feet prevents stale prediction targets;
   independent world-frame drift/slip measurements are still necessary.
-- **Floating vector weights:** the effort-vector docstring and native width
-  check differ on floating models (n_actuated versus nq). The validated standing
-  recipe uses scalar weights. Resolve and test the vector contract before
-  advertising floating per-actuator tuning.
+- **Floating vector weights:** effort weights have length `n_actuated` (Go2:
+  12), excluding base pose and contact-wrench slots. Posture targets/weights
+  remain stored-q indexed (`nq`, Go2: 19); these are different contracts.
+- **Pick-place results:** the September 27 review found invalid historical
+  pendulum quaternion initialization. Corrected pools use protocol
+  `unit-quaternion-pendulum-v2`; old success rates are not interchangeable with
+  corrected simulations or the paper. See the checkpoint review.
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a

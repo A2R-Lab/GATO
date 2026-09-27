@@ -67,7 +67,10 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
             seq = (r.get("per_sequence") or [{}])[0]
             pool[b].append(seq.get("time_to_all_reached"))  # seconds, or None
             goal_outcomes[b].append(seq.get("goal_outcomes"))
-    return {"batch_sizes": batch_sizes, "n_scenarios": n_scenarios, "pool": pool,
+    return {"simulation_protocol": "unit-quaternion-pendulum-v2",
+            "source": C.bench.git_provenance(),
+            "solver_params": PICKPLACE_SOLVER_PARAMS, "mpc_defaults": PICKPLACE_MPC_DEFAULTS,
+            "batch_sizes": batch_sizes, "n_scenarios": n_scenarios, "pool": pool,
             "goal_outcomes": goal_outcomes, "scenarios": scenarios, "protocol": protocol,
             "fc_config": fc_config, "wrench_id": wrench_id}
 
@@ -79,6 +82,7 @@ def table_I(data):
         plines = [f"protocol: mass={proto['mass']}kg L={proto['length_range']} "
                   f"d={proto['damping_range']} |th|={proto['angle_range']} "
                   f"start={proto.get('start_config', 'home')}"]
+    plines.append(f"simulation: {data.get('simulation_protocol', 'legacy/unversioned (not v2)')}")
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
         plines.append("arm: ForceEstimator hypothesis batch (no fc slots)")

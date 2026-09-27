@@ -11,13 +11,14 @@ while (( $# )); do
   case "$1" in
     --suite) [[ $# -ge 2 ]] || exit 2; SUITE=$2; shift 2 ;;
     --dry-run) PREVIEW=1; shift ;;
-    *) echo 'usage: run_timing_handoff.sh [--suite checkpoint|compile|calibrate|all] [--dry-run]' >&2; exit 2 ;;
+    *) echo 'usage: run_timing_handoff.sh [--suite checkpoint|seed-ab|compile|calibrate|all] [--dry-run]' >&2; exit 2 ;;
   esac
 done
-case "$SUITE" in checkpoint|compile|calibrate|all) ;; *) echo 'Unknown suite.' >&2; exit 2 ;; esac
+case "$SUITE" in checkpoint|seed-ab|compile|calibrate|all) ;; *) echo 'Unknown suite.' >&2; exit 2 ;; esac
 if (( PREVIEW )); then
   echo "DRY RUN: suite=$SUITE; no GPU queries, builds, timing, locks, or result writes."
   echo 'checkpoint: three iiwa14 N64 B1/8/128 repeats, then ten B128 Fig-7 scenarios.'
+  echo 'seed-ab: three repeats each of zero-tail and hold seeds; same frozen reference, alternating order; no Fig-7.'
   echo 'compile: isolated Release/sm120 indy7 N16 and iiwa14 N64; cold/no-op wall, RSS, sizes.'
   echo 'calibrate: indy7/iiwa14 N64 kicked fig8; PCG/BDSV and conditional auto validation.'
   echo 'all: checkpoint, compile, calibrate, sequentially. Default: checkpoint only.'
@@ -94,6 +95,25 @@ run_leg() {
 if [[ "$SUITE" == checkpoint || "$SUITE" == all ]]; then
   run_leg checkpoint bash "$HERE/run_merge_checkpoint.sh"
   # The nested runner announces its unique output directory in checkpoint.log.
+fi
+if [[ "$SUITE" == seed-ab ]]; then
+  # Isolate the benchmark migration's seed change on ONE source/binary. This
+  # is not an old-vs-new CUDA implementation speedup comparison.
+  goal_args=()
+  for repeat in 1 2 3; do
+    seeds=(zero-tail hold)
+    [[ "$repeat" != 2 ]] || seeds=(hold zero-tail)
+    for seed in "${seeds[@]}"; do
+      csv="$LOGDIR/seed-$seed-repeat$repeat.csv"
+      run_leg "seed-$seed-repeat$repeat" "$PY" "$HERE/sweep_batch_iiwa_fig8.py" \
+        --N 64 --batches 1,8,128 --solves 400 --initial-guess "$seed" \
+        "${goal_args[@]}" --out "$csv"
+      if (( ${#goal_args[@]} == 0 )); then
+        goal_file=$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readlines()[-1])["goal_file"])' "$csv.runs.jsonl")
+        goal_args=(--goal-file "$goal_file")
+      fi
+    done
+  done
 fi
 if [[ "$SUITE" == compile || "$SUITE" == all ]]; then
   BUILD="$LOGDIR/compile-build"

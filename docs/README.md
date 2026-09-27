@@ -13,6 +13,7 @@ needed by your example; the full receipt profile is for validation and research.
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
 | What remains before merging? | [Merge checklist](merge-readiness.md) |
 | How does an overnight agent run the timing bundle? | [Timing handoff and reservation](timing-handoff.md) |
+| What did the latest checkpoint find? | [September 27 measurements and follow-up](checkpoint-2026-09-27.md) |
 | Where did historical datasets come from? | [Dated archaeology](archaeology.md) — history, not current API guidance |
 
 The [paper website](https://a2r-lab.org/GATO/) presents the published experiments.

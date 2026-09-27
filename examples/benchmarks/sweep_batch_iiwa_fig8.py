@@ -20,11 +20,15 @@ N x B grid is the fig3-right heatmap). TIMING — quiet box only.
 import os
 import sys
 import argparse
+import hashlib
+import json
+from pathlib import Path
 import numpy as np
 
 import iiwa_fig8_shared as fig8mod
 import gato
 from gato import BSQP, MPCController, SolverParams
+from _bench import git_provenance
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DT = fig8mod.DT
@@ -41,6 +45,11 @@ def parse_args():
     p.add_argument("--batches", default="1,2,4,8,16,32,64,128",
                    help="comma list of batch sizes (256/512 are GATO-only extensions)")
     p.add_argument("--solves", type=int, default=400, help="solves per config (first 10 dropped)")
+    p.add_argument("--initial-guess", choices=("zero-tail", "hold"), default="zero-tail",
+                   help="historical sweep uses zero-tail; hold reproduces the September checkpoint seed")
+    p.add_argument("--goal-file", help="frozen flat 6-wide reference .npy (no pickle); otherwise load/generate fig8")
+    p.add_argument("--check-only", action="store_true",
+                   help="GPU correctness only: finite trajectories and controller/raw-loop parity; no timing output")
     p.add_argument("--out", default=os.path.join(HERE, "data", "sweep_fig8_gato.csv"),
                    help="CSV to append rows to ('' = print only)")
     return p.parse_args()
@@ -48,6 +57,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.solves <= 10:
+        sys.exit("--solves must exceed the ten warmup solves")
     N = args.N
     batches = [int(b) for b in args.batches.split(",") if b.strip()]
     if ("iiwa14", N) not in gato.available():
@@ -56,36 +67,79 @@ def main():
     model, data = fig8mod.build_model()
     q0 = fig8mod.Q0_READYC
     center = fig8mod.fig8_center(model, data, q0)
-    goal = fig8mod.load_goal_file()
-    if goal is None or len(goal) // 6 < args.solves + N + 8:
+    goal = np.load(args.goal_file, allow_pickle=False) if args.goal_file else fig8mod.load_goal_file()
+    if args.goal_file and (goal.ndim != 1 or goal.size < 6 * (args.solves + N)):
+        sys.exit("--goal-file must be a flat reference covering solves + N knots")
+    if not args.goal_file and (goal is None or len(goal) // 6 < args.solves + N + 8):
         goal = fig8mod.figure8_goal(args.solves + N + 8, center=center)
+    goal = np.ascontiguousarray(goal, dtype=np.float32)
+    if not np.isfinite(goal).all():
+        sys.exit("reference must be finite")
     x0 = np.hstack((q0, np.zeros(7))).astype(np.float32)
 
     rows = []
     print(f"iiwa14 fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config")
-    print(f"{'B':>4} {'median_ms':>10} {'p90_ms':>8} {'per_traj_us':>12}")
+    print(f"initial_guess={args.initial_guess}; mode={'correctness' if args.check_only else 'timing'}")
+    if not args.check_only:
+        print(f"{'B':>4} {'median_ms':>10} {'p90_ms':>8} {'per_traj_us':>12}")
     for B in batches:
         solver = BSQP(fig8mod.IIWA14_URDF, batch_size=B, N=N, dt=DT, params=PARAMS,
                       plant_type="iiwa14")
         nx, stride = solver.nx, solver.nx + solver.nu
         ctrl = MPCController(solver, warm_start="shift", linsys="pcg",
                              reset_rho_each_step=False)
-        ctrl.reset(x0)
+        # The pre-migration raw sweep seeded ONLY knot zero. Holding every
+        # state at x0 changes the optimization path even after ten warmups.
+        seed = np.zeros(solver.xu_size, dtype=np.float32) if args.initial_guess == "zero-tail" else None
+        ctrl.reset(x0, xu_warm=seed)
+        raw_solver = None
+        if args.check_only:
+            raw_solver = BSQP(fig8mod.IIWA14_URDF, batch_size=B, N=N, dt=DT,
+                              params=PARAMS, plant_type="iiwa14")
+            from gato.common import initialize_warm_start
+            raw_seed = seed if seed is not None else initialize_warm_start(x0, N, solver.nx, solver.nu)
+            raw_xu = np.tile(raw_seed, (B, 1)).astype(np.float32)
+            raw_solver.reset_dual()
+            raw_solver.reset_rho()
         xcur = x0.copy()
         times = []
         for t in range(args.solves):
             ref = goal[6 * t: 6 * (t + N)].astype(np.float32)
             r = ctrl.step(xcur, ref)
-            times.append(float(r.solve.solve_time_us))
+            if args.check_only:
+                raw_xu[:, :nx] = xcur
+                raw = raw_solver.solve(np.tile(xcur, (B, 1)), np.tile(ref, (B, 1)), raw_xu)
+                if not np.isfinite(r.solve.xu).all() or r.solve.diverged.any():
+                    raise AssertionError(f"nonfinite solve at B={B}, step={t}")
+                np.testing.assert_array_equal(r.solve.xu, raw.xu)
+                np.testing.assert_array_equal(r.solve.stats.pcg_iters, raw.stats.pcg_iters)
+                raw_xu = np.concatenate([raw.xu[:, stride:], raw.xu[:, -stride:]], axis=1)
+            else:
+                times.append(float(r.solve.solve_time_us))
             xcur = r.xu_best[stride:stride + nx].copy()   # open loop: the solution's x_1 is the next state
+        if args.check_only:
+            print(f"B={B}: {args.solves} finite solves; bitwise raw/controller trajectory and PCG parity")
+            del raw_solver, ctrl, solver
+            continue
         t = np.asarray(times[10:])  # drop warm-up solves
         med, p90 = np.median(t), np.percentile(t, 90)
         print(f"{B:>4} {med/1000:>10.4f} {p90/1000:>8.4f} {med/B:>12.1f}")
         rows.append((N, B, med / 1000, p90 / 1000, med / B, len(t)))
         del ctrl, solver
 
-    if args.out:
-        os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    if args.out and not args.check_only:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        goal_hash = hashlib.sha256(goal.tobytes()).hexdigest()
+        goal_path = args.out + f".goal-{goal_hash}.npy"
+        if not os.path.exists(goal_path):
+            np.save(goal_path, goal, allow_pickle=False)
+        with open(args.out + ".runs.jsonl", "a") as meta:
+            meta.write(json.dumps({"source": git_provenance(), "N": N, "batches": batches,
+                                   "solves": args.solves, "initial_guess": args.initial_guess,
+                                   "params": PARAMS.asdict(), "goal_sha256": goal_hash,
+                                   "goal_file": os.path.abspath(goal_path),
+                                   "urdf_sha256": hashlib.sha256(Path(fig8mod.IIWA14_URDF).read_bytes()).hexdigest(),
+                                   "metric": "internal_solver_latency"}) + "\n")
         fresh = not os.path.exists(args.out)
         with open(args.out, "a") as f:
             if fresh:

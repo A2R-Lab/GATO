@@ -2,6 +2,22 @@
 
 Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
 
+## 2026-09-27 — Checkpoint follow-up fixes (no new timing claims)
+
+- Fixed floating effort-vector uploads/checks to use actuator width, not stored
+  configuration width; default/fc KKT gates cover the contract and scalar reset.
+- Fixed spherical-payload initialization: axis-angle is integrated on the
+  manifold into a unit quaternion, and augmented robot q/v offsets are separate.
+  Both simulation task loops share this assembly. New pick-place data is marked
+  `unit-quaternion-pendulum-v2`; historical pools remain preserved, not relabeled
+  as corrected results. Added fixed-pacing traces and per-goal event diagnostics.
+- Added explicit controller reset seeds and restored the batch benchmark's
+  historical zero-tail initial guess. Hold remains an explicit comparison mode;
+  correctness-only raw/controller parity and frozen reference provenance guard
+  future comparisons. Added a guarded seed A/B timing suite; execution deferred.
+- Recorded the overnight checkpoint and its limitations; reconciled preferred
+  citation metadata with the README's ICRA entry. No production tuning changes.
+
 ## 2026-09-27 — Merge-readiness documentation and example validation
 
 - Added a documentation index, feature-status boundaries, API migration notes

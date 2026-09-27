@@ -7,8 +7,9 @@ sensor-rate substep at a time through a WORLD object::
 
 - :class:`PinocchioWorld` — the historical in-process world: pinocchio RK4 with
   optional pendulum payload and constant external wrench. It is a thin adapter
-  over ``MPC_GATO``'s own machinery, so the default behavior (and every
-  existing pool) is bit-identical to the pre-worlds harness.
+  over ``MPC_GATO``'s own machinery. The stepping order matches the pre-worlds
+  harness; corrected pendulum initialization (September 27) is a separate
+  simulation-protocol change, so historical pools are not interchangeable.
 - :class:`MuJoCoWorld` — an INDEPENDENT simulator for contact experiments: the
   same URDF loaded by MuJoCo (verified the same robot by
   ``gato.fingerprint`` (``import gato.fingerprint as fp; fp.check(...)``) — see ``test_worlds.py``), plus an optional contact

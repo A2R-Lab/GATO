@@ -716,14 +716,14 @@ class BSQP {
         // nullptr = the scalar u_cost / q_pos_cost). PDDP round-5: single-joint gain
         // tuning (the near-massless-wrist Nyquist story) — e.g. raise ONLY u7's
         // effort weight so its correction torque respects the 100 Hz loop.
-        void set_u_cost_vec(const T* h_w)  // length NUM_JOINTS (actuated); nullptr -> scalar u_cost
+        void set_u_cost_vec(const T* h_w)  // length ACTUATED_SIZE; nullptr -> scalar u_cost
         {
                 if (h_w == nullptr) {
                         if (d_u_cost_vec_) { gpuErrchk(cudaFree(d_u_cost_vec_)); d_u_cost_vec_ = nullptr; }
                         return;
                 }
-                if (!d_u_cost_vec_) { gpuErrchk(cudaMalloc(&d_u_cost_vec_, grid::NUM_JOINTS * sizeof(T))); }
-                gpuErrchk(cudaMemcpy(d_u_cost_vec_, h_w, grid::NUM_JOINTS * sizeof(T), cudaMemcpyHostToDevice));
+                if (!d_u_cost_vec_) { gpuErrchk(cudaMalloc(&d_u_cost_vec_, ACTUATED_SIZE * sizeof(T))); }
+                gpuErrchk(cudaMemcpy(d_u_cost_vec_, h_w, ACTUATED_SIZE * sizeof(T), cudaMemcpyHostToDevice));
         }
         void set_q_pos_cost_vec(const T* h_w)  // length NUM_JOINTS; nullptr -> scalar q_pos_cost
         {

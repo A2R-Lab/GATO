@@ -159,3 +159,43 @@ def test_per_joint_cost_vectors_kkt(make_solver, smallest_module):
     sv.set_q_nom(None)
     Qr, qr = _kkt(sv, x0, ref, xu)
     np.testing.assert_array_equal(Qr, Q0)
+
+
+@pytest.mark.parametrize("variant", [None, "fc"], ids=["default", "fc"])
+def test_floating_effort_vector_uses_actuator_width(variant):
+    from conftest import go2_solver, go2_standing_x, go2_goals_at
+    from gato.common import initialize_warm_start
+
+    s = go2_solver(1, variant=variant)
+    x = go2_standing_x().astype(np.float32)
+    ref = go2_goals_at(s.model, x, 1)
+    xu = initialize_warm_start(x, s.N, s.nx, s.nu).astype(np.float32)
+    for k in range(s.N - 1):
+        start = k * (s.nx + s.nu) + s.nx
+        xu[start:start + s.nu] = 0.25
+
+    def kkt():
+        d = s.debug_setup_kkt(xu[None], x[None], ref)
+        return (np.asarray(d['R']).reshape(s.N, s.nu, s.nu),
+                np.asarray(d['r']).reshape(s.N, s.nu))
+
+    R0, r0 = kkt()
+    w = np.linspace(0.01, 0.12, s.n_actuated, dtype=np.float32)
+    s.set_u_cost_vec(w)
+    R, r = kkt()
+    na = s.n_actuated
+    for k in range(s.N - 1):
+        np.testing.assert_allclose(np.diag(R[k])[:na] - np.diag(R0[k])[:na],
+                                   w - s.params.u_cost, atol=1e-7)
+        np.testing.assert_allclose((r - r0)[k, :na], (w - s.params.u_cost) * 0.25,
+                                   atol=1e-7)
+    np.testing.assert_array_equal(R[:, na:, :], R0[:, na:, :])
+    np.testing.assert_array_equal(r[:, na:], r0[:, na:])
+    # Native entry point must reject nq-length vectors too; Python docs alone
+    # cannot protect the raw binding or the cudaMemcpy byte count.
+    with pytest.raises(RuntimeError, match="ACTUATED_SIZE"):
+        s.solver.set_u_cost_vec(np.ones(s.nq, dtype=np.float32))
+    s.set_u_cost_vec(None)
+    R_reset, r_reset = kkt()
+    np.testing.assert_array_equal(R_reset, R0)
+    np.testing.assert_array_equal(r_reset, r0)

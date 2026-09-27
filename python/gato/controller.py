@@ -115,14 +115,37 @@ class MPCController:
         self._u_prev = None
         self._prev_capout = False
 
-    def reset(self, x0):
-        """Reset solver state + warm start to a hold at x0."""
-        x0 = np.asarray(x0, dtype=np.float32)
+    def reset(self, x0, *, xu_warm=None):
+        """Reset solver state and seed the trajectory.
+
+        By default every knot holds x0 with zero control. An explicit
+        ``xu_warm`` has shape (xu_size,) (broadcast) or (B, xu_size); its
+        first state is replaced by x0. This permits reproducible non-default
+        initial guesses without reaching into controller internals. Inputs
+        are copied. Floating guesses must have unit base quaternions.
+        """
+        x0 = np.asarray(x0, dtype=np.float32).reshape(self.nx)
+        if not np.isfinite(x0).all():
+            raise ValueError("reset x0 must be finite")
         check_floating_state(x0, self.nq, self.nv, "reset x0")
+        if xu_warm is None:
+            seed = initialize_warm_start(x0, self.N, self.nx, self.nu)
+        else:
+            seed = np.asarray(xu_warm, dtype=np.float32)
+            if seed.shape not in ((self._XU.shape[1],), self._XU.shape):
+                raise ValueError("xu_warm must have shape (xu_size,) or (B, xu_size)")
+            if not np.isfinite(seed).all():
+                raise ValueError("xu_warm must be finite")
+            if self.floating_base:
+                for row in seed.reshape(-1, self._XU.shape[1]):
+                    for k in range(1, self.N):
+                        offset = k * (self.nx + self.nu)
+                        check_floating_state(row[offset:offset + self.nx],
+                                             self.nq, self.nv, "xu_warm")
         self.solver.reset_dual()
         self.solver.reset_rho()
-        xu0 = initialize_warm_start(x0, self.N, self.nx, self.nu).astype(np.float32)
-        self._XU[:, :] = xu0[None, :]
+        self._XU[:, :] = seed
+        self._XU[:, :self.nx] = x0
         if self.hypotheses is not None:
             self.hypotheses.reset()
         self._x_prev = None

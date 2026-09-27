@@ -20,8 +20,9 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 - [ ] Finish the small website quick-start/links update alongside the merge,
   preserving the paper plots and identifying their numbers as published results.
   Do not publish new-API instructions linked to `main` before that API lands.
-- [ ] Reconcile preferred citation metadata with main's ICRA citation; preserve
-  the funding acknowledgement. Remove the temporary quick-start branch selector
+- [x] Reconcile preferred citation metadata with main's ICRA citation; preserve
+  the funding acknowledgement.
+- [ ] Remove the temporary quick-start branch selector
   and switch package documentation URLs to main as part of final integration.
 
 ## 2. Correctness and integration
@@ -29,8 +30,12 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 - [x] Bounded masked-contact racecheck: AL/barrier/ADMM cases, one SQP/ADMM
   iteration each, zero errors/warnings (2026-09-27). The earlier full ADMM
   golden diagnostic remains incomplete; do not claim exhaustive race coverage.
-- [ ] Reconcile floating effort-vector width/documentation before advertising
-  that API; scalar-weight standing is the covered configuration meanwhile.
+- [x] Reconcile floating effort-vector width/documentation: native upload and
+  binding now use ACTUATED_SIZE; default/fc KKT and scalar-reset gates pass.
+- [x] Fix invalid spherical-payload quaternion initialization and augmented
+  robot-velocity layout; preserve old pools and label corrected Fig-7 protocol
+  `unit-quaternion-pendulum-v2`. The two overnight failures reproduce with the
+  old initialization and both succeed with the correction, twice deterministically.
 - [x] Full signed receipt for source `78fc5d4`: 341 passed, zero skips on the
   18-module profile (2026-09-27); all 38 goldens passed. Refresh again if later
   fingerprinted sources change, and require green receipt/CPU CI before merge.
@@ -41,17 +46,17 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 
 ## 3. Focused quiet-window checkpoint
 
-For an overnight coordinator, use the [timing handoff](timing-handoff.md): its
-wrapper adds a shared advisory lock and separately selectable compile/calibration
-legs. Reserve provisionally two hours for the full bundle, or one hour for the
-runtime checkpoint alone; release the box early when finished.
+The first batch completed on September 27: see the
+[checkpoint review](checkpoint-2026-09-27.md). The next targeted measurement is
+`--suite seed-ab` from the [timing handoff](timing-handoff.md), not a blind rerun
+of all suites. Reserve provisionally 15–30 minutes after correctness preparation.
 
-Ready to preview; NOT scheduled or run by this document:
+Ready to preview; follow-up timing is NOT scheduled or authorized here:
 
 ```bash
-examples/benchmarks/run_merge_checkpoint.sh --dry-run
+examples/benchmarks/run_timing_handoff.sh --suite seed-ab --dry-run
 # Only after the user declares an exclusive slot and correctness is green:
-GATO_QUIET_WINDOW=1 nohup examples/benchmarks/run_merge_checkpoint.sh > /tmp/gato-merge-checkpoint.log 2>&1 &
+GATO_QUIET_WINDOW=1 bash examples/benchmarks/run_timing_handoff.sh --suite seed-ab
 ```
 
 The runner is GATO-only: three independent Fig-3 N64 / B1,8,128 repeats and
@@ -62,27 +67,30 @@ throughout each leg (boundary checks cannot detect every transient workload).
 It records binary hashes, source/pins, receipt and environment; no builds or
 autotuning are hidden inside this runner.
 
-- [ ] Compare matching iiwa14 cells with the matching prior iiwa14 CSVs, including
-  repeated-run variation. Do not use the Indy7 point-to-point archive.
+- [x] Compare matching iiwa14 cells with the matching prior iiwa14 CSVs, including
+  repeated-run variation: September medians +41%/+37%/+13% at B1/8/128, but the
+  seed changed from zero-tail to hold during harness migration. Attribution open.
+- [ ] Run controlled seed-policy A/B on frozen inputs; investigate any residual
+  source/binary performance gap before declaring performance unchanged.
 - [ ] Check numerical quality alongside latency. The Fig-3 sweep follows the
   predicted state, not an independent plant; use the fixed-pacing regression
   gates and matched tracking harness when diagnosing changed results.
-- [ ] Report internal solver latency as such. Full Python/controller latency
+- [x] Report internal solver latency as such. Full Python/controller latency
   and new cross-solver speedup claims need a matched measurement boundary.
-- [ ] Separately measure cold/no-op compilation, peak RSS and binary size in a
+- [x] Separately measure cold/no-op compilation, peak process RSS and binary size in a
   fresh temporary CMake tree with separate `GATO_MODULE_OUTPUT_DIR`, explicit
   arch 120 on this box, receipt profile OFF and demo OFF. Use the project Python
   and pybind11; MODULES=`indy7:16;iiwa14:64`; one target at a time under the
   36 GiB / no-swap / two-job systemd cap. Preserve production binaries.
-- [ ] Optional calibration: `tools/autotune_linsys.py` for indy7 and iiwa14 N64,
+- [x] Optional calibration: `tools/autotune_linsys.py` for indy7 and iiwa14 N64,
   using a NEW `--tuning-path` in the result directory; retain PCG/BDSV and auto
   validation. Do not silently change controller defaults during baseline runs.
   The Fig-3 harness pins PCG and therefore does not validate tuned auto behavior.
 
-Allow provisionally up to two hours for the focused batch plus separately
-agreed compiler/calibration legs; this is not a measured duration or timeout.
-Split work into exclusive slots around other agents rather than overlapping
-timing jobs. Full figure regeneration is NOT included.
+The completed suites took 127.4 s / 64.3 s / 45.3 s. Future reservations still
+include headroom and preflight; split exclusive slots around other agents.
+No timings have been collected for the follow-up fixes. Full figure
+regeneration is NOT included.
 
 ## 4. Research work that does not block this core merge
 

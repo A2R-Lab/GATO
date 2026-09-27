@@ -33,7 +33,7 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 
 | Script | Modules | Meaning and current limitation |
 |---|---|---|
-| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; fresh timing pending |
+| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
 | `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
 | `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
 | `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical task-completion time; success gap unresolved; full refresh deferred |
@@ -65,6 +65,14 @@ controller latency. The paper describes timing around wrappers. Match these
 boundaries before quoting speedups; record both when adding an end-to-end lane.
 Historical local iiwa14 numbers are not measurements of the current commit.
 
+The September 27 checkpoint exposed seed drift: the historical raw sweep used
+zero states beyond knot zero; the migrated controller seeded a hold. The sweep
+now defaults explicitly to `--initial-guess zero-tail`, with `hold` available
+for a controlled comparison. Each new CSV has a `.runs.jsonl` companion and
+hashed frozen reference `.npy`; do not combine seeds or silently use the last
+CSV row as a matched baseline. `--check-only` verifies raw/controller bitwise
+trajectory and iteration-count parity without reporting or saving timing.
+
 ### Fig-4: choose and name the grid
 
 Defaults evaluate 50 random targets × 24 Q/R combinations, matching the
@@ -83,6 +91,22 @@ on a quiet box. Replotting historical data is not a refresh; data predating the
 July force/frame fixes is unsuitable for current validation.
 
 ### Fig-7 / Table I: preserve the unresolved gap
+
+**September 27 simulator correction:** the old initialization wrote an
+axis-angle vector into quaternion xyz with w=0, violating the spherical-joint
+unit-quaternion requirement. Nonzero robot velocities also landed at incorrect
+offsets in the augmented state. Corrected runs use Pinocchio manifold integration
+and are labeled `unit-quaternion-pendulum-v2`. Preserve historical pools, including
+the overnight 8/10 sample, but do not mix their metrics with corrected runs or
+claim the old simulator was a valid paper protocol. This bug predates the
+overnight checkpoint; its discovery does not establish the cause of every
+historical-versus-current difference.
+
+For shared-box GPU correctness, `check_pickplace.py --scenarios 1,2 --out <new-dir>`
+replays selected seeded cases with fixed pacing, checks finite/deterministic
+traces, and records goal completion/timeout position and velocity gates. It
+does not retain latency measurements. The two overnight failures reproduce
+with the old initialization and both reach all goals with the corrected one.
 
 A historical local 100-scenario `fig7_paper_ready` table exists, so “full sweep
 never run” is outdated. It reports 83% episode success at B128 versus 99.2% in

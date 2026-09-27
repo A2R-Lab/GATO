@@ -60,7 +60,9 @@ class MPC_GATO:
             track_full_stats: If True, track all stats; if False, only essential ones
             plant_type: Plant identifier selecting the CUDA module (e.g., 'indy7',
                 'iiwa14'). None auto-detects from model_path.
-            pendulum_config: Optional dict with keys: mass, length, damping, initial_angle
+            pendulum_config: Optional dict with keys: mass, length, damping,
+                initial_angle (3-vector axis-angle in radians; a scalar rotates
+                about x). The spherical joint is initialized with a unit quaternion.
             params: gato.SolverParams (or a dict of its fields); None = defaults.
             linsys / bdsv_threshold: the controller's per-step linear-system
                 policy ("pcg"/"bdsv"/"bdsv_first"/"auto"; None = wired per-base
@@ -312,6 +314,30 @@ class MPC_GATO:
         u_aug[self.nv_robot:] = -damping * dq[self.nv_robot:]
         return u_aug
 
+    def _initial_sim_state(self, x_start):
+        """Embed robot [q; v] in the simulation model without mixing layouts.
+
+        A spherical payload adds FOUR configuration entries but THREE velocity
+        entries. Its axis-angle is a tangent rotation, never quaternion xyz.
+        """
+        x = np.asarray(x_start, dtype=float)
+        if x.shape != (self.nx,) or not np.isfinite(x).all():
+            raise ValueError(f"x_start must be a finite robot state of shape ({self.nx},)")
+        q = pin.neutral(self.model)
+        dq = np.zeros(self.nv)
+        if self.has_pendulum:
+            angle = np.asarray(self.pendulum_config.get('initial_angle', [0.3, 0.0, 0.0]), dtype=float)
+            if angle.ndim == 0:
+                angle = np.array([float(angle), 0.0, 0.0])
+            if angle.shape != (3,) or not np.isfinite(angle).all():
+                raise ValueError("initial_angle must be a finite axis-angle 3-vector or scalar")
+            tangent = np.zeros(self.nv)
+            tangent[self.nv_robot:] = angle
+            q = pin.integrate(self.model, q, tangent)
+        q[:self.nq_robot] = x[:self.nq_robot]
+        dq[:self.nv_robot] = x[self.nq_robot:]
+        return q, dq
+
     def run_mpc_fig8(self, x_start, fig8_traj, sim_dt=0.001, sim_time=5.0,
                      pace_by_solve_time=True):
         """
@@ -340,8 +366,7 @@ class MPC_GATO:
         accumulated_time = 0.0
 
         x_curr = x_start
-        q = x_start[:self.nq]
-        dq = x_start[self.nq:self.nx]
+        q, dq = self._initial_sim_state(x_start)
 
         ee_g = fig8_traj[:6 * self.N]
 
@@ -361,7 +386,7 @@ class MPC_GATO:
             timestep = solve_time if pace_by_solve_time else self.dt
             q, dq, total_sim_time, accumulated_time = self._play_control(
                 xu_best, q, dq, timestep, sim_dt, total_sim_time, accumulated_time)
-            x_curr = np.concatenate([q, dq])
+            x_curr = np.concatenate([q[:self.nq_robot], dq[:self.nv_robot]])
 
             # Check if trajectory is complete
             eepos_offset = int(total_sim_time / self.dt)
@@ -377,7 +402,7 @@ class MPC_GATO:
             xu_best = r.xu_best
 
             # Collect essential statistics
-            ee_pos = self.solver.ee_pos(q)
+            ee_pos = self.solver.ee_pos(q[:self.nq_robot])
             goal_dist = np.linalg.norm(ee_pos[:3] - ee_g[6:9])
             goal_dist0 = np.linalg.norm(ee_pos[:3] - ee_g[0:3])  # baseline convention (knot 0)
 
@@ -475,25 +500,18 @@ class MPC_GATO:
         if self.track_full_stats:
             stats['sqp_iters'] = []
             stats['pcg_iters'] = []
+            stats['pred_errors'] = []
+            stats['force_estimates'] = []
 
         stats['goal_outcomes'] = ['not_reached'] * len(goals)
         stats['goal_reached_times'] = [None] * len(goals)
+        stats['goal_events'] = []  # includes the final tick, which has no next solve
         stats['time_to_all_reached'] = None
 
         total_sim_time = 0.0
         accumulated_time = 0.0
 
-        # Initialize augmented state with pendulum if configured
-        if self.has_pendulum:
-            x_start_aug = np.zeros(self.nq + self.nv)
-            x_start_aug[:self.nx] = x_start  # Robot state
-            pendulum_init = self.pendulum_config.get('initial_angle', np.array([0.3, 0.0, 0.0]))
-            x_start_aug[self.nq_robot:self.nq_robot + 3] = pendulum_init
-            q = x_start_aug[:self.nq]
-            dq = x_start_aug[self.nq:]
-        else:
-            q = x_start[:self.nq]
-            dq = x_start[self.nq:]
+        q, dq = self._initial_sim_state(x_start)
 
         # Solver uses robot-only state
         x_curr = x_start
@@ -534,6 +552,9 @@ class MPC_GATO:
             timeout = (total_sim_time - goal_start_time) >= goal_timeout
 
             if reached or timeout:
+                stats['goal_events'].append(dict(goal=current_goal_idx + 1,
+                    time=total_sim_time, distance=float(current_dist),
+                    velocity=float(current_vel), outcome='reached' if reached else 'timeout'))
                 if reached:
                     stats['goal_outcomes'][current_goal_idx] = 'reached'
                     stats['goal_reached_times'][current_goal_idx] = total_sim_time
@@ -568,11 +589,14 @@ class MPC_GATO:
                 stats['sqp_iters'].append(int(r.solve.stats.sqp_iters[0]))
                 pcg_iters = r.solve.stats.pcg_iters
                 stats['pcg_iters'].append(int(pcg_iters[0, 0]) if pcg_iters.size else 0)
+                stats['pred_errors'].append(r.pred_err)
+                stats['force_estimates'].append(
+                    (r.hypo_stats or {}).get('current_estimate', np.zeros(6)))
 
         # Convert to numpy arrays
         for key in stats:
             if isinstance(stats[key], list) and len(stats[key]) > 0:
-                if key not in ['goal_outcomes', 'goal_reached_times', 'time_to_all_reached']:
+                if key not in ['goal_outcomes', 'goal_reached_times', 'time_to_all_reached', 'goal_events']:
                     try:
                         stats[key] = np.array(stats[key])
                     except (ValueError, TypeError):
