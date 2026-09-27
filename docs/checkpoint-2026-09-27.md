@@ -102,6 +102,13 @@ and bitwise restoration of the scalar path.
 
 ## Remaining decisions
 
+Fresh-checkout follow-up also found that the lean install lacked SciPy, causing
+trimesh voxelization to fall back to bounding-box collision covers (Indy7 20
+versus 29 spheres; iiwa14 32 versus 44). GATO now declares SciPy as a base
+codegen dependency, rejects voxelization fallback warnings, and invalidates
+older cache keys. An injected missing-dependency gate must fail before writing
+headers. No GRiD source change is involved.
+
 1. Complete correctness validation and a fresh signed receipt for these fixes.
 2. Review the seed A/B once a quiet slot is assigned; do not run timing on the
    shared box or install the calibration recommendations automatically.

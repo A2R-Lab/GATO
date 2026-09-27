@@ -17,6 +17,10 @@ Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, pl
   future comparisons. Added a guarded seed A/B timing suite; execution deferred.
 - Recorded the overnight checkpoint and its limitations; reconciled preferred
   citation metadata with the README's ICRA entry. No production tuning changes.
+- Fresh lean-install validation exposed a missing SciPy codegen dependency:
+  trimesh fell back to a different collision sphere cover. SciPy is now a base
+  build dependency, fallback geometry is rejected, and old codegen cache keys
+  are invalidated. No upstream sources or vendored headers were changed.
 
 ## 2026-09-27 — Merge-readiness documentation and example validation
 

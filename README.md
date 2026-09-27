@@ -55,7 +55,10 @@ GPU, cmake) and tells you exactly what's missing. Optional install choices
 (The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is fetched
 like every other submodule; `examples/benchmarks/baselines/build_cpu_baseline.sh`
 compiles it — osqp and osqp-eigen into a local prefix — only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
-`gato.BSQP` (numpy + the built module). Pinocchio and MuJoCo are needed only by
+`gato.BSQP` (runtime: numpy + the built module). The lean installer also supplies
+trimesh and SciPy for collision-mesh code generation. Missing voxelization
+dependencies must not silently substitute a different collision geometry.
+Pinocchio and MuJoCo are needed only by
 the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
 test suite — `--test` pulls exactly those in; `--examples` adds torch and the
 viz stack. To run the fixed-pacing MPC and gym demos, add the test runtime:

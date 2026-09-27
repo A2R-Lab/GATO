@@ -36,6 +36,7 @@ dependencies = [
     "beautifulsoup4>=4.9.3",
     "lxml>=4.2.1",
     "trimesh>=4",              # GRiD's collision spherizer (mesh <collision> geometry -> spheres) at regen
+    "scipy>=1.15.2",           # trimesh voxel fill; missing it changes the generated collision geometry
     # build the bsqpN{knot}_{plant}.so pybind11 extensions
     "pybind11>=2.13.6",
     "ninja>=1.11.1.4",
@@ -54,7 +55,6 @@ examples = [
     "torch>=2.6.0",
     "pin>=3.4.0",
     "mujoco>=3.2,<3.14",   # 3.14.0 segfaults inside MjSpec compile of the go2 URDF (welded root); re-test on the next release
-    "scipy>=1.15.2",
     "matplotlib>=3.10.1",
     "seaborn>=0.13.2",
     "osqp>=0.6.7.post3",
@@ -81,7 +81,6 @@ dev = [
 test = [
     "pin>=3.4.0",
     "mujoco>=3.2,<3.14",   # see the [examples] pin
-    "scipy>=1.15.2",
     "gymnasium>=0.29",
 ]
 

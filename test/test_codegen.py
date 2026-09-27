@@ -59,3 +59,18 @@ def test_unbounded_joint_rejected(tmp_path):
 </robot>""")
     with pytest.raises(ValueError, match="finite.*limit|not supported"):
         codegen(urdf, "cont", ee_frame="EE", out_dir=tmp_path / "out", register=False)
+
+
+def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, urdfs, tmp_path):
+    """A lean install used to succeed with a different, fallback sphere set.
+    Inject the underlying failure instead of uninstalling shared dependencies."""
+    import trimesh
+
+    def unavailable(*args, **kwargs):
+        raise ModuleNotFoundError("No module named 'scipy' (injected)")
+
+    monkeypatch.setattr(trimesh.Trimesh, 'voxelized', unavailable)
+    out = tmp_path / 'indy7'
+    with pytest.raises(UserWarning, match='voxelization failed|SKIPPING'):
+        codegen(urdfs['indy7'], 'indy7', out_dir=out, register=False)
+    assert not (out / 'grid.cuh').exists()

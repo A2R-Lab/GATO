@@ -153,11 +153,14 @@ GATO_ALGORITHMS = (
 
 
 def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base):
-    """Content key of everything that determines the emitted headers: the URDF
+    """Cache key of the URDF
     bytes, the GRiD submodule commit (the emitter), the consumed algorithm set
     and the codegen options. gato.build() skips codegen when it is unchanged."""
     import hashlib
     h = hashlib.sha256()
+    # Invalidate cached bounding-box fallback geometry from lean installs that
+    # lacked scipy. Such codegen is no longer accepted by the consumer below.
+    h.update(b"gato-collision-voxel-required-v1")
     h.update(Path(urdf_path).read_bytes())
     grid = repo_root() / "external" / "GRiD"
     try:
@@ -184,7 +187,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 
     collision_res: sphere spacing in meters for the grid_collision namespace
    . The URDF's <collision> geometry is spherized at this resolution
-    (GRiD's spherizer; meshes need trimesh) and grid.cuh grows the
+    (GRiD's spherizer; meshes need trimesh and scipy) and grid.cuh grows the
     grid_collision:: device ABI (config_free + the differentiable clearance
     family). REQUIRED for solver modules — the constraint layer
     (plant.cuh/rowgroups.cuh) compiles against grid_collision:: — so the
@@ -243,11 +246,13 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         # FAIL LOUD on silent coverage loss: GRiD's spherizer warns + SKIPs a
         # link whose collision mesh can't be resolved/loaded — but the sphere
         # set IS the clearance row set, so a skipped link silently vanishes
-        # from collision checking. (A missing trimesh already raises; the
-        # conservative bounding-box degrade stays a warning.)
+        # from collision checking. Also reject voxelization fallbacks: even
+        # conservative bounding boxes change the constraint geometry depending
+        # on installed dependencies (the lean install once omitted scipy).
         import warnings as _warnings
         with _warnings.catch_warnings():
             _warnings.filterwarnings("error", message=r".*SKIPPING.*")
+            _warnings.filterwarnings("error", message=r".*mesh voxelization failed.*")
             spec = collision_spec_from_urdf(robot, str(urdf_path),
                                             resolution=float(collision_res))
         n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
