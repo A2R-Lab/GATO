@@ -368,12 +368,11 @@ QUIET-BOX runs — never on a shared machine. Provenance for every recovered dat
 - [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for computing rigid body dynamics with analytical gradients
 
 ## Cite
-
 ```bibtex
 @inproceedings{du2026gato,
-      title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
-      author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
-    booktitle={IEEE International Conference on Robotics and Automation (ICRA)},
+    title={GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control}, 
+    author={Alexander Du and Emre Adabag and Gabriel Bravo and Brian Plancher},
+    booktitle={IEEE International Conference on Robotics and Automation (ICRA)}, 
     year={2026},
     month={June}
 }
