@@ -24,7 +24,7 @@ Prerequisites (Linux):
 - Python ≥ 3.10
 
 ```sh
-git clone --branch cleanup-modernization https://github.com/A2R-Lab/GATO.git
+git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
 ./tools/install.sh
 MODULES="indy7:64" JOBS=2 ./tools/build.sh

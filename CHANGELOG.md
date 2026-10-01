@@ -1,6 +1,6 @@
 # Changelog
 
-Unreleased on `cleanup-modernization` (no tag: installs are source-tree only, plan D10).
+Unreleased on `main` (no tag: installs are source-tree only, plan D10).
 
 ## 2026-09-27 — Checkpoint follow-up fixes (no new timing claims)
 

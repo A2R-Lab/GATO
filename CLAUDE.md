@@ -124,7 +124,7 @@ migrated to `glass::`.
 - `test/` — pytest suite (`gpu`/`slow` markers; see Validation): goldens in `test/golden/`,
   the receipt module set in `test/receipt_modules.txt`, kernel harnesses in `test/cuda/` (run by
   `test_kernel_gates.py`), `conftest.py` shared fixtures (TEST_PARAMS, go2 helpers).
-- `external/GRiD` (pinned to `modernizing-tests`), `external/GLASS` (pinned to `main`).
+- `external/GRiD` (pinned to `main`), `external/GLASS` (pinned to `main`).
 - `tools/` — `regen_grid.py` (CLI over `gato.builder.codegen`), `build.sh` (`--profile receipt`,
   `--variant fc|eh`), `install.sh` (`--test --dev`), `autotune_linsys.py`, `gen_dynamics_fingerprint.py`.
 

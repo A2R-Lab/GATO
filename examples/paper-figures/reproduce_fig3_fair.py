@@ -4,7 +4,7 @@ Supersedes the June indy7 DATA path of reproduce_fig3_{scalability,heatmap}.py: 
 solvers solve the IDENTICAL problem (examples/benchmarks/iiwa_fig8_shared.py — same fig8,
 same EE frame, same costs, same zero-control warm start) under the 2026-07-07 benchmark
 config: SQP=1 (RTI), PCG cap 200 / rel 1e-4, rho 0.01, and MPCGPU running GATO_REG_PATTERN
-with its native eta-exit. Full provenance: MPCGPU docs/benchmark_3way_2026-07-06.md.
+with its native eta-exit (MPCGPU's tools/build.py figure-eight flags).
 
 Fig-3 left = the N=64 row: batched total solve time at B in [1..128] for GATO (batched GPU),
 BatchThneed (threaded CPU), MPCGPU (single-solve GPU -> B x per-solve), plus GATO's speedup
@@ -14,13 +14,15 @@ to 512 — B>128 is GATO-only: MPCGPU cannot batch and BT is past core saturatio
 Data stages (each appends CSVs under examples/benchmarks/data/; TIMING — quiet box only):
   --run-gato     sweep_batch_iiwa_fig8.py per N        -> sweep_fig8_gato.csv
   --run-bt       track_iiwa_fig8_bt.py per (N, B)      -> sweep_fig8_bt.csv
-  --run-mpcgpu   MPCGPU tools/time_persolve.sh per N   -> sweep_fig8_mpcgpu.csv
+  --mpcgpu-timing-dir DIR   import MPCGPU's own timing-harness output (its figure-eight
+                 plan, run from the MPCGPU repository) -> sweep_fig8_mpcgpu.csv
 Default (no --run-*) assembles the table + figures from existing CSVs. Stages run
 sequentially (never overlap timing). Re-runs append; assembly takes the LAST row per (N,B).
 
 Examples::
-    # full regeneration on a quiet box (GATO grid + BT B-sweep at N=64 + MPCGPU N=64)
-    python examples/paper-figures/reproduce_fig3_fair.py --run-gato --run-bt --run-mpcgpu
+    # full regeneration on a quiet box (GATO grid + BT B-sweep at N=64), MPCGPU imported
+    python examples/paper-figures/reproduce_fig3_fair.py --run-gato --run-bt \
+        --mpcgpu-timing-dir ../MPCGPU/tmp/timing/<fig8-run>
     # assemble only
     python examples/paper-figures/reproduce_fig3_fair.py
 """
@@ -35,7 +37,6 @@ import numpy as np
 
 import _common as C
 
-MPCGPU_REPO = str(C.bench.mpcgpu_root())   # $MPCGPU_ROOT or <repo>/../MPCGPU
 PY = sys.executable                        # the data stages run under THIS python
 
 GATO_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_gato.csv")
@@ -80,9 +81,32 @@ def run_bt(N_list, batches, sim_time):
             _run([PY, script, sim_time, B, N, BT_CSV], env=env)
 
 
-def run_mpcgpu(N_list, cycles=3):
-    for N in N_list:
-        _run(["bash", "tools/time_persolve.sh", N, "pcg", cycles, MPCGPU_CSV], cwd=MPCGPU_REPO)
+def import_mpcgpu(timing_dir):
+    """Append MPCGPU single-solve cells from its own timing harness (tools/timing.py run).
+
+    Uses the figure-eight plan's PCG workloads with reused workspaces, whose build flags match
+    iiwa_fig8_shared (SQP=1, PCG cap 200 / rel 1e-4, rho 0.01). One aggregated row per N: the
+    median of the per-repeat medians. Samples are MPCGPU's internal SQP time per control update.
+    """
+    import glob, json, statistics
+    cells = {}
+    for path in sorted(glob.glob(os.path.join(timing_dir, "pcg-*-reuse-r*", "verdict.json"))):
+        v = json.load(open(path))
+        if not v.get("ok"):
+            continue
+        cells.setdefault(int(v["workload"]["knots"]), []).append(v)
+    if not cells:
+        raise SystemExit(f"[fig3-fair] no MPCGPU pcg reuse verdicts under {timing_dir}")
+    new = not os.path.exists(MPCGPU_CSV)
+    with open(MPCGPU_CSV, "a") as f:
+        if new:
+            f.write("N,B,median_ms,p90_ms,per_traj_us,n_solves,L2_mean\n")
+        for N, runs in sorted(cells.items()):
+            med = statistics.median(r["median_us"] for r in runs) / 1000
+            p90 = statistics.median(r["p90_us"] for r in runs) / 1000
+            l2 = statistics.mean(r["tracking_mean_l2"] for r in runs)
+            f.write(f"{N},1,{med:.4f},{p90:.4f},{med*1000:.1f},{sum(r['samples'] for r in runs)},{l2:.6f}\n")
+    print(f"[fig3-fair] imported MPCGPU horizons {sorted(cells)} from {timing_dir}")
 
 
 def read_cells(path):
@@ -206,13 +230,13 @@ def main():
     p = argparse.ArgumentParser(description="Fig-3 data from the FAIR iiwa14 parity harness.")
     p.add_argument("--run-gato", action="store_true", help="TIMING: GATO N x B sweep (quiet box)")
     p.add_argument("--run-bt", action="store_true", help="TIMING: BatchThneed B sweep (quiet box)")
-    p.add_argument("--run-mpcgpu", action="store_true", help="TIMING: MPCGPU per-solve (quiet box)")
+    p.add_argument("--mpcgpu-timing-dir", help="import MPCGPU cells from its tools/timing.py output "
+                   "(figure-eight plan); MPCGPU timing runs from its own harness")
     p.add_argument("--fig3-N", type=int, default=64, help="the fig3-left horizon (paper: 64)")
     p.add_argument("--N-list", default="8,16,32,64,128", help="heatmap horizons (GATO)")
     p.add_argument("--batches", default="1,2,4,8,16,32,64,128", help="shared batch sizes")
     p.add_argument("--gato-extra-batches", default="256,512", help="GATO-only extra batch sizes")
     p.add_argument("--bt-N-list", default="64", help="BT horizons (BT N is a runtime arg)")
-    p.add_argument("--mpcgpu-N-list", default="64", help="MPCGPU horizons (rebuild per N)")
     p.add_argument("--solves", type=int, default=400, help="GATO solves per config")
     p.add_argument("--sim-time", type=float, default=6.0, help="BT closed-loop sim seconds")
     p.add_argument("--quick", action="store_true", help="tiny wiring smoke (NOT paper numbers)")
@@ -227,14 +251,14 @@ def main():
         args.fig3_N = 16  # fig3-left must use a horizon the quick subset ran
         print("[quick] tiny subset — NOT paper numbers")
 
-    if args.run_gato or args.run_bt or args.run_mpcgpu:
+    if args.run_gato or args.run_bt:
         C.bench.require_quiet_gpu(allow_busy=args.quick)   # the --run-* stages are TIMING
     if args.run_gato:
         run_gato(N_list, batches, extra, solves)
     if args.run_bt:
         run_bt(C.parse_int_list(args.bt_N_list) if not args.quick else [16], batches, sim_time)
-    if args.run_mpcgpu:
-        run_mpcgpu(C.parse_int_list(args.mpcgpu_N_list) if not args.quick else [16])
+    if args.mpcgpu_timing_dir:
+        import_mpcgpu(args.mpcgpu_timing_dir)
 
     gato, bt, mpc = read_cells(GATO_CSV), read_cells(BT_CSV), read_cells(MPCGPU_CSV)
     if not gato:

@@ -1,7 +1,7 @@
 [submodule "external/GRiD"]
 	path = external/GRiD
 	url = https://github.com/A2R-Lab/GRiD.git
-	branch = modernizing-tests
+	branch = main
 [submodule "external/GLASS"]
 	path = external/GLASS
 	url = https://github.com/A2R-Lab/GLASS.git

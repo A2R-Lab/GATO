@@ -44,7 +44,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/A2R-Lab/GATO"
-Documentation = "https://github.com/A2R-Lab/GATO/blob/cleanup-modernization/README.md"
+Documentation = "https://github.com/A2R-Lab/GATO/blob/main/README.md"
 Issues = "https://github.com/A2R-Lab/GATO/issues"
 Paper = "https://arxiv.org/abs/2510.07625"
 
