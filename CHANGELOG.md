@@ -2,6 +2,36 @@
 
 Unreleased on `main` (no tag: installs are source-tree only, plan D10).
 
+## 2026-10-01 — Release-hygiene batch (no numeric change: all 42 goldens bit-identical)
+
+- Cooperative row kinds are described once. `gato/bsqp/rowgroups.cuh` lost the per-kind
+  EE_POS / COLLISION / CONTACT_POS sections (scratch sizers, `has_*_rows`, `*_eval*`, six
+  fold/value wrappers, the three telemetry branches and the collision-only AL dual branch):
+  the `CooperativeRows<T, KIND>` trait now owns the FK call, the scratch carve and its sizes,
+  the Jacobian layout, the bound slot and the state index, and `dispatch_cooperative_kind`
+  routes the telemetry, AL dual-update and ADMM kernels to it. setup_kkt / merit call
+  `cooperative_row_grad_hess<KIND>` / `cooperative_row_cost_value<KIND>` directly
+  (`__noinline__` kept: the cicc expansion cliff). −180 lines across rowgroups.cuh, admm.cuh,
+  setup_kkt.cuh, merit.cuh (the handoff's −250 estimate predated the 09-26 trait landing). Gated bitwise FIRST: four new arm `collision_{al,admm}` goldens
+  (indy7 / iiwa14 N16, sphere parked on the reach goal so the rows bind) join the existing
+  masked-CONTACT_POS and ADMM/EE cases — 38 → 42 goldens, all unchanged by the refactor.
+- `python/bindings.cu` 720 → 632 lines: one `DenseArray` alias, `checked_ptr` /
+  `optional_ptr` for the per-solve and per-joint setters, one `state_dict` behind the four
+  dual/ADMM getters, `per_iter_array` for the (iters, B) stats. Same Python surface; the
+  per-joint vector size errors now print the expected count instead of the constant's name.
+- Scratch sizers follow the tree's snake_case `*_smem_ct` convention:
+  `stepValueFloating_TempMemCt` → `step_value_floating_smem_ct`, `stepGradFloating_TempMemCt`
+  → `step_grad_floating_smem_ct`, `simStep_TempMemCt` → `sim_step_smem_ct`,
+  `linearizedDynamics_TempMemCt` → `linearized_dynamics_smem_ct`, `integratorError_TempMemCt`
+  → `integrator_error_smem_ct` (integrator.cuh / grid_plant_step.cuh and their kernel callers).
+- Retired `examples/archive/` (the June indy7 fig3 chain, the pinocchio-sim baseline, the
+  bdsv timing session; nothing imported it — recover from git history). The bundled Fig-4
+  data moved next to its only consumer: `examples/paper-figures/gato_hparam_batch_results.pkl`
+  (`reproduce_fig4_hparam.py --replot`).
+- New `docs/development.md`: install, capped builds, test tiers and goldens, the signed
+  receipt and its local verify command, the quiet-window timing rule. Linked from
+  `docs/README.md` and the README Tests section.
+
 ## 2026-10-01 — Main integration candidate and figure refresh
 
 - Pinned GRiD `main` (0a14c0f); all vendored headers regenerate byte-identically. Merged the
