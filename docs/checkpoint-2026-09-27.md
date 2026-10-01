@@ -50,10 +50,24 @@ array, its hash, URDF hash, seed policy, solver configuration and source stamp.
 `--check-only` compares raw/controller trajectories and PCG iteration counts
 without emitting or saving latency results.
 
-**Timing effect remains unmeasured.** Next run `--suite seed-ab` in an assigned
-quiet window: three repeats per seed, alternating order, one frozen reference,
-same source and binaries. This isolates seed policy, not old/new kernel speed.
-If a residual gap remains, prepare a separate source A/B before attributing it.
+**Seed A/B, measured September 30, 2026.** One quiet-window run of `--suite seed-ab`
+at source `d8fd531` (timing scripts only changed since `084df78`; same receipt and
+binary), three repeats per seed, alternating order, one frozen reference. Output:
+`examples/benchmarks/night_logs/handoff_4um78F76` (local, not in Git).
+
+| iiwa14 N64 batch | zero-tail median range (ms) | hold median range (ms) | August median (ms) | zero-tail vs August |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.4495–0.4510 | 0.6330–0.6340 | 0.4490 | +0.3% |
+| 8 | 0.7155–0.7190 | 0.9430–0.9530 | 0.6980 | +2.7% |
+| 128 | 4.7915–4.7920 | 5.2000–5.2040 | 4.5950 | +4.3% |
+
+The hold medians reproduce the September checkpoint, and the zero-tail medians come
+back to the August values within 0.3% at B1. The seed change therefore accounts for
+almost all of the apparent 41%/37%/13% gap. Residuals of about 3% at B8 and 4% at
+B128 remain unattributed: the August cells are single saved runs on an older source.
+A matched old-versus-new source A/B is needed before calling them a regression.
+These are internal solver times. The timing output does not record PCG counts; the
+correctness `--check-only` runs compare them between raw and controller paths per seed.
 
 ### Pick-place simulation initialization
 
