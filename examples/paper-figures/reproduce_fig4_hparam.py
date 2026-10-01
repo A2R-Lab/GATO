@@ -102,6 +102,14 @@ def _curve_adaptive(urdf, costs, goal, rho, max_iters):
     return np.r_[1.0, curve]
 
 
+def _pad(curve, length):
+    """Extend a best-merit-so-far curve with its final value: after the SQP loop stops, the best
+    merit found stays the same. Truncating to the shortest curve instead discards every solve's
+    progress beyond the earliest stop (a solve that ends after one iteration emptied the figure)."""
+    curve = np.asarray(curve, dtype=np.float32)
+    return np.r_[curve, np.full(length - len(curve), curve[-1], dtype=np.float32)] if len(curve) < length else curve[:length]
+
+
 def run_config(urdf, costs, B_list, num_targets, max_iters):
     """Average normalized merit curves per label over `num_targets` random goals."""
     labels = {"1 (ρ=1e-1)": []}
@@ -121,16 +129,14 @@ def run_config(urdf, costs, B_list, num_targets, max_iters):
         valid = [v for v in raw.values() if v is not None and len(v) > 0]
         if not valid:
             continue
-        Kmin = min(len(v) for v in valid)
-        denom = float(np.max(np.vstack([v[:Kmin] for v in valid])[:, 0])) or 1.0
+        denom = float(max(v[0] for v in valid)) or 1.0
         for label, curve in raw.items():
             if curve is not None and len(curve) > 0:
-                labels[label].append((curve[:Kmin] / denom).astype(np.float32))
+                labels[label].append(_pad(curve, max_iters + 1) / denom)
     out = {}
     for label, curves in labels.items():
         if curves:
-            Kmin = min(len(c) for c in curves)
-            out[label] = np.mean(np.vstack([c[:Kmin] for c in curves]), axis=0)
+            out[label] = np.mean(np.vstack(curves), axis=0)
     return out
 
 
@@ -151,8 +157,8 @@ def aggregate_final(agg):
     for label, curves in agg.items():
         if not curves:
             continue
-        Kmin = min(len(c) for c in curves)
-        final[label] = np.mean(np.vstack([c[:Kmin] for c in curves]), axis=0)
+        K = max(len(c) for c in curves)
+        final[label] = np.mean(np.vstack([_pad(c, K) for c in curves]), axis=0)
     return final
 
 
