@@ -252,7 +252,7 @@ def _collision_mech_violation(model, B=2, **mech_kw):
 
 
 def test_collision_fold_mechanisms_reduce_violation(model):
-    """The collision FOLD path (apply_collision_row_grad_hess in setup_kkt +
+    """The collision FOLD path (cooperative_row_grad_hess<COLLISION> in setup_kkt +
     the merit value mirror) on the FLOATING carve — the exact code the
     2026-08-11 overlay fix touches. Telemetry-only is the do-nothing ref."""
     ref = _collision_mech_violation(model, mech="telemetry")

@@ -336,21 +336,21 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                                 // them terminal-only, so this is their single fold site).
                                 // s_temp is free here (tracking_cost_grad_hess above is done) and
                                 // tracking_cost_grad_hess_smem_ct >= the EE grad carve.
-                                if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                if (gato::rows::has_coop_rows<T, gato::rows::EE_POS>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();  // s_Q_last/s_q_last selection writes above
-                                        gato::rows::apply_ee_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel, admm_rho_scale);
+                                        gato::rows::cooperative_row_grad_hess<T, gato::rows::EE_POS>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_temp, d_robotModel, nullptr, admm_rho_scale);
                                 }
                                 // COLLISION rows on the terminal state block (dense
                                 // q-half fold; dedicated carve — s_temp is too small)
-                                if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                if (gato::rows::has_coop_rows<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();
-                                        gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, env, admm_rho_scale);
+                                        gato::rows::cooperative_row_grad_hess<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, &env, admm_rho_scale);
                                 }
                                 // CONTACT_POS rows (CL-4): per-knot contact-frame residuals,
                                 // same dedicated carve (the folds never overlap)
-                                if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
+                                if (gato::rows::has_coop_rows<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1))) {
                                         __syncthreads();
-                                        gato::rows::apply_contact_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, admm_rho_scale);
+                                        gato::rows::cooperative_row_grad_hess<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)(KNOT_POINTS - 1), s_xkp1, d_lam_hi, d_lam_lo, s_Q_last, s_q_last, s_cc, d_robotModel, nullptr, admm_rho_scale);
                                 }
                         }
 
@@ -380,13 +380,13 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         __syncthreads();
                         // COLLISION rows fold at EVERY active knot (clearance is a
                         // per-knot state constraint, unlike the terminal-only EE rows)
-                        if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
-                                gato::rows::apply_collision_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, env, admm_rho_scale);
+                        if (gato::rows::has_coop_rows<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                                gato::rows::cooperative_row_grad_hess<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, &env, admm_rho_scale);
                         }
                         // CONTACT_POS rows fold at EVERY active knot too (stance feet
                         // stay put per knot); both folds end on a barrier
-                        if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
-                                gato::rows::apply_contact_row_grad_hess<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, admm_rho_scale);
+                        if (gato::rows::has_coop_rows<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                                gato::rows::cooperative_row_grad_hess<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_Q_k, s_q_k, s_cc, d_robotModel, nullptr, admm_rho_scale);
                         }
                 }
 

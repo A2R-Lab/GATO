@@ -173,9 +173,9 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // value — the fold linearizes, the merit must not). s_temp is free
                 // between tracking_cost_value and the constraint-error section, and
                 // tracking_cost_value_smem_ct >= the EE value carve.
-                if (gato::rows::has_ee_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                if (gato::rows::has_coop_rows<T, gato::rows::EE_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         __syncthreads();
-                        cost_k += gato::rows::ee_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);
+                        cost_k += gato::rows::cooperative_row_cost_value<T, gato::rows::EE_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_temp, d_robot_model, nullptr, d_z_admm, d_y_admm, admm_rho_scale);
                 }
                 // COLLISION rows: true nonlinear clearance value at the CANDIDATE
                 // state (same mirroring requirement). s_temp is dead here (like
@@ -183,22 +183,22 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // fits — the constraint-error section below re-uses s_temp, hence
                 // the trailing barrier; only the excess over the temp tail (small
                 // fixed-base arenas) extends the host-sized launch.
-                if (gato::rows::has_collision_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                if (gato::rows::has_coop_rows<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
                         constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
                         T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T>();
                         __syncthreads();
-                        cost_k += gato::rows::collision_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, env, d_z_admm, d_y_admm, admm_rho_scale);
+                        cost_k += gato::rows::cooperative_row_cost_value<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, &env, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
                 }
                 // CONTACT_POS rows: true nonlinear contact-frame residual at the
                 // CANDIDATE state, the same shared cooperative carve (CL-4)
-                if (gato::rows::has_contact_rows<T>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
+                if (gato::rows::has_coop_rows<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
                         constexpr size_t tail_ct = compute_merit_temp_mem_ct<T>();
                         T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T>();
                         __syncthreads();
-                        cost_k += gato::rows::contact_row_cost_value<T>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, d_z_admm, d_y_admm, admm_rho_scale);
+                        cost_k += gato::rows::cooperative_row_cost_value<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, nullptr, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
                 }
         }

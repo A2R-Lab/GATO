@@ -1,11 +1,11 @@
 // Standalone gate for the EE_POS row machinery (constraint-layer arc CL-1):
 //
-//   1. J-read: the row Jacobian used by apply_ee_row_grad_hess
+//   1. J-read: the row Jacobian used by cooperative_row_grad_hess<EE_POS>
 //      (J_i[qi] = s_grad[6*qi + i]) must match central finite differences of
 //      the SAME device pose evaluator — catches any layout/transpose mistake
 //      independent of external references (the pose itself is separately
 //      gated against pinocchio in test_rowgroups.py to ~1e-7).
-//   2. Fold: the (Q, q) increments produced by apply_ee_row_grad_hess must
+//   2. Fold: the (Q, q) increments produced by cooperative_row_grad_hess must
 //      equal the host-recomputed dense GN fold from the dumped (pose, J) and
 //      the AL scalars.
 //
@@ -45,7 +45,7 @@ __global__ void eeProbeKernel(T* d_pose, T* d_J, T* d_Qinc, T* d_qinc,
         for (uint32_t i = threadIdx.x; i < constants::STATE_SIZE; i += blockDim.x) s_q[i] = 0;
         __syncthreads();
 
-        // pose + J dump (the same carve apply_ee_row_grad_hess uses)
+        // pose + J dump (the same carve CooperativeRows<T, EE_POS>::gradient uses)
         T* s_pose = s_scratch;
         T* s_grad = s_pose + 6 * gato::plant::NEE;
         T* s_arena = rows::align16_ptr<T>(s_grad + 6 * NQ_ * gato::plant::NEE + 2 * rows::MAX_ROWS_PER_GROUP);
@@ -54,23 +54,23 @@ __global__ void eeProbeKernel(T* d_pose, T* d_J, T* d_Qinc, T* d_qinc,
         for (uint32_t i = threadIdx.x; i < 6u * NQ_; i += blockDim.x) d_J[i] = s_grad[i];
         __syncthreads();
 
-        rows::apply_ee_row_grad_hess<T>(d_groups, 1, KNOT_POINTS - 1, d_xu, d_lam_hi, d_lam_lo, s_Q, s_q, s_scratch, drm);
+        rows::cooperative_row_grad_hess<T, rows::EE_POS>(d_groups, 1, KNOT_POINTS - 1, d_xu, d_lam_hi, d_lam_lo, s_Q, s_q, s_scratch, drm, nullptr);
 
         for (uint32_t i = threadIdx.x; i < constants::STATE_SIZE_SQ; i += blockDim.x) d_Qinc[i] = s_Q[i];
         for (uint32_t i = threadIdx.x; i < constants::STATE_SIZE; i += blockDim.x) d_qinc[i] = s_q[i];
 }
 
-__global__ void poseOnlyKernel(T* d_pose, const T* d_q, const grid::robotModel<T>* drm)
+__global__ void poseOnlyKernel(T* d_pose, const T* d_q, const rows::RowGroupDesc<T>* d_groups, const grid::robotModel<T>* drm)
 {
         extern __shared__ T s_mem[];
-        const T* s_pose = rows::ee_eval_pose<T>(d_q, s_mem, drm);
+        const T* s_pose = rows::CooperativeRows<T, rows::EE_POS>::value(*d_groups, KNOT_POINTS - 1, d_q, s_mem, drm, nullptr);
         for (uint32_t i = threadIdx.x; i < 6 * gato::plant::NEE; i += blockDim.x) d_pose[i] = s_pose[i];
 }
 
-static T pose_at(T* d_pose, T* d_q, const std::vector<T>& q, const grid::robotModel<T>* drm, int row)
+static T pose_at(T* d_pose, T* d_q, const std::vector<T>& q, const rows::RowGroupDesc<T>* d_groups, const grid::robotModel<T>* drm, int row)
 {
         cudaMemcpy(d_q, q.data(), q.size() * sizeof(T), cudaMemcpyHostToDevice);
-        poseOnlyKernel<<<1, 128, sizeof(T) * rows::ee_rows_scratch_ct<T>()>>>(d_pose, d_q, drm);
+        poseOnlyKernel<<<1, 128, sizeof(T) * rows::CooperativeRows<T, rows::EE_POS>::value_scratch_ct()>>>(d_pose, d_q, d_groups, drm);
         T h_pose[6 * gato::plant::NEE];
         cudaMemcpy(h_pose, d_pose, sizeof(h_pose), cudaMemcpyDeviceToHost);
         return h_pose[row];
@@ -114,7 +114,7 @@ int main()
         cudaMemcpy(d_lam_hi, h_lam_hi.data(), rows::ROW_STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice);
         cudaMemcpy(d_lam_lo, h_lam_lo.data(), rows::ROW_STATE_SIZE * sizeof(T), cudaMemcpyHostToDevice);
 
-        size_t smem = sizeof(T) * (constants::STATE_SIZE_SQ + constants::STATE_SIZE + rows::ee_rows_grad_scratch_ct<T>());
+        size_t smem = sizeof(T) * (constants::STATE_SIZE_SQ + constants::STATE_SIZE + rows::CooperativeRows<T, rows::EE_POS>::grad_scratch_ct());
         eeProbeKernel<<<1, 128, smem>>>(d_pose, d_J, d_Qinc, d_qinc, d_xu, d_groups, d_lam_hi, d_lam_lo, drm);
         cudaError_t err = cudaDeviceSynchronize();
         if (err != cudaSuccess) { printf("FAIL kernel: %s\n", cudaGetErrorString(err)); return 1; }
@@ -136,7 +136,7 @@ int main()
                         std::vector<T> qp = q, qm = q;
                         qp[j] += eps;
                         qm[j] -= eps;
-                        const T fd = (pose_at(d_pose, d_xu, qp, drm, i) - pose_at(d_pose, d_xu, qm, drm, i)) / (2 * eps);
+                        const T fd = (pose_at(d_pose, d_xu, qp, d_groups, drm, i) - pose_at(d_pose, d_xu, qm, d_groups, drm, i)) / (2 * eps);
                         const T an = h_J[6 * j + i];  // the read the fold uses
                         const T rel = fabsf(fd - an) / fmaxf(fabsf(fd), 1e-3f);
                         if (rel > max_rel) max_rel = rel;

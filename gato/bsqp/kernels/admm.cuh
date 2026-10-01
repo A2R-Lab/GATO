@@ -33,7 +33,7 @@
 // loop with g(x) in place of sel(x), LINEARIZED inside the inner loop:
 //   init:     z = clip(g(x_warm))            [cooperative ee_pos]
 //   gradient: q += J^T (y - rho*(z - g(x)))  [ee_pos_grad; the rho*J^T*J
-//             Hessian half is folded once by setup_kkt (apply_ee_row_grad_hess)]
+//             Hessian half is folded once by setup_kkt (cooperative_row_grad_hess)]
 //   project:  w = g(x) + J*dz_q  (first-order; exact for selection rows),
 //             then the identical clip / dual update / residuals.
 // g and J are evaluated at the SQP linearization point x, which is CONSTANT
@@ -197,7 +197,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         extern __shared__ char s_raw_init[];
-        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_init);  // rowgroup_eval_scratch_ct
+        T* s_scratch = reinterpret_cast<T*>(s_raw_init);  // rowgroup_eval_scratch_ct
         T* d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         T* d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
@@ -229,16 +229,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_ADMM) continue;
-                if (grp.kind == COLLISION) {
-                        cooperative_admm_init<T, COLLISION>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
-                        continue;
-                }
-                if (grp.kind == CONTACT_POS) {
-                        cooperative_admm_init<T, CONTACT_POS>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
-                        continue;
-                }
-                if (grp.kind == EE_POS) {
-                        cooperative_admm_init<T, EE_POS>(grp, gi, d_xu, d_z, s_ee_scratch, d_robot_model, env);
+                if (is_cooperative_kind(grp.kind)) {
+                        dispatch_cooperative_kind(grp.kind, [&](auto K) { cooperative_admm_init<T, decltype(K)::value>(grp, gi, d_xu, d_z, s_scratch, d_robot_model, env); });
                         continue;
                 }
                 if (grp.kind == LIN_U && grp.cone) {
@@ -295,7 +287,7 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
         // per-solve ADMM rho adaptation scale (P4.3); nullptr -> 1 (bitwise-off)
         const T rho_sc = d_rho_scale_batch ? d_rho_scale_batch[solve_idx] : static_cast<T>(1);
         extern __shared__ char s_raw_grad[];
-        T* s_ee_scratch = reinterpret_cast<T*>(s_raw_grad);  // rowgroup_eval_grad_scratch_ct
+        T* s_scratch = reinterpret_cast<T*>(s_raw_grad);  // rowgroup_eval_grad_scratch_ct
 
         T*       d_q_k = get_offset_state<T>(d_q_batch, solve_idx, knot_idx);
         T*       d_r_k = get_offset_control<T>(d_r_batch, solve_idx, knot_idx);
@@ -310,23 +302,14 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
         __syncthreads();
 
         const bool has_control = (knot_idx < KNOT_POINTS - 1);
-        constexpr int32_t NQ = constants::STATE_SIZE / 2;
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = d_groups[gi];
                 if (grp.mech != MECH_ADMM) continue;
                 if ((int32_t)knot_idx < grp.knot_lo || (int32_t)knot_idx >= grp.knot_hi) continue;
                 if (grp.block == BLOCK_U && !has_control) continue;
                 const T rho = grp.mu * rho_sc;  // mu = rho (x per-solve adaptation scale)
-                if (grp.kind == COLLISION) {
-                        cooperative_admm_gradient<T, COLLISION>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
-                        continue;
-                }
-                if (grp.kind == CONTACT_POS) {
-                        cooperative_admm_gradient<T, CONTACT_POS>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
-                        continue;
-                }
-                if (grp.kind == EE_POS) {
-                        cooperative_admm_gradient<T, EE_POS>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_ee_scratch, d_robot_model, env);
+                if (is_cooperative_kind(grp.kind)) {
+                        dispatch_cooperative_kind(grp.kind, [&](auto K) { cooperative_admm_gradient<T, decltype(K)::value>(grp, gi, knot_idx, d_xu_k, d_y, d_z, rho, d_q_k, s_scratch, d_robot_model, env); });
                         continue;
                 }
                 if (grp.kind == LIN_U) {
@@ -384,14 +367,13 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
         if (d_kkt_converged_batch && d_kkt_converged_batch[solve_idx]) return;
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
-        constexpr int32_t NQ = constants::STATE_SIZE / 2;
         // per-solve ADMM rho adaptation scale (P4.3); nullptr -> 1 (bitwise-off)
         const T rho_sc = d_rho_scale_batch ? d_rho_scale_batch[solve_idx] : static_cast<T>(1);
 
         extern __shared__ char s_raw[];
         T* s_prim = reinterpret_cast<T*>(s_raw);              // KNOT_POINTS * TELEMETRY_MAX_ROWS
         T* s_dual = s_prim + KNOT_POINTS * TELEMETRY_MAX_ROWS;
-        T* s_ee_scratch = s_dual + KNOT_POINTS * TELEMETRY_MAX_ROWS;  // rowgroup_eval_grad_scratch_ct
+        T* s_scratch = s_dual + KNOT_POINTS * TELEMETRY_MAX_ROWS;  // rowgroup_eval_grad_scratch_ct
 
         T*       d_z = d_z_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
         T*       d_y = d_y_batch + (size_t)solve_idx * TOTAL_ROW_STATE_SIZE;
@@ -404,12 +386,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                 if (grp.mech != MECH_ADMM) continue;
                 const T rho = grp.mu * rho_sc;  // mu = rho (x per-solve adaptation scale)
                 const int32_t n_elems = (grp.knot_hi - grp.knot_lo) * grp.n_rows;
-                if (grp.kind == COLLISION) {
-                        cooperative_admm_project<T, COLLISION>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
-                } else if (grp.kind == CONTACT_POS) {
-                        cooperative_admm_project<T, CONTACT_POS>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
-                } else if (grp.kind == EE_POS) {
-                        cooperative_admm_project<T, EE_POS>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_ee_scratch, d_robot_model, env);
+                if (is_cooperative_kind(grp.kind)) {
+                        dispatch_cooperative_kind(grp.kind, [&](auto K) { cooperative_admm_project<T, decltype(K)::value>(grp, gi, d_xu, d_dz, d_y, d_z, rho, s_prim, s_dual, s_scratch, d_robot_model, env); });
                 } else if (grp.cone) {  // LIN_U cone: SOC projection per knot vector
                         const int32_t n_knots = grp.knot_hi - grp.knot_lo;
                         const int32_t m = grp.n_rows;
