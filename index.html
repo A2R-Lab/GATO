@@ -581,7 +581,8 @@
   <!-- ═══════════ KEY RESULTS ═══════════ -->
   <section>
     <div class="section-label">Results</div>
-    <h2>Key Results</h2>
+    <h2>Published Paper Results</h2>
+    <p>These figures report the paper's experiments, not benchmarks of the latest software revision. See the <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/paper-figures/README.md">reproduction protocols and current limitations</a>.</p>
 
     <!-- Fig 3: Solve-time scaling -->
     <div class="result-figures-grid">
@@ -629,13 +630,50 @@
     </p>
   </section>
 
+  <!-- ═══════════ CURRENT SOFTWARE RESULTS ═══════════ -->
+  <section>
+    <div class="section-label">Current Software</div>
+    <h2>Results from the Latest Release</h2>
+    <p>These figures rerun the paper's simulated experiments with the current code (commit <code>b893083</code>) on an NVIDIA RTX 5090 with CUDA 13.2, measured October 1, 2026. The published figures above remain the paper's results. The <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/paper-figures/README.md">reproduction protocols</a> describe each experiment and how it differs from the paper.</p>
+
+    <div class="result-figures-grid">
+      <div class="result-figure">
+        <div class="fig-label">Solve-Time Scaling (Current)</div>
+        <img src="static/demos/current/fig3_fair_scalability.png" alt="Current solve times at N=64 for GATO, a multi-threaded QDLDL-based CPU solver and MPCGPU as batch size grows" loading="lazy">
+      </div>
+      <div class="result-figure">
+        <div class="fig-label">Batch × Horizon Heatmap (Current)</div>
+        <img src="static/demos/current/fig3_fair_heatmap.png" alt="Current heat map of GATO solve times across batch size and horizon" loading="lazy">
+      </div>
+    </div>
+    <p class="result-caption">
+      Internal solver time per batched solve on a matched iiwa14 figure-eight benchmark, where GATO, a multi-threaded CPU solver using QDLDL, and MPCGPU solve the identical problem. GATO is 4.4–7.2× faster than the CPU solver at every batch size and is faster than MPCGPU at batch sizes of four and above. Note: the original paper's scalability figure used the Indy7 arm, a different timing boundary, and were run on a different CPU/GPU system, so these ratios are not directly comparable.
+    </p>
+
+    <div class="result-figures-grid">
+      <div class="result-figure">
+        <div class="fig-label">Disturbance Rejection (Current)</div>
+        <img src="static/demos/current/fig5_disturbance_sweep.png" alt="Current tracking error and joint velocity versus disturbance force for several batch sizes" loading="lazy">
+      </div>
+      <div class="result-figure">
+        <div class="fig-label">Batched Rho Search (Current)</div>
+        <img src="static/demos/current/fig4_hparam_convergence.png" alt="Current relative merit versus SQP iteration for several batch sizes" loading="lazy">
+      </div>
+    </div>
+    <p class="result-caption">
+      <strong>(Left)</strong> Figure-eight tracking under an end-effector disturbance at fixed simulation pacing. Larger batches keep tracking error low as the force grows; fixed pacing measures control quality without the batch-latency effect shown in the paper. <strong>(Right)</strong> Relative merit versus SQP iteration, averaged over 50 random goals and 24 cost settings, when each batch member uses a different regularization value. The paper averaged a larger cost grid.
+    </p>
+  </section>
+
   <!-- ═══════════ SUPPORTED SYSTEMS ═══════════ -->
   <section>
     <div class="section-label">Supported Systems</div>
     <h2>Supported Robot Systems</h2>
     <p class="systems-intro">
-      GATO ships with plant models for two robot arms. Additional systems can be added by implementing
-      <code>_plant.cuh</code> and <code>_grid.cuh</code> (see <code>gato/dynamics/</code>).
+      GATO ships with the two arm models used in the paper and experimental Go2 floating-base examples.
+      Generate a solver for your URDF with <code>gato.build(...)</code>. See the
+      <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/status.md">feature-status page</a>
+      for tested configurations: Go2 standing is demonstrated; closed-loop walking remains in development.
     </p>
     <div class="table-card">
       <table class="systems">
@@ -644,7 +682,7 @@
         </thead>
         <tbody>
           <tr><td>KUKA iiwa14</td><td>7</td><td>Industrial manipulator; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
-          <tr><td>Neubrex Indy7</td><td>6</td><td>Collaborative robot; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
+          <tr><td>Neuromeka Indy7</td><td>6</td><td>Collaborative robot; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
         </tbody>
       </table>
     </div>
@@ -659,34 +697,40 @@
     <h2>Quick Start</h2>
 
     <div class="code-step">
-      <h4>Setup (Docker + uv)</h4>
+      <h4>Setup (Linux + NVIDIA CUDA)</h4>
       <div class="code-block">
 <pre>git clone https://github.com/A2R-Lab/GATO.git
 cd GATO
-./tools/install.sh   # install Docker and uv
-./tools/docker.sh    # build image and enter container</pre>
+./tools/install.sh   # creates .venv, installs dependencies and initializes submodules</pre>
       </div>
     </div>
 
     <div class="code-step">
       <h4>Build the CUDA Solver</h4>
       <div class="code-block">
-<pre>./tools/build.sh     # default: iiwa14 + indy7, knots 8/32/128</pre>
+<pre>MODULES="indy7:64" JOBS=2 ./tools/build.sh
+source .venv/bin/activate
+python examples/01_single_solve.py
+python examples/02_batched_solve.py</pre>
       </div>
     </div>
 
     <div class="code-step">
-      <h4>Custom Build Options</h4>
+      <h4>Simulation Examples</h4>
       <div class="code-block">
-<pre>mkdir -p build && cd build
-cmake -DPLANT="iiwa14" -DKNOTS="16;64" ..
-cmake --build . --parallel</pre>
+<pre>./tools/install.sh --test
+python examples/03_mpc_loop.py
+python examples/04_gym_mpc.py</pre>
       </div>
     </div>
 
     <p class="code-note">
-      Built Python extension modules are written to <code>python/bsqp/</code> as <code>bsqpN{N}_{plant}.so</code>.
-      See <a href="https://github.com/A2R-Lab/GATO/tree/main/examples" target="_blank"><code>examples/</code></a> for Jupyter notebooks demonstrating MPC with GATO.
+      Install a CUDA toolkit matching your GPU; Docker is optional. Modules are built into
+      <code>python/gato/</code> and are not supplied in a universal binary wheel.
+      See the <a href="https://github.com/A2R-Lab/GATO/blob/main/README.md#quick-start-host-native--no-docker-needed">quick start and requirements</a>,
+      <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/README.md">documentation</a>, and
+      <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/README.md">numbered examples</a>.
+      Printed demo durations on a shared GPU are not performance measurements.
     </p>
 
     <h4 style="font-family: var(--serif); font-size: 1rem; font-weight: 600; color: var(--heading); margin: 1.5rem 0 0.4rem;">Related Projects</h4>
