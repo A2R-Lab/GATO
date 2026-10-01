@@ -1,7 +1,7 @@
 """GATO iiwa14 fig8 tracking on the FAIR shared problem (see iiwa_fig8_shared.py).
 Uses the canonical fig8 (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6), fixed-dt
 pacing, and measures tracking error at the EE frame so it is directly comparable to MPCGPU's
-validate_track and the BatchThneed baseline. Needs the prebuilt bsqpN64_iiwa14 module and a
+validate_track and the QDLDL-based CPU baseline. Needs the prebuilt bsqpN64_iiwa14 module and a
 python with pinocchio (the project .venv).
 
   python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time]

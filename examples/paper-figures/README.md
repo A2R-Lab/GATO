@@ -51,7 +51,7 @@ The current harness uses iiwa14; the published scalability figure used Indy7.
 and budget (SQP=1, PCG cap 200 / relative tolerance 1e-4, rho=0.01).
 
 - GATO: `../benchmarks/sweep_batch_iiwa_fig8.py` (N and batch sweeps).
-- CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, threaded C++ BatchThneed
+- CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, multi-threaded C++ QDLDL-based CPU solver (OSQP with QDLDL, `pysqpcpu`)
   built by `build_cpu_baseline.sh`.
 - MPCGPU: sibling repository's `tools/time_persolve.sh`, matched configuration;
   no batch axis, so the displayed baseline is sequential B × single-solve.

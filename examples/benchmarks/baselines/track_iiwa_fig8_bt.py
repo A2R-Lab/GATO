@@ -1,4 +1,4 @@
-"""BatchThneed (CPU/OSQP baseline) iiwa14 fig8 tracking on the FAIR shared problem.
+"""Multi-threaded QDLDL-based CPU solver (pysqpcpu.BatchThneed: OSQP with QDLDL) iiwa14 fig8 tracking on the FAIR shared problem.
 Same canonical fig8 as GATO/MPCGPU (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6),
 iiwa14 URDF, EE frame = "EE" (= grid end_effector_pose post-regen), warm-start = zero controls, 1 QP
 iter. Tracking measured at EE from the logged joint configs (same metric as GATO/MPCGPU).
@@ -33,7 +33,7 @@ SP = SolverParams().asdict()  # GATO's own defaults, so the CPU baseline solves 
 
 SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
 BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1   # B identical replicas (num_threads=B)
-N = int(sys.argv[3]) if len(sys.argv) > 3 else 64      # BatchThneed takes N at construction
+N = int(sys.argv[3]) if len(sys.argv) > 3 else 64      # the CPU solver takes N at construction
 OUT_CSV = sys.argv[4] if len(sys.argv) > 4 else ""     # optional: append an (N,B,median) row
 DT = fig8mod.DT
 
@@ -64,7 +64,7 @@ def main():
         batch_size=BATCH, N=N, dt=DT, max_qp_iters=SP['max_sqp_iters'], num_threads=BATCH,
         Q_cost=SP['q_cost'], dQ_cost=SP['qd_cost'], R_cost=SP['u_cost'], QN_cost=SP['N_cost'])
     nq, nv, nx, nu = bt.nq, bt.nv, bt.nx, bt.nu
-    print(f"iiwa14 BatchThneed fig8: center(EE)={center.round(4)} frame={fig8mod.EE_FRAME} "
+    print(f"iiwa14 QDLDL-based CPU fig8: center(EE)={center.round(4)} frame={fig8mod.EE_FRAME} "
           f"A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} N={N} nq={nq} goal_steps={n_goal}")
 
     q = q0.copy(); dq = np.zeros(nv)

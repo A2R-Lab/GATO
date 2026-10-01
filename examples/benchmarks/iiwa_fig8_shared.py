@@ -1,4 +1,4 @@
-"""Single source of truth for the FAIR 3-way iiwa14 figure-8 (GATO / MPCGPU / BatchThneed).
+"""Single source of truth for the FAIR 3-way iiwa14 figure-8 (GATO / MPCGPU / the multi-threaded QDLDL-based CPU solver).
 
 All three solvers must track the IDENTICAL goal, measured at the IDENTICAL end-effector frame:
   - EE frame = the URDF **"EE" fixed joint** (+0.04 m beyond the L7 link frame). Since the
@@ -57,7 +57,7 @@ def fig8_center(model=None, data=None, q0=Q0_READYC):
 
 
 def figure8_goal(n_steps, A=FIG8_A, period=FIG8_PERIOD, dt=DT, center=None):
-    """Flattened [x,y,z,0,0,0] per step (the layout GATO's run_mpc_fig8 + BatchThneed expect).
+    """Flattened [x,y,z,0,0,0] per step (the layout GATO's run_mpc_fig8 + the CPU solver expect).
     Matches gen_reference.cu: ee(t) = center + [A sin(wt), 0, 0.5 A sin(2wt)], wt = 2pi/period * t*dt."""
     if center is None:
         center = fig8_center()

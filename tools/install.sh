@@ -109,5 +109,5 @@ echo " - build:     ./tools/build.sh   (or: cmake -DPLANT=... -DKNOTS=... && cma
 (( WANT_EXAMPLES )) || echo " - to run the examples you also need the runtime stack: ./tools/install.sh --examples"
 (( WANT_TEST ))     || echo " - to run the FULL test suite / sign a receipt: ./tools/install.sh --test --dev"
 echo " - paper Fig-3 CPU baseline (optional): ./examples/benchmarks/baselines/build_cpu_baseline.sh"
-echo "     builds the threaded BatchThneed (pysqpcpu) — osqp+osqp-eigen into a LOCAL prefix, reusing"
+echo "     builds the multi-threaded QDLDL-based CPU solver (pysqpcpu) — osqp+osqp-eigen into a LOCAL prefix, reusing"
 echo "     the venv's cmeel pinocchio (NO ROS). Then: source examples/benchmarks/baselines/sqpcpu_env.sh"

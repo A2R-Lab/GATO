@@ -7,7 +7,7 @@ config: SQP=1 (RTI), PCG cap 200 / rel 1e-4, rho 0.01, and MPCGPU running GATO_R
 with its native eta-exit (MPCGPU's tools/build.py figure-eight flags).
 
 Fig-3 left = the N=64 row: batched total solve time at B in [1..128] for GATO (batched GPU),
-BatchThneed (threaded CPU), MPCGPU (single-solve GPU -> B x per-solve), plus GATO's speedup
+a multi-threaded QDLDL-based CPU solver (pysqpcpu), MPCGPU (single-solve GPU -> B x per-solve), plus GATO's speedup
 over each baseline at every B. Fig-3 right = the GATO N x B heat map (N in {8..128}, B up
 to 512 — B>128 is GATO-only: MPCGPU cannot batch and BT is past core saturation).
 
@@ -157,7 +157,7 @@ def plot_fig3_left(N, batches, gato, bt, mpc):
     bBs = [B for B in batches if (N, B) in bt]
     if bBs:
         plt.plot(bBs, [bt[(N, B)] for B in bBs], "^-", color="#C90016",
-                 label="BatchThneed (CPU, threaded)")
+                 label="Multi-threaded CPU (QDLDL)")
     mpc1 = mpc.get((N, 1))
     if mpc1:
         plt.plot(Bs, [mpc1 * B for B in Bs], "s--", color="#003192",
@@ -230,7 +230,7 @@ def plot_heatmap(Ns, Bs, Z):
 def main():
     p = argparse.ArgumentParser(description="Fig-3 data from the FAIR iiwa14 parity harness.")
     p.add_argument("--run-gato", action="store_true", help="TIMING: GATO N x B sweep (quiet box)")
-    p.add_argument("--run-bt", action="store_true", help="TIMING: BatchThneed B sweep (quiet box)")
+    p.add_argument("--run-bt", action="store_true", help="TIMING: multi-threaded QDLDL-based CPU solver B sweep (quiet box)")
     p.add_argument("--mpcgpu-timing-dir", help="import MPCGPU cells from its tools/timing.py output "
                    "(figure-eight plan); MPCGPU timing runs from its own harness")
     p.add_argument("--fig3-N", type=int, default=64, help="the fig3-left horizon (paper: 64)")
