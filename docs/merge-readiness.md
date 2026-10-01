@@ -19,9 +19,8 @@ window is authorized merely by this checklist. Updated 2026-09-27.
   indy7 N64 CUDA build and examples 01/02 passed. No Pinocchio installed.
   Repeat if final integration changes the install/build path; this is not a
   pre-emptive validation of a future merge commit.
-- [ ] Website candidate prepared October 1 (published results kept and labeled,
-  current-code results added, quick start on `main`); awaiting user review. Deploy
-  only after the API lands on `main`.
+- [x] Website deployed October 1 after the main merge (published results labeled,
+  current-code results added, quick start on `main`); see docs/website.md.
 - [x] Reconcile preferred citation metadata with main's ICRA citation; preserve
   the funding acknowledgement.
 - [x] Removed the temporary quick-start branch selector and switched package

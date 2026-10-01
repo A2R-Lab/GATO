@@ -232,6 +232,11 @@ the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cud
 (`-DNDEBUG`, `-arch=native`, no fast-math). Also `compute-sanitizer --tool racecheck` on the demo
 `build/bsqp` for shared-memory changes.
 
+## Website
+
+The project page is the `gh-pages` branch; any push to it republishes http://a2r-lab.org/GATO/
+automatically. See `docs/website.md`.
+
 ## Commit style
 
 Short, single-line commit messages; no `Co-Authored-By` footer. Work on branches → PRs. The
