@@ -29,7 +29,7 @@ Internal solver time per batched solve at N = 64. Data: `examples/benchmarks/dat
 - MPCGPU solves one problem at a time. It is faster for one or two problems; GATO overtakes it from a
   batch of four and is 4.7× faster at 128.
 - These ratios are smaller than the paper's 18–21× (CPU) and 1.4–16× (GPU). The paper measured the
-  Indy7 arm with its own harness and timing boundary; this benchmark uses the iiwa14 with all three
+  Indy7 arm with its own harness and timing boundary, on a different CPU/GPU system; this benchmark uses the iiwa14 with all three
   solvers on an identical problem and internal solver time. Against the previously saved cells, the
   CPU baseline moved by −2% to +22% (batch 2 is the outlier) and GATO by −12% to +7% (N = 128 at small
   batches is now up to 12% faster). Single runs per cell on a CPU baseline carry that much spread; do not
