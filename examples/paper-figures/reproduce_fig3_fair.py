@@ -124,7 +124,7 @@ def report_fig3_left(N, batches, gato, bt, mpc):
     mpc1 = mpc.get((N, 1))
     lines = [f"=== Fig-3 (left, FAIR): iiwa14 fig8, N={N}, batched total solve time vs B ===",
              "config: SQP=1, PCG<=200 rel 1e-4, rho 0.01, shared fig8/EE-frame/costs; "
-             "MPCGPU = GATO_REG_PATTERN + native exit (docs/benchmark_3way_2026-07-06.md)",
+             "MPCGPU = its figure-eight build flags (GATO_REG_PATTERN, native exit), imported from its timing harness",
              f"{'B':>4} {'GATO_ms':>9} {'BT_ms':>9} {'MPCGPUxB_ms':>12} {'GATOvsBT':>9} {'GATOvsMPCGPU':>13}"]
     for B in batches:
         g = gato.get((N, B))
@@ -207,8 +207,9 @@ def plot_heatmap(Ns, Bs, Z):
     for i in range(len(Ns)):
         for j in range(len(Bs)):
             if not np.isnan(Z[i, j]):
-                ax.text(j, i, f"{Z[i, j]:.2f}", ha="center", va="center", fontsize=12,
-                        fontweight="bold", color="white" if Z[i, j] > 2.0 else "black")
+                r, g, b, _ = im.cmap(im.norm(Z[i, j]))   # dark text on light cells, white on dark
+                ax.text(j, i, f"{Z[i, j]:.2f}", ha="center", va="center", fontsize=12, fontweight="bold",
+                        color="black" if 0.299 * r + 0.587 * g + 0.114 * b > 0.5 else "white")
     levels = [lvl for lvl in (0.105, 0.2, 1, 4) if np.nanmin(Z) <= lvl <= np.nanmax(Z)]
     if levels and min(Z.shape) >= 2:  # contour needs a real 2-D grid
         CS = ax.contour(np.round(Z, 2), levels=levels, colors="blue", linewidths=1.5)
