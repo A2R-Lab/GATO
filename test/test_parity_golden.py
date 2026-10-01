@@ -3,9 +3,10 @@
 Every other determinism test is run-twice on a FRESH solver, which a
 deterministic numeric regression passes. This gate pins the actual numbers:
 for every module in test/receipt_modules.txt, a fixed problem is solved on
-the pcg and bdsv linear-system paths (plus one constrained configuration per
-arm) and xu / merits / iteration counts are compared BITWISE against
-test/golden/<plant>_N<N>_<case>.npz.
+the pcg and bdsv linear-system paths (plus constrained configurations: limit
+ADMM + EE terminal row and collision AL/ADMM per arm at N16, masked CONTACT_POS
+AL/ADMM on go2-fc) and xu / merits / iteration counts are compared BITWISE
+against test/golden/<plant>_N<N>_<case>.npz.
 
 Re-baseline (only with a documented numeric change — say why in the commit):
     GATO_GOLDEN_REBASELINE=1 pytest test/test_parity_golden.py
@@ -34,6 +35,9 @@ NON_PD_RHO_FACTOR) instead of the ordinary x1.2 line-search adaptation; both
 eh solves hit exactly one such factor mid-solve and end at a LOWER merit
 (indy7 11.23 -> 10.39, iiwa14 21.61 -> 18.02, same 10 iterations). No other
 golden solve hits a non-PD factor, so the rest stayed bit-identical.
+Added 2026-10-01: the four collision_{al,admm} arm cases (captured with the
+pre-refactor code) so the cooperative row-kind consolidation is gated bitwise
+on all three cooperative kinds (EE_POS, COLLISION, CONTACT_POS).
 """
 import os
 from pathlib import Path
@@ -94,6 +98,7 @@ def _cases():
             cases.append((plant, N, variant, linsys))
         if plant != "go2" and N == 16 and variant == "default":
             cases.append((plant, N, variant, "admm_ee_pcg"))   # constraint layer: limit ADMM + EE terminal row
+            cases.extend((plant, N, variant, f"collision_{mech}") for mech in ("al", "admm"))   # cooperative COLLISION rows
         if plant == "go2" and variant == "fc":
             cases.extend((plant, N, variant, f"masked_contact_{mech}") for mech in ("al", "admm"))
     return cases
@@ -120,6 +125,15 @@ def test_golden(plant, N, variant, case, urdfs):
         mask[0] = False
         mask[1:N // 2, :3] = False
         s.set_row_group_mask(gi, mask)
+    elif case.startswith("collision_"):
+        # Cooperative COLLISION clearance rows (band-indexed state, uniform
+        # one-sided bounds) against a sphere parked on the reach goal, so the
+        # rows bind during the 10 iterations (telemetry: 0.17 m violation
+        # unenforced -> 0.04 AL / 0.002 ADMM on indy7).
+        s.set_linsys("bdsv")
+        mech = case.removeprefix("collision_")
+        s.set_collision_environment(spheres=[(*GOAL_XYZ, 0.08)])
+        s.enable_collision(mech=mech, margin=0.02, rho=100.0 if mech == "al" else 1.0)
     elif case == "admm_ee_pcg":
         s.set_linsys("pcg")
         s.enable_limit_admm()

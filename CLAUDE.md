@@ -224,8 +224,9 @@ receipt is committed yet, so code can push before a receipt lands). Config in
 regenerate the receipt with (or right after) such a push. The workflow's
 `cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
-`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 38 goldens (pcg + bdsv
-per receipt module, an arm ADMM/EE-row case, the fc/eh variants, masked contact AL/ADMM).
+`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 42 goldens (pcg + bdsv
+per receipt module, an arm ADMM/EE-row case, arm collision AL/ADMM, the fc/eh variants, masked
+contact AL/ADMM).
 Bitwise parity protects those cases, not all correctness or performance. A change to an
 existing golden needs attribution, `GATO_GOLDEN_REBASELINE=1`, and the reason in
 the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cuda/` harnesses
