@@ -45,7 +45,6 @@ if not required <= set(gato.available()):
     raise SystemExit('Build iiwa14 N16 and N64 before reserving the GPU.')
 PY
 command -v nvidia-smi >/dev/null
-command -v rg >/dev/null
 nvidia-smi >/dev/null  # fail closed if the device/driver query fails
 # shellcheck source=night_lib.sh
 source "$HERE/night_lib.sh"
@@ -59,7 +58,7 @@ snapshot() {
   git rev-parse HEAD
   git submodule status --recursive
   sha256sum gpu-proof.json
-  while IFS= read -r module; do sha256sum "$module"; done < <(rg --files --no-ignore python/gato -g '*.so' | sort)
+  while IFS= read -r module; do sha256sum "$module"; done < <(find python/gato -type f -name '*.so' | sort)
 }
 snapshot > "$LOGDIR/inputs-before.txt"
 {
@@ -69,7 +68,7 @@ snapshot > "$LOGDIR/inputs-before.txt"
   cmake --version
   "$PY" --version
   "$PY" -m pip freeze
-  [[ ! -f build/CMakeCache.txt ]] || rg 'CMAKE_(BUILD_TYPE|CUDA_ARCHITECTURES)|GATO_|MODULES:|PLANT:|KNOTS:' build/CMakeCache.txt
+  [[ ! -f build/CMakeCache.txt ]] || grep -E 'CMAKE_(BUILD_TYPE|CUDA_ARCHITECTURES)|GATO_|MODULES:|PLANT:|KNOTS:' build/CMakeCache.txt
 } > "$LOGDIR/environment.txt"
 printf 'GATO merge checkpoint; output=%s; tag=%s\n' "$LOGDIR" "$TAG" | tee "$SUMMARY"
 

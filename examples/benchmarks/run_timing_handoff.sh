@@ -35,7 +35,7 @@ cd "$REPO"
   echo 'REFUSED: commit source changes first.' >&2; exit 2;
 }
 [[ -x "$PY" && -f gpu-proof.json ]] || { echo 'Missing venv or receipt.' >&2; exit 2; }
-for tool in flock nvidia-smi rg cmake nvcc; do command -v "$tool" >/dev/null; done
+for tool in flock nvidia-smi cmake nvcc; do command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 2; }; done
 if [[ "$SUITE" == compile || "$SUITE" == all ]]; then
   command -v systemd-run >/dev/null
   [[ -x /usr/bin/time ]] || { echo 'GNU time is required.' >&2; exit 2; }
@@ -56,7 +56,7 @@ snapshot() {
   git submodule status --recursive
   sha256sum gpu-proof.json
   [[ ! -f build/CMakeCache.txt ]] || sha256sum build/CMakeCache.txt
-  while IFS= read -r module; do sha256sum "$module"; done < <(rg --files --no-ignore python/gato -g '*.so' | sort)
+  while IFS= read -r module; do sha256sum "$module"; done < <(find python/gato -type f -name '*.so' | sort)
 }
 snapshot > "$LOGDIR/inputs-before.txt"
 {
