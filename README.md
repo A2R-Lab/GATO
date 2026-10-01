@@ -325,7 +325,7 @@ pins bitwise goldens for every receipt module (`test/golden/`, re-baseline with
 the full suite runs on a real GPU via `./test/run_gpu_proof.sh`, which emits a
 **signed receipt** (`gpu-proof.json`) binding the git SHA, a source fingerprint,
 and per-test outcomes; a CPU-only GitHub Action verifies the signature against
-the signer's public GitHub keys on pushes to `main`/`cleanup-modernization`,
+the signer's public GitHub keys on pushes to `main`,
 pull requests and a weekly cron (receipts expire after 30 days). The same
 workflow runs the host-only tier in CI with the full `[test]` deps, and fails
 on ANY host-tier skip. Sign receipts from the project `.venv` (`--test --dev`).
