@@ -6,7 +6,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 
 | Figure | Data | Window needed | Status |
 | --- | --- | --- | --- |
-| Fig-3 scalability and heatmap | GATO N × B sweep and multi-threaded QDLDL-based CPU solver B sweep (Oct 1); MPCGPU imported from its Sep 30 harness run | Yes | Refreshed |
+| Fig-3 scalability and heatmap | GATO N × B sweep and multi-threaded QDLDL-based CPU solver B sweep (Oct 1); MPCGPU imported from its Oct 1 evening harness run (main 3566358) | Yes | Refreshed |
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
 | Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
@@ -36,10 +36,10 @@ Internal solver time per batched solve at N = 64. Data: `examples/benchmarks/dat
 | Batch | GATO (ms) | QDLDL-based CPU (ms) | MPCGPU × batch (ms) | GATO vs CPU | GATO vs MPCGPU |
 | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 0.452 | 3.079 | 0.178 | 6.8× | 0.4× |
-| 4 | 0.601 | 3.316 | 0.711 | 5.5× | 1.2× |
-| 16 | 0.969 | 4.251 | 2.843 | 4.4× | 2.9× |
-| 64 | 2.492 | 16.407 | 11.373 | 6.6× | 4.6× |
-| 128 | 4.816 | 29.728 | 22.746 | 6.2× | 4.7× |
+| 4 | 0.601 | 3.316 | 0.714 | 5.5× | 1.2× |
+| 16 | 0.969 | 4.251 | 2.854 | 4.4× | 2.9× |
+| 64 | 2.492 | 16.407 | 11.418 | 6.6× | 4.6× |
+| 128 | 4.816 | 29.728 | 22.835 | 6.2× | 4.7× |
 
 - GATO is 4.4–7.2× faster than the multi-threaded QDLDL-based CPU solver (OSQP with QDLDL,
   `pysqpcpu`) at every batch size from 1 to 128.
