@@ -19,13 +19,13 @@ window is authorized merely by this checklist. Updated 2026-09-27.
   indy7 N64 CUDA build and examples 01/02 passed. No Pinocchio installed.
   Repeat if final integration changes the install/build path; this is not a
   pre-emptive validation of a future merge commit.
-- [ ] Finish the small website quick-start/links update alongside the merge,
-  preserving the paper plots and identifying their numbers as published results.
-  Do not publish new-API instructions linked to `main` before that API lands.
+- [ ] Website candidate prepared October 1 (published results kept and labeled,
+  current-code results added, quick start on `main`); awaiting user review. Deploy
+  only after the API lands on `main`.
 - [x] Reconcile preferred citation metadata with main's ICRA citation; preserve
   the funding acknowledgement.
-- [ ] Remove the temporary quick-start branch selector
-  and switch package documentation URLs to main as part of final integration.
+- [x] Removed the temporary quick-start branch selector and switched package
+  documentation URLs and the GRiD submodule branch to `main` (October 1).
 
 ## 2. Correctness and integration
 
@@ -44,7 +44,8 @@ window is authorized merely by this checklist. Updated 2026-09-27.
 - [x] Follow-up source `d91ab5a`, receipt `3b1a051`: 356 passed, zero skips,
   all 38 goldens unchanged. Floating effort-vector memcheck: two passes, zero
   errors. No new timing measurements; see the September 27 checkpoint review.
-- [ ] Compare with the latest remote main, preserve its independent changes,
+- [x] Merged remote main (`eb025dd`, citation and funding README text) on October 1
+  and re-attested; GRiD pinned to its `main`. Original item: compare with the latest remote main, preserve its independent changes,
   review API removals and generated/pinned dependency changes, and test the
   resulting merge candidate. Do not blindly squash/rebase away the receipt's
   attested ancestor; re-attest the resulting commit if history/sources change.
