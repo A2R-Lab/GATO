@@ -26,9 +26,9 @@ __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
 {
 #if GATO_FLOATING_STEP
         // floating: the linearization scratch is the grid step-gradient arena
-        constexpr uint32_t dyn_ct = gato::plant::stepGradFloating_TempMemCt<T>();
+        constexpr uint32_t dyn_ct = gato::plant::step_grad_floating_smem_ct<T>();
 #else
-        constexpr uint32_t dyn_ct = gato::plant::linearizedDynamics_TempMemCt<T>();   // qdd|dqdd prefix + adapter arena
+        constexpr uint32_t dyn_ct = gato::plant::linearized_dynamics_smem_ct<T>();   // qdd|dqdd prefix + adapter arena
 #endif
         return gato::plant::tracking_cost_grad_hess_smem_ct<T>() > dyn_ct
                    ? gato::plant::tracking_cost_grad_hess_smem_ct<T>()

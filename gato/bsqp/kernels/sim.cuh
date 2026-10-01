@@ -26,9 +26,9 @@ struct SimSmem {
     static constexpr size_t uk = xk + XU_STATE_SIZE;
     static constexpr size_t temp = uk + CONTROL_SIZE;
 #if GATO_FLOATING_STEP
-    static constexpr size_t temp_ct = gato::plant::stepValueFloating_TempMemCt<T>();
+    static constexpr size_t temp_ct = gato::plant::step_value_floating_smem_ct<T>();
 #else
-    static constexpr size_t temp_ct = gato::plant::simStep_TempMemCt<T>();   // qdd prefix + adapter arena
+    static constexpr size_t temp_ct = gato::plant::sim_step_smem_ct<T>();   // qdd prefix + adapter arena
 #endif
     static constexpr size_t total = temp + temp_ct;
     static constexpr size_t bytes() { return total * sizeof(T); }

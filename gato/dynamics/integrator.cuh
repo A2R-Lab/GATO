@@ -30,17 +30,17 @@ namespace gato::plant {
 // indy7) — hidden for months by unrelated layout slack, exposed by memcheck
 // when the slack was reclaimed.
 template<typename T>
-__host__ __device__ constexpr uint32_t simStep_TempMemCt()
+__host__ __device__ constexpr uint32_t sim_step_smem_ct()
 {
         return STATE_SIZE / 2 + forward_dynamics_smem_ct();
 }
 template<typename T>
-__host__ __device__ constexpr uint32_t integratorError_TempMemCt()
+__host__ __device__ constexpr uint32_t integrator_error_smem_ct()
 {
         return STATE_SIZE + forward_dynamics_smem_ct();
 }
 template<typename T>
-__host__ __device__ constexpr uint32_t linearizedDynamics_TempMemCt()
+__host__ __device__ constexpr uint32_t linearized_dynamics_smem_ct()
 {
         return STATE_SIZE / 2 + (STATE_SIZE / 2) * (STATE_SIZE + CONTROL_SIZE)
                + forward_dynamics_gradient_smem_ct();

@@ -902,7 +902,7 @@ namespace plant {
         // Thin forwards to the generated grid_plant::ee_pos[_gradient]
         // (GRiD ASK 2, landed 2026-08-13): caller-scratch, no cost coupling,
         // arena carved by the emitted code itself. s_scratch must be
-        // 16B-aligned and hold >= ee_pos[Grad]_TempMemCt() elements.
+        // 16B-aligned and hold >= ee_pos[_grad]_smem_ct() elements.
         // Outputs: s_pose = 6*NEE (position = rows 0..2 per EE);
         // s_grad = 6*NV*NEE, layout [6*NV*ee + 6*vi + row] (J_p = rows 0..2;
         // tangent d/dv convention — NV == NQ on fixed base).
@@ -930,7 +930,7 @@ namespace plant {
         // f_ext_body takes the wrench about) and their 3 x NV tangent Jacobians,
         // layout s_dpos[3*NV*f + 3*vi + axis] in the [v_lin; omega; joints] LOCAL
         // chart on a floating base — the KKT tangent chart. Caller-scratch like
-        // ee_pos: 16B-aligned, >= contactPos[Grad]_TempMemCt() elements. The
+        // ee_pos: 16B-aligned, >= contact_pos[_grad]_smem_ct() elements. The
         // emitted *_COUNT is the documented contract of the plant wrappers (the
         // shared-tier arena incl. the topology ints + alignment slack — the
         // wrappers hard-carve that layout whatever GRID_DEFAULT_RESOURCE_TIER

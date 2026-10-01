@@ -27,9 +27,9 @@ __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
         // floating: the integrator-error scratch is the grid value-step arena
         // (also covers the terminal knot's trial-x0 + tangent-gap carve:
         // XU_STATE_SIZE + STATE_SIZE << the arena)
-        constexpr size_t b = gato::plant::stepValueFloating_TempMemCt<T>();
+        constexpr size_t b = gato::plant::step_value_floating_smem_ct<T>();
 #else
-        constexpr size_t b = gato::plant::integratorError_TempMemCt<T>();   // qdd|err prefix + adapter arena
+        constexpr size_t b = gato::plant::integrator_error_smem_ct<T>();   // qdd|err prefix + adapter arena
 #endif
         return a > b ? a : b;
 }

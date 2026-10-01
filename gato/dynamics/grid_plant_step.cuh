@@ -142,13 +142,13 @@ __device__ __forceinline__ void check_fc_pool(const T* s_pool, const int* s_afte
 // structs' GRID_CUDA_DEBUG_LAYOUT asserts pin them against the layouts. fc
 // builds append their scratch after the arena (fc_floating above).
 template<typename T>
-__host__ __device__ constexpr uint32_t stepGradFloating_TempMemCt()
+__host__ __device__ constexpr uint32_t step_grad_floating_smem_ct()
 {
         return (uint32_t)grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_COUNT + (uint32_t)fc_floating::GRAD_COUNT;
 }
 
 template<typename T>
-__host__ __device__ constexpr uint32_t stepValueFloating_TempMemCt()
+__host__ __device__ constexpr uint32_t step_value_floating_smem_ct()
 {
         return (uint32_t)grid::INTEGRATOR_DYNAMIC_SHARED_MEM_COUNT + (uint32_t)fc_floating::VALUE_COUNT;
 }
