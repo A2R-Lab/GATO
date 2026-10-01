@@ -232,6 +232,11 @@ the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cud
 (`-DNDEBUG`, `-arch=native`, no fast-math). Also `compute-sanitizer --tool racecheck` on the demo
 `build/bsqp` for shared-memory changes.
 
+## Open tasks
+
+Working notes, todo lists and handoffs live in the gitignored `docs/open-tasks/`. Current todo
+SSOT for GATO and MPCGPU: `docs/open-tasks/open_todos_2026-10-01.md`.
+
 ## Website
 
 The project page is the `gh-pages` branch; any push to it republishes http://a2r-lab.org/GATO/
