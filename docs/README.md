@@ -10,6 +10,7 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I use the Python API or migrate old code? | [Consumer contract and migration notes](consumer_contract.md) |
 | How do I add limits, cones, collision or foot rows? | [Constraint mechanisms and conventions](constraints.md) |
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |
+| How do I build, test, sign a receipt or time a change? | [Development and validation](development.md) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
 | What do the current-code figures show? | [October 1 figure refresh](figure-refresh-2026-10-01.md) |
 | How is the project page updated? | [Website](website.md) |

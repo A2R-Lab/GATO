@@ -329,6 +329,8 @@ the signer's public GitHub keys on pushes to `main`/`cleanup-modernization`,
 pull requests and a weekly cron (receipts expire after 30 days). The same
 workflow runs the host-only tier in CI with the full `[test]` deps, and fails
 on ANY host-tier skip. Sign receipts from the project `.venv` (`--test --dev`).
+The step-by-step developer workflow (capped builds, goldens, receipt, verify, the
+quiet-window timing rule) is [docs/development.md](docs/development.md).
 
 ## Reproducing the paper
 
