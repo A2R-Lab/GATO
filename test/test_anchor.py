@@ -193,7 +193,7 @@ def test_floating_effort_vector_uses_actuator_width(variant):
     np.testing.assert_array_equal(r[:, na:], r0[:, na:])
     # Native entry point must reject nq-length vectors too; Python docs alone
     # cannot protect the raw binding or the cudaMemcpy byte count.
-    with pytest.raises(RuntimeError, match="ACTUATED_SIZE"):
+    with pytest.raises(RuntimeError, match=rf"u_cost_vec must have {s.n_actuated} entries"):
         s.solver.set_u_cost_vec(np.ones(s.nq, dtype=np.float32))
     s.set_u_cost_vec(None)
     R_reset, r_reset = kkt()
