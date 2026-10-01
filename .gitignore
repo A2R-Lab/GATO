@@ -62,7 +62,7 @@ examples/benchmarks/data/**/*.pkl
 examples/benchmarks/night_logs/
 
 # paper-figures: regenerated data + rendered figures are artifacts (recovered/
-# bundled datasets live elsewhere, e.g. examples/gato_hparam_batch_results.pkl)
+# bundled datasets live elsewhere, e.g. examples/paper-figures/gato_hparam_batch_results.pkl)
 # NOTE: these are recursive (**) on purpose — a rotation into a stale_*/ subdir
 # used to escape the flat patterns and dirty the tree, failing the receipt's
 # clean-tree check (hit at the L7 rotation, again at the Drake-swap rotation).

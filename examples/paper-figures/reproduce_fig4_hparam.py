@@ -8,7 +8,7 @@ the average normalized best-merit vs SQP iteration per batch size — larger bat
 converge faster (Fig-4).
 
 DEFAULT = REGENERATE on the GPU (this reproduces our bundled
-``examples/gato_hparam_batch_results.pkl``: 24 cost-config combos x 50 random
+``examples/paper-figures/gato_hparam_batch_results.pkl``: 24 cost-config combos x 50 random
 targets). Use ``--replot`` to skip the GPU and render from that bundled data.
 
 NOTE on paper fidelity: the paper text states "100 runs each with 81 different
@@ -48,7 +48,7 @@ QD_LIST = [1e-1, 1e-3, 1e-5]
 U_LIST = [1e-6, 1e-7]
 N_LIST = [100.0, 10.0]
 
-RECOVERED = "examples/gato_hparam_batch_results.pkl"
+RECOVERED = "examples/paper-figures/gato_hparam_batch_results.pkl"
 
 
 def build_solver(urdf, B, q_cost, qd_cost, u_cost, N_cost, max_iters, *, rho_batch=None, rho=1e-3):

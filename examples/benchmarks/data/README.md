@@ -34,6 +34,6 @@ These are **measured** GPU/solver results recovered during the cross-branch cons
 - **Status:** secondary/early reference (predates the paper harnesses); kept for completeness.
 
 ## Recovered elsewhere (not in this directory)
-- **CS1 hyperparameter results** (Fig 4): `examples/gato_hparam_batch_results.pkl` (84 KB, the
-  `agg` dict of normalized merit-vs-SQP-iter curves per batch size) — restored into `examples/`
+- **CS1 hyperparameter results** (Fig 4): `examples/paper-figures/gato_hparam_batch_results.pkl` (84 KB, the
+  `agg` dict of normalized merit-vs-SQP-iter curves per batch size) — kept next to its consumer
   (its notebook was folded into `examples/explore.ipynb`; `reproduce_fig4_hparam.py --replot` re-plots Fig 4 from it).

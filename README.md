@@ -350,8 +350,8 @@ every paper horizon + go2 N16 + the fc/eh variants).
 
 | Paper element | Script | Notes |
 |---|---|---|
-| **Fig-3** scalability (iiwa14 fig-8, GATO vs a multi-threaded QDLDL-based CPU solver vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); the June single-robot chain is in `examples/archive/` |
-| **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/gato_hparam_batch_results.pkl` |
+| **Fig-3** scalability (iiwa14 fig-8, GATO vs a multi-threaded QDLDL-based CPU solver vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); the June single-robot chain was retired 2026-10-01 (git history: `examples/archive/`) |
+| **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/paper-figures/gato_hparam_batch_results.pkl` |
 | **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | fixed-pacing force sweep + EE trajectories; not a reproduction of latency-induced degradation |
 | **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | runnable; success magnitudes and protocol/metric provenance remain unresolved; full refresh deferred |
 

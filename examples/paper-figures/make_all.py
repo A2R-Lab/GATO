@@ -8,7 +8,7 @@ fig3 is the FAIR iiwa14 parity harness (reproduce_fig3_fair.py): by default it
 assembles the table + plots from the committed sweep CSVs (no GPU); its TIMING data
 stages (--run-gato/--run-bt/--run-mpcgpu) are quiet-box legs of
 examples/benchmarks/run_timing_night.sh, not something make_all runs. The June
-indy7 fig3 chain is archived under examples/archive/.
+indy7 fig3 chain was retired 2026-10-01 (git history: examples/archive/).
 
 Examples::
     python examples/paper-figures/make_all.py --quick     # smoke every figure

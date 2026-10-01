@@ -76,5 +76,6 @@ shared lock and selectable isolated compile/calibration legs through
 [`run_timing_night.sh`](benchmarks/run_timing_night.sh) is a broad research run,
 not the merge checklist: it also accesses a sibling MPCGPU checkout and reruns
 Fig-7. Do not launch it blindly on a shared machine. `contact-task/`
-is the [fc-vs-baselines contact-wipe study](contact-task/README.md). Superseded scripts are kept for provenance
-in [`archive/`](archive/README.md).
+is the [fc-vs-baselines contact-wipe study](contact-task/README.md). The superseded June-era
+scripts (the indy7 fig3 chain, the pinocchio-sim baseline, the bdsv timing session) were
+retired on 2026-10-01; recover them from git history (`git log -- examples/archive`).

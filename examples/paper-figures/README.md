@@ -59,8 +59,8 @@ and budget (SQP=1, PCG cap 200 / relative tolerance 1e-4, rho=0.01).
 The assembler consumes `../benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`.
 Old Indy7 point-to-point data is NOT a baseline for the iiwa14 fig8 sweep.
 Pre-July-30 data used the wrong terminal frame; do not mix it with named-EE
-results. [Archived June scripts](../archive/README.md) preserve history, not
-interchangeable benchmark implementations.
+results. The June scripts were retired 2026-10-01 (git history: `examples/archive/`);
+they were history, not interchangeable benchmark implementations.
 
 The current GATO sweep records internal solver duration, not full Python or
 controller latency. The paper describes timing around wrappers. Match these

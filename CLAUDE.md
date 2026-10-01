@@ -120,7 +120,7 @@ migrated to `glass::`.
   (`reproduce_fig*.py`, `_common.py`, `_pickplace_runner.py`); `benchmarks/` (`_bench.py` shared
   helpers, `iiwa_fig8_shared.py`, `constraint_eval.py`, `_linsys_probe.py`/`linsys_auto_cdf.py`,
   `run_timing_night.sh`, `baselines/` incl. the opt-in `sqpcpu` submodule); `contact-task/`
-  (the wipe task); `archive/` (superseded June-era scripts).
+  (the wipe task). The superseded June-era `archive/` scripts were retired 2026-10-01 (git history).
 - `test/` — pytest suite (`gpu`/`slow` markers; see Validation): goldens in `test/golden/`,
   the receipt module set in `test/receipt_modules.txt`, kernel harnesses in `test/cuda/` (run by
   `test_kernel_gates.py`), `conftest.py` shared fixtures (TEST_PARAMS, go2 helpers).

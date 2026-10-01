@@ -5,7 +5,7 @@ auto@tau) under a disturbance-rich MPC workload.
 Question (user, 2026-08-12): does warm-startedness-based per-solve selection
 (linsys="auto": pred_err <= tau -> pcg, else bdsv_first) win the solve-time
 CDF by capturing warm pcg's fast left edge AND bdsv's flat cold tail?
-History: the 07-10 session (archive/bdsv_timing_session.py --mpc) found auto matched
+History: the 07-10 session (bdsv_timing_session.py --mpc, retired from examples/archive/ 2026-10-01) found auto matched
 pcg but didn't beat p95 — but its protocol only ever kicked q by N(0,0.05)
 and recorded p50/p95, so the cold tail was never populated or plotted.
 Verdict (08-12, quiet box): YES — auto@0.08 matches the matched-step oracle
