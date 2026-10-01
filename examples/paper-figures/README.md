@@ -5,6 +5,8 @@ Runnable does not mean numerically reproduced. Keep published results, historica
 datasets and fresh evaluations of the current code distinct. A correctness
 receipt is not a timing report.
 
+The latest current-code refresh and its numbers: [docs/figure-refresh-2026-10-01.md](../../docs/figure-refresh-2026-10-01.md).
+
 ## Setup and modes
 
 Use the project `.venv`; `./tools/install.sh --examples` supplies simulation AND
