@@ -67,3 +67,24 @@ def test_arbitrary_batch_size(make_solver, smallest_module):
     X, goals = _inputs(plant, N, 3)  # not a power of two
     res = make_solver(plant, N, batch_size=3).solve(X, goals)
     assert res.xu.shape[0] == 3 and np.isfinite(res.xu).all()
+
+
+def test_terminal_merit_ignores_stale_shared_memory(urdfs):
+    """The terminal knot has no control, but the merit's cost value read its u slot with zero
+    weight; left unwritten, NaN/Inf from an earlier kernel made 0 * NaN = NaN and froze that
+    solve's line search. A tiny-rho sweep leaves such values behind; every later solve in the
+    process must still start from a finite merit (reproduced the bug every time before the fix)."""
+    if ("iiwa14", 64) not in gato.available():
+        pytest.fail("iiwa14 N=64 module missing from the receipt build")
+    params = gato.SolverParams(max_sqp_iters=100, max_pcg_iters=200, pcg_tol=1e-3, solve_ratio=1.0,
+                               mu=1.0, q_cost=10.0, qd_cost=0.1, u_cost=1e-6, N_cost=100.0,
+                               q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0, rho=1e-3, adapt_rho=True)
+    goal = np.tile(np.array([0.078, 0.344, 0.562, 0, 0, 0], np.float32), 64)
+    B = 8
+    sweep = np.power(10, -8 + np.arange(1, B + 1) / (B + 1) * 9).astype(np.float32)
+    for rho_batch in (sweep, sweep, None):
+        solver = gato.BSQP(model_path=str(urdfs["iiwa14"]), batch_size=B, N=64, dt=0.05, params=params,
+                           plant_type="iiwa14", rho_batch=rho_batch)
+        res = solver.solve(np.zeros((B, solver.nx), np.float32), np.tile(goal, (B, 1)))
+        assert np.isfinite(res.stats.initial_merit).all(), res.stats.initial_merit
+        assert np.isfinite(res.stats.min_merit).all()

@@ -133,6 +133,14 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 }
         }
 
+        // The terminal knot has no control, but tracking_cost_value still reads the u slot
+        // (with zero weight and barrier). Left unwritten it holds whatever an earlier kernel
+        // left in shared memory, and 0 * NaN/Inf made the whole solve's merit NaN, which
+        // silently froze its line search. Zero it.
+        if (knot_idx == KNOT_POINTS - 1) {
+                for (uint32_t i = threadIdx.x; i < CONTROL_SIZE; i += blockDim.x) s_xux_k[XU_STATE_SIZE + i] = static_cast<T>(0);
+        }
+
         T* d_reference_traj_k = get_offset_reference_traj<T>(d_reference_traj_batch, solve_idx, knot_idx);
         glass::copy<T, constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
         __syncthreads();
