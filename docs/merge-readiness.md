@@ -75,8 +75,9 @@ autotuning are hidden inside this runner.
 - [x] Compare matching iiwa14 cells with the matching prior iiwa14 CSVs, including
   repeated-run variation: September medians +41%/+37%/+13% at B1/8/128, but the
   seed changed from zero-tail to hold during harness migration. Attribution open.
-- [ ] Run controlled seed-policy A/B on frozen inputs; investigate any residual
-  source/binary performance gap before declaring performance unchanged.
+- [x] Run controlled seed-policy A/B on frozen inputs (September 30; see the
+  checkpoint review). The seed explains nearly all of the gap; residuals of about
+  3% at B8 and 4% at B128 stay unattributed until a matched source A/B.
 - [x] Check numerical quality alongside latency: both seeds pass 400-step raw/
   controller parity at B1/8/128. Corrected pick-place v2 is deterministic 8/10
   (scenarios 3/9 fail at goal five); preserve those limitations. The Fig-3 sweep follows the
