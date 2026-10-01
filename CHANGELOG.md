@@ -14,6 +14,12 @@ Unreleased on `main` (no tag: installs are source-tree only, plan D10).
   Fig-3's MPCGPU lane now imports MPCGPU's own timing-harness output. Results and limits:
   `docs/figure-refresh-2026-10-01.md`. Fig-7 / Table I stay as published.
 - Timing launchers no longer need ripgrep.
+- Fixed a solver bug: the merit's terminal-knot cost read the unwritten control slot with
+  zero weight, so NaN or Inf left in shared memory by an earlier kernel (for example a
+  diverging tiny-rho solve) made 0 * NaN = NaN. That solve's initial merit became NaN and its
+  line search never accepted a step, nondeterministically and only after such a kernel. The
+  slot is now zeroed; all 38 goldens are bit-identical and a regression test replays the
+  triggering sequence. Found because Fig-4 batches up to 128 with rho down to 1e-8.
 
 ## 2026-09-27 — Checkpoint follow-up fixes (no new timing claims)
 

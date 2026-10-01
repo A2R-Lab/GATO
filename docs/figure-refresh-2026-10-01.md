@@ -7,7 +7,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Figure | Data | Window needed | Status |
 | --- | --- | --- | --- |
 | Fig-3 scalability and heatmap | GATO N × B sweep and BatchThneed B sweep (Oct 1); MPCGPU imported from its Sep 30 harness run | Yes | Refreshed |
-| Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix |
+| Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
 | Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
 
@@ -41,6 +41,13 @@ averaged by truncating every curve to the shortest one, which left a single poin
 the August figure had the same defect. Curves are now extended with their final value, which is what a
 best-merit-so-far curve means after the solver stops. The refreshed figure averages 50 goals × 24 cost
 settings; the paper describes 100 runs × 81 cost choices, so it is not the paper's exact grid.
+
+After that fix the full regeneration was still empty, which exposed a solver bug: some batch
+members reported a NaN initial merit and never accepted a line-search step. The terminal knot's
+cost read an unwritten shared-memory control slot with zero weight, and 0 × NaN from a previous
+kernel's leftovers is NaN. Fixed in `gato/bsqp/kernels/merit.cuh` (commit `9e25778`), with a
+regression test; every golden is bit-identical. Runs without NaN or Inf left in shared memory were
+unaffected; earlier results can only have been affected after a solve that produced such values.
 
 ## Fig-5: unchanged behavior
 
