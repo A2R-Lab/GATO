@@ -11,6 +11,23 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
 | Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
 
+## Seed A/B (September 30)
+
+The September 27 checkpoint measured iiwa14 N64 medians about 41%, 37% and 13% above saved August
+values at B1/8/128, after the benchmark's initial guess changed from zero-tail to hold. One
+quiet-window run on a single source and binary, three repeats per seed in alternating order with
+one frozen reference, isolated that change:
+
+| iiwa14 N64 batch | zero-tail median range (ms) | hold median range (ms) | August median (ms) | zero-tail vs August |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.4495–0.4510 | 0.6330–0.6340 | 0.4490 | +0.3% |
+| 8 | 0.7155–0.7190 | 0.9430–0.9530 | 0.6980 | +2.7% |
+| 128 | 4.7915–4.7920 | 5.2000–5.2040 | 4.5950 | +4.3% |
+
+The seed accounts for almost all of the gap. Residuals of about 3% at B8 and 4% at B128 remain
+unattributed: the August cells are single saved runs on older source. These are internal solver
+times.
+
 ## Fig-3: matched iiwa14 figure-eight benchmark
 
 Internal solver time per batched solve at N = 64. Data: `examples/benchmarks/data/sweep_fig8_*.csv`

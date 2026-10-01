@@ -11,11 +11,10 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I add limits, cones, collision or foot rows? | [Constraint mechanisms and conventions](constraints.md) |
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
-| What remains before merging? | [Merge checklist](merge-readiness.md) |
-| How does an overnight agent run the timing bundle? | [Timing handoff and reservation](timing-handoff.md) |
-| What did the latest checkpoint find? | [September 27 measurements and follow-up](checkpoint-2026-09-27.md) |
+| What do the current-code figures show? | [October 1 figure refresh](figure-refresh-2026-10-01.md) |
+| How is the project page updated? | [Website](website.md) |
 | Where did historical datasets come from? | [Dated archaeology](archaeology.md) — history, not current API guidance |
 
-The [paper website](https://a2r-lab.org/GATO/) presents the published experiments.
-It is not a live benchmark dashboard. A green correctness receipt does not
+The [project website](https://a2r-lab.org/GATO/) presents the published experiments and the
+latest current-code results, each labeled. It is not a live benchmark dashboard. A green correctness receipt does not
 certify runtime speed, arbitrary robot models or safety on physical hardware.

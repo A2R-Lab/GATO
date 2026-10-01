@@ -14,7 +14,7 @@ research software, not a certified robot controller.
 | Contact-force (`fc`) and exact-Hessian (`eh`) variants | Named N16 arm variants in the receipt | Separate variants, not an arbitrary combined fc+eh configuration; exact Hessian is workload-dependent |
 | Go2 floating-base dynamics and contact-force standing | N16 default/fc modules, manifold/derivative tests, MuJoCo standing gates | Longer horizons are not supported by the receipt; standing is not walking |
 | Gait schedule, foot masks and swing targets | Solver-level foot-lift and programmer-plumbing tests | Schedule is supplied, not discovered; closed-loop S2 weight shift / S3 lift remain in development |
-| Runtime and compilation performance | [September 27 checkpoint](checkpoint-2026-09-27.md): repeatable runtime and isolated single-module builds | Benchmark seed drift needs a controlled timing A/B; no refreshed paper speedup claims |
+| Runtime and compilation performance | [October 1 figure refresh](figure-refresh-2026-10-01.md): seed A/B, Fig-3/4/5 on the current code | Seed policy explains the September gap except about 3–4% at B8/B128; current ratios are not the paper's speedups |
 
 ## Important operating limits
 
@@ -28,7 +28,8 @@ research software, not a certified robot controller.
 - **Pick-place results:** the September 27 review found invalid historical
   pendulum quaternion initialization. Corrected pools use protocol
   `unit-quaternion-pendulum-v2`; old success rates are not interchangeable with
-  corrected simulations or the paper. See the checkpoint review.
+  corrected simulations or the paper. The corrected ten-scenario sample succeeds 8/10
+  (scenarios 3 and 9 fail at goal five).
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a

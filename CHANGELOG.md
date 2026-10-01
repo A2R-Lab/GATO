@@ -8,7 +8,7 @@ Unreleased on `main` (no tag: installs are source-tree only, plan D10).
   remote README citation and funding edits. Quick start, package URL and the GRiD submodule
   branch now point at `main`.
 - Seed A/B timing: the benchmark's seed change explains nearly all of the September gap;
-  about 3% (B8) and 4% (B128) remain unattributed. See the checkpoint review.
+  about 3% (B8) and 4% (B128) remain unattributed (docs/figure-refresh-2026-10-01.md).
 - Fixed Fig-4, which plotted nothing: best-merit curves are now padded past early SQP stops
   instead of truncated to the shortest. Refreshed Fig-3, Fig-4 and Fig-5 with the current code;
   Fig-3's MPCGPU lane now imports MPCGPU's own timing-harness output. Results and limits:

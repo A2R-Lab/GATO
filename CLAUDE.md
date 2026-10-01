@@ -234,7 +234,9 @@ the commit message. `test/test_kernel_gates.py` builds + runs the five `test/cud
 
 ## Open tasks
 
-Working notes, todo lists and handoffs live in the gitignored `docs/open-tasks/`. Current todo
+Working notes, todo lists and handoffs live in the gitignored `docs/open-tasks/` (including the
+timing handoff, the September 27 checkpoint review and the merge checklist). Tracked `docs/` keeps
+public documentation only. Current todo
 SSOT for GATO and MPCGPU: `docs/open-tasks/open_todos_2026-10-01.md`.
 
 ## Website

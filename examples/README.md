@@ -70,7 +70,7 @@ matrix, the go2 linsys sweep) share [`benchmarks/_bench.py`](benchmarks/_bench.p
 provide quiet-GPU checks, but not every direct script invocation enforces one.
 Use the guarded [merge checkpoint](benchmarks/run_merge_checkpoint.sh) for the
 focused batch; it requires an explicit quiet-window declaration.
-For a coordinating agent, the [timing handoff](../docs/timing-handoff.md) adds a
+For a coordinating agent, `run_timing_handoff.sh` adds a
 shared lock and selectable isolated compile/calibration legs through
 [`run_timing_handoff.sh`](benchmarks/run_timing_handoff.sh). The older
 [`run_timing_night.sh`](benchmarks/run_timing_night.sh) is a broad research run,

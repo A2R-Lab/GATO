@@ -128,8 +128,8 @@ research are deferred; never overwrite the old pool.
 The [focused runner](../benchmarks/run_merge_checkpoint.sh) samples Fig-3 at
 N64 / B=1,8,128 with three process repeats and Fig-7 at B128 / ten seeded
 scenarios. It does NOT refresh the full Fig-3 grid, Fig-4, Fig-5 or full Fig-7.
-Compiler measurements and autotuning are separate opt-in legs in the
-[merge checklist](../../docs/merge-readiness.md).
+Compiler measurements and autotuning are separate opt-in legs of
+`examples/benchmarks/run_timing_handoff.sh`.
 
 Next research refresh: Fig-3's matched full sweep, Fig-4's explicitly chosen
 grid, and Fig-5's quality and separately specified latency experiment. The legacy

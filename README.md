@@ -79,7 +79,6 @@ pinned submodules initialized (the install script does this). The pure-python
 wheel contains no solver modules; these are GPU-arch/CUDA/ABI-specific CMake
 products. The sdist contains GATO's own build sources but does not bundle the
 external GRiD/GLASS trees, so it is NOT a standalone native-build distribution.
-See [merge/release boundaries](docs/merge-readiness.md).
 
 ### Build Options
 
