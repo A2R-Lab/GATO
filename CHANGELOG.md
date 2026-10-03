@@ -2,6 +2,21 @@
 
 Unreleased on `main` (no tag: installs are source-tree only, plan D10).
 
+## 2026-10-02 — Fig-3 harness: `--robot indy7` + fig8 driver stop-condition fix
+
+- `MPC_GATO.run_mpc_fig8` stopped `6N` goal steps early instead of `N`: a goal of exactly
+  sim-steps + N knots produced 148 control steps at N = 32 and none at N ≥ 64. The long
+  MPCGPU goal file (1202 steps) hid it on the iiwa14 lane; the wipe task padded around it.
+  Fixed (`eepos_offset + N > steps`), regression test `test_mpc_gato_run_mpc_fig8_uses_whole_goal`.
+  No committed number changes: every existing caller's goal is far longer than its sim time.
+- The FAIR fig8 harness is robot-parameterized: `iiwa_fig8_shared.robot(name)` carries URDF,
+  registry EE frame, q0 and whether MPCGPU's goal file applies; `sweep_batch_iiwa_fig8.py`,
+  `track_iiwa_fig8_gato.py`, `baselines/track_iiwa_fig8_bt.py` and `reproduce_fig3_fair.py`
+  take `--robot {iiwa14,indy7}`. iiwa14 outputs are unchanged (same goal hashes as every
+  recorded run); Indy7 uses the same fig8 at `INDY7_START_CONFIGS["ready"]`, a synthesized
+  goal (MPCGPU has no Indy7 trajfile) and `_indy7`-suffixed CSV/figure names. Indy7 numbers
+  are recorded in `docs/figure-refresh-2026-10-01.md` once measured in a quiet window.
+
 ## 2026-10-01 — Release-hygiene batch (no numeric change: all 42 goldens bit-identical)
 
 - Cooperative row kinds are described once. `gato/bsqp/rowgroups.cuh` lost the per-kind

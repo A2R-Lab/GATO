@@ -1,4 +1,4 @@
-"""Regenerate Fig-3 DATA from the FAIR iiwa14 fig8 parity harness (2026-07 config).
+"""Regenerate Fig-3 DATA from the FAIR fig8 parity harness (2026-07 config; iiwa14 default, --robot indy7).
 
 Supersedes the June indy7 DATA path of reproduce_fig3_{scalability,heatmap}.py: all three
 solvers solve the IDENTICAL problem (examples/benchmarks/iiwa_fig8_shared.py — same fig8,
@@ -18,6 +18,10 @@ Data stages (each appends CSVs under examples/benchmarks/data/; TIMING — quiet
                  plan, run from the MPCGPU repository) -> sweep_fig8_mpcgpu.csv
 Default (no --run-*) assembles the table + figures from existing CSVs. Stages run
 sequentially (never overlap timing). Re-runs append; assembly takes the LAST row per (N,B).
+
+--robot indy7 runs the same harness on the paper's Indy7 (GATO + CPU lanes only — MPCGPU has
+no Indy7 build or trajfile, so the goal is synthesized): CSVs and figures get an `_indy7`
+suffix (sweep_fig8_gato_indy7.csv, fig3_fair_scalability_indy7.*); iiwa14 names are unchanged.
 
 Examples::
     # full regeneration on a quiet box (GATO grid + BT B-sweep at N=64), MPCGPU imported
@@ -39,9 +43,20 @@ import _common as C
 
 PY = sys.executable                        # the data stages run under THIS python
 
+ROBOT = "iiwa14"                           # set by main(); the CSV/figure names carry non-iiwa14 robots
+SUFFIX = ""
 GATO_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_gato.csv")
 BT_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_bt.csv")
 MPCGPU_CSV = os.path.join(C.BENCH_DATA, "sweep_fig8_mpcgpu.csv")
+
+
+def set_robot(robot):
+    global ROBOT, SUFFIX, GATO_CSV, BT_CSV, MPCGPU_CSV
+    ROBOT = robot
+    SUFFIX = "" if robot == "iiwa14" else f"_{robot}"
+    GATO_CSV = os.path.join(C.BENCH_DATA, f"sweep_fig8_gato{SUFFIX}.csv")
+    BT_CSV = os.path.join(C.BENCH_DATA, f"sweep_fig8_bt{SUFFIX}.csv")
+    MPCGPU_CSV = os.path.join(C.BENCH_DATA, f"sweep_fig8_mpcgpu{SUFFIX}.csv")
 
 
 def _run(cmd, cwd=C.REPO, env=None):
@@ -67,9 +82,9 @@ def bt_env():
 
 def run_gato(N_list, batches, extra, solves):
     for N in N_list:
-        C.require_module("iiwa14", N)
+        C.require_module(ROBOT, N)
         blist = batches + [b for b in extra if b not in batches]
-        _run([PY, "examples/benchmarks/sweep_batch_iiwa_fig8.py", "--N", N,
+        _run([PY, "examples/benchmarks/sweep_batch_iiwa_fig8.py", "--robot", ROBOT, "--N", N,
               "--batches", ",".join(map(str, blist)), "--solves", solves, "--out", GATO_CSV])
 
 
@@ -78,7 +93,7 @@ def run_bt(N_list, batches, sim_time):
     script = os.path.join(C.BENCH_DIR, "baselines", "track_iiwa_fig8_bt.py")
     for N in N_list:
         for B in batches:
-            _run([PY, script, sim_time, B, N, BT_CSV], env=env)
+            _run([PY, script, sim_time, B, N, BT_CSV, "--robot", ROBOT], env=env)
 
 
 def import_mpcgpu(timing_dir):
@@ -89,6 +104,8 @@ def import_mpcgpu(timing_dir):
     median of the per-repeat medians. Samples are MPCGPU's internal SQP time per control update.
     """
     import glob, json, statistics
+    if ROBOT != "iiwa14":
+        raise SystemExit(f"[fig3-fair] MPCGPU has no {ROBOT} lane — import only applies to iiwa14")
     cells = {}
     for path in sorted(glob.glob(os.path.join(timing_dir, "pcg-*-reuse-r*", "verdict.json"))):
         v = json.load(open(path))
@@ -122,7 +139,7 @@ def read_cells(path):
 
 def report_fig3_left(N, batches, gato, bt, mpc):
     mpc1 = mpc.get((N, 1))
-    lines = [f"=== Fig-3 (left, FAIR): iiwa14 fig8, N={N}, batched total solve time vs B ===",
+    lines = [f"=== Fig-3 (left, FAIR): {ROBOT} fig8, N={N}, batched total solve time vs B ===",
              "config: SQP=1, PCG<=200 rel 1e-4, rho 0.01, shared fig8/EE-frame/costs; "
              "MPCGPU = its figure-eight build flags (GATO_REG_PATTERN, native exit), imported from its timing harness",
              f"{'B':>4} {'GATO_ms':>9} {'BT_ms':>9} {'MPCGPUxB_ms':>12} {'GATOvsBT':>9} {'GATOvsMPCGPU':>13}"]
@@ -142,7 +159,7 @@ def report_fig3_left(N, batches, gato, bt, mpc):
                      "no batch axis -> B x per-solve (sequential).")
     txt = "\n".join(lines)
     print(txt)
-    with open(os.path.join(C.FIG_DIR, "fig3_fair_scalability.txt"), "w") as f:
+    with open(os.path.join(C.FIG_DIR, f"fig3_fair_scalability{SUFFIX}.txt"), "w") as f:
         f.write(txt + "\n")
 
 
@@ -169,7 +186,7 @@ def plot_fig3_left(N, batches, gato, bt, mpc):
     plt.grid(True, which="both", alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    C.savefig(fig, "fig3_fair_scalability")
+    C.savefig(fig, f"fig3_fair_scalability{SUFFIX}")
 
 
 def report_heatmap(gato, N_list, all_batches):
@@ -178,7 +195,7 @@ def report_heatmap(gato, N_list, all_batches):
     if not Ns or not Bs:
         print("[fig3-fair] no GATO heatmap cells yet — run --run-gato first")
         return None, None, None
-    lines = ["=== Fig-3 (right, FAIR): GATO iiwa14 fig8 total batched solve time (ms) ===",
+    lines = [f"=== Fig-3 (right, FAIR): GATO {ROBOT} fig8 total batched solve time (ms) ===",
              "N\\B " + " ".join(f"{b:>8}" for b in Bs)]
     Z = np.full((len(Ns), len(Bs)), np.nan)
     for i, n in enumerate(Ns):
@@ -191,7 +208,7 @@ def report_heatmap(gato, N_list, all_batches):
         lines.append(f"{n:>4} " + " ".join(cells))
     txt = "\n".join(lines)
     print(txt)
-    with open(os.path.join(C.FIG_DIR, "fig3_fair_heatmap.txt"), "w") as f:
+    with open(os.path.join(C.FIG_DIR, f"fig3_fair_heatmap{SUFFIX}.txt"), "w") as f:
         f.write(txt + "\n")
     return Ns, Bs, Z
 
@@ -224,11 +241,13 @@ def plot_heatmap(Ns, Bs, Z):
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label("GPU Solve Time (ms)")
     plt.tight_layout()
-    C.savefig(fig, "fig3_fair_heatmap")
+    C.savefig(fig, f"fig3_fair_heatmap{SUFFIX}")
 
 
 def main():
-    p = argparse.ArgumentParser(description="Fig-3 data from the FAIR iiwa14 parity harness.")
+    p = argparse.ArgumentParser(description="Fig-3 data from the FAIR fig8 parity harness.")
+    p.add_argument("--robot", choices=("iiwa14", "indy7"), default="iiwa14",
+                   help="iiwa14 = the FAIR 3-way lane; indy7 = the paper's robot (GATO + CPU only)")
     p.add_argument("--run-gato", action="store_true", help="TIMING: GATO N x B sweep (quiet box)")
     p.add_argument("--run-bt", action="store_true", help="TIMING: multi-threaded QDLDL-based CPU solver B sweep (quiet box)")
     p.add_argument("--mpcgpu-timing-dir", help="import MPCGPU cells from its tools/timing.py output "
@@ -242,6 +261,7 @@ def main():
     p.add_argument("--sim-time", type=float, default=6.0, help="BT closed-loop sim seconds")
     p.add_argument("--quick", action="store_true", help="tiny wiring smoke (NOT paper numbers)")
     args = p.parse_args()
+    set_robot(args.robot)
 
     N_list = C.parse_int_list(args.N_list)
     batches = C.parse_int_list(args.batches)

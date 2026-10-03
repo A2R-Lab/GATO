@@ -1,35 +1,38 @@
-"""GATO iiwa14 fig8 tracking on the FAIR shared problem (see iiwa_fig8_shared.py).
-Uses the canonical fig8 (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6), fixed-dt
-pacing, and measures tracking error at the EE frame so it is directly comparable to MPCGPU's
-validate_track and the QDLDL-based CPU baseline. Needs the prebuilt bsqpN64_iiwa14 module and a
+"""GATO fig8 tracking on the FAIR shared problem (see iiwa_fig8_shared.py; iiwa14 default, --robot indy7).
+Uses the canonical fig8 (center = grid-EE = URDF "EE" fixed joint at the robot's q0, A=0.15, T=6),
+fixed-dt pacing, and measures tracking error at the EE frame so it is directly comparable to MPCGPU's
+validate_track and the QDLDL-based CPU baseline. Needs the prebuilt bsqpN{N}_{robot} module and a
 python with pinocchio (the project .venv).
 
-  python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time]
+  python examples/benchmarks/track_iiwa_fig8_gato.py [sim_time] [--robot iiwa14] [--N 64]
 """
-import sys
+import argparse
 import numpy as np
 import iiwa_fig8_shared as fig8mod
 from gato.mpc_gato import MPC_GATO
 
-SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
+_p = argparse.ArgumentParser(description="GATO fig8 closed-loop tracking (FAIR harness)")
+_p.add_argument("sim_time", nargs="?", type=float, default=6.0)
+_p.add_argument("--robot", choices=fig8mod.ROBOTS, default="iiwa14")
+_p.add_argument("--N", type=int, default=64)
+_a = _p.parse_args()
+SIM_TIME, N = _a.sim_time, _a.N
 DT = fig8mod.DT
-N = 64
 
-model, data = fig8mod.build_model()
-q0 = fig8mod.Q0_READYC
-center = fig8mod.fig8_center(model, data, q0)
+rob = fig8mod.robot(_a.robot)
+model, data = fig8mod.build_model(rob.name)
+q0 = rob.q0
+center = fig8mod.fig8_center(model, data, q0, rob.ee_frame)
 
-# prefer the byte-identical MPCGPU-generated goal; else synthesize (verified equal)
-goal = fig8mod.load_goal_file()
+# prefer the byte-identical MPCGPU-generated goal (iiwa14); else synthesize (verified equal)
 n_needed = int(SIM_TIME / DT) + N + 8
-if goal is None or len(goal) // 6 < n_needed:
-    goal = fig8mod.figure8_goal(n_needed, center=center)
-print(f"iiwa14 GATO fig8: center(EE)={center.round(4)} A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} "
-      f"N={N} sim_time={SIM_TIME}  goal_steps={len(goal)//6}")
+goal, goal_source = fig8mod.goal_sequence(rob, n_needed, center)
+print(f"{rob.name} GATO fig8: center(EE)={center.round(4)} A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} "
+      f"N={N} sim_time={SIM_TIME}  goal_steps={len(goal)//6} goal={goal_source}")
 
 x_start = np.hstack((q0, np.zeros(model.nv)))
-mpc = MPC_GATO(model=model, N=N, dt=DT, batch_size=1, model_path=fig8mod.IIWA14_URDF,
-               plant_type='iiwa14', constant_f_ext=None, track_full_stats=True,
+mpc = MPC_GATO(model=model, N=N, dt=DT, batch_size=1, model_path=rob.urdf,
+               plant_type=rob.name, constant_f_ext=None, track_full_stats=True,
                # pin the paper-era pcg path (controller default is "auto" since
                # 08-12; committed baselines were measured under pcg)
                linsys="pcg")
@@ -40,7 +43,7 @@ _, stats = mpc.run_mpc_fig8(x_start, goal, sim_dt=0.001, sim_time=SIM_TIME, pace
 # measure at EE from the logged joint configs (uniform metric across all three solvers; post-regen
 # the solver frame coincides with EE, so this equals solver.ee_pos up to the pin-vs-grid FK path)
 jp = stats.get('joint_positions', [])
-errs = fig8mod.ee_tracking_errors(model, data, jp, goal, dt=DT)
+errs = fig8mod.ee_tracking_errors(model, data, jp, goal, dt=DT, frame=rob.ee_frame)
 st = np.asarray(stats['solve_times'], float)
 sqp = np.asarray(stats.get('sqp_iters', []), float)
 if len(errs):

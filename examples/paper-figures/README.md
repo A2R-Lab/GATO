@@ -35,7 +35,7 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 
 | Script | Modules | Meaning and current limitation |
 |---|---|---|
-| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
+| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap); `--robot indy7` for the paper's arm (GATO + CPU lanes) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
 | `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
 | `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
 | `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical task-completion time; success gap unresolved; full refresh deferred |
@@ -48,7 +48,12 @@ new hardware experiments are performed.
 
 The current harness uses iiwa14; the published scalability figure used Indy7.
 `benchmarks/iiwa_fig8_shared.py` defines the common trajectory, EE frame, costs
-and budget (SQP=1, PCG cap 200 / relative tolerance 1e-4, rho=0.01).
+and budget (SQP=1, PCG cap 200 / relative tolerance 1e-4, rho=0.01). Every lane
+takes `--robot {iiwa14,indy7}` (iiwa14 default, names unchanged). The Indy7 lane
+runs the SAME fig8 (A = 0.15 m, period 6 s, center = EE at `INDY7_START_CONFIGS["ready"]`)
+for GATO and the CPU solver only — MPCGPU has no Indy7 build or goal file, so the
+Indy7 goal is synthesized from the formula — and writes `*_indy7` CSVs and figures
+(`sweep_fig8_gato_indy7.csv`, `fig3_fair_scalability_indy7.png`, …).
 
 - GATO: `../benchmarks/sweep_batch_iiwa_fig8.py` (N and batch sweeps).
 - CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, multi-threaded C++ QDLDL-based CPU solver (OSQP with QDLDL, `pysqpcpu`)

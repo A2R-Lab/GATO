@@ -1,4 +1,4 @@
-"""GATO batch-size x horizon timing sweep on the FAIR iiwa14 fig8 problem (iiwa_fig8_shared.py).
+"""GATO batch-size x horizon timing sweep on the FAIR fig8 problem (iiwa_fig8_shared.py; iiwa14 default, --robot indy7).
 
 Times solver.solve() for B IDENTICAL problem replicas (open-loop warm-started MPC over the
 fig8 goal sequence — same per-solve work as the tracking harness, no pinocchio sim in the
@@ -14,8 +14,10 @@ One (N, B) row per config; results append to a CSV consumed by
 examples/paper-figures/reproduce_fig3_fair.py (fig3-left = the N=64 row set; the full
 N x B grid is the fig3-right heatmap). TIMING — quiet box only.
 
-  python examples/benchmarks/sweep_batch_iiwa_fig8.py [--N 64] [--batches 1,2,...,512] \\
+  python examples/benchmarks/sweep_batch_iiwa_fig8.py [--robot iiwa14] [--N 64] [--batches 1,2,...,512] \\
       [--solves 400] [--out examples/benchmarks/data/sweep_fig8_gato.csv]
+The default CSV carries the robot for non-iiwa14 runs (sweep_fig8_gato_indy7.csv); the Indy7 goal is
+always synthesized (MPCGPU has no Indy7 trajfile).
 """
 import os
 import sys
@@ -40,8 +42,10 @@ PARAMS = SolverParams(max_sqp_iters=1, max_pcg_iters=200, pcg_tol=1e-4, mu=10.0,
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="GATO iiwa14 fig8 batched-solve timing sweep")
-    p.add_argument("--N", type=int, default=64, help="knot points (module bsqpN{N}_iiwa14 must be built)")
+    p = argparse.ArgumentParser(description="GATO fig8 batched-solve timing sweep (FAIR harness)")
+    p.add_argument("--robot", choices=fig8mod.ROBOTS, default="iiwa14",
+                   help="plant (iiwa14 = the FAIR reference lane; indy7 = the paper's robot)")
+    p.add_argument("--N", type=int, default=64, help="knot points (module bsqpN{N}_{robot} must be built)")
     p.add_argument("--batches", default="1,2,4,8,16,32,64,128",
                    help="comma list of batch sizes (256/512 are GATO-only extensions)")
     p.add_argument("--solves", type=int, default=400, help="solves per config (first 10 dropped)")
@@ -50,9 +54,17 @@ def parse_args():
     p.add_argument("--goal-file", help="frozen flat 6-wide reference .npy (no pickle); otherwise load/generate fig8")
     p.add_argument("--check-only", action="store_true",
                    help="GPU correctness only: finite trajectories and controller/raw-loop parity; no timing output")
-    p.add_argument("--out", default=os.path.join(HERE, "data", "sweep_fig8_gato.csv"),
-                   help="CSV to append rows to ('' = print only)")
-    return p.parse_args()
+    p.add_argument("--out", default=None,
+                   help="CSV to append rows to ('' = print only; default data/sweep_fig8_gato[_<robot>].csv)")
+    args = p.parse_args()
+    if args.out is None:
+        args.out = default_csv(args.robot)
+    return args
+
+
+def default_csv(robot):
+    suffix = "" if robot == "iiwa14" else f"_{robot}"
+    return os.path.join(HERE, "data", f"sweep_fig8_gato{suffix}.csv")
 
 
 def main():
@@ -61,30 +73,33 @@ def main():
         sys.exit("--solves must exceed the ten warmup solves")
     N = args.N
     batches = [int(b) for b in args.batches.split(",") if b.strip()]
-    if ("iiwa14", N) not in gato.available():
-        sys.exit(f"ERROR: module bsqpN{N}_iiwa14 not built — cmake with -DKNOTS include {N}, -DPLANT iiwa14.")
+    rob = fig8mod.robot(args.robot)
+    if (rob.name, N) not in gato.available():
+        sys.exit(f"ERROR: module bsqpN{N}_{rob.name} not built — cmake with -DKNOTS include {N}, -DPLANT {rob.name}.")
 
-    model, data = fig8mod.build_model()
-    q0 = fig8mod.Q0_READYC
-    center = fig8mod.fig8_center(model, data, q0)
-    goal = np.load(args.goal_file, allow_pickle=False) if args.goal_file else fig8mod.load_goal_file()
-    if args.goal_file and (goal.ndim != 1 or goal.size < 6 * (args.solves + N)):
-        sys.exit("--goal-file must be a flat reference covering solves + N knots")
-    if not args.goal_file and (goal is None or len(goal) // 6 < args.solves + N + 8):
-        goal = fig8mod.figure8_goal(args.solves + N + 8, center=center)
+    model, data = fig8mod.build_model(rob.name)
+    q0 = rob.q0
+    center = fig8mod.fig8_center(model, data, q0, rob.ee_frame)
+    if args.goal_file:
+        goal = np.load(args.goal_file, allow_pickle=False)
+        if goal.ndim != 1 or goal.size < 6 * (args.solves + N):
+            sys.exit("--goal-file must be a flat reference covering solves + N knots")
+        goal_source = "file"
+    else:
+        goal, goal_source = fig8mod.goal_sequence(rob, args.solves + N + 8, center)
     goal = np.ascontiguousarray(goal, dtype=np.float32)
     if not np.isfinite(goal).all():
         sys.exit("reference must be finite")
-    x0 = np.hstack((q0, np.zeros(7))).astype(np.float32)
+    x0 = np.hstack((q0, np.zeros(model.nv))).astype(np.float32)
 
     rows = []
-    print(f"iiwa14 fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config")
+    print(f"{rob.name} fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config "
+          f"(goal: {goal_source}, EE frame {rob.ee_frame}, center {center.round(4)})")
     print(f"initial_guess={args.initial_guess}; mode={'correctness' if args.check_only else 'timing'}")
     if not args.check_only:
         print(f"{'B':>4} {'median_ms':>10} {'p90_ms':>8} {'per_traj_us':>12}")
     for B in batches:
-        solver = BSQP(fig8mod.IIWA14_URDF, batch_size=B, N=N, dt=DT, params=PARAMS,
-                      plant_type="iiwa14")
+        solver = BSQP(rob.urdf, batch_size=B, N=N, dt=DT, params=PARAMS, plant_type=rob.name)
         nx, stride = solver.nx, solver.nx + solver.nu
         ctrl = MPCController(solver, warm_start="shift", linsys="pcg",
                              reset_rho_each_step=False)
@@ -94,8 +109,7 @@ def main():
         ctrl.reset(x0, xu_warm=seed)
         raw_solver = None
         if args.check_only:
-            raw_solver = BSQP(fig8mod.IIWA14_URDF, batch_size=B, N=N, dt=DT,
-                              params=PARAMS, plant_type="iiwa14")
+            raw_solver = BSQP(rob.urdf, batch_size=B, N=N, dt=DT, params=PARAMS, plant_type=rob.name)
             from gato.common import initialize_warm_start
             raw_seed = seed if seed is not None else initialize_warm_start(x0, N, solver.nx, solver.nu)
             raw_xu = np.tile(raw_seed, (B, 1)).astype(np.float32)
@@ -134,11 +148,12 @@ def main():
         if not os.path.exists(goal_path):
             np.save(goal_path, goal, allow_pickle=False)
         with open(args.out + ".runs.jsonl", "a") as meta:
-            meta.write(json.dumps({"source": git_provenance(), "N": N, "batches": batches,
+            meta.write(json.dumps({"source": git_provenance(), "robot": rob.name, "N": N, "batches": batches,
                                    "solves": args.solves, "initial_guess": args.initial_guess,
                                    "params": PARAMS.asdict(), "goal_sha256": goal_hash,
                                    "goal_file": os.path.abspath(goal_path),
-                                   "urdf_sha256": hashlib.sha256(Path(fig8mod.IIWA14_URDF).read_bytes()).hexdigest(),
+                                   "goal_source": goal_source,
+                                   "urdf_sha256": hashlib.sha256(Path(rob.urdf).read_bytes()).hexdigest(),
                                    "metric": "internal_solver_latency"}) + "\n")
         fresh = not os.path.exists(args.out)
         with open(args.out, "a") as f:

@@ -1,12 +1,14 @@
-"""Multi-threaded QDLDL-based CPU solver (pysqpcpu.BatchThneed: OSQP with QDLDL) iiwa14 fig8 tracking on the FAIR shared problem.
-Same canonical fig8 as GATO/MPCGPU (center = grid-EE = URDF "EE" fixed joint at readyC, A=0.15, T=6),
-iiwa14 URDF, EE frame = "EE" (= grid end_effector_pose post-regen), warm-start = zero controls, 1 QP
-iter. Tracking measured at EE from the logged joint configs (same metric as GATO/MPCGPU).
+"""Multi-threaded QDLDL-based CPU solver (pysqpcpu.BatchThneed: OSQP with QDLDL) fig8 tracking on the FAIR shared problem.
+Same canonical fig8 as GATO/MPCGPU (center = grid-EE = URDF "EE" fixed joint at the robot's q0, A=0.15, T=6),
+the robot's canonical URDF, EE frame from the plant registry (= grid end_effector_pose post-regen),
+warm-start = zero controls, 1 QP iter. Tracking measured at EE from the logged joint configs (same
+metric as GATO/MPCGPU). iiwa14 by default; `--robot indy7` runs the paper's robot (synthesized goal).
 
   baselines/build_cpu_baseline.sh            # once (default venv: the project .venv)
   source baselines/sqpcpu_env.sh             # LD_LIBRARY_PATH + PYTHONPATH for pysqpcpu
-  python baselines/track_iiwa_fig8_bt.py [sim_time] [batch] [N] [out_csv]
+  python baselines/track_iiwa_fig8_bt.py [sim_time] [batch] [N] [out_csv] [--robot iiwa14]
 """
+import argparse
 import importlib.util
 import os
 import sys
@@ -31,10 +33,14 @@ def _load_bench():
 fig8mod = _load_bench().import_sibling("iiwa_fig8_shared")
 SP = SolverParams().asdict()  # GATO's own defaults, so the CPU baseline solves the same problem
 
-SIM_TIME = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
-BATCH = int(sys.argv[2]) if len(sys.argv) > 2 else 1   # B identical replicas (num_threads=B)
-N = int(sys.argv[3]) if len(sys.argv) > 3 else 64      # the CPU solver takes N at construction
-OUT_CSV = sys.argv[4] if len(sys.argv) > 4 else ""     # optional: append an (N,B,median) row
+_p = argparse.ArgumentParser(description="QDLDL-based CPU solver fig8 tracking (FAIR harness)")
+_p.add_argument("sim_time", nargs="?", type=float, default=6.0, help="closed-loop seconds")
+_p.add_argument("batch", nargs="?", type=int, default=1, help="B identical replicas (num_threads=B)")
+_p.add_argument("N", nargs="?", type=int, default=64, help="horizon (the CPU solver takes N at construction)")
+_p.add_argument("out_csv", nargs="?", default="", help="optional: append an (N,B,median) row")
+_p.add_argument("--robot", choices=fig8mod.ROBOTS, default="iiwa14")
+_a = _p.parse_args()
+SIM_TIME, BATCH, N, OUT_CSV, ROBOT = _a.sim_time, _a.batch, _a.N, _a.out_csv, _a.robot
 DT = fig8mod.DT
 
 
@@ -49,23 +55,22 @@ def _import_pysqpcpu():
 def main():
     import pinocchio as pin
     pysqpcpu = _import_pysqpcpu()
-    model, data = fig8mod.build_model()
-    q0 = fig8mod.Q0_READYC.copy()
-    center = fig8mod.fig8_center(model, data, q0)
+    rob = fig8mod.robot(ROBOT)
+    model, data = fig8mod.build_model(rob.name)
+    q0 = rob.q0.copy()
+    center = fig8mod.fig8_center(model, data, q0, rob.ee_frame)
 
     n_needed = int(SIM_TIME / DT) + N + 8
-    goal = fig8mod.load_goal_file()
-    if goal is None or len(goal) // 6 < n_needed:
-        goal = fig8mod.figure8_goal(n_needed, center=center)
+    goal, goal_source = fig8mod.goal_sequence(rob, n_needed, center)
     n_goal = len(goal) // 6
 
     bt = pysqpcpu.BatchThneed(
-        urdf_filename=fig8mod.IIWA14_URDF, eepos_frame_name=fig8mod.EE_FRAME,   # "EE" = grid-EE
+        urdf_filename=rob.urdf, eepos_frame_name=rob.ee_frame,   # "EE" = grid-EE
         batch_size=BATCH, N=N, dt=DT, max_qp_iters=SP['max_sqp_iters'], num_threads=BATCH,
         Q_cost=SP['q_cost'], dQ_cost=SP['qd_cost'], R_cost=SP['u_cost'], QN_cost=SP['N_cost'])
     nq, nv, nx, nu = bt.nq, bt.nv, bt.nx, bt.nu
-    print(f"iiwa14 QDLDL-based CPU fig8: center(EE)={center.round(4)} frame={fig8mod.EE_FRAME} "
-          f"A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} N={N} nq={nq} goal_steps={n_goal}")
+    print(f"{rob.name} QDLDL-based CPU fig8: center(EE)={center.round(4)} frame={rob.ee_frame} "
+          f"A={fig8mod.FIG8_A} T={fig8mod.FIG8_PERIOD} N={N} nq={nq} goal_steps={n_goal} goal={goal_source}")
 
     q = q0.copy(); dq = np.zeros(nv)
     f_ext = pin.StdVec_Force()
@@ -91,7 +96,7 @@ def main():
             total += 0.001
         q_log.append(q.copy())
 
-    errs = fig8mod.ee_tracking_errors(model, data, q_log, goal, dt=DT)
+    errs = fig8mod.ee_tracking_errors(model, data, q_log, goal, dt=DT, frame=rob.ee_frame)
     st = np.asarray(solve_ms, float)
     if len(errs):
         print(f"RESULT_BT steps={len(errs)} EE_mean={errs.mean():.6f} EE_max={errs.max():.6f} "
