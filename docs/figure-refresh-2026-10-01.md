@@ -9,7 +9,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Fig-3 scalability and heatmap | GATO N × B sweep and multi-threaded QDLDL-based CPU solver B sweep (Oct 1); MPCGPU imported from its Oct 1 evening harness run (main 3566358) | Yes | Refreshed |
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
-| Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
+| Fig-7 / Table I pick-and-place (Oct 3) | 100 seeded scenarios × B ∈ {1, 8, 32, 128}, corrected simulator, paper gate | No (fixed pacing) | Refreshed with the identified-weight hypothesis batch; the paper's estimator never finds the payload |
 | Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Refreshed in an exclusive window (third run; the two shared-box runs agreed within 3%) |
 
 ## Seed A/B (September 30)
@@ -87,6 +87,49 @@ Internal solver time per batched solve at N = 64:
   test suite in the background) agreed with it within 2.7% on every GATO cell; the CPU lane moved
   by up to 17% between runs, the same spread the iiwa14 lane shows — single runs of the CPU
   baseline carry that much noise, so read its ratios to ±15%.
+
+## Fig-7 / Table I: pick-and-place with an unmodelled 15 kg payload (October 3)
+
+`reproduce_fig7_pickplace.py --n-scenarios 100 --batch-sizes 1,8,32,128`, corrected simulator
+(`unit-quaternion-pendulum-v2`, `ready` start), the paper's protocol otherwise: five step goals,
+N = 16, dt = 10 ms, 5 SQP iterations, 15 kg payload with random length / damping / initial angle,
+success = EE within 5 cm of the goal with joint-velocity norm below 1 rad/s before a 5 s timeout.
+Fixed pacing, so the pools are deterministic and need no quiet window.
+
+| Estimator behind the hypothesis batch | B = 1 | 8 | 32 | 128 | mean completion, successes (s) |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Paper's ForceEstimator (`--estimator fe`) | 6% | 62% | 84% | 82% | 5.8 / 6.4 / 7.1 / 6.7 |
+| Identified weight + bounded exploration (`--estimator wid`, default) | 26% | 83% | 97% | 95% | 11.9 / 6.8 / 5.7 / 5.2 |
+
+Paired on the same 100 scenarios the new sampler wins at every batch size (B = 1: 25 won / 5 lost,
+B = 8: 35 / 10; exact McNemar p ≈ 3·10⁻⁴ and 2·10⁻⁴ for the bracket variant measured first).
+Every failure at B ≥ 8 is a 3- or 4-of-5 near miss; there are no divergences.
+
+Why the estimator changed. Scoring the true payload wrench against the one-step rollout shows the
+selection mechanism works (the true wrench predicts the next state 5× better than zero and wins 96%
+of ticks), but the wrench a 15 kg bob exerts on this arm averages 270 N and swings by hundreds of
+newtons per tick, while the paper's `ForceEstimator` explores within a 20 N ball and blends 10% per
+tick: its estimate averages −17 N vertical against a 147 N weight in every scenario, so the batch
+helped only by selecting among weak guesses. `IdentifiedWrenchSampler` (`gato/estimators.py`)
+builds the batch around a least-squares identification of the payload weight (the gravity-aligned
+component of the one-step motion residual, filtered at 0.1 s) plus a zero row and Fibonacci-sphere
+perturbations with an adaptive radius; `MPC_GATO(estimator="wid")`. Rows carrying the full identified
+wrench (`inertial_rows=True`) explain the last tick best but extrapolate the payload's inertial
+reaction to the arm's own motion and occasionally fling the arm, so they are off by default.
+
+Why the gate stays the paper's. Requiring both gates to *hold* for 100 ms (`--settle-time 0.1`)
+collapses every arm (FE 0 / 33 / 62 / 57 %, new sampler 0 / 4 / 5 / 5 %): with these costs the
+arm passes through each goal at about 1 rad/s and the payload swings 50–70° (peaks near inverted),
+so nothing settles. A minimum-jerk reference between goals (`--goal-ramp 1.5`) halves the joint
+speeds and swing, after which the estimator ordering inverts: the compensated arm follows the
+reference faster, excites the swing more, and the swinging bob keeps the joints above 1 rad/s,
+while the uncompensated arm settles because it under-delivers (a planner check with a constant
+known force confirms the compensation itself is right: exact hypothesis 3 cm, zero hypothesis
+5–8 cm sag). "Hold at the goal with a swinging payload" is therefore a different task that needs
+a settling cost and a payload model, not the paper's pass-through task; both knobs stay available
+for that study. Settings that do not help: 10 SQP iterations (not convergence-limited), `qd_cost`
+0.1–0.5 (steady-state sag or sluggishness), torque penalties (the arm then cannot hold the load),
+smaller payloads (same swing), longer weight filters.
 
 ## Fig-4: the published plotting script produced an empty figure
 

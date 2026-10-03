@@ -39,6 +39,7 @@ PICKPLACE_MPC_DEFAULTS = {
     'velocity_norm': 2,
     'pace_by_solve_time': False,
     'settle_time': 0.0,     # dwell [s] both gates must hold; 0 = the paper's instantaneous gate
+    'goal_ramp': 0.0,       # min-jerk reference travel time [s] between goals; 0 = the paper's step reference
 }
 
 # Pendulum parameter defaults
@@ -198,6 +199,7 @@ class ExperimentRunner:
                         velocity_norm=mpc_defaults.get('velocity_norm', 1),
                         pace_by_solve_time=mpc_defaults.get('pace_by_solve_time', True),
                         settle_time=mpc_defaults.get('settle_time', 0.0),
+                        goal_ramp=mpc_defaults.get('goal_ramp', 0.0),
                     )
                     outcomes = stats['goal_outcomes']
                     reached = sum(1 for o in outcomes if o == 'reached')

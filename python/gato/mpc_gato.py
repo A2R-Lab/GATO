@@ -488,6 +488,7 @@ class MPC_GATO:
         velocity_norm=1,
         pace_by_solve_time=True,
         settle_time=0.0,
+        goal_ramp=0.0,
     ):
         """
         Run MPC tracking discrete goal positions (pick-place style).
@@ -503,6 +504,10 @@ class MPC_GATO:
                 continuously before the goal counts as reached (0 = the paper's
                 instantaneous gate; a dwell rejects fly-throughs). The goal's
                 reach time is the end of the dwell.
+            goal_ramp: seconds over which the EE reference travels from the EE position at
+                the goal switch to the new goal on a minimum-jerk profile, knot by knot along
+                the horizon (0 = the paper's step reference: every knot targets the goal at
+                once, which asks for maximal acceleration). The gates still test the goal.
             velocity_norm: norm order for the settling gate on dq (np.linalg.norm
                 ``ord``): 1 = L1 sum over joints (historic default, strictest),
                 2 = Euclidean, np.inf = worst joint.
@@ -545,7 +550,18 @@ class MPC_GATO:
 
         current_goal_idx = 0
         current_goal = goals[current_goal_idx]
-        ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+        ramp_from = self.solver.ee_pos(np.asarray(x_start)[:self.nq_robot])
+        ramp_t0 = 0.0
+
+        def reference(now):
+            """(6N,) EE reference for the horizon starting at sim time `now`."""
+            if goal_ramp <= 0.0:
+                return np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+            s = np.clip((now + self.dt * np.arange(self.N) - ramp_t0) / goal_ramp, 0.0, 1.0)
+            smooth = s * s * s * (10.0 - 15.0 * s + 6.0 * s * s)       # minimum jerk
+            pos = ramp_from[None, :] + smooth[:, None] * (current_goal - ramp_from)[None, :]
+            return np.concatenate([pos, np.zeros((self.N, 3))], axis=1).ravel()
+        ee_g = reference(0.0)
 
         # Reset + warm-up solve
         self.controller.reset(x_curr)
@@ -600,9 +616,10 @@ class MPC_GATO:
                     break
 
                 current_goal = goals[current_goal_idx]
-                ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
+                ramp_from, ramp_t0 = ee_pos.copy(), total_sim_time
                 goal_start_time = total_sim_time
                 gate_since = None
+            ee_g = reference(total_sim_time)
 
             # One controller tick
             dt_realized = max(sim_dt, round(timestep / sim_dt) * sim_dt)

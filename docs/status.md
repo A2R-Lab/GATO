@@ -28,8 +28,10 @@ research software, not a certified robot controller.
 - **Pick-place results:** the September 27 review found invalid historical
   pendulum quaternion initialization. Corrected pools use protocol
   `unit-quaternion-pendulum-v2`; old success rates are not interchangeable with
-  corrected simulations or the paper. The corrected ten-scenario sample succeeds 8/10
-  (scenarios 3 and 9 fail at goal five).
+  corrected simulations or the paper. October 3: the 100-scenario corrected pools give
+  6/62/84/82 % at B = 1/8/32/128 with the paper's ForceEstimator and 26/83/97/95 % with the
+  identified-weight hypothesis batch (`estimator="wid"`, the Fig-7 default); see
+  docs/figure-refresh-2026-10-01.md.
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a
@@ -50,8 +52,7 @@ explicit controller seeds, pendulum state assembly, floating effort-vector
 width and codegen fallback refusal. Bounded effort-vector memcheck passed both
 default/fc cases with zero errors. Fresh lean onboarding also built indy7 N64
 and ran examples 01/02 without Pinocchio. This is correctness/install evidence,
-not a new performance result. Corrected pick-place v2 remains 8/10 on the ten
-seeded diagnostic cases (different failures from the old invalid simulation).
+not a new performance result. (The pick-place figures were refreshed on October 3; see above.)
 
 The source commit `4c8ab22` was attested by receipt commit `5b309d3`: 328 tests,
 zero skips, including 38 bitwise goldens across the 18-module profile. This is a

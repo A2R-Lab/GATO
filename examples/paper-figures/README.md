@@ -38,7 +38,7 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 | `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap); `--robot indy7` for the paper's arm (GATO + CPU lanes) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
 | `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
 | `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
-| `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical task-completion time; success gap unresolved; full refresh deferred |
+| `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical completion time; refreshed Oct 3 with the identified-weight batch (26/83/97/95 %) |
 
 Fig-6 is a simulation snapshot, not a numerical regression target. Fig-8 /
 Table-II require physical hardware; preserve them as published results unless
@@ -97,36 +97,32 @@ latency-induced degradation needs a separately specified delay/pacing experiment
 on a quiet box. Replotting historical data is not a refresh; data predating the
 July force/frame fixes is unsuitable for current validation.
 
-### Fig-7 / Table I: preserve the unresolved gap
+### Fig-7 / Table I: refreshed October 3, 2026 (corrected simulator, identified-weight batch)
 
-**September 27 simulator correction:** the old initialization wrote an
-axis-angle vector into quaternion xyz with w=0, violating the spherical-joint
-unit-quaternion requirement. Nonzero robot velocities also landed at incorrect
-offsets in the augmented state. Corrected runs use Pinocchio manifold integration
-and are labeled `unit-quaternion-pendulum-v2`. Preserve historical pools, including
-the overnight 8/10 sample, but do not mix their metrics with corrected runs or
-claim the old simulator was a valid paper protocol. This bug predates the
-overnight checkpoint; its discovery does not establish the cause of every
-historical-versus-current difference.
+**Simulator correction (September 27):** the old initialization wrote an axis-angle vector
+into quaternion xyz with w=0 and placed robot velocities at wrong offsets in the augmented
+state. Corrected runs use Pinocchio manifold integration and are labeled
+`unit-quaternion-pendulum-v2`. Historical pools (and the paper) are not comparable.
 
-For shared-box GPU correctness, `check_pickplace.py --scenarios 1,2 --out <new-dir>`
-replays selected seeded cases with fixed pacing, checks finite/deterministic
-traces, and records goal completion/timeout position and velocity gates. It
-does not retain latency measurements. The two overnight failures reproduce
-with the old initialization and both reach all goals with the corrected one.
+**Estimator (October 3):** the paper's `ForceEstimator` explores within a 20 N ball and never
+finds a 15 kg payload (its vertical estimate averages −17 N against 147 N); the batch helped
+only by selecting among weak guesses. `reproduce_fig7_pickplace.py` now defaults to
+`--estimator wid`, `IdentifiedWrenchSampler`: the batch is the least-squares identified
+payload weight, zero, and bounded Fibonacci-sphere perturbations (`MPC_GATO(estimator="wid")`;
+`--estimator fe` keeps the paper's sampler). On 100 seeded scenarios with the paper's gate
+(within 5 cm at < 1 rad/s): FE 6/62/84/82 %, WID 26/83/97/95 % at B = 1/8/32/128, no
+divergences. Full numbers and the reasons are in `docs/figure-refresh-2026-10-01.md`.
 
-A historical local 100-scenario `fig7_paper_ready` table exists, so “full sweep
-never run” is outdated. It reports 83% episode success at B128 versus 99.2% in
-the paper; it is NOT a result for the current revision. Reconcile success
-aggregation, velocity norm, initial conditions, force-estimator configuration
-and pacing before attributing this to a solver regression or calling the task
-“strictly harder.” The current script uses fixed simulation pacing and a
-Euclidean velocity norm; paper wording and recovered implementations need an
-explicit protocol decision. Timing alone cannot resolve this question.
+**Gate:** the paper's instantaneous gate is kept. `--settle-time` (dwell) and `--goal-ramp`
+(minimum-jerk reference between goals) exist for a "hold at the goal" study, which this
+payload turns into a different task — see the refresh document before using them.
 
-The merge checkpoint samples ten seeded B128 scenarios: a regression sample,
-not a replacement success-rate estimate or CDF. Full Fig-7 refresh and estimator
-research are deferred; never overwrite the old pool.
+For shared-box GPU correctness, `check_pickplace.py --scenarios 1,2 --out <new-dir>
+[--estimator fe|wid]` replays seeded cases with fixed pacing, checks finite/deterministic
+traces and records goal gates; it retains no latency measurements. Pools are fixed-paced
+and deterministic, so they need no quiet window (they do disturb anyone else's timing).
+
+Never overwrite an old pool: tag every protocol change.
 
 ## Merge checkpoint versus research refresh
 

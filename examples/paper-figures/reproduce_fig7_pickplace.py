@@ -92,7 +92,7 @@ def table_I(data):
                       f"timeout {md.get('goal_timeout')} s; qd_cost={sp.get('qd_cost')}")
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
-        plines.append("arm: IdentifiedWrenchSampler hypothesis batch (identified weight + last-step wrench)"
+        plines.append("arm: IdentifiedWrenchSampler hypothesis batch (identified payload weight + bounded exploration)"
                       if data.get("estimator") == "wid" else
                       "arm: ForceEstimator hypothesis batch (no fc slots)")
     else:
@@ -161,7 +161,7 @@ def main():
     p.add_argument("--length-range", default="0.3,0.7", help="pendulum length range [m]")
     p.add_argument("--damping-range", default="0.1,0.6", help="damping range [Nms/rad]")
     p.add_argument("--angle-range", default="0.0,0.6", help="initial |axis-angle| range [rad]")
-    p.add_argument("--tag", default="fig7_pickplace",
+    p.add_argument("--tag", default="fig7_pickplace_v2",
                    help="data/plot basename (use a distinct tag per protocol — never mix pools)")
     p.add_argument("--start-config", default="ready",
                    help="IIWA14_START_CONFIGS key for the initial pose. Default 'ready' is a "
@@ -172,11 +172,11 @@ def main():
                         "0 = the paper's instantaneous gate)")
     p.add_argument("--qd-cost", type=float, default=None,
                    help="joint-velocity cost override (default: PICKPLACE_SOLVER_PARAMS)")
-    p.add_argument("--estimator", default="fe", choices=["fe", "wid"],
-                   help="hypothesis sampler behind the batch: 'fe' = the paper's ForceEstimator "
-                        "(searches for the wrench from scratch); 'wid' = IdentifiedWrenchSampler "
-                        "(batch brackets the identified payload weight and last-step wrench; "
-                        "at B=1 it is the wrench-id weight arm). Tag pools apart.")
+    p.add_argument("--estimator", default="wid", choices=["fe", "wid"],
+                   help="hypothesis sampler behind the batch: 'wid' (default since 2026-10-03) = "
+                        "IdentifiedWrenchSampler (identified payload weight + bounded exploration; at "
+                        "B=1 it is the wrench-id weight arm); 'fe' = the paper's ForceEstimator, which "
+                        "searches for the wrench from scratch and never finds a 15 kg payload. Tag pools apart.")
     p.add_argument("--wrench-id", action="store_true",
                    help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
                         "wrench from sensor-rate motion, injected as f_ext. B=1 only "

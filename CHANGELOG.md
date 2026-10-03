@@ -2,6 +2,20 @@
 
 Unreleased on `main` (no tag: installs are source-tree only, plan D10).
 
+## 2026-10-03 — Fig-7 refresh: identified-weight hypothesis batch, goal-loop knobs
+
+- `gato.estimators.IdentifiedWrenchSampler` and `MPC_GATO(estimator="wid")`: the hypothesis
+  batch is the least-squares identified payload weight, a zero row and bounded Fibonacci-sphere
+  perturbations with an adaptive radius (`inertial_rows=True` adds the full identified wrench
+  and its blends — off by default: they fling the arm). The paper's `ForceEstimator` stays the
+  API default (`estimator="fe"`); `reproduce_fig7_pickplace.py` defaults to `wid`. On 100
+  corrected scenarios: FE 6/62/84/82 %, WID 26/83/97/95 % at B = 1/8/32/128 (paper gate).
+- `MPC_GATO.run_mpc_goals(settle_time=, goal_ramp=)`: optional dwell on the success gates and a
+  minimum-jerk EE reference between goals (both 0 by default = the paper's loop); exposed on
+  `reproduce_fig7_pickplace.py` as `--settle-time`, `--goal-ramp`, `--qd-cost`, `--estimator`.
+- Fig-3 Indy7 lane re-run in an exclusive window (October 3); Fig-7 findings and the reasons
+  the gate stays instantaneous are in `docs/figure-refresh-2026-10-01.md`.
+
 ## 2026-10-02 — Fig-3 harness: `--robot indy7` + fig8 driver stop-condition fix
 
 - `MPC_GATO.run_mpc_fig8` stopped `6N` goal steps early instead of `N`: a goal of exactly
