@@ -604,3 +604,117 @@ class OneStepWrenchIdentifier:
             "weight": self.weight,
             "n_updates": self.n_updates,
         }
+
+
+class IdentifiedWrenchSampler:
+    """Hypothesis batch centred on the IDENTIFIED wrench (batch-as-identity, B >= 1).
+
+    The sampling ForceEstimator searches for the payload wrench from scratch and, on
+    the pick-place task, never finds it: its exploration radius (<= 20 N) is an order
+    of magnitude below a 15 kg payload's reaction (hundreds of N, swinging by hundreds
+    of N per control tick), so its estimate hovers near zero and the batch helps only
+    through per-tick selection among weak guesses. This sampler instead builds the
+    batch around what one least-squares fit of the last motion sample already knows:
+
+      row 0   the filtered payload WEIGHT (OneStepWrenchIdentifier mode='weight';
+              the best single hypothesis measured on this task, see that docstring)
+      row 1   zero (the robot-only model)
+      row 2   the full identified wrench (mode='wrench'; explains the LAST interval best
+              but extrapolates an inertial reaction the plan itself changes)
+      rows 3+ blends weight + lambda*(full - weight), lambda in (0, 1), and
+              Fibonacci-sphere perturbations of the weight's force with an adaptive
+              radius (grows when a perturbation wins, shrinks when a core row does)
+
+    so the batch brackets "constant weight" and "last-step wrench" and lets the
+    one-step rollout pick. At batch_size == 1 the batch is row 0 alone, which is the
+    wrench_id weight-mode arm. Duck-typed like ForceEstimator (generate_batch, update,
+    reset, get_stats) for gato.hypotheses.ForceHypothesisBatch; ``identify`` must be
+    fed at SENSOR rate (MPC_GATO._observe_substep does), exactly as for wrench_id.
+    """
+
+    def __init__(self, batch_size, model, ee_frame="EE", *, seed=0, initial_radius=10.0,
+                 min_radius=5.0, max_radius=150.0, weight_tau=0.1, wrench_alpha=0.5,
+                 damping=1e-3, max_wrench=2000.0):
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+        self.batch_size = int(batch_size)
+        self.dim = 6
+        self.weight_id = OneStepWrenchIdentifier(model, ee_frame=ee_frame, mode="weight",
+                                                 weight_tau=weight_tau, damping=damping,
+                                                 max_wrench=max_wrench)
+        self.wrench_id = OneStepWrenchIdentifier(model, ee_frame=ee_frame, mode="wrench",
+                                                 alpha=wrench_alpha, damping=damping,
+                                                 max_wrench=max_wrench)
+        self._rng = np.random.default_rng(seed)
+        self.initial_radius, self.min_radius, self.max_radius = float(initial_radius), float(min_radius), float(max_radius)
+        n_extra = max(0, self.batch_size - 3)
+        self.n_blend = n_extra // 2                     # lambda rows
+        self.n_sphere = n_extra - self.n_blend           # perturbation rows
+        self._dirs = ForceEstimator._fibonacci_sphere(self, self.n_sphere) if self.n_sphere else np.zeros((0, 3), np.float32)
+        self.reset()
+
+    # --- sensor-rate observation (same signature as OneStepWrenchIdentifier.identify) ---
+    def identify(self, q, dq, dq_next, tau_applied, dt, q_next=None):
+        self.weight_id.identify(q, dq, dq_next, tau_applied, dt, q_next)
+        self.wrench_id.identify(q, dq, dq_next, tau_applied, dt, q_next)
+
+    @property
+    def n_updates(self):
+        return self.weight_id.n_updates
+
+    def reset(self):
+        self.weight_id.reset()
+        self.wrench_id.reset()
+        self.radius = self.initial_radius
+        self.last_best = np.zeros(self.dim, dtype=np.float32)
+        self.last_best_row = 0
+        self.wins = np.zeros(3, dtype=np.int64)          # core / blend / sphere winners
+        self._rotation = np.eye(3, dtype=np.float32)
+
+    def generate_batch(self):
+        """(B, 6) world-frame wrenches at the EE frame origin, [force; torque]."""
+        weight = self.weight_id.estimate.astype(np.float32)
+        full = self.wrench_id.estimate.astype(np.float32)
+        batch = np.zeros((self.batch_size, self.dim), dtype=np.float32)
+        batch[0] = weight
+        if self.batch_size > 1:
+            batch[1] = 0.0
+        if self.batch_size > 2:
+            batch[2] = full
+        row = 3
+        for i in range(self.n_blend):
+            lam = (i + 1) / (self.n_blend + 1)
+            batch[row] = weight + lam * (full - weight)
+            row += 1
+        for i in range(self.n_sphere):
+            batch[row, :3] = weight[:3] + self.radius * (self._rotation @ self._dirs[i])
+            batch[row, 3:] = weight[3:]
+            row += 1
+        return batch
+
+    def update(self, best_idx, prediction_errors, batch_used):
+        best_idx = int(best_idx)
+        self.last_best = np.asarray(batch_used, dtype=np.float32)[best_idx].copy()
+        self.last_best_row = best_idx
+        if best_idx < 3:
+            self.wins[0] += 1
+            self.radius *= 0.95
+        elif best_idx < 3 + self.n_blend:
+            self.wins[1] += 1
+        else:
+            self.wins[2] += 1
+            self.radius *= 1.1
+        self.radius = float(np.clip(self.radius, self.min_radius, self.max_radius))
+        self._rotation = ForceEstimator._random_rotation_matrix(self)
+
+    def get_stats(self):
+        return {
+            "current_estimate": self.last_best.copy(),      # the hypothesis the control was planned under
+            "weight": self.weight_id.weight,
+            "weight_estimate": self.weight_id.estimate.copy(),
+            "wrench_estimate": self.wrench_id.estimate.copy(),
+            "radius": self.radius,
+            "last_best_row": self.last_best_row,
+            "wins_core_blend_sphere": self.wins.copy(),
+            "n_updates": self.n_updates,
+        }

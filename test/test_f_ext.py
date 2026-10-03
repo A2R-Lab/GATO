@@ -513,3 +513,78 @@ def test_wrench_id_rejects_batch(urdfs, smallest_module):
     plant, N = smallest_module
     with pytest.raises(ValueError, match="batch_size == 1"):
         _mpc_gato(urdfs, plant, N, batch_size=4, wrench_id={})
+
+
+def test_identified_wrench_sampler_rows(urdfs, smallest_module):
+    """The batch is built around the identification: row 0 the filtered weight,
+    row 1 zero, row 2 the full identified wrench, the blend rows strictly between
+    them, and the sphere rows at the adaptive radius from the weight — so the
+    batch brackets "constant weight" and "last-step wrench". A seed fixes the
+    sphere rotation; B=1 reduces to the weight row (the wrench_id weight arm)."""
+    pin = pytest.importorskip("pinocchio")
+    from gato.estimators import IdentifiedWrenchSampler
+    from gato.common import world_wrench_to_joint_local
+
+    plant, _ = smallest_module
+    urdf = str(urdfs[plant])
+    model, _, _ = pin.buildModelsFromUrdf(urdf, str(urdfs[plant].parent) + "/")
+    model.gravity.linear = np.array([0.0, 0.0, -9.81])
+    data = model.createData()
+    rng = np.random.default_rng(0)
+    q = rng.uniform(-0.8, 0.8, model.nq)
+    dq = rng.uniform(-0.4, 0.4, model.nv)
+    tau = rng.uniform(-8.0, 8.0, model.nv)
+    truth = np.array([3.0, -5.0, -98.1, 0.0, 0.0, 0.0])
+    fext = pin.StdVec_Force()
+    for _ in range(model.njoints):
+        fext.append(pin.Force.Zero())
+    jid, Fj = world_wrench_to_joint_local(model, data, q, truth, model.getFrameId("EE"))
+    fext[jid] = Fj
+    ddq = pin.aba(model, data, q, dq, tau, fext)
+    dt = 1e-6   # instantaneous ddq: this isolates the batch construction, not the fit
+
+    B = 11
+    s = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0)
+    for _ in range(12):   # weight filter (a = dt/(tau+dt) = 0.5 per sample) converges
+        s.identify(q, dq, dq + dt * ddq, tau, dt)
+    batch = s.generate_batch()
+    assert batch.shape == (B, 6)
+    weight, zero, full = batch[0], batch[1], batch[2]
+    np.testing.assert_array_equal(zero, 0.0)
+    assert abs(weight[2] + 98.1) < 0.2 and abs(weight[0]) < 1e-6   # gravity-aligned weight only
+    np.testing.assert_allclose(full, truth, atol=0.5)                # the full fit
+    n_blend, n_sphere = s.n_blend, s.n_sphere
+    assert n_blend + n_sphere == B - 3
+    for i in range(n_blend):
+        lam = (i + 1) / (n_blend + 1)
+        np.testing.assert_allclose(batch[3 + i], weight + lam * (full - weight), atol=1e-5)
+    for i in range(n_sphere):
+        assert abs(np.linalg.norm(batch[3 + n_blend + i, :3] - weight[:3]) - s.radius) < 1e-3
+    # same seed -> same batch; a sphere win grows the radius, a core win shrinks it
+    s2 = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0)
+    for _ in range(12):
+        s2.identify(q, dq, dq + dt * ddq, tau, dt)
+    np.testing.assert_array_equal(batch, s2.generate_batch())
+    r0 = s.radius
+    s.update(B - 1, np.ones(B), batch)
+    assert s.radius > r0
+    s.update(0, np.ones(B), batch)
+    assert s.radius < 1.1 * r0 + 1e-9
+    assert IdentifiedWrenchSampler(1, model, ee_frame="EE").generate_batch().shape == (1, 6)
+
+
+def test_mpc_gato_estimator_option(urdfs, smallest_module):
+    """estimator='wid' installs the IdentifiedWrenchSampler behind the hypothesis
+    batch and exposes it as the sensor-rate observer; 'fe' keeps the paper's
+    ForceEstimator (no observer); anything else raises."""
+    pytest.importorskip("pinocchio")
+    from gato.estimators import ForceEstimator, IdentifiedWrenchSampler
+    plant, N = smallest_module
+    wid = _mpc_gato(urdfs, plant, N, batch_size=4, estimator="wid")
+    assert isinstance(wid.controller.hypotheses.estimator, IdentifiedWrenchSampler)
+    assert wid.wrench_identifier is wid.controller.hypotheses.estimator
+    fe = _mpc_gato(urdfs, plant, N, batch_size=4)
+    assert isinstance(fe.controller.hypotheses.estimator, ForceEstimator)
+    assert fe.wrench_identifier is None
+    with pytest.raises(ValueError, match="estimator"):
+        _mpc_gato(urdfs, plant, N, batch_size=4, estimator="nope")

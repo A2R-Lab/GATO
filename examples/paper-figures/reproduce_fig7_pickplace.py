@@ -35,7 +35,7 @@ DT = 0.01
 
 
 def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None,
-        start_config='ready'):
+        start_config='ready', estimator='fe'):
     from _pickplace_runner import (ExperimentRunner, PICKPLACE_DEFAULT_GOALS,
                                    PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS,
                                    sample_pendulum_params)
@@ -60,7 +60,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
             goal_sequences=[PICKPLACE_DEFAULT_GOALS], pendulum_config=pend,
             solver_params=PICKPLACE_SOLVER_PARAMS, mpc_defaults=PICKPLACE_MPC_DEFAULTS,
             fc_config=fc_config, wrench_id=wrench_id, start_config=start_config,
-            verbose=False,
+            verbose=False, estimator=estimator,
         )
         for b in batch_sizes:
             r = res.get(b, {})
@@ -72,7 +72,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
             "solver_params": PICKPLACE_SOLVER_PARAMS, "mpc_defaults": PICKPLACE_MPC_DEFAULTS,
             "batch_sizes": batch_sizes, "n_scenarios": n_scenarios, "pool": pool,
             "goal_outcomes": goal_outcomes, "scenarios": scenarios, "protocol": protocol,
-            "fc_config": fc_config, "wrench_id": wrench_id}
+            "fc_config": fc_config, "wrench_id": wrench_id, "estimator": estimator}
 
 
 def table_I(data):
@@ -85,7 +85,9 @@ def table_I(data):
     plines.append(f"simulation: {data.get('simulation_protocol', 'legacy/unversioned (not v2)')}")
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
-        plines.append("arm: ForceEstimator hypothesis batch (no fc slots)")
+        plines.append("arm: IdentifiedWrenchSampler hypothesis batch (identified weight + last-step wrench)"
+                      if data.get("estimator") == "wid" else
+                      "arm: ForceEstimator hypothesis batch (no fc slots)")
     else:
         # the combined arm is a real configuration (identified wrench sets the
         # f_ext bias, fc absorbs the residual) — record BOTH, never just one
@@ -158,6 +160,11 @@ def main():
                    help="IIWA14_START_CONFIGS key for the initial pose. Default 'ready' is a "
                         "mid-workspace elbow pose; 'zero'/'home' are all-zeros, where the arm "
                         "is vertical and a hanging payload is UNOBSERVABLE (|J^T w| = 0).")
+    p.add_argument("--estimator", default="fe", choices=["fe", "wid"],
+                   help="hypothesis sampler behind the batch: 'fe' = the paper's ForceEstimator "
+                        "(searches for the wrench from scratch); 'wid' = IdentifiedWrenchSampler "
+                        "(batch brackets the identified payload weight and last-step wrench; "
+                        "at B=1 it is the wrench-id weight arm). Tag pools apart.")
     p.add_argument("--wrench-id", action="store_true",
                    help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
                         "wrench from sensor-rate motion, injected as f_ext. B=1 only "
@@ -211,7 +218,7 @@ def main():
                          "pin_torque_rows": not args.fc_free_torque}
             print(f"[fc arm] solver contact-wrench slots active: {fc_config}")
         data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id,
-                   start_config=args.start_config)
+                   start_config=args.start_config, estimator=args.estimator)
         data["tag"] = args.tag
         C.save_data(data, args.tag)
 

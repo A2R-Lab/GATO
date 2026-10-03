@@ -38,6 +38,7 @@ PICKPLACE_MPC_DEFAULTS = {
     # cumulative wall time (also makes runs deterministic).
     'velocity_norm': 2,
     'pace_by_solve_time': False,
+    'settle_time': 0.0,     # dwell [s] both gates must hold; 0 = the paper's instantaneous gate
 }
 
 # Pendulum parameter defaults
@@ -103,6 +104,7 @@ class ExperimentRunner:
         fc_config: Dict = None,
         wrench_id: Dict = None,
         verbose: bool = True,
+        estimator: str = "fe",
     ) -> Dict:
         """
         CS3a / Table-I: pick-and-place success rate vs. batch size.
@@ -131,6 +133,9 @@ class ExperimentRunner:
             wrench_id: least-squares wrench-identification arm (B=1): dict of
                 OneStepWrenchIdentifier options ({} for defaults). Mutually
                 exclusive with the ForceEstimator batch.
+            estimator: hypothesis sampler behind the batch: 'fe' (the paper's
+                ForceEstimator) or 'wid' (IdentifiedWrenchSampler: the batch
+                brackets the identified payload weight and last-step wrench).
             fc_config: contact-force arm — {'cost', 'pin_torque_rows'} passed to
                 MPC_GATO so the solver's own contact-wrench slots (the "fc"
                 module variant) explain the payload (the B=1 alternative to the
@@ -183,6 +188,7 @@ class ExperimentRunner:
                         variant="fc" if fc_config else None,
                         fc_config=fc_config,
                         wrench_id=wrench_id,
+                        estimator=estimator,
                     )
                     _, stats = mpc.run_mpc_goals(
                         x_start, seq, sim_dt=sim_dt,
@@ -191,6 +197,7 @@ class ExperimentRunner:
                         velocity_threshold=mpc_defaults['velocity_threshold'],
                         velocity_norm=mpc_defaults.get('velocity_norm', 1),
                         pace_by_solve_time=mpc_defaults.get('pace_by_solve_time', True),
+                        settle_time=mpc_defaults.get('settle_time', 0.0),
                     )
                     outcomes = stats['goal_outcomes']
                     reached = sum(1 for o in outcomes if o == 'reached')

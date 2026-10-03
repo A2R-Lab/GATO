@@ -184,3 +184,23 @@ def test_custom_world_rejects_pendulum_and_fext():
     with pytest.raises(ValueError, match="pendulum|f_ext"):
         MPC_GATO(model2, URDF, N=16, batch_size=1, world=MuJoCoWorld(URDF),
                  constant_f_ext=np.array([0, 0, -20.0, 0, 0, 0]))
+
+
+@pytest.mark.gpu
+def test_goal_dwell_gate_delays_reach_and_rejects_fly_through():
+    """settle_time=0 is the paper's instantaneous gate; with a dwell the goal
+    counts only after distance AND velocity have held that long, so the reach
+    time moves later by at least the dwell and never earlier."""
+    from gato.mpc_gato import MPC_GATO
+    model = pin.buildModelFromUrdf(URDF)
+    x0 = np.concatenate([IIWA14_START_CONFIGS["ready"], np.zeros(7)])
+    goal = [np.array([0.55, -0.1, 0.7])]
+    times = {}
+    for dwell in (0.0, 0.2):
+        mpc = MPC_GATO(model, URDF, N=16, batch_size=1)
+        _, s = mpc.run_mpc_goals(x0, goal, goal_timeout=3.0, pace_by_solve_time=False,
+                                 settle_time=dwell)
+        assert s["goal_outcomes"] == ["reached"], (dwell, s["goal_events"])
+        times[dwell] = s["goal_events"][-1]["time"]
+        assert s["goal_events"][-1]["distance"] < 0.05 and s["goal_events"][-1]["velocity"] < 1.0
+    assert times[0.2] >= times[0.0] + 0.2 - 1e-6

@@ -13,7 +13,7 @@ import numpy as np
 import pinocchio as pin
 
 from .controller import MPCController
-from .estimators import ForceEstimator, OneStepWrenchIdentifier
+from .estimators import ForceEstimator, IdentifiedWrenchSampler, OneStepWrenchIdentifier
 from .hypotheses import ForceHypothesisBatch, IdentifiedWrenchBatch
 from .interface import BSQP
 from .common import world_wrench_to_joint_local
@@ -46,6 +46,7 @@ class MPC_GATO:
         fc_config=None,
         wrench_id=None,
         world=None,
+        estimator="fe",
     ):
         """
         Initialize MPC driver.
@@ -75,6 +76,12 @@ class MPC_GATO:
                 and 'pin_torque_rows' (bool). This is the B=1 counterpart to the
                 ForceEstimator hypothesis batch; raises on a default module
                 rather than silently degrading to the no-estimator baseline.
+            estimator: the hypothesis sampler behind the batch (batch_size > 1,
+                or batch_size == 1 with 'wid'): 'fe' = the paper's
+                Fibonacci-sphere ForceEstimator (searches for the wrench from
+                scratch); 'wid' = IdentifiedWrenchSampler (the batch brackets the
+                filtered payload weight and the last-step identified wrench;
+                see estimators.py). Ignored when wrench_id is set.
             wrench_id: B=1 wrench IDENTIFICATION (dict, or {} for defaults):
                 least-squares fit of the disturbance wrench from the one-step
                 motion residual, injected through the same f_ext path the
@@ -132,6 +139,9 @@ class MPC_GATO:
         self.batch_size = batch_size
         self.track_full_stats = track_full_stats
         self.fe_seed = fe_seed
+        if estimator not in ("fe", "wid"):
+            raise ValueError(f"estimator must be 'fe' or 'wid', got {estimator!r}")
+        self.estimator_kind = estimator
 
         self.wrench_id = wrench_id
         self.fc_config = fc_config
@@ -159,8 +169,13 @@ class MPC_GATO:
             hypotheses = IdentifiedWrenchBatch(
                 identifier, self.solver_model, ee_frame=self.solver.ee_frame,
                 n_actuated=self.solver.n_actuated)
+        elif estimator == "wid":
+            sampler = IdentifiedWrenchSampler(batch_size, self.solver_model,
+                                              ee_frame=self.solver.ee_frame, seed=fe_seed)
+            hypotheses = ForceHypothesisBatch(sampler, self.solver_model,
+                                              ee_frame=self.solver.ee_frame)
         elif batch_size > 1:
-            estimator = ForceEstimator(
+            sampler = ForceEstimator(
                 batch_size=batch_size,
                 initial_radius=5.0,
                 min_radius=2.0,
@@ -170,7 +185,7 @@ class MPC_GATO:
                 alpha=0.6,
                 beta=0.5,
             )
-            hypotheses = ForceHypothesisBatch(estimator, self.solver_model,
+            hypotheses = ForceHypothesisBatch(sampler, self.solver_model,
                                               ee_frame=self.solver.ee_frame)
 
         self.controller = MPCController(self.solver, hypotheses=hypotheses,
@@ -215,9 +230,15 @@ class MPC_GATO:
 
     @property
     def wrench_identifier(self):
-        """The least-squares wrench identifier (None unless wrench_id was set)."""
+        """The sensor-rate wrench observer to feed each substep: the wrench_id
+        identifier, or the 'wid' sampler (which identifies too); None for 'fe'."""
         h = self.controller.hypotheses
-        return getattr(h, "identifier", None) if h is not None else None
+        if h is None:
+            return None
+        if getattr(h, "identifier", None) is not None:
+            return h.identifier
+        sampler = getattr(h, "estimator", None)
+        return sampler if hasattr(sampler, "identify") else None
 
     def setup_external_forces(self, constant_f_ext):
         """Setup ground-truth external forces for the simulation.
@@ -465,7 +486,8 @@ class MPC_GATO:
         goal_threshold=0.05,
         velocity_threshold=1.0,
         velocity_norm=1,
-        pace_by_solve_time=True
+        pace_by_solve_time=True,
+        settle_time=0.0,
     ):
         """
         Run MPC tracking discrete goal positions (pick-place style).
@@ -477,6 +499,10 @@ class MPC_GATO:
             goal_timeout: Max time per goal before timeout
             goal_threshold: Distance threshold for goal reached (m)
             velocity_threshold: Velocity threshold for goal reached (rad/s)
+            settle_time: how long [s] the distance AND velocity gates must hold
+                continuously before the goal counts as reached (0 = the paper's
+                instantaneous gate; a dwell rejects fly-throughs). The goal's
+                reach time is the end of the dwell.
             velocity_norm: norm order for the settling gate on dq (np.linalg.norm
                 ``ord``): 1 = L1 sum over joints (historic default, strictest),
                 2 = Euclidean, np.inf = worst joint.
@@ -531,6 +557,7 @@ class MPC_GATO:
             print(f"Pendulum: mass={self.pendulum_config['mass']}kg, length={self.pendulum_config['length']}m")
 
         goal_start_time = total_sim_time
+        gate_since = None          # sim time the gates started holding (dwell)
         solve_time = self.dt
 
         while total_sim_time < goal_timeout * len(goals):
@@ -549,7 +576,13 @@ class MPC_GATO:
             ee_pos = self.solver.ee_pos(q_robot)
             current_dist = np.linalg.norm(ee_pos - current_goal)
             current_vel = np.linalg.norm(dq_robot, ord=velocity_norm)
-            reached = (current_dist < goal_threshold) and (current_vel < velocity_threshold)
+            in_gate = (current_dist < goal_threshold) and (current_vel < velocity_threshold)
+            if in_gate:
+                if gate_since is None:
+                    gate_since = total_sim_time
+            else:
+                gate_since = None
+            reached = in_gate and (total_sim_time - gate_since) >= settle_time - 1e-9
             timeout = (total_sim_time - goal_start_time) >= goal_timeout
 
             if reached or timeout:
@@ -569,6 +602,7 @@ class MPC_GATO:
                 current_goal = goals[current_goal_idx]
                 ee_g = np.tile(np.concatenate([current_goal, np.zeros(3)]), self.N)
                 goal_start_time = total_sim_time
+                gate_since = None
 
             # One controller tick
             dt_realized = max(sim_dt, round(timestep / sim_dt) * sim_dt)

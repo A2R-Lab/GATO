@@ -30,6 +30,7 @@ def main():
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--batch', type=int, default=128)
     p.add_argument('--repeats', type=int, default=2)
+    p.add_argument('--estimator', default='fe', choices=['fe', 'wid'])
     p.add_argument('--out', type=Path, required=True, help='new directory; never overwritten')
     args = p.parse_args()
     ids = [int(i) for i in args.scenarios.split(',')]
@@ -42,14 +43,15 @@ def main():
     x = np.concatenate([IIWA14_START_CONFIGS['ready'], np.zeros(model.nv)])
     summary = dict(source=C.bench.git_provenance(), seed=args.seed, batch=args.batch,
                    protocol='unit-quaternion-pendulum-v2', timing=False,
-                   solver_params=PICKPLACE_SOLVER_PARAMS, gates=PICKPLACE_MPC_DEFAULTS,
+                   solver_params=PICKPLACE_SOLVER_PARAMS, gates=PICKPLACE_MPC_DEFAULTS, estimator=args.estimator,
                    urdf_sha256=hashlib.sha256(Path(urdf).read_bytes()).hexdigest(), results=[])
     for scenario in ids:
         previous = None
         for repeat in range(args.repeats):
             mpc = MPC_GATO(model, urdf, N=16, dt=0.01, batch_size=args.batch,
                            params=PICKPLACE_SOLVER_PARAMS, linsys='pcg',
-                           pendulum_config=scenarios[scenario - 1], track_full_stats=True)
+                           pendulum_config=scenarios[scenario - 1], track_full_stats=True,
+                           estimator=args.estimator)
             # The legacy driver prints durations even in fixed-pacing mode;
             # discard that display, never use or persist its timing fields.
             with contextlib.redirect_stdout(io.StringIO()):
