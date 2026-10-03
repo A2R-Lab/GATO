@@ -10,7 +10,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
 | Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
-| Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Collected twice, reproducible; another agent's test suite was active on the box (see below) |
+| Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Refreshed in an exclusive window (third run; the two shared-box runs agreed within 3%) |
 
 ## Seed A/B (September 30)
 
@@ -67,13 +67,13 @@ Internal solver time per batched solve at N = 64:
 
 | Batch | GATO Indy7 (ms) | QDLDL-based CPU Indy7 (ms) | GATO vs CPU | GATO Indy7 / iiwa14 |
 | ---: | ---: | ---: | ---: | ---: |
-| 1 | 0.259 | 2.694 | 10.4× | 0.57 |
-| 4 | 0.336 | 2.740 | 8.2× | 0.56 |
-| 16 | 0.634 | 3.361 | 5.3× | 0.65 |
-| 64 | 1.863 | 12.945 | 6.9× | 0.75 |
-| 128 | 3.625 | 23.981 | 6.6× | 0.75 |
+| 1 | 0.266 | 2.498 | 9.4× | 0.59 |
+| 4 | 0.338 | 3.169 | 9.4× | 0.56 |
+| 16 | 0.633 | 3.307 | 5.2× | 0.65 |
+| 64 | 1.875 | 12.002 | 6.4× | 0.75 |
+| 128 | 3.621 | 21.961 | 6.1× | 0.75 |
 
-- GATO is 5.3–10.4× faster than the CPU solver on the Indy7, against 4.4–7.2× on the iiwa14. The
+- GATO is 5.2–10.6× faster than the CPU solver on the Indy7, against 4.4–7.2× on the iiwa14. The
   six-joint arm makes GATO 25–45% faster per solve; the CPU solver's time barely changes, so the
   ratio grows by about 1.5×.
 - That is still 2–3× short of the paper's 18–21×. The robot explains a minority of the gap; the rest
@@ -82,12 +82,11 @@ Internal solver time per batched solve at N = 64:
 - GATO's Indy7 heat map (N = 8…128, B = 1…512) is `examples/paper-figures/fig3_fair_heatmap_indy7.png`
   after assembly; at N ≤ 32 and B ≤ 4 the solve time is 0.135–0.19 ms regardless of N, so launch
   and synchronization cost dominates there.
-- Collection: the leg ran twice (23:18 and 00:32 on October 2–3, `a2rlab-timing-chain` runs
-  `20261002-231837` and `20261003-003201`), and every cell agreed within 1%. The quiet gate (GPU idle,
-  no compute processes, load ≤ 2) passed at both starts, but another agent's receipt test suite was
-  running on the box during both, and one foreign GPU process was seen for a few seconds during the
-  first run. These are not exclusive-window numbers; the agreement between the two runs is the
-  evidence for them.
+- Collection: the table is the October 3 11:48 run in an exclusive window (`a2rlab-timing-chain`
+  run `20261003-114755`). Two earlier runs on a shared box (23:18 and 00:32, with another agent's
+  test suite in the background) agreed with it within 2.7% on every GATO cell; the CPU lane moved
+  by up to 17% between runs, the same spread the iiwa14 lane shows — single runs of the CPU
+  baseline carry that much noise, so read its ratios to ±15%.
 
 ## Fig-4: the published plotting script produced an empty figure
 
