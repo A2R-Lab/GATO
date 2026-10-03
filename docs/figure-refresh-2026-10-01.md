@@ -10,6 +10,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
 | Fig-7 / Table I pick-and-place | — | — | Kept as published; the 8/10 success gap is unresolved |
+| Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Collected twice, reproducible; another agent's test suite was active on the box (see below) |
 
 ## Seed A/B (September 30)
 
@@ -51,6 +52,42 @@ Internal solver time per batched solve at N = 64. Data: `examples/benchmarks/dat
   CPU baseline moved by −2% to +22% (batch 2 is the outlier) and GATO by −12% to +7% (N = 128 at small
   batches is now up to 12% faster). Single runs per cell on a CPU baseline carry that much spread; do not
   quote these ratios as reproductions of the paper's numbers.
+
+## Fig-3 on the paper's Indy7 (October 3)
+
+The paper measured the Indy7; the matched benchmark above uses the iiwa14. To separate the robot
+from the timing boundary and hardware, the same FAIR harness now runs on the Indy7
+(`reproduce_fig3_fair.py --robot indy7`): the same figure-eight (A = 0.15 m, period 6 s) centered at
+the end effector of `INDY7_START_CONFIGS["ready"]`, the same costs and budget (SQP = 1, PCG cap 200 /
+rel 1e-4, rho 0.01), the same EE-frame metric. MPCGPU has no Indy7 build, so the goal is synthesized
+from the formula and the comparison is GATO against the CPU solver only. Data:
+`examples/benchmarks/data/sweep_fig8_{gato,bt}_indy7.csv`.
+
+Internal solver time per batched solve at N = 64:
+
+| Batch | GATO Indy7 (ms) | QDLDL-based CPU Indy7 (ms) | GATO vs CPU | GATO Indy7 / iiwa14 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.259 | 2.694 | 10.4× | 0.57 |
+| 4 | 0.336 | 2.740 | 8.2× | 0.56 |
+| 16 | 0.634 | 3.361 | 5.3× | 0.65 |
+| 64 | 1.863 | 12.945 | 6.9× | 0.75 |
+| 128 | 3.625 | 23.981 | 6.6× | 0.75 |
+
+- GATO is 5.3–10.4× faster than the CPU solver on the Indy7, against 4.4–7.2× on the iiwa14. The
+  six-joint arm makes GATO 25–45% faster per solve; the CPU solver's time barely changes, so the
+  ratio grows by about 1.5×.
+- That is still 2–3× short of the paper's 18–21×. The robot explains a minority of the gap; the rest
+  is the measurement (internal solver time on an identical problem versus the paper's harness and
+  timing boundary), the CPU baseline's build, and the hardware.
+- GATO's Indy7 heat map (N = 8…128, B = 1…512) is `examples/paper-figures/fig3_fair_heatmap_indy7.png`
+  after assembly; at N ≤ 32 and B ≤ 4 the solve time is 0.135–0.19 ms regardless of N, so launch
+  and synchronization cost dominates there.
+- Collection: the leg ran twice (23:18 and 00:32 on October 2–3, `a2rlab-timing-chain` runs
+  `20261002-231837` and `20261003-003201`), and every cell agreed within 1%. The quiet gate (GPU idle,
+  no compute processes, load ≤ 2) passed at both starts, but another agent's receipt test suite was
+  running on the box during both, and one foreign GPU process was seen for a few seconds during the
+  first run. These are not exclusive-window numbers; the agreement between the two runs is the
+  evidence for them.
 
 ## Fig-4: the published plotting script produced an empty figure
 
