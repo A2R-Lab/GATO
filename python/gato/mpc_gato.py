@@ -388,9 +388,10 @@ class MPC_GATO:
                 xu_best, q, dq, timestep, sim_dt, total_sim_time, accumulated_time)
             x_curr = np.concatenate([q[:self.nq_robot], dq[:self.nv_robot]])
 
-            # Check if trajectory is complete
+            # Stop when the horizon window would run past the end of the goal
+            # (fig8_traj is flat, 6 values per step; the window needs N steps)
             eepos_offset = int(total_sim_time / self.dt)
-            if eepos_offset >= len(fig8_traj) / 6 - 6 * self.N:
+            if eepos_offset + self.N > len(fig8_traj) // 6:
                 break
             ee_g = fig8_traj[6 * eepos_offset:6 * (eepos_offset + self.N)]
 

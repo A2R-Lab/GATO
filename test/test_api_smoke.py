@@ -166,3 +166,20 @@ def test_mpc_gato_run_mpc_fig8_fixed_pacing_deterministic(smallest_module, urdfs
     assert keys, list(a)
     for k in keys:
         assert same(a[k], b[k]), k
+
+
+def test_mpc_gato_run_mpc_fig8_uses_whole_goal(smallest_module, urdfs):
+    """The loop must run until the N-step window would pass the end of the goal — not
+    stop 6N steps early (a goal of exactly sim steps + N knots used to yield zero steps at N>=64)."""
+    pin = pytest.importorskip("pinocchio")
+    from gato.mpc_gato import MPC_GATO
+    plant, N = smallest_module
+    urdf = str(urdfs[plant])
+    sim_time, dt = 0.05, 0.01
+    steps = int(sim_time / dt)
+    traj = figure8(dt, **FIG8_DEFAULT_PARAMS)[: 6 * (steps + N)]   # tight goal: just enough for every window
+    x0 = np.concatenate([np.asarray(START[plant]), np.zeros(len(START[plant]))])
+    mpc = MPC_GATO(pin.buildModelFromUrdf(urdf), urdf, N=N, dt=dt, batch_size=1, plant_type=plant, linsys="pcg")
+    _, stats = mpc.run_mpc_fig8(x0, traj, sim_dt=0.001, sim_time=sim_time, pace_by_solve_time=False)
+    assert len(stats["joint_positions"]) == steps
+    assert np.isfinite(np.asarray(stats["goal_distances"])).all()
