@@ -517,10 +517,10 @@ def test_wrench_id_rejects_batch(urdfs, smallest_module):
 
 def test_identified_wrench_sampler_rows(urdfs, smallest_module):
     """The batch is built around the identification: row 0 the filtered weight,
-    row 1 zero, row 2 the full identified wrench, the blend rows strictly between
-    them, and the sphere rows at the adaptive radius from the weight — so the
-    batch brackets "constant weight" and "last-step wrench". A seed fixes the
-    sphere rotation; B=1 reduces to the weight row (the wrench_id weight arm)."""
+    row 1 zero, then (with inertial_rows) the full identified wrench, the blend
+    rows strictly between them, and the sphere rows at the adaptive radius from
+    the weight. A seed fixes the sphere rotation; B=1 reduces to the weight row
+    (the wrench_id weight arm); the default keeps every row within the radius."""
     pin = pytest.importorskip("pinocchio")
     from gato.estimators import IdentifiedWrenchSampler
     from gato.common import world_wrench_to_joint_local
@@ -544,7 +544,8 @@ def test_identified_wrench_sampler_rows(urdfs, smallest_module):
     dt = 1e-6   # instantaneous ddq: this isolates the batch construction, not the fit
 
     B = 11
-    s = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0)
+    s = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0,
+                                inertial_rows=True)
     for _ in range(12):   # weight filter (a = dt/(tau+dt) = 0.5 per sample) converges
         s.identify(q, dq, dq + dt * ddq, tau, dt)
     batch = s.generate_batch()
@@ -561,7 +562,8 @@ def test_identified_wrench_sampler_rows(urdfs, smallest_module):
     for i in range(n_sphere):
         assert abs(np.linalg.norm(batch[3 + n_blend + i, :3] - weight[:3]) - s.radius) < 1e-3
     # same seed -> same batch; a sphere win grows the radius, a core win shrinks it
-    s2 = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0)
+    s2 = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, wrench_alpha=1.0, damping=0.0,
+                                 inertial_rows=True)
     for _ in range(12):
         s2.identify(q, dq, dq + dt * ddq, tau, dt)
     np.testing.assert_array_equal(batch, s2.generate_batch())
@@ -571,6 +573,14 @@ def test_identified_wrench_sampler_rows(urdfs, smallest_module):
     s.update(0, np.ones(B), batch)
     assert s.radius < 1.1 * r0 + 1e-9
     assert IdentifiedWrenchSampler(1, model, ee_frame="EE").generate_batch().shape == (1, 6)
+    # default (no inertial rows): weight, zero, then B-2 sphere rows all within the radius of the weight
+    s3 = IdentifiedWrenchSampler(B, model, ee_frame="EE", seed=3, weight_tau=1e-6, damping=0.0)
+    for _ in range(12):
+        s3.identify(q, dq, dq + dt * ddq, tau, dt)
+    b3 = s3.generate_batch()
+    assert s3.n_blend == 0 and s3.n_sphere == B - 2
+    np.testing.assert_array_equal(b3[1], 0.0)
+    assert np.all(np.linalg.norm(b3[2:, :3] - b3[0, :3], axis=1) <= s3.radius + 1e-3)
 
 
 def test_mpc_gato_estimator_option(urdfs, smallest_module):

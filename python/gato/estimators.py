@@ -619,24 +619,30 @@ class IdentifiedWrenchSampler:
       row 0   the filtered payload WEIGHT (OneStepWrenchIdentifier mode='weight';
               the best single hypothesis measured on this task, see that docstring)
       row 1   zero (the robot-only model)
-      row 2   the full identified wrench (mode='wrench'; explains the LAST interval best
-              but extrapolates an inertial reaction the plan itself changes)
-      rows 3+ blends weight + lambda*(full - weight), lambda in (0, 1), and
-              Fibonacci-sphere perturbations of the weight's force with an adaptive
+      rows 2+ Fibonacci-sphere perturbations of the weight's force with an adaptive
               radius (grows when a perturbation wins, shrinks when a core row does)
+      inertial_rows=True also adds the full identified wrench (mode='wrench') and
+              blends weight + lambda*(full - weight) — see __init__ for why that is off
 
-    so the batch brackets "constant weight" and "last-step wrench" and lets the
-    one-step rollout pick. At batch_size == 1 the batch is row 0 alone, which is the
-    wrench_id weight-mode arm. Duck-typed like ForceEstimator (generate_batch, update,
+    so every hypothesis is the weight plus a bounded correction, and the one-step
+    rollout picks. At batch_size == 1 the batch is row 0 alone, which is the wrench_id
+    weight-mode arm. Duck-typed like ForceEstimator (generate_batch, update,
     reset, get_stats) for gato.hypotheses.ForceHypothesisBatch; ``identify`` must be
     fed at SENSOR rate (MPC_GATO._observe_substep does), exactly as for wrench_id.
     """
 
     def __init__(self, batch_size, model, ee_frame="EE", *, seed=0, initial_radius=10.0,
                  min_radius=5.0, max_radius=150.0, weight_tau=0.1, wrench_alpha=0.5,
-                 damping=1e-3, max_wrench=2000.0):
+                 damping=1e-3, max_wrench=2000.0, inertial_rows=False):
         if batch_size < 1:
             raise ValueError("batch_size must be >= 1")
+        # inertial_rows=True adds the full identified wrench and its blends with the weight.
+        # Measured OFF by default: those rows explain the LAST interval best, so they win
+        # the selection, but they extrapolate the payload's inertial reaction to the arm's
+        # own motion over the horizon; the plan then fights a force it is itself creating
+        # and occasionally flings the arm (100 rad/s excursions on 2-3 of 100 scenarios).
+        # Without them every hypothesis stays within max_radius of the weight.
+        self.inertial_rows = bool(inertial_rows)
         self.batch_size = int(batch_size)
         self.dim = 6
         self.weight_id = OneStepWrenchIdentifier(model, ee_frame=ee_frame, mode="weight",
@@ -647,9 +653,11 @@ class IdentifiedWrenchSampler:
                                                  max_wrench=max_wrench)
         self._rng = np.random.default_rng(seed)
         self.initial_radius, self.min_radius, self.max_radius = float(initial_radius), float(min_radius), float(max_radius)
-        n_extra = max(0, self.batch_size - 3)
-        self.n_blend = n_extra // 2                     # lambda rows
-        self.n_sphere = n_extra - self.n_blend           # perturbation rows
+        n_core = 3 if self.inertial_rows else 2
+        n_extra = max(0, self.batch_size - n_core)
+        self.n_core = n_core
+        self.n_blend = n_extra // 2 if self.inertial_rows else 0   # lambda rows
+        self.n_sphere = n_extra - self.n_blend                     # perturbation rows
         self._dirs = ForceEstimator._fibonacci_sphere(self, self.n_sphere) if self.n_sphere else np.zeros((0, 3), np.float32)
         self.reset()
 
@@ -679,9 +687,9 @@ class IdentifiedWrenchSampler:
         batch[0] = weight
         if self.batch_size > 1:
             batch[1] = 0.0
-        if self.batch_size > 2:
+        if self.inertial_rows and self.batch_size > 2:
             batch[2] = full
-        row = 3
+        row = self.n_core
         for i in range(self.n_blend):
             lam = (i + 1) / (self.n_blend + 1)
             batch[row] = weight + lam * (full - weight)
@@ -696,10 +704,10 @@ class IdentifiedWrenchSampler:
         best_idx = int(best_idx)
         self.last_best = np.asarray(batch_used, dtype=np.float32)[best_idx].copy()
         self.last_best_row = best_idx
-        if best_idx < 3:
+        if best_idx < self.n_core:
             self.wins[0] += 1
             self.radius *= 0.95
-        elif best_idx < 3 + self.n_blend:
+        elif best_idx < self.n_core + self.n_blend:
             self.wins[1] += 1
         else:
             self.wins[2] += 1

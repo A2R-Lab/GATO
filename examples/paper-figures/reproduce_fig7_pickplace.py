@@ -35,13 +35,15 @@ DT = 0.01
 
 
 def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=None,
-        start_config='ready', estimator='fe'):
+        start_config='ready', estimator='fe', solver_params=None, mpc_defaults=None):
     from _pickplace_runner import (ExperimentRunner, PICKPLACE_DEFAULT_GOALS,
                                    PICKPLACE_SOLVER_PARAMS, PICKPLACE_MPC_DEFAULTS,
                                    sample_pendulum_params)
 
     C.require_module("iiwa14", N)
     runner = ExperimentRunner("iiwa14")
+    solver_params = {**PICKPLACE_SOLVER_PARAMS, **(solver_params or {})}
+    mpc_defaults = {**PICKPLACE_MPC_DEFAULTS, **(mpc_defaults or {})}
 
     # per-batch pools of episode completion times (None == failed/timeout) +
     # per-goal outcomes ('reached'/'timeout' per goal — the failure taxonomy)
@@ -58,7 +60,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
         res = runner.run_pickplace_sweep(
             batch_sizes=batch_sizes, N=N, dt=DT, sim_dt=0.001, plant_type="iiwa14",
             goal_sequences=[PICKPLACE_DEFAULT_GOALS], pendulum_config=pend,
-            solver_params=PICKPLACE_SOLVER_PARAMS, mpc_defaults=PICKPLACE_MPC_DEFAULTS,
+            solver_params=solver_params, mpc_defaults=mpc_defaults,
             fc_config=fc_config, wrench_id=wrench_id, start_config=start_config,
             verbose=False, estimator=estimator,
         )
@@ -69,7 +71,7 @@ def run(n_scenarios, batch_sizes, max_time, protocol, fc_config=None, wrench_id=
             goal_outcomes[b].append(seq.get("goal_outcomes"))
     return {"simulation_protocol": "unit-quaternion-pendulum-v2",
             "source": C.bench.git_provenance(),
-            "solver_params": PICKPLACE_SOLVER_PARAMS, "mpc_defaults": PICKPLACE_MPC_DEFAULTS,
+            "solver_params": solver_params, "mpc_defaults": mpc_defaults,
             "batch_sizes": batch_sizes, "n_scenarios": n_scenarios, "pool": pool,
             "goal_outcomes": goal_outcomes, "scenarios": scenarios, "protocol": protocol,
             "fc_config": fc_config, "wrench_id": wrench_id, "estimator": estimator}
@@ -83,6 +85,11 @@ def table_I(data):
                   f"d={proto['damping_range']} |th|={proto['angle_range']} "
                   f"start={proto.get('start_config', 'home')}"]
     plines.append(f"simulation: {data.get('simulation_protocol', 'legacy/unversioned (not v2)')}")
+    md, sp = data.get("mpc_defaults") or {}, data.get("solver_params") or {}
+    if md or sp:
+        plines.append(f"gates: {md.get('goal_threshold')} m, {md.get('velocity_threshold')} rad/s "
+                      f"(L{md.get('velocity_norm')}), dwell {md.get('settle_time', 0.0)} s, "
+                      f"timeout {md.get('goal_timeout')} s; qd_cost={sp.get('qd_cost')}")
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
         plines.append("arm: IdentifiedWrenchSampler hypothesis batch (identified weight + last-step wrench)"
@@ -160,6 +167,11 @@ def main():
                    help="IIWA14_START_CONFIGS key for the initial pose. Default 'ready' is a "
                         "mid-workspace elbow pose; 'zero'/'home' are all-zeros, where the arm "
                         "is vertical and a hanging payload is UNOBSERVABLE (|J^T w| = 0).")
+    p.add_argument("--settle-time", type=float, default=None,
+                   help="dwell [s] both success gates must hold (default: PICKPLACE_MPC_DEFAULTS; "
+                        "0 = the paper's instantaneous gate)")
+    p.add_argument("--qd-cost", type=float, default=None,
+                   help="joint-velocity cost override (default: PICKPLACE_SOLVER_PARAMS)")
     p.add_argument("--estimator", default="fe", choices=["fe", "wid"],
                    help="hypothesis sampler behind the batch: 'fe' = the paper's ForceEstimator "
                         "(searches for the wrench from scratch); 'wid' = IdentifiedWrenchSampler "
@@ -217,8 +229,11 @@ def main():
             fc_config = {"cost": args.fc_cost,
                          "pin_torque_rows": not args.fc_free_torque}
             print(f"[fc arm] solver contact-wrench slots active: {fc_config}")
+        overrides_s = {"qd_cost": args.qd_cost} if args.qd_cost is not None else {}
+        overrides_m = {"settle_time": args.settle_time} if args.settle_time is not None else {}
         data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id,
-                   start_config=args.start_config, estimator=args.estimator)
+                   start_config=args.start_config, estimator=args.estimator,
+                   solver_params=overrides_s, mpc_defaults=overrides_m)
         data["tag"] = args.tag
         C.save_data(data, args.tag)
 
