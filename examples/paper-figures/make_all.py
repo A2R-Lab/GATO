@@ -4,11 +4,10 @@ Runs each reproduce_figN_*.py script in turn (as a subprocess so a missing modul
 or a failing figure doesn't abort the rest), forwarding --replot / --quick / --regen
 where the script takes them, then prints a summary. Use --only to select a subset.
 
-fig3 is the FAIR iiwa14 parity harness (reproduce_fig3_fair.py): by default it
-assembles the table + plots from the committed sweep CSVs (no GPU); its TIMING data
-stages (--run-gato/--run-bt/--run-mpcgpu) are quiet-box legs of
-examples/benchmarks/run_timing_night.sh, not something make_all runs. The June
-indy7 fig3 chain was retired 2026-10-01 (git history: examples/archive/).
+fig3 is the FAIR fig8 parity harness (reproduce_fig3_fair.py): by default it
+assembles the table + plots from the committed sweep CSVs (no GPU); its TIMING
+stages (--run-gato / --run-bt, plus --mpcgpu-timing-dir for MPCGPU's own run) are
+quiet-box legs, not something make_all runs.
 
 Examples::
     python examples/paper-figures/make_all.py --quick     # smoke every figure
@@ -26,7 +25,7 @@ REPRO_FLAGS = ("--replot", "--quick", "--regen")
 # (key, script, flags the script accepts, note)
 FIGURES = [
     ("fig3", "reproduce_fig3_fair.py", ("--quick",),
-     "Fig-3 (both): FAIR iiwa14 fig8 — table + heat map from the sweep CSVs (timing legs: run_timing_night.sh)"),
+     "Fig-3 (both): FAIR fig8 — table + heat map from the sweep CSVs (timing lanes are quiet-box legs)"),
     ("fig4", "reproduce_fig4_hparam.py", REPRO_FLAGS, "Fig-4: CS1 online rho hyperparameter convergence"),
     ("fig5", "reproduce_fig5_disturbance.py", REPRO_FLAGS, "Fig-5: CS2 disturbance rejection"),
     ("fig7", "reproduce_fig7_pickplace.py", REPRO_FLAGS,

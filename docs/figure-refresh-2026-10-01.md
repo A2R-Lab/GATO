@@ -1,8 +1,9 @@
-# Figure refresh, October 1, 2026
+# Figure refresh, October 2026
 
-Current-code reruns of the paper's simulated experiments on an RTX 5090 with CUDA 13.2, collected
-in an exclusive overnight window. The published figures remain the paper's results; these describe
-the current code. Protocols and their differences from the paper: [paper-figures README](../examples/paper-figures/README.md).
+Current-code reruns of the paper's simulated experiments on an RTX 5090 with CUDA 13.2, timing
+collected in exclusive windows on October 1 and 3. The published figures remain the paper's
+results; these describe the current code. Protocols and their differences from the paper:
+[paper-figures README](../examples/paper-figures/README.md).
 
 | Figure | Data | Window needed | Status |
 | --- | --- | --- | --- |

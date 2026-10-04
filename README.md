@@ -339,7 +339,7 @@ Committed scripts that regenerate the data and figures from
 **[examples/paper-figures/](examples/paper-figures/)** — one `reproduce_figN_*.py` per figure. Fig-4/5/7
 regenerate their data on the GPU **by default**, re-render from saved/recovered data with `--replot`,
 and run a fast smoke with `--quick`; Fig-3 assembles the table and plots from the committed sweep CSVs
-(no GPU) and re-runs a lane only on request (`--run-gato`, `--run-bt`, `--run-mpcgpu`). Run from the repo root:
+(no GPU) and re-runs a lane only on request (`--run-gato`, `--run-bt`; MPCGPU cells via `--mpcgpu-timing-dir`). Run from the repo root:
 
 ```bash
 python examples/paper-figures/reproduce_fig4_hparam.py --replot   # Tier A: no GPU, bundled data
@@ -352,7 +352,7 @@ every paper horizon + go2 N16 + the fc/eh variants).
 
 | Paper element | Script | Notes |
 |---|---|---|
-| **Fig-3** scalability (iiwa14 fig-8, GATO vs a multi-threaded QDLDL-based CPU solver vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); `--robot indy7` runs the GATO and CPU lanes on the paper's arm; the June single-robot chain was retired 2026-10-01 (git history: `examples/archive/`) |
+| **Fig-3** scalability (iiwa14 fig-8, GATO vs a multi-threaded QDLDL-based CPU solver vs MPCGPU) | `reproduce_fig3_fair.py` (+ `benchmarks/iiwa_fig8_shared.py`, `sweep_batch_iiwa_fig8.py`) | the fair 3-way protocol (1 SQP iter, EE-frame metric); `--robot indy7` runs the GATO and CPU lanes on the paper's arm |
 | **Fig-4** (CS1) iiwa14 online ρ convergence | `reproduce_fig4_hparam.py` | regenerates by default; `--replot` uses bundled `examples/paper-figures/gato_hparam_batch_results.pkl` |
 | **Fig-5** (CS2) Indy7 disturbance rejection | `reproduce_fig5_disturbance.py` | fixed-pacing force sweep + EE trajectories; not a reproduction of latency-induced degradation |
 | **Fig-7 + Table-I** (CS3) iiwa14 pick-place | `reproduce_fig7_pickplace.py` | refreshed 2026-10-03 on the corrected simulator: `--task stop` (set the load down) 15 → 100 % and `--task pass-through` (paper protocol) 26 → 97 % from B = 1 to 8–32 |

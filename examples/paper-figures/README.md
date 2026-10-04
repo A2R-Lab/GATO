@@ -5,7 +5,7 @@ Runnable does not mean numerically reproduced. Keep published results, historica
 datasets and fresh evaluations of the current code distinct. A correctness
 receipt is not a timing report.
 
-The latest current-code refresh and its numbers: [docs/figure-refresh-2026-10-01.md](../../docs/figure-refresh-2026-10-01.md).
+Current-code numbers: [docs/figure-refresh-2026-10-01.md](../../docs/figure-refresh-2026-10-01.md).
 
 ## Setup and modes
 
@@ -23,8 +23,9 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 .venv/bin/python examples/paper-figures/make_all.py --only fig4,fig5 --quick
 ```
 
-- Fig-3 assembles saved CSVs by default. Timing lanes need `--run-gato`,
-  `--run-bt` or `--run-mpcgpu` and an exclusive quiet window.
+- Fig-3 assembles saved CSVs by default. Timing lanes need `--run-gato` or
+  `--run-bt` and an exclusive quiet window; MPCGPU cells are imported from that
+  repository's own timing run with `--mpcgpu-timing-dir`.
 - Fig-4/5/7 regenerate on the GPU by default. `--replot` loads existing data;
   `--quick` is a plumbing smoke, not a statistical reproduction.
 - Pickles are trusted local artifacts; never load arbitrary downloaded pickles.
@@ -35,7 +36,7 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 
 | Script | Modules | Meaning and current limitation |
 |---|---|---|
-| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap); `--robot indy7` for the paper's arm (GATO + CPU lanes) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
+| `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap); `--robot indy7` for the paper's arm (GATO + CPU lanes) | Matched three-solver fig8 benchmark on an identical problem; ratios are not the paper's (different robot, harness, timing boundary) |
 | `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
 | `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
 | `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success vs batch size on two task settings (stop: 15→100 %; pass-through: 26→97 %), refreshed Oct 3 |
@@ -58,27 +59,21 @@ Indy7 goal is synthesized from the formula — and writes `*_indy7` CSVs and fig
 - GATO: `../benchmarks/sweep_batch_iiwa_fig8.py` (N and batch sweeps).
 - CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, multi-threaded C++ QDLDL-based CPU solver (OSQP with QDLDL, `pysqpcpu`)
   built by `build_cpu_baseline.sh`.
-- MPCGPU: sibling repository's `tools/time_persolve.sh`, matched configuration;
-  no batch axis, so the displayed baseline is sequential B × single-solve.
+- MPCGPU: that repository's `tools/timing.py` figure-eight plan (same costs and
+  budget), imported with `--mpcgpu-timing-dir`; it has no batch axis, so the
+  displayed baseline is sequential B × single-solve.
 
-The assembler consumes `../benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}.csv`.
-Old Indy7 point-to-point data is NOT a baseline for the iiwa14 fig8 sweep.
-Pre-July-30 data used the wrong terminal frame; do not mix it with named-EE
-results. The June scripts were retired 2026-10-01 (git history: `examples/archive/`);
-they were history, not interchangeable benchmark implementations.
+The assembler consumes `../benchmarks/data/sweep_fig8_{gato,bt,mpcgpu}[_indy7].csv`.
+Pre-July-30 data used the wrong terminal frame and the June point-to-point data a
+different task; neither is a baseline for these sweeps.
 
-The current GATO sweep records internal solver duration, not full Python or
-controller latency. The paper describes timing around wrappers. Match these
-boundaries before quoting speedups; record both when adding an end-to-end lane.
-Historical local iiwa14 numbers are not measurements of the current commit.
-
-The September 27 checkpoint exposed seed drift: the historical raw sweep used
-zero states beyond knot zero; the migrated controller seeded a hold. The sweep
-now defaults explicitly to `--initial-guess zero-tail`, with `hold` available
-for a controlled comparison. Each new CSV has a `.runs.jsonl` companion and
-hashed frozen reference `.npy`; do not combine seeds or silently use the last
-CSV row as a matched baseline. `--check-only` verifies raw/controller bitwise
-trajectory and iteration-count parity without reporting or saving timing.
+The GATO sweep records internal solver duration, not Python or controller
+latency; the paper timed around wrappers. Match boundaries before quoting
+speedups. The sweep's warm-start seed is explicit (`--initial-guess zero-tail`,
+the historical choice; `hold` for a controlled comparison — the two differ by
+up to 7%, see the refresh document). Each CSV has a `.runs.jsonl` companion and a
+hashed frozen reference `.npy`; never mix seeds. `--check-only` verifies
+raw/controller bitwise parity without timing.
 
 ### Fig-4: choose and name the grid
 
@@ -128,16 +123,12 @@ Never overwrite an old pool: tag every protocol change.
 ## Merge checkpoint versus research refresh
 
 The [focused runner](../benchmarks/run_merge_checkpoint.sh) samples Fig-3 at
-N64 / B=1,8,128 with three process repeats and Fig-7 at B128 / ten seeded
-scenarios. It does NOT refresh the full Fig-3 grid, Fig-4, Fig-5 or full Fig-7.
-Compiler measurements and autotuning are separate opt-in legs of
-`examples/benchmarks/run_timing_handoff.sh`.
-
-Next research refresh: Fig-3's matched full sweep, Fig-4's explicitly chosen
-grid, and Fig-5's quality and separately specified latency experiment. The legacy
-`../benchmarks/run_timing_night.sh` also runs sibling-repo work and full Fig-7.
-Its historical 6–7 hour estimate is not a promise for the current code; do not
-launch it blindly for the focused checkpoint.
+N64 / B=1,8,128 with three process repeats and the Fig-7 stop task at B128 /
+ten seeded scenarios: a regression sample, not a refresh. Compiler measurements
+and autotuning are opt-in legs of `../benchmarks/run_timing_handoff.sh`. Still
+open for a research refresh: Fig-4's exact cost grid and Fig-5's latency
+experiment. `../benchmarks/run_timing_night.sh` is the legacy broad run (sibling
+repository work, full Fig-7); do not launch it blindly on a shared machine.
 
 ## Provenance and interpretation
 

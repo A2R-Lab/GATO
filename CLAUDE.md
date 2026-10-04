@@ -107,12 +107,14 @@ migrated to `glass::`.
   - `controller.py` — task-agnostic `MPCController` (owns the warm start; shift/hold, linsys
     "auto", reseed, hypothesis hooks); `StepResult.u` is the ACTUATED control.
   - `hypotheses.py` / `estimators.py` — `HypothesisBatch` ABC, `ForceHypothesisBatch`,
-    `ForceEstimator`/`CEMForceEstimator` (batch-as-identity API).
+    `ForceEstimator`/`CEMForceEstimator`, `OneStepWrenchIdentifier`, `IdentifiedWrenchSampler`
+    (batch-as-identity API; `MPC_GATO(estimator="fe"|"wid")` picks the sampler).
   - `policy.py` / `envs.py` — `MPCPolicy` + reference providers (numpy-only) / gymnasium
     `ArmTrackEnv` (lazy import).
   - `worlds.py` — `PinocchioWorld` / `MuJoCoWorld` simulators; `certificate.py` (KKT certificate);
     `linsys_autotune.py` (resolve_linsys + the tuned-entry table); `fingerprint.py`.
-  - `mpc_gato.py` — `MPC_GATO`, the closed-loop SIM DRIVER (`run_mpc_fig8`, `run_mpc_goals`).
+  - `mpc_gato.py` — `MPC_GATO`, the closed-loop SIM DRIVER (`run_mpc_fig8`; `run_mpc_goals`
+    with the optional `settle_time` dwell and `goal_ramp` minimum-jerk reference).
   - `builder.py` — `gato.build(urdf, ..., floating_base=, contact_frames=, contact_forces=,
     exact_hessian=)` codegen+compile; `_registry.json` (tracked) holds robot metadata.
   - `common.py` — figure8 / rk4 / manifold helpers.

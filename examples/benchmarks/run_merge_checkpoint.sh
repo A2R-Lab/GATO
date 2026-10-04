@@ -13,7 +13,7 @@ case "${1:-}" in
     echo '1. Check clean source, explicit quiet-window declaration, and idle GPU/CPU.'
     echo '2. Record source/submodule SHAs, binary hashes, receipt, hardware/toolchain.'
     echo '3. Fig-3: iiwa14 N64; B=1,8,128; 400 solves; three process repeats, new CSVs.'
-    echo '4. Fig-7: B128; 10 scenarios; seed 0; unique output tag; regression sample only.'
+    echo '4. Fig-7 stop task: B128; 10 scenarios; seed 0; unique output tag; regression sample only.'
     echo '5. Record ending source/binary hashes; reject changed inputs or contamination.'
     echo 'Not included: full figures, CPU/MPCGPU baselines, autotuning, compile timing.'
     exit 0 ;;
@@ -86,7 +86,7 @@ for repeat in 1 2 3; do
     --N 64 --batches 1,8,128 --solves 400 --out "$LOGDIR/fig3-repeat$repeat.csv"
 done
 checkpoint_leg fig7-sample "$PY" examples/paper-figures/reproduce_fig7_pickplace.py \
-  --batch-sizes 128 --n-scenarios 10 --seed 0 --tag "$TAG"
+  --task stop --batch-sizes 128 --n-scenarios 10 --seed 0 --tag "$TAG"
 snapshot > "$LOGDIR/inputs-after.txt"
 cmp "$LOGDIR/inputs-before.txt" "$LOGDIR/inputs-after.txt"
 [[ -z "$(git status --porcelain --ignore-submodules=untracked)" ]] || {

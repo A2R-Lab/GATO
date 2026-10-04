@@ -134,25 +134,35 @@ def table_I(data):
         f.write(txt + "\n")
 
 
+SAMPLERS = {   # one method, one color and marker, same legend order in every panel
+    "fe": ("exploration sampler (paper's)", "#1f77b4", "o"),
+    "wid": ("identified weight + exploration", "#ff7f0e", "s"),
+}
+
+
 def plot_success_vs_batch(panels, name="fig7_success_vs_batch"):
-    """Success rate against batch size, one panel per task; each panel draws the task's
-    chosen sampler solid and the other sampler dashed when its pool exists.
-    panels = [(title, [(label, tag, style), ...]), ...]; missing pools are skipped."""
+    """Success rate against batch size, one panel per task. panels = [(title, chosen,
+    {"fe": tag, "wid": tag}), ...]: the task's chosen sampler is drawn solid, the other
+    dashed; colors/markers/legend order follow SAMPLERS; missing pools are skipped."""
     plt = C.set_paper_rcParams()
     fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4.2), squeeze=False)
-    for ax, (title, series) in zip(axes[0], panels):
-        for label, tag, style in series:
+    for ax, (title, chosen, tags) in zip(axes[0], panels):
+        for key, (label, color, marker) in SAMPLERS.items():
             try:
-                d = C.load_data(tag)
-            except FileNotFoundError:
+                d = C.load_data(tags[key])
+            except (FileNotFoundError, KeyError):
                 continue
             Bs = d["batch_sizes"]
             rate = [100.0 * np.mean([t is not None for t in d["pool"][b]]) for b in Bs]
-            ax.plot(Bs, rate, style, label=label)
+            ax.plot(Bs, rate, marker=marker, color=color, linestyle="-" if key == chosen else "--", label=label)
         ax.set_xscale("log", base=2); ax.set_xticks([1, 8, 32, 128]); ax.set_xticklabels(["1", "8", "32", "128"])
         ax.set_ylim(0, 102); ax.set_xlabel("Batch size B"); ax.set_ylabel("Episodes with all 5 goals [%]")
-        ax.set_title(title, fontsize=11); ax.grid(True, alpha=0.3); ax.legend(loc="lower right", fontsize=9)
-    plt.tight_layout()
+        ax.set_title(title, fontsize=11); ax.grid(True, alpha=0.3)
+    from matplotlib.lines import Line2D
+    handles = [Line2D([], [], color=c, marker=m, linestyle="-", label=l) for l, c, m in SAMPLERS.values()]
+    handles.append(Line2D([], [], color="0.4", linestyle="--", label="dashed: the other sampler on that task"))
+    fig.legend(handles=handles, loc="lower center", ncol=len(handles), fontsize=10, frameon=False)
+    plt.tight_layout(rect=(0, 0.08, 1, 1))
     C.savefig(fig, name)
 
 
@@ -285,12 +295,10 @@ def main():
     plot_cdf(data, args.max_time, tag=data.get("tag", "fig7_pickplace"))
     if args.success_plot:
         plot_success_vs_batch([
-            ("Stop at each goal\n(15 kg, 1.5 s reference, gates hold 0.1 s)",
-             [("exploration sampler (paper's)", "fig7_stop", "o-"),
-              ("identified weight + exploration", "fig7_stop_wid", "s--")]),
-            ("Pass through each goal\n(paper protocol, 15 kg)",
-             [("identified weight + exploration", "fig7_pass_through", "o-"),
-              ("exploration sampler (paper's)", "fig7_pickplace_v2_fe", "s--")]),
+            ("Stop at each goal\n(15 kg, 1.5 s reference, gates hold 0.1 s)", "fe",
+             {"fe": "fig7_stop", "wid": "fig7_stop_wid"}),
+            ("Pass through each goal\n(paper protocol, 15 kg)", "wid",
+             {"fe": "fig7_pickplace_v2_fe", "wid": "fig7_pass_through"}),
         ])
 
 

@@ -12,7 +12,7 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |
 | How do I build, test, sign a receipt or time a change? | [Development and validation](development.md) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
-| What do the current-code figures show? | [October 1 figure refresh](figure-refresh-2026-10-01.md) |
+| What do the current-code figures show? | [Figure refresh, October 2026](figure-refresh-2026-10-01.md) |
 | How is the project page updated? | [Website](website.md) |
 | Where did historical datasets come from? | [Dated archaeology](archaeology.md) — history, not current API guidance |
 

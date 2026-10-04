@@ -79,9 +79,9 @@ class MPC_GATO:
             estimator: the hypothesis sampler behind the batch (batch_size > 1,
                 or batch_size == 1 with 'wid'): 'fe' = the paper's
                 Fibonacci-sphere ForceEstimator (searches for the wrench from
-                scratch); 'wid' = IdentifiedWrenchSampler (the batch brackets the
-                filtered payload weight and the last-step identified wrench;
-                see estimators.py). Ignored when wrench_id is set.
+                scratch); 'wid' = IdentifiedWrenchSampler (identified payload
+                weight plus bounded exploration; see estimators.py). Ignored when
+                wrench_id is set.
             wrench_id: B=1 wrench IDENTIFICATION (dict, or {} for defaults):
                 least-squares fit of the disturbance wrench from the one-step
                 motion residual, injected through the same f_ext path the

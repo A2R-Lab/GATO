@@ -1,7 +1,6 @@
 # Feature status and limitations
 
-Scope: the modernization branch, reviewed 2026-09-27. “Covered” means specific
-committed tests exercise a capability; it is not a guarantee for every problem,
+Scope: `main`. “Covered” means specific committed tests exercise a capability; it is not a guarantee for every problem,
 hardware configuration or combination of features. This remains source-installed
 research software, not a certified robot controller.
 
@@ -14,7 +13,7 @@ research software, not a certified robot controller.
 | Contact-force (`fc`) and exact-Hessian (`eh`) variants | Named N16 arm variants in the receipt | Separate variants, not an arbitrary combined fc+eh configuration; exact Hessian is workload-dependent |
 | Go2 floating-base dynamics and contact-force standing | N16 default/fc modules, manifold/derivative tests, MuJoCo standing gates | Longer horizons are not supported by the receipt; standing is not walking |
 | Gait schedule, foot masks and swing targets | Solver-level foot-lift and programmer-plumbing tests | Schedule is supplied, not discovered; closed-loop S2 weight shift / S3 lift remain in development |
-| Runtime and compilation performance | [October 1 figure refresh](figure-refresh-2026-10-01.md): seed A/B, Fig-3/4/5 on the current code | Seed policy explains the September gap except about 3–4% at B8/B128; current ratios are not the paper's speedups |
+| Runtime and task performance | [Figure refresh](figure-refresh-2026-10-01.md): seed A/B, Fig-3 (iiwa14 and Indy7), Fig-4, Fig-5, Fig-7 on the current code | Current ratios are not the paper's speedups; Fig-7 is reported on two task settings |
 
 ## Important operating limits
 
@@ -25,13 +24,9 @@ research software, not a certified robot controller.
 - **Floating vector weights:** effort weights have length `n_actuated` (Go2:
   12), excluding base pose and contact-wrench slots. Posture targets/weights
   remain stored-q indexed (`nq`, Go2: 19); these are different contracts.
-- **Pick-place results:** the September 27 review found invalid historical
-  pendulum quaternion initialization. Corrected pools use protocol
-  `unit-quaternion-pendulum-v2`; old success rates are not interchangeable with
-  corrected simulations or the paper. October 3: 100-scenario corrected pools on two task
-  settings — stop at each goal (ramped reference, gates hold) 15/100/99/98 % with the paper's
-  sampler; pass through (paper protocol) 26/83/97/95 % with the identified-weight batch
-  (`estimator="wid"`), 6/62/84/82 % with the paper's; see docs/figure-refresh-2026-10-01.md.
+- **Pick-place results:** pools before the September 27 simulator fix
+  (`unit-quaternion-pendulum-v2`) are not comparable with current runs or the
+  paper. Current numbers (two task settings) are in the figure refresh.
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a
@@ -46,23 +41,13 @@ research software, not a certified robot controller.
 
 ## What the receipt proves
 
-Latest follow-up: source `d91ab5a`, receipt commit `3b1a051`, **356 passed,
-zero skips**, with all 38 existing bitwise goldens unchanged. New gates cover
-explicit controller seeds, pendulum state assembly, floating effort-vector
-width and codegen fallback refusal. Bounded effort-vector memcheck passed both
-default/fc cases with zero errors. Fresh lean onboarding also built indy7 N64
-and ran examples 01/02 without Pinocchio. This is correctness/install evidence,
-not a new performance result. (The pick-place figures were refreshed on October 3; see above.)
-
-The source commit `4c8ab22` was attested by receipt commit `5b309d3`: 328 tests,
-zero skips, including 38 bitwise goldens across the 18-module profile. This is a
-dated checkpoint. The 2026-09-27 documentation/example/test update (`78fc5d4`)
-passed 341 tests with zero skips and the same 38 goldens; inspect the current
-`gpu-proof.json` for the latest coverage.
-The two masked-contact golden cases passed memory checking. The original full
-ADMM race check was interrupted. A subsequent bounded masked-contact gate (one
-SQP/ADMM iteration, AL/barrier/ADMM) passed racecheck with zero errors/warnings;
-this covers the exercised kernels, not every possible solver execution.
+The committed `gpu-proof.json` attests the full suite on the receipt module set
+at the commit it names (currently 366 tests, zero skips, 42 bitwise goldens);
+`CHANGELOG.md` records each attested batch. Sanitizer evidence is bounded:
+memcheck on the effort-vector and masked-contact gates and racecheck on a
+one-iteration masked-contact gate passed with zero errors, which covers the
+exercised kernels, not every solver execution. This is correctness and install
+evidence, not a performance result.
 
 See the [receipt contract](consumer_contract.md#5-what-the-gpu-proof-receipt-does-and-does-not-attest)
 and [paper-reproduction policy](../examples/paper-figures/README.md) before

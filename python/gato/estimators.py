@@ -607,28 +607,26 @@ class OneStepWrenchIdentifier:
 
 
 class IdentifiedWrenchSampler:
-    """Hypothesis batch centred on the IDENTIFIED wrench (batch-as-identity, B >= 1).
+    """Hypothesis batch centred on the identified payload weight (batch-as-identity, B >= 1).
 
-    The sampling ForceEstimator searches for the payload wrench from scratch and, on
-    the pick-place task, never finds it: its exploration radius (<= 20 N) is an order
-    of magnitude below a 15 kg payload's reaction (hundreds of N, swinging by hundreds
-    of N per control tick), so its estimate hovers near zero and the batch helps only
-    through per-tick selection among weak guesses. This sampler instead builds the
-    batch around what one least-squares fit of the last motion sample already knows:
+    Rows: [0] the filtered payload weight (OneStepWrenchIdentifier mode='weight'),
+    [1] zero (the robot-only model), [2:] Fibonacci-sphere perturbations of the weight's
+    force at an adaptive radius (grows when a perturbation wins the one-step rollout,
+    shrinks when a core row does). Every hypothesis is the weight plus a bounded
+    correction; at batch_size == 1 the batch is the weight alone (the wrench_id weight arm).
 
-      row 0   the filtered payload WEIGHT (OneStepWrenchIdentifier mode='weight';
-              the best single hypothesis measured on this task, see that docstring)
-      row 1   zero (the robot-only model)
-      rows 2+ Fibonacci-sphere perturbations of the weight's force with an adaptive
-              radius (grows when a perturbation wins, shrinks when a core row does)
-      inertial_rows=True also adds the full identified wrench (mode='wrench') and
-              blends weight + lambda*(full - weight) — see __init__ for why that is off
+    inertial_rows=True also adds the full identified wrench (mode='wrench') and blends
+    weight + lambda*(full - weight). Off by default: those rows explain the last tick
+    best, so they win the selection, but they extrapolate the payload's inertial reaction
+    to the arm's own motion over the horizon and occasionally fling the arm (2-3 of 100
+    pick-place scenarios).
 
-    so every hypothesis is the weight plus a bounded correction, and the one-step
-    rollout picks. At batch_size == 1 the batch is row 0 alone, which is the wrench_id
-    weight-mode arm. Duck-typed like ForceEstimator (generate_batch, update,
-    reset, get_stats) for gato.hypotheses.ForceHypothesisBatch; ``identify`` must be
-    fed at SENSOR rate (MPC_GATO._observe_substep does), exactly as for wrench_id.
+    Why not the ForceEstimator: on the pick-place task its 20 N exploration ball never
+    reaches a 15 kg payload's reaction (hundreds of N), so it steers by selecting among
+    small guesses; which sampler suits which task is measured in
+    docs/figure-refresh-2026-10-01.md. Duck-typed like ForceEstimator for
+    gato.hypotheses.ForceHypothesisBatch; ``identify`` must be fed at sensor rate
+    (MPC_GATO._observe_substep does), as for wrench_id.
     """
 
     def __init__(self, batch_size, model, ee_frame="EE", *, seed=0, initial_radius=10.0,
@@ -636,12 +634,6 @@ class IdentifiedWrenchSampler:
                  damping=1e-3, max_wrench=2000.0, inertial_rows=False):
         if batch_size < 1:
             raise ValueError("batch_size must be >= 1")
-        # inertial_rows=True adds the full identified wrench and its blends with the weight.
-        # Measured OFF by default: those rows explain the LAST interval best, so they win
-        # the selection, but they extrapolate the payload's inertial reaction to the arm's
-        # own motion over the horizon; the plan then fights a force it is itself creating
-        # and occasionally flings the arm (100 rad/s excursions on 2-3 of 100 scenarios).
-        # Without them every hypothesis stays within max_radius of the weight.
         self.inertial_rows = bool(inertial_rows)
         self.batch_size = int(batch_size)
         self.dim = 6
