@@ -151,7 +151,7 @@ def plot_success_vs_batch(panels, name="fig7_success_vs_batch"):
             ax.plot(Bs, rate, style, label=label)
         ax.set_xscale("log", base=2); ax.set_xticks([1, 8, 32, 128]); ax.set_xticklabels(["1", "8", "32", "128"])
         ax.set_ylim(0, 102); ax.set_xlabel("Batch size B"); ax.set_ylabel("Episodes with all 5 goals [%]")
-        ax.set_title(title); ax.grid(True, alpha=0.3); ax.legend(loc="lower right", fontsize=9)
+        ax.set_title(title, fontsize=11); ax.grid(True, alpha=0.3); ax.legend(loc="lower right", fontsize=9)
     plt.tight_layout()
     C.savefig(fig, name)
 
@@ -285,10 +285,10 @@ def main():
     plot_cdf(data, args.max_time, tag=data.get("tag", "fig7_pickplace"))
     if args.success_plot:
         plot_success_vs_batch([
-            ("Stop at each goal (15 kg, ramp 1.5 s, gates hold 0.1 s)",
+            ("Stop at each goal\n(15 kg, 1.5 s reference, gates hold 0.1 s)",
              [("exploration sampler (paper's)", "fig7_stop", "o-"),
-              ("identified weight + exploration, 5 kg", "fig7_stop5_wid", "s--")]),
-            ("Pass through each goal (paper protocol, 15 kg)",
+              ("identified weight + exploration", "fig7_stop_wid", "s--")]),
+            ("Pass through each goal\n(paper protocol, 15 kg)",
              [("identified weight + exploration", "fig7_pass_through", "o-"),
               ("exploration sampler (paper's)", "fig7_pickplace_v2_fe", "s--")]),
         ])

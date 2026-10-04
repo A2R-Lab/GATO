@@ -115,8 +115,8 @@ physics says which to use:
   paper's sampler keeps every hypothesis within 20 N of a slowly moving estimate; the control it
   selects is smooth and the arm settles. A hypothesis carrying the identified payload weight tracks
   the reference faster, excites the swing, and the swinging bob keeps the joints above the 1 rad/s
-  gate: the identified-weight sampler reaches only 40 / 68 / 81 / 59% on this task at 5 kg (and
-  the 15 kg row is in `fig7_stop_wid` when present). A planner check with a constant known force
+  gate: on this task the identified-weight sampler reaches 1 / 4 / 3 / 11% at 15 kg and
+  40 / 68 / 81 / 59% at 5 kg. A planner check with a constant known force
   confirms the compensation itself is right (exact hypothesis holds the goal at 3 cm, zero
   hypothesis sags 5–8 cm) — the loss is the swing it provokes.
 - When the arm flies through the goals, speed is what the gate rewards and knowing the load pays:
