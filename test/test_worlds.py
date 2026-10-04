@@ -204,3 +204,22 @@ def test_goal_dwell_gate_delays_reach_and_rejects_fly_through():
         times[dwell] = s["goal_events"][-1]["time"]
         assert s["goal_events"][-1]["distance"] < 0.05 and s["goal_events"][-1]["velocity"] < 1.0
     assert times[0.2] >= times[0.0] + 0.2 - 1e-6
+
+
+@pytest.mark.gpu
+def test_goal_ramp_reference_delays_arrival():
+    """goal_ramp > 0 feeds a minimum-jerk reference that reaches the goal only after the
+    ramp time, so the arm cannot arrive before most of it has elapsed; goal_ramp=0 is the
+    paper's step reference. Both reach the goal."""
+    from gato.mpc_gato import MPC_GATO
+    model = pin.buildModelFromUrdf(URDF)
+    x0 = np.concatenate([IIWA14_START_CONFIGS["ready"], np.zeros(7)])
+    goal = [np.array([0.55, -0.1, 0.7])]
+    times = {}
+    for ramp in (0.0, 1.0):
+        mpc = MPC_GATO(model, URDF, N=16, batch_size=1)
+        _, s = mpc.run_mpc_goals(x0, goal, goal_timeout=4.0, pace_by_solve_time=False,
+                                 goal_ramp=ramp)
+        assert s["goal_outcomes"] == ["reached"], (ramp, s["goal_events"])
+        times[ramp] = s["goal_events"][-1]["time"]
+    assert times[1.0] >= 0.6 and times[1.0] > times[0.0]

@@ -9,7 +9,7 @@ the current code. Protocols and their differences from the paper: [paper-figures
 | Fig-3 scalability and heatmap | GATO N × B sweep and multi-threaded QDLDL-based CPU solver B sweep (Oct 1); MPCGPU imported from its Oct 1 evening harness run (main 3566358) | Yes | Refreshed |
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
-| Fig-7 / Table I pick-and-place (Oct 3) | 100 seeded scenarios × B ∈ {1, 8, 32, 128}, corrected simulator, paper gate | No (fixed pacing) | Refreshed with the identified-weight hypothesis batch; the paper's estimator never finds the payload |
+| Fig-7 / Table I pick-and-place (Oct 3) | 100 seeded scenarios × B ∈ {1, 8, 32, 128}, corrected simulator, two task settings | No (fixed pacing) | Refreshed: stop-at-goal 15 → 100 % and pass-through 26 → 97 % with batch size |
 | Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Refreshed in an exclusive window (third run; the two shared-box runs agreed within 3%) |
 
 ## Seed A/B (September 30)
@@ -90,46 +90,71 @@ Internal solver time per batched solve at N = 64:
 
 ## Fig-7 / Table I: pick-and-place with an unmodelled 15 kg payload (October 3)
 
-`reproduce_fig7_pickplace.py --n-scenarios 100 --batch-sizes 1,8,32,128`, corrected simulator
-(`unit-quaternion-pendulum-v2`, `ready` start), the paper's protocol otherwise: five step goals,
-N = 16, dt = 10 ms, 5 SQP iterations, 15 kg payload with random length / damping / initial angle,
-success = EE within 5 cm of the goal with joint-velocity norm below 1 rad/s before a 5 s timeout.
-Fixed pacing, so the pools are deterministic and need no quiet window.
+The paper's point is that a batch of disturbance hypotheses, selected each tick by consistency
+with the observed motion, turns a failing single-model MPC into a working one. The refresh keeps
+that claim and shows it on two versions of the task, because the task as published is a
+*pass-through* (nothing stops at a goal) and a pick-and-place also has to *set the load down*.
+Both use the corrected simulator (`unit-quaternion-pendulum-v2`, `ready` start), N = 16,
+dt = 10 ms, 5 SQP iterations, the paper's costs, a 15 kg payload with random length / damping /
+initial angle, 100 seeded scenarios (seed 0, the same list for every row), and the paper's gate:
+EE within 5 cm of the goal with joint-velocity norm below 1 rad/s, 5 s per goal. Fixed pacing, so
+every pool is deterministic and needs no quiet window. `reproduce_fig7_pickplace.py --task stop`
+and `--task pass-through`; `--success-plot` draws `fig7_success_vs_batch.png`.
 
-| Estimator behind the hypothesis batch | B = 1 | 8 | 32 | 128 | mean completion, successes (s) |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Paper's ForceEstimator (`--estimator fe`) | 6% | 62% | 84% | 82% | 5.8 / 6.4 / 7.1 / 6.7 |
-| Identified weight + bounded exploration (`--estimator wid`, default) | 26% | 83% | 97% | 95% | 11.9 / 6.8 / 5.7 / 5.2 |
+| Task | Hypothesis sampler | B = 1 | 8 | 32 | 128 | Mean completion of successes (s) |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| **Stop at each goal** — reference ramps to the next goal over 1.5 s (minimum jerk), gates must hold 100 ms | paper's exploration sampler (`fe`) | 15% | **100%** | **99%** | **98%** | 11.1 / 9.4 / 8.7 / 8.7 |
+| **Pass through each goal** — the paper's protocol: step reference, instantaneous gate | identified weight + exploration (`wid`) | 26% | 83% | **97%** | **95%** | 11.9 / 6.8 / 5.7 / 5.2 |
 
-Paired on the same 100 scenarios the new sampler wins at every batch size (B = 1: 25 won / 5 lost,
-B = 8: 35 / 10; exact McNemar p ≈ 3·10⁻⁴ and 2·10⁻⁴ for the bracket variant measured first).
-Every failure at B ≥ 8 is a 3- or 4-of-5 near miss; there are no divergences.
+Batching is the lever in both: a single model fails most episodes, eight hypotheses succeed in
+nearly all, and the curve is flat beyond that. Every failure at B ≥ 8 is a 3- or 4-of-5 near miss;
+there are no divergences. What changes between the tasks is how the batch is filled, and the
+physics says which to use:
 
-Why the estimator changed. Scoring the true payload wrench against the one-step rollout shows the
-selection mechanism works (the true wrench predicts the next state 5× better than zero and wins 96%
-of ticks), but the wrench a 15 kg bob exerts on this arm averages 270 N and swings by hundreds of
-newtons per tick, while the paper's `ForceEstimator` explores within a 20 N ball and blends 10% per
-tick: its estimate averages −17 N vertical against a 147 N weight in every scenario, so the batch
-helped only by selecting among weak guesses. `IdentifiedWrenchSampler` (`gato/estimators.py`)
-builds the batch around a least-squares identification of the payload weight (the gravity-aligned
-component of the one-step motion residual, filtered at 0.1 s) plus a zero row and Fibonacci-sphere
-perturbations with an adaptive radius; `MPC_GATO(estimator="wid")`. Rows carrying the full identified
-wrench (`inertial_rows=True`) explain the last tick best but extrapolate the payload's inertial
-reaction to the arm's own motion and occasionally fling the arm, so they are off by default.
+- When the arm must stop with the load still swinging, the batch should *not* chase the swing. The
+  paper's sampler keeps every hypothesis within 20 N of a slowly moving estimate; the control it
+  selects is smooth and the arm settles. A hypothesis carrying the identified payload weight tracks
+  the reference faster, excites the swing, and the swinging bob keeps the joints above the 1 rad/s
+  gate: the identified-weight sampler reaches only 40 / 68 / 81 / 59% on this task at 5 kg (and
+  the 15 kg row is in `fig7_stop_wid` when present). A planner check with a constant known force
+  confirms the compensation itself is right (exact hypothesis holds the goal at 3 cm, zero
+  hypothesis sags 5–8 cm) — the loss is the swing it provokes.
+- When the arm flies through the goals, speed is what the gate rewards and knowing the load pays:
+  the identified-weight sampler lifts the paper's sampler's 6 / 62 / 84 / 82% to 26 / 83 / 97 / 95%
+  (paired on the same scenarios, B = 1: 25 won / 5 lost, B = 8: 35 / 10, exact McNemar p ≈ 3·10⁻⁴
+  and 2·10⁻⁴; the B ≥ 32 gains are not individually significant).
 
-Why the gate stays the paper's. Requiring both gates to *hold* for 100 ms (`--settle-time 0.1`)
-collapses every arm (FE 0 / 33 / 62 / 57 %, new sampler 0 / 4 / 5 / 5 %): with these costs the
-arm passes through each goal at about 1 rad/s and the payload swings 50–70° (peaks near inverted),
-so nothing settles. A minimum-jerk reference between goals (`--goal-ramp 1.5`) halves the joint
-speeds and swing, after which the estimator ordering inverts: the compensated arm follows the
-reference faster, excites the swing more, and the swinging bob keeps the joints above 1 rad/s,
-while the uncompensated arm settles because it under-delivers (a planner check with a constant
-known force confirms the compensation itself is right: exact hypothesis 3 cm, zero hypothesis
-5–8 cm sag). "Hold at the goal with a swinging payload" is therefore a different task that needs
-a settling cost and a payload model, not the paper's pass-through task; both knobs stay available
-for that study. Settings that do not help: 10 SQP iterations (not convergence-limited), `qd_cost`
-0.1–0.5 (steady-state sag or sluggishness), torque penalties (the arm then cannot hold the load),
-smaller payloads (same swing), longer weight filters.
+Secondary rows, same scenarios: stop task at 12 kg with the paper's sampler 31 / 100 / 100 / 100%,
+at 5 kg 89 / 100 / 100 / 100% (a light load is set down even without the batch, so 15 kg — the
+paper's — is the right payload for the figure); pass-through with the paper's sampler
+6 / 62 / 84 / 82%.
+
+What the diagnosis found, and why the protocol has two settings:
+
+- *The paper's estimator never finds the payload.* Scoring the true wrench against the one-step
+  rollout shows the selection works (the true wrench predicts the next state 5× better than zero
+  and wins 96% of ticks), but the wrench a 15 kg bob exerts on this arm averages 270 N and swings by
+  hundreds of newtons per tick, while the `ForceEstimator` explores within a 20 N ball and blends 10%
+  per tick: its vertical estimate averages −17 N against a 147 N weight in every scenario. The batch
+  helps by selecting among small guesses each tick, which is enough to steer and, it turns out, is
+  the right behaviour for setting a swinging load down.
+- *The published protocol is a fly-through.* With the paper's costs (`u_cost` 5·10⁻⁷, no torque
+  limits) and a step reference, the arm sprints at 5–10 rad/s and the payload swings 50–70°
+  (near inverted at peaks); the gate is met in passing at about 1 rad/s. Requiring the same gate to
+  hold for 100 ms drops every estimator to 0–5% at that setting. A minimum-jerk reference between
+  goals halves the joint speeds and swing (median 1.6 rad/s, 35–45°) and makes the stop task
+  solvable; that is the only change the stop task makes to the controller's inputs.
+- *Settings that do not help*: 10 SQP iterations (the cap is hit at every step but the failures are
+  not convergence-limited), `qd_cost` 0.1–0.5 (steady-state sag or sluggishness), torque penalties
+  (the arm then cannot hold the load), longer weight filters, smaller exploration radii.
+- `IdentifiedWrenchSampler` (`gato/estimators.py`, `MPC_GATO(estimator="wid")`) builds the batch
+  from a least-squares identification of the payload weight (the gravity-aligned component of the
+  one-step motion residual, filtered at 0.1 s) plus a zero row and Fibonacci-sphere perturbations
+  with an adaptive radius. Rows carrying the full identified wrench (`inertial_rows=True`) explain
+  the last tick best but extrapolate the payload's inertial reaction over the horizon and
+  occasionally fling the arm (2–3 of 100 scenarios), so they are off by default.
+- `MPC_GATO.run_mpc_goals(settle_time=, goal_ramp=)` carry the two protocol knobs; both default to
+  the paper's loop (0).
 
 ## Fig-4: the published plotting script produced an empty figure
 

@@ -86,9 +86,12 @@ def table_I(data):
                   f"start={proto.get('start_config', 'home')}"]
     plines.append(f"simulation: {data.get('simulation_protocol', 'legacy/unversioned (not v2)')}")
     md, sp = data.get("mpc_defaults") or {}, data.get("solver_params") or {}
+    if md:
+        plines.append("task: " + ("stop at each goal (reference ramps, gates hold)" if md.get("settle_time", 0.0) > 0
+                                  else "pass through each goal (the paper's step reference, instantaneous gate)"))
     if md or sp:
         plines.append(f"gates: {md.get('goal_threshold')} m, {md.get('velocity_threshold')} rad/s "
-                      f"(L{md.get('velocity_norm')}), dwell {md.get('settle_time', 0.0)} s, "
+                      f"(L{md.get('velocity_norm')}), dwell {md.get('settle_time', 0.0)} s, ramp {md.get('goal_ramp', 0.0)} s, "
                       f"timeout {md.get('goal_timeout')} s; qd_cost={sp.get('qd_cost')}")
     fc, wid = data.get("fc_config"), data.get("wrench_id")
     if wid is None and not fc:
@@ -131,6 +134,28 @@ def table_I(data):
         f.write(txt + "\n")
 
 
+def plot_success_vs_batch(panels, name="fig7_success_vs_batch"):
+    """Success rate against batch size, one panel per task; each panel draws the task's
+    chosen sampler solid and the other sampler dashed when its pool exists.
+    panels = [(title, [(label, tag, style), ...]), ...]; missing pools are skipped."""
+    plt = C.set_paper_rcParams()
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4.2), squeeze=False)
+    for ax, (title, series) in zip(axes[0], panels):
+        for label, tag, style in series:
+            try:
+                d = C.load_data(tag)
+            except FileNotFoundError:
+                continue
+            Bs = d["batch_sizes"]
+            rate = [100.0 * np.mean([t is not None for t in d["pool"][b]]) for b in Bs]
+            ax.plot(Bs, rate, style, label=label)
+        ax.set_xscale("log", base=2); ax.set_xticks([1, 8, 32, 128]); ax.set_xticklabels(["1", "8", "32", "128"])
+        ax.set_ylim(0, 102); ax.set_xlabel("Batch size B"); ax.set_ylabel("Episodes with all 5 goals [%]")
+        ax.set_title(title); ax.grid(True, alpha=0.3); ax.legend(loc="lower right", fontsize=9)
+    plt.tight_layout()
+    C.savefig(fig, name)
+
+
 def plot_cdf(data, max_time, tag="fig7_pickplace"):
     plt = C.set_paper_rcParams()
     fig = plt.figure(figsize=(8, 5))
@@ -161,8 +186,14 @@ def main():
     p.add_argument("--length-range", default="0.3,0.7", help="pendulum length range [m]")
     p.add_argument("--damping-range", default="0.1,0.6", help="damping range [Nms/rad]")
     p.add_argument("--angle-range", default="0.0,0.6", help="initial |axis-angle| range [rad]")
-    p.add_argument("--tag", default="fig7_pickplace_v2",
-                   help="data/plot basename (use a distinct tag per protocol — never mix pools)")
+    p.add_argument("--task", default="stop", choices=["stop", "pass-through"],
+                   help="protocol preset (2026-10-03). 'stop': the payload must be set down — minimum-jerk "
+                        "reference between goals (1.5 s), gates hold 100 ms, 15 kg, the paper's exploration "
+                        "sampler (fe). 'pass-through': the paper's protocol verbatim — step goals, instantaneous "
+                        "gate — with the identified-weight sampler (wid). Explicit --estimator/--goal-ramp/"
+                        "--settle-time/--pend-mass override the preset.")
+    p.add_argument("--tag", default=None,
+                   help="data/plot basename (default fig7_<task>; use a distinct tag per protocol — never mix pools)")
     p.add_argument("--start-config", default="ready",
                    help="IIWA14_START_CONFIGS key for the initial pose. Default 'ready' is a "
                         "mid-workspace elbow pose; 'zero'/'home' are all-zeros, where the arm "
@@ -170,13 +201,16 @@ def main():
     p.add_argument("--settle-time", type=float, default=None,
                    help="dwell [s] both success gates must hold (default: PICKPLACE_MPC_DEFAULTS; "
                         "0 = the paper's instantaneous gate)")
+    p.add_argument("--goal-ramp", type=float, default=None,
+                   help="minimum-jerk EE reference travel time [s] between goals (default: "
+                        "PICKPLACE_MPC_DEFAULTS; 0 = the paper's step reference)")
     p.add_argument("--qd-cost", type=float, default=None,
                    help="joint-velocity cost override (default: PICKPLACE_SOLVER_PARAMS)")
-    p.add_argument("--estimator", default="wid", choices=["fe", "wid"],
-                   help="hypothesis sampler behind the batch: 'wid' (default since 2026-10-03) = "
-                        "IdentifiedWrenchSampler (identified payload weight + bounded exploration; at "
-                        "B=1 it is the wrench-id weight arm); 'fe' = the paper's ForceEstimator, which "
-                        "searches for the wrench from scratch and never finds a 15 kg payload. Tag pools apart.")
+    p.add_argument("--estimator", default=None, choices=["fe", "wid"],
+                   help="hypothesis sampler behind the batch (default: the --task preset): 'fe' = the paper's "
+                        "ForceEstimator (bounded exploration, never identifies the load — the right fill when "
+                        "the arm must stop with the load swinging); 'wid' = IdentifiedWrenchSampler (identified "
+                        "payload weight + bounded exploration — the right fill when flying through the goals).")
     p.add_argument("--wrench-id", action="store_true",
                    help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
                         "wrench from sensor-rate motion, injected as f_ext. B=1 only "
@@ -198,11 +232,21 @@ def main():
     p.add_argument("--fc-free-torque", action="store_true",
                    help="with --fc, leave the wrench moment rows free (default pins "
                         "them to zero: a point-mass payload exerts pure force)")
+    p.add_argument("--success-plot", action="store_true",
+                   help="also render fig7_success_vs_batch.png from the two preset pools (and the secondary pools when present)")
     args = p.parse_args()
+    preset = {"stop": dict(estimator="fe", goal_ramp=1.5, settle_time=0.1),
+              "pass-through": dict(estimator="wid", goal_ramp=0.0, settle_time=0.0)}[args.task]
+    for key, value in preset.items():
+        if getattr(args, key) is None:
+            setattr(args, key, value)
+    if args.tag is None:
+        args.tag = "fig7_" + args.task.replace("-", "_")
     np.random.seed(args.seed)
 
     if args.replot:
         data = C.load_data(args.tag)
+        data["tag"] = args.tag
     else:
         n_scenarios = args.n_scenarios
         batch_sizes = C.parse_int_list(args.batch_sizes)
@@ -230,7 +274,7 @@ def main():
                          "pin_torque_rows": not args.fc_free_torque}
             print(f"[fc arm] solver contact-wrench slots active: {fc_config}")
         overrides_s = {"qd_cost": args.qd_cost} if args.qd_cost is not None else {}
-        overrides_m = {"settle_time": args.settle_time} if args.settle_time is not None else {}
+        overrides_m = {k: v for k, v in (("settle_time", args.settle_time), ("goal_ramp", args.goal_ramp)) if v is not None}
         data = run(n_scenarios, batch_sizes, args.max_time, protocol, fc_config, wrench_id,
                    start_config=args.start_config, estimator=args.estimator,
                    solver_params=overrides_s, mpc_defaults=overrides_m)
@@ -239,6 +283,15 @@ def main():
 
     table_I(data)
     plot_cdf(data, args.max_time, tag=data.get("tag", "fig7_pickplace"))
+    if args.success_plot:
+        plot_success_vs_batch([
+            ("Stop at each goal (15 kg, ramp 1.5 s, gates hold 0.1 s)",
+             [("exploration sampler (paper's)", "fig7_stop", "o-"),
+              ("identified weight + exploration, 5 kg", "fig7_stop5_wid", "s--")]),
+            ("Pass through each goal (paper protocol, 15 kg)",
+             [("identified weight + exploration", "fig7_pass_through", "o-"),
+              ("exploration sampler (paper's)", "fig7_pickplace_v2_fe", "s--")]),
+        ])
 
 
 if __name__ == "__main__":

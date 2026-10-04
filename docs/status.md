@@ -28,10 +28,10 @@ research software, not a certified robot controller.
 - **Pick-place results:** the September 27 review found invalid historical
   pendulum quaternion initialization. Corrected pools use protocol
   `unit-quaternion-pendulum-v2`; old success rates are not interchangeable with
-  corrected simulations or the paper. October 3: the 100-scenario corrected pools give
-  6/62/84/82 % at B = 1/8/32/128 with the paper's ForceEstimator and 26/83/97/95 % with the
-  identified-weight hypothesis batch (`estimator="wid"`, the Fig-7 default); see
-  docs/figure-refresh-2026-10-01.md.
+  corrected simulations or the paper. October 3: 100-scenario corrected pools on two task
+  settings — stop at each goal (ramped reference, gates hold) 15/100/99/98 % with the paper's
+  sampler; pass through (paper protocol) 26/83/97/95 % with the identified-weight batch
+  (`estimator="wid"`), 6/62/84/82 % with the paper's; see docs/figure-refresh-2026-10-01.md.
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a

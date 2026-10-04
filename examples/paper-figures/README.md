@@ -38,7 +38,7 @@ examples/benchmarks/run_merge_checkpoint.sh --dry-run
 | `reproduce_fig3_fair.py` | iiwa14 N64 (left); N8/16/32/64/128 (heatmap); `--robot indy7` for the paper's arm (GATO + CPU lanes) | Matched iiwa14 fig8 benchmark, not the published Indy7 task; September sample needs seed-policy A/B |
 | `reproduce_fig4_hparam.py` | iiwa14 N64 | Normalized merit vs SQP iteration; recovered grid differs from paper text |
 | `reproduce_fig5_disturbance.py` | indy7 N64 | Fixed-pacing disturbance rejection; does not reproduce latency-induced degradation |
-| `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success and physical completion time; refreshed Oct 3 with the identified-weight batch (26/83/97/95 %) |
+| `reproduce_fig7_pickplace.py` | iiwa14 N16 | Pick-place success vs batch size on two task settings (stop: 15→100 %; pass-through: 26→97 %), refreshed Oct 3 |
 
 Fig-6 is a simulation snapshot, not a numerical regression target. Fig-8 /
 Table-II require physical hardware; preserve them as published results unless
@@ -104,18 +104,19 @@ into quaternion xyz with w=0 and placed robot velocities at wrong offsets in the
 state. Corrected runs use Pinocchio manifold integration and are labeled
 `unit-quaternion-pendulum-v2`. Historical pools (and the paper) are not comparable.
 
-**Estimator (October 3):** the paper's `ForceEstimator` explores within a 20 N ball and never
-finds a 15 kg payload (its vertical estimate averages −17 N against 147 N); the batch helped
-only by selecting among weak guesses. `reproduce_fig7_pickplace.py` now defaults to
-`--estimator wid`, `IdentifiedWrenchSampler`: the batch is the least-squares identified
-payload weight, zero, and bounded Fibonacci-sphere perturbations (`MPC_GATO(estimator="wid")`;
-`--estimator fe` keeps the paper's sampler). On 100 seeded scenarios with the paper's gate
-(within 5 cm at < 1 rad/s): FE 6/62/84/82 %, WID 26/83/97/95 % at B = 1/8/32/128, no
-divergences. Full numbers and the reasons are in `docs/figure-refresh-2026-10-01.md`.
-
-**Gate:** the paper's instantaneous gate is kept. `--settle-time` (dwell) and `--goal-ramp`
-(minimum-jerk reference between goals) exist for a "hold at the goal" study, which this
-payload turns into a different task — see the refresh document before using them.
+**Two task settings (October 3):** `--task stop` (default) is a pick-and-place that sets the
+load down — the EE reference ramps to each goal over 1.5 s (minimum jerk) and the success gates
+must hold 100 ms — run with the paper's exploration sampler: 15 / 100 / 99 / 98 % at
+B = 1 / 8 / 32 / 128 on 100 seeded scenarios. `--task pass-through` is the paper's protocol
+verbatim (step reference, instantaneous gate) run with the identified-weight sampler
+(`IdentifiedWrenchSampler`, `--estimator wid`): 26 / 83 / 97 / 95 %. Batching is the lever in
+both; the batch is filled differently because a swinging load must not be chased when the arm
+has to stop, while knowing the load pays when flying through. The paper's `ForceEstimator`
+never identifies a 15 kg payload (vertical estimate ≈ −17 N against 147 N) — on the
+pass-through task it gives 6 / 62 / 84 / 82 %. `--success-plot` renders
+`fig7_success_vs_batch.png`; numbers, diagnosis and the secondary rows are in
+`docs/figure-refresh-2026-10-01.md`. `--estimator`, `--goal-ramp`, `--settle-time`,
+`--qd-cost`, `--pend-mass` override a preset; tag every variant apart.
 
 For shared-box GPU correctness, `check_pickplace.py --scenarios 1,2 --out <new-dir>
 [--estimator fe|wid]` replays seeded cases with fixed pacing, checks finite/deterministic
