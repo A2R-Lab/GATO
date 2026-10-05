@@ -94,7 +94,9 @@ Internal solver time per batched solve at N = 64:
 The paper's point is that a batch of disturbance hypotheses, selected each tick by consistency
 with the observed motion, turns a failing single-model MPC into a working one. The refresh keeps
 that claim and shows it on two versions of the task, because the task as published is a
-*pass-through* (nothing stops at a goal) and a pick-and-place also has to *set the load down*.
+*pass-through* (an instantaneous arrival gate) while the second task requires
+the arm to remain within its arrival gates for a short dwell. Neither task models
+placing or releasing the payload onto a surface.
 Both use the corrected simulator (`unit-quaternion-pendulum-v2`, `ready` start), N = 16,
 dt = 10 ms, 5 SQP iterations, the paper's costs, a 15 kg payload with random length / damping /
 initial angle, 100 seeded scenarios (seed 0, the same list for every row), and the paper's gate:
@@ -107,8 +109,9 @@ and `--task pass-through`; `--success-plot` draws `fig7_success_vs_batch.png`.
 | **Stop at each goal** — reference ramps to the next goal over 1.5 s (minimum jerk), gates must hold 100 ms | paper's exploration sampler (`fe`) | 15% | **100%** | **99%** | **98%** | 11.1 / 9.4 / 8.7 / 8.7 |
 | **Pass through each goal** — the paper's protocol: step reference, instantaneous gate | identified weight + exploration (`wid`) | 26% | 83% | **97%** | **95%** | 11.9 / 6.8 / 5.7 / 5.2 |
 
-Batching is the lever in both: a single model fails most episodes, eight hypotheses succeed in
-nearly all, and the curve is flat beyond that. Every failure at B ≥ 8 is a 3- or 4-of-5 near miss;
+Batching improves success in both tested settings: at B = 8 the stop task reaches
+100% and the pass-through task 83%; the latter improves further to 97% at B = 32.
+Every failure in the headline rows at B ≥ 8 is a 3- or 4-of-5 near miss;
 there are no divergences. What changes between the tasks is how the batch is filled, and the
 physics says which to use:
 
@@ -122,8 +125,17 @@ physics says which to use:
   hypothesis sags 5–8 cm) — the loss is the swing it provokes.
 - When the arm flies through the goals, speed is what the gate rewards and knowing the load pays:
   the identified-weight sampler lifts the paper's sampler's 6 / 62 / 84 / 82% to 26 / 83 / 97 / 95%
-  (paired on the same scenarios, B = 1: 25 won / 5 lost, B = 8: 35 / 10, exact McNemar p ≈ 3·10⁻⁴
-  and 2·10⁻⁴; the B ≥ 32 gains are not individually significant).
+  (paired wins/losses at B = 1/8/32/128: 25/5, 30/9, 15/2, 16/3;
+  unadjusted two-sided exact McNemar p = 0.000325, 0.001065, 0.002350, 0.004425).
+  These are exploratory comparisons on scenarios used while selecting settings,
+  not held-out confirmation. The previous paragraph's 35/10 and nonsignificance
+  claim belonged to the earlier inertial-row sampler, not this headline variant.
+
+These are unconstrained simulations: torque and velocity limits are disabled.
+The dwell checks arm EE position and joint velocity, not payload swing or contact
+with a placement surface. The saved headline stop pool records a dirty source tree;
+its source SHA alone cannot reconstruct that run. Preserve the pool as exploratory
+evidence; clean-source held-out validation is required before stronger claims.
 
 Secondary rows, same scenarios: stop task at 12 kg with the paper's sampler 31 / 100 / 100 / 100%,
 at 5 kg 89 / 100 / 100 / 100% (a light load is set down even without the batch, so 15 kg — the

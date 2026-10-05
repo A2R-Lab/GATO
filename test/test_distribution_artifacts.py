@@ -58,7 +58,7 @@ def test_wheel_is_pure_python_without_native_modules(artifacts):
 def test_sdist_contains_owned_build_sources(artifacts):
     _, sdist = artifacts
     names = [Path(*Path(n).parts[1:]).as_posix() for n in tarfile.open(sdist).getnames()]
-    required = ["CMakeLists.txt", "python/bindings.cu", "tools/build.sh", "tools/regen_grid.py",
+    required = ["CMakeLists.txt", "python/bindings.cu", "tools/build.sh", "tools/regen_grid.py", "tools/native_identity.py",
                 "gato/settings.h", "gato/bsqp/bsqp.cuh", "gato/dynamics/plant.cuh",
                 "gato/dynamics/indy7/grid.cuh", "gato/dynamics/iiwa14/grid.cuh", "gato/dynamics/go2/grid.cuh",
                 "examples/indy7_description/indy7.urdf", "test/receipt_modules.txt"]

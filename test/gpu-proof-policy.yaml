@@ -1,11 +1,9 @@
 # pytest-gpu-proof verification policy for GATO (schema 3, plugin 0.4.0 —
 # pinned in pyproject [dev]; bump plugin + this file + the receipt together).
 #
-# allow_dirty:false is load-bearing, not cosmetic. The fingerprint hashes the
-# tracked sources (gato/, python/gato, test/, CMakeLists.txt) but cannot descend
-# into the external/GRiD and external/GLASS submodule gitlinks — those are
-# pinned by the parent tree, and a clean tree is what guarantees the receipt's
-# commit SHA faithfully describes the dynamics/linalg code that was exercised.
+# allow_dirty:false is load-bearing. The fingerprint includes dependency
+# gitlinks, but does not recursively hash their files. Clean checkouts ensure
+# those pins describe the dynamics/linalg source exercised by the receipt.
 # (Untracked content INSIDE a submodule — e.g. the sqpcpu baseline's build
 # deps — does not count as dirty: the gitlink pin is unchanged.)
 allow_dirty: false
@@ -22,9 +20,10 @@ allowed_signers: [plancherb1]
 
 # Pin the fingerprint scope so a receipt cannot quietly attest a narrower tree
 # (compared as sets; must equal pyproject [tool.gpu_proof] fingerprint_paths).
-required_fingerprint_paths: [CMakeLists.txt, gato, python/gato, test]
+required_fingerprint_paths: [gato, python, test, tools, examples, CMakeLists.txt, pyproject.toml, MANIFEST.in, .gitmodules, .github, external/GRiD, external/GLASS]
 required_fingerprint_excluded_paths: [gpu-proof.json]
 
 # GATO's whole receipt run is ~minutes — no shard carry-forward (GRiD/GLASS use
 # it for hours-long suites). Every receipt is a fresh full pass.
 allow_carried: false
+required_test_manifest: test/expected_tests.txt

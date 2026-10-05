@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "purpose": "Held-out fixed-pacing arm-arrival and feasibility validation; not timing or payload placement",
+  "seed": 20261004,
+  "scenarios": 100,
+  "batch_sizes": [1, 8, 32, 128],
+  "mass_kg": 15.0,
+  "length_m": [0.3, 0.7],
+  "damping": [0.1, 0.6],
+  "initial_angle_rad": [0.0, 0.6],
+  "arms": {
+    "stop-fe": {"estimator": "fe", "ramp_s": 1.5, "dwell_s": 0.1, "clip_torque": false, "ctrl_lim_cost": 0.0},
+    "pass-through-wid": {"estimator": "wid", "ramp_s": 0.0, "dwell_s": 0.0, "clip_torque": false, "ctrl_lim_cost": 0.0},
+    "stop-fe-bounded": {"estimator": "fe", "ramp_s": 1.5, "dwell_s": 0.1, "clip_torque": true, "ctrl_lim_cost": 0.01}
+  }
+}

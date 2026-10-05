@@ -433,19 +433,8 @@ class OneStepWrenchIdentifier:
             filtered on weight_tau — which is the part a constant-over-the-
             horizon wrench model can legitimately extrapolate.
         weight_tau: time constant [s] of the weight filter (mode='weight').
-            ★ Measured on the pick-place task (100 scenarios at the default,
-            15-scenario probes elsewhere; success / mean goals per 5):
-                instantaneous  10/100, 3.10
-                tau = 0.05      -     , 3.47
-                tau = 0.10   ★ 27/100, 3.80   <- default
-                tau = 0.15      -     , 3.20
-                tau = 0.25      -     , 2.27
-                tau = 0.50      -     , 1.73  <- WORSE THAN NO ESTIMATOR (2.55)
-            The optimum is sharp and the penalty for over-filtering is severe:
-            long constants lag a payload the arm is actively swinging, and the
-            lagged weight is worse than no correction at all. Do not raise this
-            toward the swing period on the intuition that more averaging is
-            safer -- it is not.
+            Longer filters trade noise rejection for lag. Tune against a
+            separate validation set; the default is not a universal optimum.
         max_wrench: magnitude clamp on force/torque halves, a divergence guard.
             NOT a physical prior: on this task the true wrench swings over
             34-1041 N (a swinging payload on an accelerating arm is mostly

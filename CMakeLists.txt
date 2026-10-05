@@ -178,6 +178,12 @@ foreach(pair ${GATO_MODULE_PAIRS})
     set(MODULE_NAME "bsqpN${knot}_${plant}${VARIANT_SUFFIX}")
     message(STATUS "Configuring Python module: ${MODULE_NAME}")
     pybind11_add_module(${MODULE_NAME} SHARED python/bindings.cu)
+    # Bind the module to actual native inputs, not their mtimes. Reconfigure
+    # after source changes (tools/build.sh does this) before signing a receipt.
+    execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/native_identity.py
+                    --plant ${plant} OUTPUT_VARIABLE _native_id
+                    OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    target_compile_definitions(${MODULE_NAME} PRIVATE GATO_NATIVE_SOURCE_ID="${_native_id}")
 
     # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant
     # header; the GRiD collision dir supplies grid_collision_geometry.cuh

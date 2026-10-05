@@ -604,6 +604,7 @@ class PyBSQP {
 
 PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), m)
 {
+        m.attr("NATIVE_SOURCE_ID") = GATO_NATIVE_SOURCE_ID;
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)
         m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)

@@ -24,10 +24,14 @@
 #   PYTHON=path/to/python ./test/run_gpu_proof.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ $# -ne 0 || -n "${PYTEST_ADDOPTS:-}" ]]; then
+    echo "ERROR: receipt must cover the full suite; selection arguments/PYTEST_ADDOPTS are forbidden." >&2
+    exit 1
+fi
 
-# Refuse to sign a dirty tree: the fingerprint cannot descend into the
-# external/GRiD + external/GLASS submodules; a clean tree is what pins them via
-# the receipt's commit SHA (mirrors test/gpu-proof-policy.yaml allow_dirty:false).
+# Refuse to sign a dirty tree: dependency gitlinks are fingerprinted, but
+# their files are not recursively hashed by the plugin. Require clean
+# checkouts (mirrors test/gpu-proof-policy.yaml allow_dirty:false).
 # Untracked content inside a submodule (sqpcpu build deps) is fine — the pin is
 # what matters.
 if [[ -n "$(git status --porcelain --ignore-submodules=untracked)" ]]; then
@@ -48,7 +52,7 @@ if missing:
 PY
 then exit 1; fi
 
-"$PYTHON" -m pip install -q "pytest-gpu-proof==0.4.0" pyyaml
+"$PYTHON" -c 'import importlib.metadata as m; assert m.version("pytest-gpu-proof") == "0.4.0", "Install the pinned dev dependencies first"'
 
 # Refuse to sign with a partial module set (test/receipt_modules.txt = D12 profile).
 missing=()
@@ -62,11 +66,12 @@ if (( ${#missing[@]} )); then
     echo "       build it with: ./tools/build.sh --profile receipt" >&2
     exit 1
 fi
+"$PYTHON" tools/native_identity.py --verify
 
 # --gpu-proof-github-user: the signer must be the human KEYHOLDER — the
 # plugin's remote-derived default would guess the org (A2R-Lab), and orgs have
 # no SSH keys. The rest of the config lives in pyproject [tool.gpu_proof].
-"$PYTHON" -m pytest test/ -q "$@" \
+"$PYTHON" -m pytest test/ -q \
     --gpu-proof-enable \
     --gpu-proof-out gpu-proof.json \
     --gpu-proof-github-user plancherb1

@@ -79,16 +79,21 @@ GPU CI is a signed [pytest-gpu-proof](https://github.com/A2R-Lab/pytest-gpu-proo
 (`gpu-proof.json` at the repo root, schema 3, plugin 0.4.0) produced on the lab GPU and
 verified CPU-only by the `verify-gpu-proof` workflow against the signer's GitHub keys.
 The receipt attests the full suite on exactly the `test/receipt_modules.txt` module set;
-the fingerprint covers `gato/`, `python/gato`, `test/` and `CMakeLists.txt`
-(`pyproject.toml [tool.gpu_proof]`, `test/gpu-proof-policy.yaml`), so any change under
-those paths needs a fresh receipt with (or right after) its push.
+the fingerprint covers native sources and bindings, Python, tests, examples,
+build tools/configuration, CI and dependency gitlinks (the exact scope is in
+`pyproject.toml [tool.gpu_proof]` and `test/gpu-proof-policy.yaml`). Changes in
+that scope require a fresh receipt before an authorized push. A missing receipt
+fails CI; `test/expected_tests.txt` enforces the complete collected suite.
 
 1. Commit the source (and any submodule pin bump); the tree must be clean.
 2. Configure and build the receipt profile: `./tools/build.sh --profile receipt` (capped,
-   as above). `run_gpu_proof.sh` refuses to sign when a receipt module is missing.
+   as above). Each module embeds a content identity of its actual native inputs.
+   The signer refuses missing or stale/unidentified binaries; reconfigure after
+   native edits so CMake updates the identity and rebuilds affected modules.
 3. `PYTHON=.venv/bin/python ./test/run_gpu_proof.sh` on the GPU box. It refuses a dirty
-   tree and a Python without the `[test]` deps, runs the whole suite and writes
-   `gpu-proof.json`.
+   tree, test-selection arguments, `PYTEST_ADDOPTS`, a wrong plugin version and
+   a Python without the `[test]` deps. It installs nothing, runs the whole suite
+   and writes `gpu-proof.json`.
 4. Verify locally the way CI does:
    ```bash
    .venv/bin/gpu-proof verify --receipt gpu-proof.json --repo . \

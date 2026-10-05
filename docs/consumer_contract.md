@@ -63,12 +63,12 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   gradient only. (b) It closes position feedback on previously-uncontrolled
   nullspace joints — if your sim disagrees with our model there (see §0), the
   anchor is what exposes it.
-- **Per-joint weights**: the current native bindings for `set_u_cost_vec([...])`
-  and `set_q_pos_cost([...])` both require `grid::NUM_JOINTS` entries (nq for
-  the vendored plants). The effort-vector docstring's n_actuated description
-  is only consistent on fixed-base arms: use scalar weights for floating-base
-  recipes until that vector contract has a dedicated gate. On an arm, the knob prices a single joint's channel
-  (e.g. a near-massless wrist in a 100 Hz loop) without touching the rest.
+- **Per-joint weights**: `set_u_cost_vec([...])` requires `n_actuated` entries
+  (Go2: 12), excluding base coordinates and contact-wrench slots.
+  `set_q_pos_cost([...])` uses stored configuration coordinates (`nq`; Go2: 19).
+  Both default and contact-force Go2 variants have dedicated effort-vector KKT
+  gates in `test/test_anchor.py`. On an arm, vector weights price one joint's
+  channel without changing the others.
 - Weights land literally on the KKT diagonals — `debug_setup_kkt` exposes the
   blocks, and `test/test_anchor.py` shows the pattern for verifying any cost
   claim directly instead of arguing from solve outcomes.

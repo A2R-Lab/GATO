@@ -10,15 +10,12 @@ randomized scenarios (pendulum length 0.3-0.7 m, initial angle 0-0.6 rad, dampin
 iters, PCG tol 1e-6, 1 kHz RK4 sim. Success = EE within 5 cm of each goal in <5 s
 with total joint velocity < 1.0 rad/s.
 
-Reproduction status (2026-09-27): runnable, not an exact paper reproduction.
-The current loop uses fixed simulation pacing and a Euclidean joint-velocity
-norm. Historical local 100-scenario results exist, but their success magnitudes
-differ from Table I. Reconcile success aggregation, initial conditions, pacing
-and force-estimator settings before attributing the gap to solver performance
-or claiming this is a strictly harder protocol. Earlier force/frame/metric bugs
-were fixed; older pools are not interchangeable with present runs. See README.md
-for the current protocol checklist. Full Fig-7 refresh remains deferred; the
-merge checkpoint is only ten seeded B128 scenarios, not a success-rate estimate.
+Current-code refresh: two exploratory task presets, not an exact paper reproduction.
+Both use fixed pacing and a Euclidean joint-velocity gate. Stop adds a reference
+ramp and arm dwell; pass-through uses an instantaneous arrival gate. Neither
+enforces actuator limits or models setting the payload onto a surface. The
+October 3 pools were used during protocol selection; see the figure-refresh
+document for provenance and the separate held-out feasibility validation.
 
 Examples::
     python examples/paper-figures/reproduce_fig7_pickplace.py            # 100 scenarios (slow)
@@ -197,9 +194,9 @@ def main():
     p.add_argument("--damping-range", default="0.1,0.6", help="damping range [Nms/rad]")
     p.add_argument("--angle-range", default="0.0,0.6", help="initial |axis-angle| range [rad]")
     p.add_argument("--task", default="stop", choices=["stop", "pass-through"],
-                   help="protocol preset (2026-10-03). 'stop': the payload must be set down — minimum-jerk "
+                   help="protocol preset (2026-10-03). 'stop': arm arrival with a minimum-jerk "
                         "reference between goals (1.5 s), gates hold 100 ms, 15 kg, the paper's exploration "
-                        "sampler (fe). 'pass-through': the paper's protocol verbatim — step goals, instantaneous "
+                        "sampler (fe). 'pass-through': step goals, instantaneous "
                         "gate — with the identified-weight sampler (wid). Explicit --estimator/--goal-ramp/"
                         "--settle-time/--pend-mass override the preset.")
     p.add_argument("--tag", default=None,

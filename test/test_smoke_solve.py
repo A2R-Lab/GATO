@@ -17,7 +17,13 @@ def _inputs(plant, N, B):
 
 
 def _combos():
-    return sorted(k for k in gato.available() if k[0] in START)
+    # Collection must not depend on which binaries happen to exist on the host.
+    from pathlib import Path
+    rows = (Path(__file__).with_name('receipt_modules.txt')).read_text().splitlines()
+    return sorted((parts[0], int(parts[1])) for line in rows
+                  if line.strip() and not line.lstrip().startswith('#')
+                  for parts in [line.split()]
+                  if parts[0] in START and (len(parts) == 2 or parts[2] == 'default'))
 
 
 @pytest.mark.parametrize("plant,N", _combos())

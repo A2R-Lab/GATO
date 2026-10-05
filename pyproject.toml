@@ -68,6 +68,7 @@ examples = [
 # Test / lint tooling. Pinned plugin: the receipt schema, the verifier and the
 # policy file must agree (schema 3 since 0.4.0) — bump all three together.
 dev = [
+    "tomli; python_version < '3.11'",
     "pytest",
     "pytest-xdist",
     "build>=1.0",              # test_distribution_artifacts runs `python -m build` (sdist/wheel gates)
@@ -119,12 +120,10 @@ markers = [
 mode = "local"
 output = "gpu-proof.json"
 github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys — sign as the keyholder
-# Fingerprint the code-under-test + harness. Unlike GRiD, GATO's attested code
-# (bsqp kernels, plant adapter, generated grid.cuh, python package) lives in
-# the PARENT repo, so it is fingerprinted directly; only GRiD/GLASS remain as
-# submodule gitlinks, pinned by the receipt's commit SHA (the fingerprinter
-# hashes tracked files only, so built .so files never leak in).
-fingerprint_paths = ["gato", "python/gato", "test", "CMakeLists.txt"]
+# Fingerprint tracked code, build/test harnesses and dependency gitlinks.
+# Submodule contents require clean checkouts; built modules are checked
+# separately against embedded native-source identities before signing.
+fingerprint_paths = ["gato", "python", "test", "tools", "examples", "CMakeLists.txt", "pyproject.toml", "MANIFEST.in", ".gitmodules", ".github", "external/GRiD", "external/GLASS"]
 fingerprint_excluded_paths = ["gpu-proof.json"]   # never self-reference the receipt
 max_age_days = 30
 require_gpu = true

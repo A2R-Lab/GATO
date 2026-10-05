@@ -219,11 +219,12 @@ pytest                        # + slow: codegen diff both robots, gato.build dog
 **GPU CI = pytest-gpu-proof** (PyPI package, in the `[dev]` extra): run
 `./test/run_gpu_proof.sh` on the GPU box (clean tree, a python WITH pinocchio so
 nothing skips) → signed `gpu-proof.json` at the repo root → commit it; the
-`verify-gpu-proof` workflow checks it CPU-only (and skips gracefully when no
-receipt is committed yet, so code can push before a receipt lands). Config in
-`pyproject [tool.gpu_proof]` + `test/gpu-proof-policy.yaml`. Any change to
-`gato/`, `python/gato`, `test/`, or `CMakeLists.txt` changes the fingerprint —
-regenerate the receipt with (or right after) such a push. The workflow's
+`verify-gpu-proof` workflow checks it CPU-only and fails when it is missing.
+Config in `pyproject [tool.gpu_proof]` + `test/gpu-proof-policy.yaml` covers
+native sources/bindings, Python, tests, examples, build tools, CI and dependency
+gitlinks. The full test manifest and embedded native source identities prevent
+partial-suite receipts and stale-module recording. See docs/development.md.
+Regenerate the receipt before an authorized push. The workflow's
 `cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
 `test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 42 goldens (pcg + bdsv

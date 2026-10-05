@@ -35,8 +35,7 @@ python examples/02_batched_solve.py
 
 This builds one solver module, sufficient for the two introductory demos and
 the usage snippet below. Each demo reports solve results; printed durations on
-a shared GPU are not benchmark measurements. The branch selection is temporary
-until this API is merged into `main`.
+a shared GPU are not benchmark measurements.
 
 GATO installs host-native into a project-local `.venv`, using only the Python
 standard-library `venv` + `pip` — no Docker, no `uv` (same lightweight model as

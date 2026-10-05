@@ -99,11 +99,11 @@ into quaternion xyz with w=0 and placed robot velocities at wrong offsets in the
 state. Corrected runs use Pinocchio manifold integration and are labeled
 `unit-quaternion-pendulum-v2`. Historical pools (and the paper) are not comparable.
 
-**Two task settings (October 3):** `--task stop` (default) is a pick-and-place that sets the
-load down — the EE reference ramps to each goal over 1.5 s (minimum jerk) and the success gates
+**Two task settings (October 3):** `--task stop` (default) tests arm arrival with a dwell,
+not payload placement — the EE reference ramps to each goal over 1.5 s (minimum jerk) and the success gates
 must hold 100 ms — run with the paper's exploration sampler: 15 / 100 / 99 / 98 % at
-B = 1 / 8 / 32 / 128 on 100 seeded scenarios. `--task pass-through` is the paper's protocol
-verbatim (step reference, instantaneous gate) run with the identified-weight sampler
+B = 1 / 8 / 32 / 128 on 100 seeded scenarios. `--task pass-through` uses step references
+and an instantaneous gate in the corrected simulator, with the identified-weight sampler
 (`IdentifiedWrenchSampler`, `--estimator wid`): 26 / 83 / 97 / 95 %. Batching is the lever in
 both; the batch is filled differently because a swinging load must not be chased when the arm
 has to stop, while knowing the load pays when flying through. The paper's `ForceEstimator`
@@ -118,7 +118,33 @@ For shared-box GPU correctness, `check_pickplace.py --scenarios 1,2 --out <new-d
 traces and records goal gates; it retains no latency measurements. Pools are fixed-paced
 and deterministic, so they need no quiet window (they do disturb anyone else's timing).
 
-Never overwrite an old pool: tag every protocol change.
+These are exploratory results: the seed-0 pool was reused during tuning, the stop
+pool records a dirty source tree, and neither task enforces actuator limits or
+payload settling. Never overwrite an old pool: tag every protocol change.
+
+### Held-out Fig-7 correctness validation
+
+`fig7_validation_protocol.json` freezes 100 separate seed-20261004 scenarios,
+four batch sizes and three arms: stop/FE, pass-through/identified-weight, and
+stop/FE with a torque penalty plus a hard simulator torque clamp. No tuning is
+allowed on this holdout. All arms record actual applied torque, joint-position
+and velocity violations, and payload swing; an arm-arrival success is not a
+payload-placement or safe-robotics claim. The clamp enforces torque only, not
+position or velocity constraints.
+
+From a clean, committed checkout with the current iiwa14 N16 module built:
+
+```bash
+.venv/bin/python examples/paper-figures/validate_fig7.py docs/open-tasks/fig7-heldout
+.venv/bin/python examples/paper-figures/summarize_fig7_validation.py docs/open-tasks/fig7-heldout
+```
+
+This is fixed-pacing correctness work, not timing. Coordinate GPU sharing first.
+`--limit 1` runs a partial smoke; rerun without that option to finish the same pool.
+Create `STOP` in the output directory to pause between episodes; remove it to
+resume with the same command, source commit, protocol and binary. Completed
+episodes are not overwritten. Changing any identity requires a new directory.
+Only a complete 1,200-episode pool supports the full protocol summary.
 
 ## Merge checkpoint versus research refresh
 
