@@ -675,6 +675,8 @@
     </div>
     <p class="result-caption">Batching improves arm-arrival success in both tested settings. The stop task uses a 1.5 s reference ramp and 100 ms dwell; pass-through uses step references and an instantaneous gate. Both require EE error below 5 cm and joint-velocity norm below 1 rad/s, with a simulated 15 kg swinging payload. These seed-0 scenarios were reused during tuning; the stop artifact records a dirty source tree. Neither task enforces actuator limits or tests payload placement. Clean-source, held-out feasibility validation is a separate experiment, not implied by these curves. <a href="tools/current_evidence.py">Re-render from the bundled evidence</a>.</p>
 
+    <p class="result-caption" id="heldout-feasibility"><strong>Held-out feasibility check, October 4:</strong> a separate frozen pool completed 1,200 episodes. Both stop variants, including applied-torque clamping, reached all five goals in 100/100 scenarios at batches 8, 32 and 128. However, zero episodes satisfied all measured effort, velocity and position limits. Torque clamping alone did not make the trajectories feasible. These are simulated arm-arrival results, not evidence of hardware-safe payload handling. <a href="static/demos/current/fig7-heldout-2026-10-04.json">Complete held-out summary</a>.</p>
+
     <div class="result-figures-grid">
       <div class="result-figure">
         <div class="fig-label">Disturbance Rejection (Current)</div>

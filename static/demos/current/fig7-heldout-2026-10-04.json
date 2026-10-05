@@ -1,0 +1,200 @@
+{
+  "source": "463e738e3303cfb3986e8319d21b5047086383e1",
+  "protocol_sha256": "7d42faacb45c70496ee7cb0581a9a2c07a6c6a7c9cabef12464fbecbd1e3e113",
+  "expected_scenarios": 100,
+  "rows": [
+    {
+      "arm": "pass-through-wid",
+      "batch": 1,
+      "episodes": 100,
+      "successes": 31,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 5.5310117548162285,
+        "applied_effort_ratio": 5.5310117548162285,
+        "velocity_ratio": 80.04220951235635,
+        "position_violation_rad": 39.12482458820878,
+        "payload_swing_max_rad": 3.1405833658544973,
+        "payload_relative_speed_max_rad_s": 154.99720929151087
+      }
+    },
+    {
+      "arm": "pass-through-wid",
+      "batch": 8,
+      "episodes": 100,
+      "successes": 89,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 6.608096036044034,
+        "applied_effort_ratio": 6.608096036044034,
+        "velocity_ratio": 22.02267864874543,
+        "position_violation_rad": 17.451659133808928,
+        "payload_swing_max_rad": 3.1269752057377276,
+        "payload_relative_speed_max_rad_s": 92.77093446527034
+      }
+    },
+    {
+      "arm": "pass-through-wid",
+      "batch": 32,
+      "episodes": 100,
+      "successes": 94,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 6.827464710582387,
+        "applied_effort_ratio": 6.827464710582387,
+        "velocity_ratio": 26.312794371356127,
+        "position_violation_rad": 18.52317634971701,
+        "payload_swing_max_rad": 3.1398663423421547,
+        "payload_relative_speed_max_rad_s": 74.88886429469193
+      }
+    },
+    {
+      "arm": "pass-through-wid",
+      "batch": 128,
+      "episodes": 100,
+      "successes": 97,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 6.278441689231179,
+        "applied_effort_ratio": 6.278441689231179,
+        "velocity_ratio": 19.821247413874744,
+        "position_violation_rad": 17.468262122313885,
+        "payload_swing_max_rad": 3.132505686042408,
+        "payload_relative_speed_max_rad_s": 70.75085100410908
+      }
+    },
+    {
+      "arm": "stop-fe",
+      "batch": 1,
+      "episodes": 100,
+      "successes": 12,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 1.2035550204190342,
+        "applied_effort_ratio": 1.2035550204190342,
+        "velocity_ratio": 4.361945914279732,
+        "position_violation_rad": 38.93864840120965,
+        "payload_swing_max_rad": 2.9857858384676494,
+        "payload_relative_speed_max_rad_s": 17.560381945267707
+      }
+    },
+    {
+      "arm": "stop-fe",
+      "batch": 8,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 1.2879955985329368,
+        "applied_effort_ratio": 1.2879955985329368,
+        "velocity_ratio": 3.6896589699828493,
+        "position_violation_rad": 3.2411804929619334,
+        "payload_swing_max_rad": 2.9858916399510895,
+        "payload_relative_speed_max_rad_s": 15.201281355390963
+      }
+    },
+    {
+      "arm": "stop-fe",
+      "batch": 32,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 1.2841286225752397,
+        "applied_effort_ratio": 1.2841286225752397,
+        "velocity_ratio": 3.863089173718819,
+        "position_violation_rad": 1.5045607854525107,
+        "payload_swing_max_rad": 2.985570766661428,
+        "payload_relative_speed_max_rad_s": 14.816097736814681
+      }
+    },
+    {
+      "arm": "stop-fe",
+      "batch": 128,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 1.2981541373512961,
+        "applied_effort_ratio": 1.2981541373512961,
+        "velocity_ratio": 3.617119211406229,
+        "position_violation_rad": 1.7135558329057572,
+        "payload_swing_max_rad": 2.9854313979580653,
+        "payload_relative_speed_max_rad_s": 14.583512701770413
+      }
+    },
+    {
+      "arm": "stop-fe-bounded",
+      "batch": 1,
+      "episodes": 100,
+      "successes": 0,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 2.2710926749489526,
+        "applied_effort_ratio": 1.0,
+        "velocity_ratio": 6.1390748333335425,
+        "position_violation_rad": 24.85394527164211,
+        "payload_swing_max_rad": 2.9859145119993933,
+        "payload_relative_speed_max_rad_s": 17.164530095086562
+      }
+    },
+    {
+      "arm": "stop-fe-bounded",
+      "batch": 8,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 1.9945647499778054,
+        "applied_effort_ratio": 1.0,
+        "velocity_ratio": 6.012058192983251,
+        "position_violation_rad": 1.7843289694666993,
+        "payload_swing_max_rad": 2.9860390682334637,
+        "payload_relative_speed_max_rad_s": 15.035797082932934
+      }
+    },
+    {
+      "arm": "stop-fe-bounded",
+      "batch": 32,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 2.141010978005149,
+        "applied_effort_ratio": 1.0,
+        "velocity_ratio": 5.98119286477089,
+        "position_violation_rad": 2.006318623204792,
+        "payload_swing_max_rad": 2.985903330996347,
+        "payload_relative_speed_max_rad_s": 14.407786832352832
+      }
+    },
+    {
+      "arm": "stop-fe-bounded",
+      "batch": 128,
+      "episodes": 100,
+      "successes": 100,
+      "feasible_episodes": 0,
+      "successful_and_feasible": 0,
+      "maxima": {
+        "command_effort_ratio": 2.181212165138938,
+        "applied_effort_ratio": 1.0,
+        "velocity_ratio": 6.035663277789498,
+        "position_violation_rad": 1.458864530908003,
+        "payload_swing_max_rad": 2.9855422802198834,
+        "payload_relative_speed_max_rad_s": 14.386172928374561
+      }
+    }
+  ],
+  "complete": true
+}
