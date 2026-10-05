@@ -215,9 +215,8 @@ def main():
                    help="joint-velocity cost override (default: PICKPLACE_SOLVER_PARAMS)")
     p.add_argument("--estimator", default=None, choices=["fe", "wid"],
                    help="hypothesis sampler behind the batch (default: the --task preset): 'fe' = the paper's "
-                        "ForceEstimator (bounded exploration, never identifies the load — the right fill when "
-                        "the arm must stop with the load swinging); 'wid' = IdentifiedWrenchSampler (identified "
-                        "payload weight + bounded exploration — the right fill when flying through the goals).")
+                        "ForceEstimator (bounded exploration); 'wid' = IdentifiedWrenchSampler (identified "
+                        "payload weight + bounded exploration). Their relative performance is task-dependent.")
     p.add_argument("--wrench-id", action="store_true",
                    help="wrench-IDENTIFICATION arm: least-squares fit of the disturbance "
                         "wrench from sensor-rate motion, injected as f_ext. B=1 only "

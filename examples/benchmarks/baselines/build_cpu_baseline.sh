@@ -24,6 +24,8 @@ DEPS="$SQPCPU/deps"
 PREFIX="$DEPS/install"
 VENV="${1:-$REPO/.venv}"
 PY="$VENV/bin/python"
+JOBS="${JOBS:-1}"
+[[ "$JOBS" =~ ^[12]$ ]] || { echo "ERROR: shared-box builds require JOBS=1 or 2" >&2; exit 1; }
 
 # The sqpcpu baseline submodule (A2R-Lab/sqpcpu = the public fork of
 # EmreAdabag/sqpcpu; the fig3-fair pin is on its fig3-fair-sigma branch; plan D14
@@ -44,7 +46,7 @@ if [ ! -f "$PREFIX/lib/cmake/osqp/osqp-config.cmake" ]; then
   git clone --recursive --branch v0.6.3 --depth 1 https://github.com/osqp/osqp "$DEPS/osqp_src"
   cmake -S "$DEPS/osqp_src" -B "$DEPS/osqp_src/build" -G "Unix Makefiles" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-  cmake --build "$DEPS/osqp_src/build" --target install -j"$(nproc)"
+  cmake --build "$DEPS/osqp_src/build" --target install -j"$JOBS"
 else echo "=== osqp already installed ==="; fi
 
 # --- osqp-eigen v0.8.1 (matches osqp 0.6.3) ---
@@ -55,7 +57,7 @@ if [ ! -f "$PREFIX/lib/cmake/OsqpEigen/OsqpEigenConfig.cmake" ]; then
   cmake -S "$DEPS/osqpeigen_src" -B "$DEPS/osqpeigen_src/build" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX" \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-  cmake --build "$DEPS/osqpeigen_src/build" --target install -j"$(nproc)"
+  cmake --build "$DEPS/osqpeigen_src/build" --target install -j"$JOBS"
 else echo "=== osqp-eigen already installed ==="; fi
 
 # --- pysqpcpu (QDLDL-based CPU solver) against cmeel pinocchio + local osqp ---
@@ -65,7 +67,7 @@ cmake -S "$SQPCPU" -B "$SQPCPU/build" \
       -DPython3_EXECUTABLE="$PY" \
       -Dpybind11_DIR="$("$PY" -m pybind11 --cmakedir)" \
       -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF
-cmake --build "$SQPCPU/build" --target pysqpcpu -j"$(nproc)"
+cmake --build "$SQPCPU/build" --target pysqpcpu -j"$JOBS"
 
 # --- write the env helper to source before importing pysqpcpu ---
 cat > "$BENCH/baselines/sqpcpu_env.sh" <<EOF

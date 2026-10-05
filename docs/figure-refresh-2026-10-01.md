@@ -138,8 +138,8 @@ its source SHA alone cannot reconstruct that run. Preserve the pool as explorato
 evidence; clean-source held-out validation is required before stronger claims.
 
 Secondary rows, same scenarios: stop task at 12 kg with the paper's sampler 31 / 100 / 100 / 100%,
-at 5 kg 89 / 100 / 100 / 100% (a light load is set down even without the batch, so 15 kg — the
-paper's — is the right payload for the figure); pass-through with the paper's sampler
+at 5 kg 89 / 100 / 100 / 100% (arm-arrival success is higher for the lighter payload);
+pass-through with the paper's sampler
 6 / 62 / 84 / 82%.
 
 What the diagnosis found, and why the protocol has two settings:
@@ -149,8 +149,8 @@ What the diagnosis found, and why the protocol has two settings:
   and wins 96% of ticks), but the wrench a 15 kg bob exerts on this arm averages 270 N and swings by
   hundreds of newtons per tick, while the `ForceEstimator` explores within a 20 N ball and blends 10%
   per tick: its vertical estimate averages −17 N against a 147 N weight in every scenario. The batch
-  helps by selecting among small guesses each tick, which is enough to steer and, it turns out, is
-  the right behaviour for setting a swinging load down.
+  helps by selecting among small guesses each tick. These exploratory observations
+  motivate the stop setting; they do not establish payload settling or placement.
 - *The published protocol is a fly-through.* With the paper's costs (`u_cost` 5·10⁻⁷, no torque
   limits) and a step reference, the arm sprints at 5–10 rad/s and the payload swings 50–70°
   (near inverted at peaks); the gate is met in passing at about 1 rad/s. Requiring the same gate to
