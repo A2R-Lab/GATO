@@ -26,7 +26,9 @@ research software, not a certified robot controller.
   remain stored-q indexed (`nq`, Go2: 19); these are different contracts.
 - **Pick-place results:** pools before the September 27 simulator fix
   (`unit-quaternion-pendulum-v2`) are not comparable with current runs or the
-  paper. Current numbers (two task settings) are in the figure refresh.
+  paper. Current numbers are in the figure refresh. Its October 4 holdout
+  confirms strong batched arrival rates but zero episodes satisfying all
+  measured joint limits, including with applied-torque clamping.
 - **Actuation:** optimized contact wrenches explain model contact forces; they
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a

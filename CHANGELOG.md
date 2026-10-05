@@ -1,6 +1,20 @@
 # Changelog
 
-Unreleased on `main` (no tag: installs are source-tree only, plan D10).
+Unreleased (no tag; installs are source-tree only).
+
+## 2026-10-04 — Audit evidence and reproducibility
+
+- Signed GPU receipts now require the full test inventory, wider source coverage
+  and content identities matching all receipt-profile native modules. Missing
+  receipts and partial test selections fail closed; numerical goldens are unchanged.
+- A frozen Fig-7 holdout records arm-arrival outcomes separately from applied
+  effort, velocity and position limits, including a torque-clamped stop arm.
+  See the [figure refresh](docs/figure-refresh-2026-10-01.md) for interpretation.
+- The optional CPU comparison baseline builds in its own pinned Pinocchio 3.8
+  environment, with a two-arm numerical check and the matching Python launcher.
+- An opt-in quiet-window lane pairs controller-call wall time with internal
+  solver time. Documentation distinguishes simulated task quality, feasibility
+  and timing boundaries; no new performance claim follows from correctness runs.
 
 ## 2026-10-03 — Fig-7 refresh: two task settings, identified-weight hypothesis batch
 

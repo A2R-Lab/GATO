@@ -10,7 +10,7 @@ results; these describe the current code. Protocols and their differences from t
 | Fig-3 scalability and heatmap | GATO N × B sweep and multi-threaded QDLDL-based CPU solver B sweep (Oct 1); MPCGPU imported from its Oct 1 evening harness run (main 3566358) | Yes | Refreshed |
 | Fig-4 batched rho search | 50 goals × 24 cost settings | No | Refreshed after a plotting fix and a solver fix |
 | Fig-5 disturbance rejection | Fixed-pacing force sweep and 50 N trajectories | No | Refreshed |
-| Fig-7 / Table I pick-and-place (Oct 3) | 100 seeded scenarios × B ∈ {1, 8, 32, 128}, corrected simulator, two task settings | No (fixed pacing) | Refreshed: stop-at-goal 15 → 100 % and pass-through 26 → 97 % with batch size |
+| Fig-7 / Table I pick-and-place (Oct 3–4) | Exploratory seed-0 results plus a frozen 100-scenario holdout × 3 arms × 4 batches | No (fixed pacing) | Strong arrival results; no heldout episode satisfies all measured joint limits |
 | Fig-3 on the paper's Indy7 (Oct 3) | GATO N × B sweep and CPU B sweep with `--robot indy7` | Yes | Refreshed in an exclusive window (third run; the two shared-box runs agreed within 3%) |
 
 ## Seed A/B (September 30)
@@ -113,7 +113,7 @@ Batching improves success in both tested settings: at B = 8 the stop task reache
 100% and the pass-through task 83%; the latter improves further to 97% at B = 32.
 Every failure in the headline rows at B ≥ 8 is a 3- or 4-of-5 near miss;
 there are no divergences. What changes between the tasks is how the batch is filled, and the
-physics says which to use:
+observed behavior differs between these settings:
 
 - When the arm must stop with the load still swinging, the batch should *not* chase the swing. The
   paper's sampler keeps every hypothesis within 20 N of a slowly moving estimate; the control it
@@ -157,9 +157,11 @@ What the diagnosis found, and why the protocol has two settings:
   hold for 100 ms drops every estimator to 0–5% at that setting. A minimum-jerk reference between
   goals halves the joint speeds and swing (median 1.6 rad/s, 35–45°) and makes the stop task
   solvable; that is the only change the stop task makes to the controller's inputs.
-- *Settings that do not help*: 10 SQP iterations (the cap is hit at every step but the failures are
-  not convergence-limited), `qd_cost` 0.1–0.5 (steady-state sag or sluggishness), torque penalties
-  (the arm then cannot hold the load), longer weight filters, smaller exploration radii.
+- *Earlier tuning probes*: increasing the cap to 10 SQP iterations did not resolve the tested
+  failures; `qd_cost` 0.1–0.5 produced steady-state sag or sluggishness. Some tested torque
+  penalties prevented holding the load; longer weight filters and smaller exploration radii
+  also failed to resolve those cases. These are setting-specific observations, not general
+  exclusions of those mechanisms.
 - `IdentifiedWrenchSampler` (`gato/estimators.py`, `MPC_GATO(estimator="wid")`) builds the batch
   from a least-squares identification of the payload weight (the gravity-aligned component of the
   one-step motion residual, filtered at 0.1 s) plus a zero row and Fibonacci-sphere perturbations
@@ -168,6 +170,40 @@ What the diagnosis found, and why the protocol has two settings:
   occasionally fling the arm (2–3 of 100 scenarios), so they are off by default.
 - `MPC_GATO.run_mpc_goals(settle_time=, goal_ramp=)` carry the two protocol knobs; both default to
   the paper's loop (0).
+
+## Fig-7 heldout feasibility check October 4
+
+A separate seed (20261004) was frozen before collection on clean source
+`463e738`. All 100 scenarios completed at B = 1, 8, 32 and 128 for three
+presets: stop with FE, pass-through with identified weight, and stop with FE
+plus `ctrl_lim_cost=0.01` and an applied-torque clamp at the URDF effort limits.
+The 15 kg payload distribution and task gates are specified in
+[`fig7_validation_protocol.json`](../examples/paper-figures/fig7_validation_protocol.json).
+This is fixed-pacing simulation, not a timing or hardware test.
+
+Five-goal arrival successes out of 100 scenarios per cell:
+
+| Preset | B = 1 | 8 | 32 | 128 |
+| --- | ---: | ---: | ---: | ---: |
+| Stop FE | 12 | 100 | 100 | 100 |
+| Pass-through identified weight | 31 | 89 | 94 | 97 |
+| Stop FE with torque clamp | 0 | 100 | 100 | 100 |
+
+**None of the 1,200 episodes satisfies all measured joint limits.** Feasibility
+requires applied effort and joint velocity ratios no greater than 1 (tolerance
+1e-6), and position-limit excursion no greater than 1e-6 rad, throughout the
+simulation. The torque clamp bounds applied effort as intended, but does not
+enforce position or velocity limits. At B = 8–128, the clamped stop runs reach
+all goals yet peak at 5.98–6.04 times a URDF velocity limit, with worst position
+excursions of 1.46–2.01 rad. Arrival success is therefore not a safety claim.
+
+The [complete summary](data/fig7-heldout-2026-10-04.json) records counts, maxima,
+source revision and protocol hash. `validate_fig7.py` saves each episode and
+supports identity-checked resume; `summarize_fig7_validation.py` checks complete
+coverage and separates arrival success from feasibility. No settings were
+retuned on this holdout. A feasible task needs a separately designed constraint
+and reference protocol, new development scenarios, then another frozen holdout.
+Neither task tests placing or releasing the payload onto a surface.
 
 ## Fig-4: the published plotting script produced an empty figure
 
