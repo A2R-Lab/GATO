@@ -4,9 +4,9 @@ the robot's canonical URDF, EE frame from the plant registry (= grid end_effecto
 warm-start = zero controls, 1 QP iter. Tracking measured at EE from the logged joint configs (same
 metric as GATO/MPCGPU). iiwa14 by default; `--robot indy7` runs the paper's robot (synthesized goal).
 
-  baselines/build_cpu_baseline.sh            # once (default venv: the project .venv)
-  source baselines/sqpcpu_env.sh             # LD_LIBRARY_PATH + PYTHONPATH for pysqpcpu
-  python baselines/track_iiwa_fig8_bt.py [sim_time] [batch] [N] [out_csv] [--robot iiwa14]
+  baselines/build_cpu_baseline.sh            # optional pinned venv: baselines/README.md
+  source baselines/sqpcpu_env.sh              # matching Python and native libraries
+  "$GATO_CPU_PYTHON" baselines/track_iiwa_fig8_bt.py [sim_time] [batch] [N] [out_csv] [--robot iiwa14]
 """
 import argparse
 import importlib.util

@@ -35,7 +35,6 @@ import csv
 import argparse
 import subprocess
 import sys
-import sysconfig
 
 import numpy as np
 
@@ -64,22 +63,6 @@ def _run(cmd, cwd=C.REPO, env=None):
     subprocess.run([str(c) for c in cmd], cwd=cwd, check=True, env=env)
 
 
-def bt_env():
-    """LD_LIBRARY_PATH/PYTHONPATH for pysqpcpu (mirrors baselines/sqpcpu_env.sh, written by
-    build_cpu_baseline.sh): the module build dir, the local osqp prefix and this python's
-    cmeel pinocchio libs."""
-    sqpcpu = os.path.join(C.BENCH_DIR, "baselines", "sqpcpu")
-    prefix = os.path.join(sqpcpu, "deps", "install")
-    cmeel = os.path.join(sysconfig.get_paths()["purelib"], "cmeel.prefix", "lib")
-    env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = ":".join(
-        [os.path.join(sqpcpu, "build"), os.path.join(prefix, "lib"), cmeel,
-         env.get("LD_LIBRARY_PATH", "")])
-    env["PYTHONPATH"] = ":".join(
-        [os.path.join(sqpcpu, "build"), env.get("PYTHONPATH", "")])
-    return env
-
-
 def run_gato(N_list, batches, extra, solves):
     for N in N_list:
         C.require_module(ROBOT, N)
@@ -89,11 +72,18 @@ def run_gato(N_list, batches, extra, solves):
 
 
 def run_bt(N_list, batches, sim_time):
-    env = bt_env()
+    # Use the build helper's selected Python and libraries, not GATO's venv.
+    helper = os.path.join(C.BENCH_DIR, 'baselines', 'sqpcpu_env.sh')
+    if not os.path.isfile(helper):
+        raise SystemExit('Build the optional CPU baseline first; see baselines/README.md')
     script = os.path.join(C.BENCH_DIR, "baselines", "track_iiwa_fig8_bt.py")
     for N in N_list:
         for B in batches:
-            _run([PY, script, sim_time, B, N, BT_CSV, "--robot", ROBOT], env=env)
+            _run(['bash','-c',
+                  'set -euo pipefail; source "$1"; shift; '
+                  ': "${GATO_CPU_PYTHON:?Rebuild the CPU baseline environment helper}"; '
+                  'exec "$GATO_CPU_PYTHON" "$@"',
+                  'cpu-baseline',helper,script,sim_time,B,N,BT_CSV,'--robot',ROBOT])
 
 
 def import_mpcgpu(timing_dir):

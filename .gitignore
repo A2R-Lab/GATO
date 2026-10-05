@@ -47,7 +47,8 @@ Makefile
 
 python/gato.egg-info/
 
-.venv/
+.venv
+.venv-cpu-baseline/
 uv.lock
 
 deprecated/

@@ -11,14 +11,15 @@ while (( $# )); do
   case "$1" in
     --suite) [[ $# -ge 2 ]] || exit 2; SUITE=$2; shift 2 ;;
     --dry-run) PREVIEW=1; shift ;;
-    *) echo 'usage: run_timing_handoff.sh [--suite checkpoint|seed-ab|compile|calibrate|all] [--dry-run]' >&2; exit 2 ;;
+    *) echo 'usage: run_timing_handoff.sh [--suite checkpoint|seed-ab|boundaries|compile|calibrate|all] [--dry-run]' >&2; exit 2 ;;
   esac
 done
-case "$SUITE" in checkpoint|seed-ab|compile|calibrate|all) ;; *) echo 'Unknown suite.' >&2; exit 2 ;; esac
+case "$SUITE" in checkpoint|seed-ab|boundaries|compile|calibrate|all) ;; *) echo 'Unknown suite.' >&2; exit 2 ;; esac
 if (( PREVIEW )); then
   echo "DRY RUN: suite=$SUITE; no GPU queries, builds, timing, locks, or result writes."
   echo 'checkpoint: three iiwa14 N64 B1/8/128 repeats, then ten B128 Fig-7 scenarios.'
   echo 'seed-ab: three repeats each of zero-tail and hold seeds; same frozen reference, alternating order; no Fig-7.'
+  echo 'boundaries: Indy7/iiwa14 N64 B1/8/128, three repeats; paired controller-step wall and internal solver samples.'
   echo 'compile: isolated Release/sm120 indy7 N16 and iiwa14 N64; cold/no-op wall, RSS, sizes.'
   echo 'calibrate: indy7/iiwa14 N64 kicked fig8; PCG/BDSV and conditional auto validation.'
   echo 'all: checkpoint, compile, calibrate, sequentially. Default: checkpoint only.'
@@ -35,6 +36,9 @@ cd "$REPO"
   echo 'REFUSED: commit source changes first.' >&2; exit 2;
 }
 [[ -x "$PY" && -f gpu-proof.json ]] || { echo 'Missing venv or receipt.' >&2; exit 2; }
+"$REPO/.venv/bin/gpu-proof" verify --receipt gpu-proof.json --repo . \
+  --policy test/gpu-proof-policy.yaml --expected-skips test/expected_skips.txt --require-gpu
+"$PY" tools/native_identity.py --verify
 for tool in flock nvidia-smi cmake nvcc; do command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 2; }; done
 if [[ "$SUITE" == compile || "$SUITE" == all ]]; then
   command -v systemd-run >/dev/null
@@ -108,6 +112,21 @@ if [[ "$SUITE" == seed-ab ]]; then
       run_leg "seed-$seed-repeat$repeat" "$PY" "$HERE/sweep_batch_iiwa_fig8.py" \
         --N 64 --batches 1,8,128 --solves 400 --initial-guess "$seed" \
         "${goal_args[@]}" --out "$csv"
+      if (( ${#goal_args[@]} == 0 )); then
+        goal_file=$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readlines()[-1])["goal_file"])' "$csv.runs.jsonl")
+        goal_args=(--goal-file "$goal_file")
+      fi
+    done
+  done
+fi
+if [[ "$SUITE" == boundaries ]]; then
+  for plant in indy7 iiwa14; do
+    goal_args=()
+    for repeat in 1 2 3; do
+      csv="$LOGDIR/$plant-boundaries-repeat$repeat.csv"
+      run_leg "$plant-boundaries-repeat$repeat" "$PY" "$HERE/sweep_batch_iiwa_fig8.py" \
+        --robot "$plant" --N 64 --batches 1,8,128 --solves 400 --initial-guess zero-tail \
+        --record-call-boundary "${goal_args[@]}" --out "$csv"
       if (( ${#goal_args[@]} == 0 )); then
         goal_file=$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readlines()[-1])["goal_file"])' "$csv.runs.jsonl")
         goal_args=(--goal-file "$goal_file")

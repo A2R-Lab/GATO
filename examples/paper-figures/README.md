@@ -58,7 +58,7 @@ Indy7 goal is synthesized from the formula — and writes `*_indy7` CSVs and fig
 
 - GATO: `../benchmarks/sweep_batch_iiwa_fig8.py` (N and batch sweeps).
 - CPU: `../benchmarks/baselines/track_iiwa_fig8_bt.py`, multi-threaded C++ QDLDL-based CPU solver (OSQP with QDLDL, `pysqpcpu`)
-  built by `build_cpu_baseline.sh`.
+  built by `build_cpu_baseline.sh` in its [separate pinned environment](../benchmarks/baselines/README.md).
 - MPCGPU: that repository's `tools/timing.py` figure-eight plan (same costs and
   budget), imported with `--mpcgpu-timing-dir`; it has no batch axis, so the
   displayed baseline is sequential B × single-solve.
@@ -74,6 +74,15 @@ the historical choice; `hold` for a controlled comparison — the two differ by
 up to 7%, see the refresh document). Each CSV has a `.runs.jsonl` companion and a
 hashed frozen reference `.npy`; never mix seeds. `--check-only` verifies
 raw/controller bitwise parity without timing.
+
+For paired internal-solver and Python-controller call durations, reserve a quiet
+window and run `examples/benchmarks/run_timing_handoff.sh --suite boundaries`
+with `GATO_QUIET_WINDOW=1`. Its `--dry-run` is safe without a window. This lane
+uses N64, B1/8/128, three repeats per arm, a frozen reference and the same
+zero-tail seed. The `.call-boundaries.json` beside each CSV retains paired raw
+samples after ten warmups. The outer boundary is `MPCController.step`, including
+its wrapper work, but excluding reference construction, sensing, simulation and
+actuator I/O. It is not a complete robot-control deadline measurement.
 
 ### Fig-4: choose and name the grid
 

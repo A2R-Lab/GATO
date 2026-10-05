@@ -1,0 +1,18 @@
+# Optional CPU-baseline environment, verified on Linux/Python 3.12.
+# Separate from GATO's solver/test environment; do not install into .venv.
+cmeel==0.61.0
+cmeel-assimp==6.0.5
+cmeel-boost==1.89.0
+cmeel-console-bridge==1.0.2.3
+cmeel-octomap==1.10.0
+cmeel-qhull==8.0.2.1
+cmeel-tinyxml2==11.0.0
+cmeel-urdfdom==6.0.0
+cmeel-zlib==1.3.2
+coal==3.0.2
+eigenpy==3.12.0
+libcoal==3.0.2
+libpinocchio==3.8.0
+numpy==2.3.5
+pin==3.8.0
+pybind11==3.0.4

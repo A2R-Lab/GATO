@@ -71,7 +71,10 @@ test/test_examples.py::test_intro_example_syntax[07_go2_floating.py]
 test/test_examples.py::test_intro_example_syntax[08_linsys_and_autotune.py]
 test/test_examples.py::test_merge_checkpoint_dry_run
 test/test_examples.py::test_merge_checkpoint_requires_quiet_declaration
-test/test_examples.py::test_seed_ab_preview_and_refusal
+test/test_examples.py::test_seed_ab_preview_and_refusal[seed-ab]
+test/test_examples.py::test_seed_ab_preview_and_refusal[boundaries]
+test/test_examples.py::test_call_boundary_refuses_unassigned_window
+test/test_examples.py::test_call_boundary_check_only_has_no_timing_output
 test/test_f_ext.py::test_per_knot_uniform_matches_broadcast
 test/test_f_ext.py::test_per_knot_varying_wrench_changes_solution
 test/test_f_ext.py::test_per_knot_deterministic

@@ -24,6 +24,7 @@ import sys
 import argparse
 import hashlib
 import json
+import time
 from pathlib import Path
 import numpy as np
 
@@ -54,11 +55,18 @@ def parse_args():
     p.add_argument("--goal-file", help="frozen flat 6-wide reference .npy (no pickle); otherwise load/generate fig8")
     p.add_argument("--check-only", action="store_true",
                    help="GPU correctness only: finite trajectories and controller/raw-loop parity; no timing output")
+    p.add_argument("--record-call-boundary", action="store_true",
+                   help="also save paired MPCController.step wall and internal solver samples; quiet window only")
     p.add_argument("--out", default=None,
                    help="CSV to append rows to ('' = print only; default data/sweep_fig8_gato[_<robot>].csv)")
     args = p.parse_args()
     if args.out is None:
         args.out = default_csv(args.robot)
+    if args.record_call_boundary and not args.check_only:
+        if os.environ.get('GATO_QUIET_WINDOW') != '1':
+            p.error('call-boundary timing requires GATO_QUIET_WINDOW=1 in an assigned quiet window')
+        if not args.out or Path(args.out + '.call-boundaries.json').exists():
+            p.error('call-boundary timing requires a fresh --out path')
     return args
 
 
@@ -92,7 +100,7 @@ def main():
         sys.exit("reference must be finite")
     x0 = np.hstack((q0, np.zeros(model.nv))).astype(np.float32)
 
-    rows = []
+    rows, boundary_rows = [], []
     print(f"{rob.name} fig8 batch sweep: N={N} SQP=1 PCG<=200 rel 1e-4 rho 0.01, {args.solves} solves/config "
           f"(goal: {goal_source}, EE frame {rob.ee_frame}, center {center.round(4)})")
     print(f"initial_guess={args.initial_guess}; mode={'correctness' if args.check_only else 'timing'}")
@@ -116,10 +124,15 @@ def main():
             raw_solver.reset_dual()
             raw_solver.reset_rho()
         xcur = x0.copy()
-        times = []
+        times, call_times = [], []
         for t in range(args.solves):
             ref = goal[6 * t: 6 * (t + N)].astype(np.float32)
-            r = ctrl.step(xcur, ref)
+            if args.record_call_boundary and not args.check_only:
+                start = time.perf_counter_ns()
+                r = ctrl.step(xcur, ref)
+                call_times.append((time.perf_counter_ns() - start) / 1000)
+            else:
+                r = ctrl.step(xcur, ref)
             if args.check_only:
                 raw_xu[:, :nx] = xcur
                 raw = raw_solver.solve(np.tile(xcur, (B, 1)), np.tile(ref, (B, 1)), raw_xu)
@@ -139,6 +152,11 @@ def main():
         med, p90 = np.median(t), np.percentile(t, 90)
         print(f"{B:>4} {med/1000:>10.4f} {p90/1000:>8.4f} {med/B:>12.1f}")
         rows.append((N, B, med / 1000, p90 / 1000, med / B, len(t)))
+        if call_times:
+            wall = np.asarray(call_times[10:])
+            if not np.isfinite(wall).all() or not np.isfinite(t).all() or np.any(wall <= 0) or np.any(t <= 0):
+                raise ValueError('Invalid call-boundary samples')
+            boundary_rows.append(dict(B=B,internal_solver_us=t.tolist(),controller_step_wall_us=wall.tolist()))
         del ctrl, solver
 
     if args.out and not args.check_only:
@@ -162,6 +180,12 @@ def main():
             for r in rows:
                 f.write(f"{r[0]},{r[1]},{r[2]:.4f},{r[3]:.4f},{r[4]:.1f},{r[5]}\n")
         print(f"[sweep] appended {len(rows)} rows -> {args.out}")
+        if boundary_rows:
+            with open(args.out + '.call-boundaries.json','x') as stream:
+                json.dump(dict(source=git_provenance(),robot=rob.name,N=N,initial_guess=args.initial_guess,
+                    goal_sha256=goal_hash,warmup_dropped=10,
+                    boundary='MPCController.step wall time; excludes reference preparation, sensing, simulation and actuator I/O',
+                    rows=boundary_rows),stream,indent=2)
 
 
 if __name__ == "__main__":
