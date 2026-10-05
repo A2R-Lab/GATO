@@ -148,7 +148,9 @@ cmake --build build --parallel 2      # cap jobs: each TU pulls the large grid.c
 semicolon lists. The project `.venv` is the ONLY python for this repo: `./tools/install.sh --test --dev`
 gives it pinocchio + mujoco + scipy + gymnasium + pytest-gpu-proof, which is what `test/run_gpu_proof.sh`
 requires (it refuses a python missing them — a skip-laden receipt fails CI). Do NOT sign receipts
-from other repos' venvs.
+from other repos' venvs. The optional `pysqpcpu` comparison baseline has a separate
+`.venv-cpu-baseline` pinned to Pinocchio 3.8; see
+`examples/benchmarks/baselines/README.md`. It is not used to sign GATO receipts.
 
 New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_base=False,
 contact_frames=None, contact_forces=False, exact_hessian=False)` runs codegen (grid.cuh +

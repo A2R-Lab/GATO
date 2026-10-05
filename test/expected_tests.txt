@@ -74,6 +74,7 @@ test/test_examples.py::test_merge_checkpoint_requires_quiet_declaration
 test/test_examples.py::test_seed_ab_preview_and_refusal[seed-ab]
 test/test_examples.py::test_seed_ab_preview_and_refusal[boundaries]
 test/test_examples.py::test_call_boundary_refuses_unassigned_window
+test/test_examples.py::test_cpu_baseline_uses_selected_interpreter
 test/test_examples.py::test_call_boundary_check_only_has_no_timing_output
 test/test_f_ext.py::test_per_knot_uniform_matches_broadcast
 test/test_f_ext.py::test_per_knot_varying_wrench_changes_solution
@@ -374,5 +375,6 @@ test/test_worlds.py::test_custom_world_rejects_pendulum_and_fext
 test/test_worlds.py::test_goal_dwell_gate_delays_reach_and_rejects_fly_through
 test/test_worlds.py::test_goal_ramp_reference_delays_arrival
 test/test_fig7_validation.py::test_fig7_holdout_is_frozen_and_separate
+test/test_fig7_validation.py::test_fig7_summary_separates_success_feasibility_and_completion
 test/test_fig7_validation.py::test_fig7_instrumentation_preserves_unclipped_trajectory
 test/test_fig7_validation.py::test_fig7_identifier_observes_clamped_torque

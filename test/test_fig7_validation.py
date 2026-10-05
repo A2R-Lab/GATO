@@ -32,6 +32,31 @@ def test_fig7_holdout_is_frozen_and_separate():
     assert protocol['arms']['stop-fe-bounded']['clip_torque']
 
 
+def test_fig7_summary_separates_success_feasibility_and_completion(tmp_path):
+    spec = importlib.util.spec_from_file_location('fig7_summary', HERE/'summarize_fig7_validation.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    (tmp_path/'manifest.json').write_text(json.dumps(dict(source='test',protocol_sha256='test',
+        protocol=dict(arms={'test-arm':{}},batch_sizes=[8],scenarios=2))))
+    telemetry = dict(command_effort_ratio=.5,applied_effort_ratio=.5,velocity_ratio=2.,
+                     position_violation_rad=0.,payload_swing_max_rad=.2,
+                     payload_relative_speed_max_rad_s=.1)
+    episode = dict(arm='test-arm',batch=8,scenario=0,goal_outcomes=['reached']*5,telemetry=telemetry)
+    (tmp_path/'test-arm-B8-000.json').write_text(json.dumps(episode))
+    assert not module.summarize(tmp_path)['complete']
+    episode = {**episode,'scenario':1,'goal_outcomes':['reached']*4+['timeout'],
+               'telemetry':{**telemetry,'velocity_ratio':.5}}
+    (tmp_path/'test-arm-B8-001.json').write_text(json.dumps(episode))
+    summary = module.summarize(tmp_path)
+    assert summary['complete']
+    row, = summary['rows']
+    assert row['episodes'] == 2 and row['successes'] == row['feasible_episodes'] == 1
+    assert row['successful_and_feasible'] == 0 and row['maxima']['velocity_ratio'] == 2.
+    (tmp_path/'duplicate-B8-001.json').write_text(json.dumps(episode))
+    with pytest.raises(ValueError,match='duplicate'):
+        module.summarize(tmp_path)
+
+
 @pytest.mark.gpu
 def test_fig7_instrumentation_preserves_unclipped_trajectory():
     m = harness()

@@ -78,8 +78,8 @@ Internal solver time per batched solve at N = 64:
   six-joint arm makes GATO 25–45% faster per solve; the CPU solver's time barely changes, so the
   ratio grows by about 1.5×.
 - That is still 2–3× short of the paper's 18–21×. The robot explains a minority of the gap; the rest
-  is the measurement (internal solver time on an identical problem versus the paper's harness and
-  timing boundary), the CPU baseline's build, and the hardware.
+  has not been isolated. Measurement boundaries, the CPU baseline's build, and
+  the hardware differ; matched experiments are needed to attribute their effects.
 - GATO's Indy7 heat map (N = 8…128, B = 1…512) is `examples/paper-figures/fig3_fair_heatmap_indy7.png`
   after assembly; at N ≤ 32 and B ≤ 4 the solve time is 0.135–0.19 ms regardless of N, so launch
   and synchronization cost dominates there.

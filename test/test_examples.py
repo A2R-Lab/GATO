@@ -1,5 +1,6 @@
 """Check the introductory entry points without importing or running GPU code."""
 import ast
+import importlib.util
 import os
 import subprocess
 import sys
@@ -60,6 +61,24 @@ def test_call_boundary_refuses_unassigned_window(repo_root, tmp_path):
     result = subprocess.run(command,env=env,capture_output=True,text=True)
     assert result.returncode == 2 and 'assigned quiet window' in result.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cpu_baseline_uses_selected_interpreter(repo_root, tmp_path, monkeypatch):
+    figures = repo_root/'examples/paper-figures'
+    monkeypatch.syspath_prepend(str(figures))
+    spec = importlib.util.spec_from_file_location('fig3_cpu_runner', figures/'reproduce_fig3_fair.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    bench = tmp_path/'benchmark path with spaces'
+    (bench/'baselines').mkdir(parents=True)
+    (bench/'baselines/sqpcpu_env.sh').write_text('export GATO_CPU_PYTHON=/bin/echo\n')
+    monkeypatch.setattr(module.C,'BENCH_DIR',str(bench))
+    commands = []
+    monkeypatch.setattr(module,'_run',commands.append)
+    module.run_bt([8],[2],.1)
+    command, = commands
+    output = subprocess.check_output([str(arg) for arg in command],text=True)
+    assert output.strip() == f'{bench}/baselines/track_iiwa_fig8_bt.py 0.1 2 8 {module.BT_CSV} --robot iiwa14'
 
 
 @pytest.mark.gpu

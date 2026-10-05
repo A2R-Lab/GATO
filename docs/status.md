@@ -1,6 +1,6 @@
 # Feature status and limitations
 
-Scope: `main`. “Covered” means specific committed tests exercise a capability; it is not a guarantee for every problem,
+Scope: the source revision containing this document. “Covered” means specific committed tests exercise a capability; it is not a guarantee for every problem,
 hardware configuration or combination of features. This remains source-installed
 research software, not a certified robot controller.
 
@@ -42,8 +42,9 @@ research software, not a certified robot controller.
 ## What the receipt proves
 
 The committed `gpu-proof.json` attests the full suite on the receipt module set
-at the commit it names (currently 366 tests, zero skips, 42 bitwise goldens);
-`CHANGELOG.md` records each attested batch. Sanitizer evidence is bounded:
+at the commit it names. The full test inventory is tracked in
+`test/expected_tests.txt`; the numerical contract includes 42 bitwise goldens.
+`CHANGELOG.md` records major changes. Sanitizer evidence is bounded:
 memcheck on the effort-vector and masked-contact gates and racecheck on a
 one-iteration masked-contact gate passed with zero errors, which covers the
 exercised kernels, not every solver execution. This is correctness and install
