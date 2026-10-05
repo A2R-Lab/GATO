@@ -6,7 +6,7 @@
 
   <!-- Primary Meta Tags -->
   <meta name="title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
-  <meta name="description" content="GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC.">
+  <meta name="description" content="GATO is an open source, GPU-accelerated, batched trajectory optimization solver. Explore the published paper, dated current-code experiments and source-install documentation.">
   <meta name="keywords" content="GATO, GPU, trajectory optimization, model predictive control, MPC, CUDA, robotics, ICRA 2026, batch MPC">
   <meta name="author" content="Alexander Du, Emre Adabag, Gabriel Bravo-Palacios, Brian Plancher">
   <meta name="robots" content="index, follow">
@@ -16,7 +16,7 @@
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="A2R Lab">
   <meta property="og:title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
-  <meta property="og:description" content="GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC.">
+  <meta property="og:description" content="GPU-accelerated batched trajectory optimization: published paper results, dated current-code experiments and documentation.">
   <meta property="og:url" content="http://a2r-lab.org/GATO">
   <meta property="og:image" content="https://a2r-lab.org/GATO/static/images/gato_logo.png">
   <meta property="article:published_time" content="2026-01-01T00:00:00.000Z">
@@ -29,7 +29,7 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control">
-  <meta name="twitter:description" content="GATO delivers 18-21x speedups over CPU and 1.4-16x over GPU baselines for real-time batch MPC on edge hardware.">
+  <meta name="twitter:description" content="GATO: GPU-accelerated batched trajectory optimization, with published research and dated current-code experiments.">
   <meta name="twitter:image" content="https://a2r-lab.org/GATO/static/images/gato_logo.png">
 
   <!-- Academic/Research Specific -->
@@ -65,7 +65,7 @@
     "@context": "https://schema.org",
     "@type": "ScholarlyArticle",
     "headline": "GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control",
-    "description": "GATO is an open source, GPU-accelerated, batched trajectory optimization solver delivering 18-21x speedups over CPU baselines and 1.4-16x over GPU baselines for real-time batch MPC.",
+    "description": "The GATO paper reports GPU-accelerated batched trajectory optimization with 18-21x speedups over its CPU baselines and 1.4-16x over its GPU baselines.",
     "author": [
       {"@type": "Person", "name": "Alexander Du", "url": "https://www.linkedin.com/in/alexander-du-1163881b1/", "affiliation": {"@type": "Organization", "name": "School of Engineering and Applied Science, Columbia University"}},
       {"@type": "Person", "name": "Emre Adabag", "url": "https://www.linkedin.com/in/emre-adabag-223277174/", "affiliation": [{"@type": "Organization", "name": "School of Engineering and Applied Science, Columbia University"}, {"@type": "Organization", "name": "University of Michigan"}]},
@@ -540,7 +540,7 @@
         <div class="video-caption">
           <div class="vc-tag">Industrial Manipulator</div>
           <div class="vc-text">
-            GATO achieves <strong>18&ndash;21&times; speedup over CPU baselines</strong> and <strong>1.4&ndash;16&times; speedup over GPU baselines</strong> as batch size increases, covering the under-served regime of tens to low-hundreds of parallel solves at real-time rates.
+            In the paper’s experiments, GATO achieves <strong>18&ndash;21&times; speedup over CPU baselines</strong> and <strong>1.4&ndash;16&times; speedup over GPU baselines</strong> as batch size increases. Dated current-code comparisons appear below.
           </div>
         </div>
       </div>
@@ -549,7 +549,7 @@
 
   <!-- ═══════════ ABSTRACT ═══════════ -->
   <section>
-    <div class="section-label">Abstract</div>
+    <div class="section-label">Published Paper Abstract</div>
     <h2>Co-Designed GPU Parallelism for Trajectory Optimization</h2>
     <div class="abstract-text">
       While Model Predictive Control (MPC) delivers strong performance across robotics applications, solving the underlying (batches of) nonlinear trajectory optimization (TO) problems online remains computationally demanding. Existing GPU-accelerated approaches typically (i) parallelize a single solve to meet real-time deadlines, (ii) scale to very large batches at slower-than-real-time rates, or (iii) achieve speed by restricting model generality (e.g., point-mass dynamics or a single linearization). This leaves a large gap in solver performance for many state-of-the-art MPC applications that require real-time batches of tens to low-hundreds of solves. As such, we present <strong style="color: var(--accent);">GATO</strong>, an open source, GPU-accelerated, batched TO solver co-designed across algorithm, software, and computational hardware to deliver real-time throughput for these moderate batch size regimes. Our approach leverages a combination of block-, warp-, and thread-level parallelism within and across solves for ultra-high performance. We demonstrate the effectiveness of our approach through a combination of: simulated benchmarks showing speedups of <strong>18-21x over CPU baselines</strong> and <strong>1.4-16x over GPU baselines</strong> as batch size increases; case studies highlighting improved disturbance rejection and convergence behavior; and finally a validation on hardware using an industrial manipulator. We open source GATO to support reproducibility and adoption.
@@ -633,8 +633,8 @@
   <!-- ═══════════ CURRENT SOFTWARE RESULTS ═══════════ -->
   <section>
     <div class="section-label">Current Software</div>
-    <h2>Results from the Latest Release</h2>
-    <p>These figures rerun the paper's simulated experiments with the current code (commit <code>b893083</code>) on an NVIDIA RTX 5090 with CUDA 13.2, measured October 1, 2026. The published figures above remain the paper's results. The <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/paper-figures/README.md">reproduction protocols</a> describe each experiment and how it differs from the paper.</p>
+    <h2>Current-Code Experiments</h2>
+    <p>October 2026 experiments use an NVIDIA RTX 5090 with CUDA 13.2. The October 1 iiwa14 figures below use GATO <code>b893083</code>; the Indy7 comparison was collected October 3. These are dated research measurements, not a new release or a reproduction of every paper result. The <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/paper-figures/README.md">reproduction protocols</a> specify the differences from the paper.</p>
 
     <div class="result-figures-grid">
       <div class="result-figure">
@@ -647,8 +647,33 @@
       </div>
     </div>
     <p class="result-caption">
-      Internal solver time per batched solve on a matched iiwa14 figure-eight benchmark, where GATO, a multi-threaded CPU solver using QDLDL, and MPCGPU solve the identical problem. GATO is 4.4–7.2× faster than the CPU solver at every batch size and is faster than MPCGPU at batch sizes of four and above. Note: the original paper's scalability figure used the Indy7 arm, a different timing boundary, and were run on a different CPU/GPU system, so these ratios are not directly comparable.
+      Internal solver time per batched solve on a matched iiwa14 figure-eight benchmark. GATO is 4.4–7.2× faster than the multi-threaded QDLDL-based CPU solver and is faster than the October 1 MPCGPU baseline at batch sizes of four and above. This MPCGPU baseline predates its October 3 graph-driver update. The paper used Indy7, a different timing boundary and different hardware; these ratios are not directly comparable.
     </p>
+
+    <h3>Indy7: the paper’s robot, a matched current harness</h3>
+    <p class="systems-intro">On the same figure-eight problem at N = 64, GATO is 5.2–10.6× faster than the CPU baseline across batches 1–128. Selected October 3 cells are below; all values are internal solver medians in milliseconds. Single-run CPU variability limits the precision of these ratios.</p>
+    <div class="table-card" style="overflow-x:auto">
+      <table class="systems">
+        <thead><tr><th>Batch</th><th>GATO</th><th>CPU</th><th>Speedup</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>0.266</td><td>2.498</td><td>9.4×</td></tr>
+          <tr><td>4</td><td>0.338</td><td>3.169</td><td>9.4×</td></tr>
+          <tr><td>16</td><td>0.633</td><td>3.307</td><td>5.2×</td></tr>
+          <tr><td>64</td><td>1.875</td><td>12.002</td><td>6.4×</td></tr>
+          <tr><td>128</td><td>3.621</td><td>21.961</td><td>6.1×</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="code-note">The six-joint arm narrows, but does not close, the gap to the published 18–21× CPU comparison. Hardware, baseline implementation and timing boundaries also differ. <a href="static/demos/current/evidence_2026-10-04.json">Bundled values and source hashes</a> accompany the <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/figure-refresh-2026-10-01.md">experiment report</a>.</p>
+
+    <h3>Disturbance hypotheses: two arm-arrival tasks</h3>
+    <div class="result-figure">
+      <picture>
+      <source media="(max-width:640px)" srcset="static/demos/current/fig7_exploratory_mobile.png">
+      <img src="static/demos/current/fig7_exploratory.png" alt="Exploratory success versus batch size: stop FE 15, 100, 99, 98 percent; pass-through FE 6, 62, 84, 82 and identified-weight 26, 83, 97, 95 percent" loading="lazy">
+      </picture>
+    </div>
+    <p class="result-caption">Batching improves arm-arrival success in both tested settings. The stop task uses a 1.5 s reference ramp and 100 ms dwell; pass-through uses step references and an instantaneous gate. Both require EE error below 5 cm and joint-velocity norm below 1 rad/s, with a simulated 15 kg swinging payload. These seed-0 scenarios were reused during tuning; the stop artifact records a dirty source tree. Neither task enforces actuator limits or tests payload placement. Clean-source, held-out feasibility validation is a separate experiment, not implied by these curves. <a href="tools/current_evidence.py">Re-render from the bundled evidence</a>.</p>
 
     <div class="result-figures-grid">
       <div class="result-figure">
