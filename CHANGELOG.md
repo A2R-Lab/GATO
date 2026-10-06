@@ -2,6 +2,15 @@
 
 Unreleased (no tag; installs are source-tree only).
 
+## 2026-10-05 — Dependency integration
+
+- Pin GRiD 8dccbfa and GLASS 9e57178 and regenerate all three robot headers.
+  This includes upstream dynamics synchronization changes and collision APIs;
+  collision sphere counts and controller defaults remain unchanged.
+- Codegen validation now requires matching GRiD and consumer GLASS pins.
+  October 5 timing artifacts describe the preceding dependency revisions;
+  no performance improvement is inferred from this update.
+
 ## 2026-10-04 — Audit evidence and reproducibility
 
 - Signed GPU receipts now require the full test inventory, wider source coverage

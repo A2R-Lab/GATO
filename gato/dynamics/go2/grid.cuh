@@ -827,7 +827,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 8ce68a29bceb30c7764c9391d517a182d061697d
+    // Pinned commit: 9e57178ca146fa1cecae7e27c22260603b993aa6
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -19864,7 +19864,6 @@ namespace grid {
             s_XmatsHom[200] = static_cast<T>(s_temp[18]);
             s_XmatsHom[202] = static_cast<T>(s_temp[37]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // dX_hom[0]
             // dX_hom[1]
@@ -20079,7 +20078,6 @@ namespace grid {
             s_XmatsHom[200] = static_cast<T>(s_temp[18]);
             s_XmatsHom[202] = static_cast<T>(s_temp[37]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // dX_hom[0]
             // dX_hom[1]
@@ -20185,7 +20183,6 @@ namespace grid {
             s_dXmatsHom[296] = static_cast<T>(s_temp[37]);
             s_dXmatsHom[298] = static_cast<T>(-s_temp[18]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // d2X_hom[0]
             // d2X_hom[1]
@@ -23762,7 +23759,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7776; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 432; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -23852,7 +23848,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7776; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 432; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -24117,7 +24112,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7776; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*432];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 432; ind += blockDim.x*blockDim.y){
@@ -24285,7 +24279,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7776; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*432];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 432; ind += blockDim.x*blockDim.y){
@@ -26350,7 +26343,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -26440,7 +26432,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -26669,7 +26660,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*108];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
@@ -26801,7 +26791,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*108];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 108; ind += blockDim.x*blockDim.y){
@@ -35755,7 +35744,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*1404];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
@@ -35838,7 +35826,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*1404];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
@@ -35923,7 +35910,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*1404];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
@@ -36041,7 +36027,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -36142,7 +36127,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -36245,7 +36229,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1404; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -39206,7 +39189,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[0 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s1 = static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[0 * 972];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 972; ind += blockDim.x*blockDim.y){
@@ -39268,7 +39250,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[18 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
@@ -39348,7 +39329,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[36 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[972];
@@ -39436,7 +39416,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[54 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s4 = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[3 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[1944];
@@ -39920,7 +39899,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[0 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s1 = static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[0 * 972];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 972; ind += blockDim.x*blockDim.y){
@@ -39982,7 +39960,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[18 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
@@ -40062,7 +40039,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[36 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[972];
@@ -40150,7 +40126,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[54 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s4 = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[3 * 972];
                 T *s_D_qdd_prev = &s_D_qdd_stage[1944];
@@ -40295,7 +40270,6 @@ namespace grid {
                 }
                 s_dAB[ind] = val;
             }
-            __syncthreads();
             // --- multi-stage gradient: assemble x_{k+1} ---
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 18; ind += blockDim.x*blockDim.y){
                 T accel = static_cast<T>(0);
@@ -41376,7 +41350,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -41520,7 +41493,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -41660,7 +41632,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -41810,7 +41781,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*37];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
@@ -41937,7 +41907,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*37];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
@@ -42060,7 +42029,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1944; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*37];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 37; ind += blockDim.x*blockDim.y){
@@ -42456,8 +42424,6 @@ namespace grid {
         // Per-body forward-sweep temporaries borrowed from the (dead-until-Step-5) scratch region.
         T *fs_vJ   = scratch;        // 6
         T *fs_aJ   = fs_vJ   + 6;    // 6
-        T *fs_I_Xup = fs_aJ  + 6;    // 36 (Ipool @ Xup, intermediate for IC)
-        T *fs_IC_v = fs_I_Xup + 36;  // 6  (IC[jid] @ v[jid])
         for (int jid = 0; jid < NUM_BODIES; ++jid) {
             int parent = wf_parent[jid];
             int vc_begin = wf_body_v_start[jid]; int vc_count = wf_body_v_start[jid + 1] - vc_begin;
@@ -42494,44 +42460,36 @@ namespace grid {
                 int vel = wf_body_v_index[vc_begin + lane];
                 for (int row = 0; row < 6; ++row) Sd_vel[vel*6 + row] = crm_mul<T>(row, &v_w[jid*6], &S_vel[vel*6]);
             }
-            __syncthreads();
-            // IC[jid] = Xup[jid]^T @ I_body @ Xup[jid] (block-parallel over the 36 elements).
+            // IC[jid] = Xup[jid]^T @ I_body @ Xup[jid] (block-parallel over the 36 elements; the I_body @ Xup column re-formed in registers).
             for(int idx = threadIdx.x + threadIdx.y*blockDim.x; idx < 36; idx += blockDim.x*blockDim.y){
                 int row = idx % 6; int col = idx / 6;
+                T ixc[6];
+                for (int kk2 = 0; kk2 < 6; ++kk2) { T acc = static_cast<T>(0); for (int mm = 0; mm < 6; ++mm) acc += Ipool[jid*36 + kk2 + 6*mm] * Xup[jid*36 + mm + 6*col]; ixc[kk2] = acc; }
                 T acc = static_cast<T>(0);
-                for (int kk = 0; kk < 6; ++kk) acc += Ipool[jid*36 + row + 6*kk] * Xup[jid*36 + kk + 6*col];
-                fs_I_Xup[idx] = acc;
-            }
-            __syncthreads();
-            for(int idx = threadIdx.x + threadIdx.y*blockDim.x; idx < 36; idx += blockDim.x*blockDim.y){
-                int row = idx % 6; int col = idx / 6;
-                T acc = static_cast<T>(0);
-                for (int kk = 0; kk < 6; ++kk) acc += Xup[jid*36 + kk + 6*row] * fs_I_Xup[kk + 6*col];
+                for (int kk = 0; kk < 6; ++kk) acc += Xup[jid*36 + kk + 6*row] * ixc[kk];
                 IC[jid*36 + idx] = acc;
             }
             __syncthreads();
-            for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
-                fs_IC_v[row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &v_w[jid*6]);
-            }
-            __syncthreads();
-            // BC[jid] = crf(v) @ IC + icrf(IC @ v) - IC @ crm(v) (block-parallel over the 36 elements).
+            // BC[jid] = crf(v) @ IC + icrf(IC @ v) - IC @ crm(v) (block-parallel over the 36 elements; IC @ v re-formed in registers).
             for(int idx = threadIdx.x + threadIdx.y*blockDim.x; idx < 36; idx += blockDim.x*blockDim.y){
                 int row = idx % 6; int col = idx / 6;
+                T icv[6];
+                for (int r = 0; r < 6; ++r) icv[r] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + r], &v_w[jid*6]);
                 T crf_v_row[6];  T crm_v_col[6];
                 for (int kk = 0; kk < 6; ++kk) crf_v_row[kk] = -crm<T>(kk + 6*row, &v_w[jid*6]);
                 for (int kk = 0; kk < 6; ++kk) crm_v_col[kk] = crm<T>(kk + 6*col, &v_w[jid*6]);
                 T t_crfv_IC = dot_prod<T, 6, 1, 1>(crf_v_row, &IC[jid*36 + 6*col]);
                 T t_IC_crmv = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], crm_v_col);
-                BC[jid*36 + idx] = t_crfv_IC + icrf<T>(idx, fs_IC_v) - t_IC_crmv;
+                BC[jid*36 + idx] = t_crfv_IC + icrf<T>(idx, icv) - t_IC_crmv;
             }
-            __syncthreads();
-            // f[jid] = IC[jid] @ a[jid] + crf(v[jid]) @ (IC[jid] @ v[jid]) (parallel over the 6 rows).
+            // f[jid] = IC[jid] @ a[jid] + crf(v[jid]) @ (IC[jid] @ v[jid]) (parallel over the 6 rows; IC @ v re-formed in registers).
             for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
+                T icv[6];
+                for (int r = 0; r < 6; ++r) icv[r] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + r], &v_w[jid*6]);
                 T crf_v_row2[6];
                 for (int kk = 0; kk < 6; ++kk) crf_v_row2[kk] = -crm<T>(kk + 6*row, &v_w[jid*6]);
-                f_w[jid*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &a_w[jid*6]) + dot_prod<T, 6, 1, 1>(crf_v_row2, fs_IC_v);
+                f_w[jid*6 + row] = dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &a_w[jid*6]) + dot_prod<T, 6, 1, 1>(crf_v_row2, icv);
             }
-            __syncthreads();
         }
         __syncthreads();
         // Triple ancestor walk: i over bodies (reverse), p over body i columns,
@@ -42583,29 +42541,25 @@ namespace grid {
                     T t_IC_crmSp = dot_prod<T, 6, 6, 1>(&IC[i*36 + row], crm_Sp_col);
                     T t_crfpsid_IC = dot_prod<T, 6, 1, 1>(crf_psid_row, &IC[i*36 + 6*col]);
                     T t_IC_crmpsid = dot_prod<T, 6, 6, 1>(&IC[i*36 + row], crm_psid_col);
-                    S_Bphi[idx]  = t_crfSp_IC  + icrf<T>(idx, S_ICi_S)    - t_IC_crmSp;
-                    S_Bpsid[idx] = t_crfpsid_IC + icrf<T>(idx, S_ICi_psid) - t_IC_crmpsid;
-                    S_A0[idx] = icrf<T>(idx, S_ICi_S);
+                    T a0 = icrf<T>(idx, S_ICi_S);
+                    T bphi = t_crfSp_IC + a0 - t_IC_crmSp;
+                    T bpsid = t_crfpsid_IC + icrf<T>(idx, S_ICi_psid) - t_IC_crmpsid;
+                    S_Bphi[idx]  = bphi;
+                    S_Bpsid[idx] = bpsid;
+                    S_A0[idx] = a0;
                     S_A1[idx] = t_crfSp_IC - t_IC_crmSp;
-                }
-                __syncthreads();
-                for(int idx = threadIdx.x + threadIdx.y*blockDim.x; idx < 36; idx += blockDim.x*blockDim.y){
-                    int row = idx % 6; int col = idx / 6;
                     // A2 = 2*A0 - Bphi
-                    S_A2[idx] = static_cast<T>(2) * S_A0[idx] - S_Bphi[idx];
+                    S_A2[idx] = static_cast<T>(2) * a0 - bphi;
                     // A3 = Bpsid + dot_matrix(BC[i], S_p)
-                    T crf_Sp_row[6]; for (int kk = 0; kk < 6; ++kk) crf_Sp_row[kk] = -crm<T>(kk + 6*row, S_p);
-                    T crm_Sp_col[6]; for (int kk = 0; kk < 6; ++kk) crm_Sp_col[kk] = crm<T>(kk + 6*col, S_p);
                     T t_crfSp_BC = dot_prod<T, 6, 1, 1>(crf_Sp_row, &BC[i*36 + 6*col]);
                     T t_BC_crmSp = dot_prod<T, 6, 6, 1>(&BC[i*36 + row], crm_Sp_col);
-                    S_A3[idx] = S_Bpsid[idx] + t_crfSp_BC - t_BC_crmSp;
+                    S_A3[idx] = bpsid + t_crfSp_BC - t_BC_crmSp;
                     // A4 = icrf(BCiT_S)
                     S_A4[idx] = icrf<T>(idx, S_BCiT_S);
                     // A5 = icrf(A5_vec)
                     S_A5[idx] = icrf<T>(idx, S_A5_vec);
                     // A6 = crf(S_p) @ IC[i][:, col] + A0[idx]
-                    T t_crfSp_IC = dot_prod<T, 6, 1, 1>(crf_Sp_row, &IC[i*36 + 6*col]);
-                    S_A6[idx] = t_crfSp_IC + S_A0[idx];
+                    S_A6[idx] = t_crfSp_IC + a0;
                     // A7 = icrf(A7_vec)
                     S_A7[idx] = icrf<T>(idx, S_A7_vec);
                 }
@@ -48936,6 +48890,7 @@ namespace grid_plant {
  * Collision namespace: baked sphere data + config_free composed over grid::multi_target_position + the static SDF geometry header
  *
  */
+#define GRID_COLLISION_NUM_TIERS 1
 namespace grid_collision {
     using grid::TIER_SHARED; using grid::TIER_LITE; using grid::TIER_MINIMAL;
     constexpr int NUM_COLLISION_SPHERES = 50;
@@ -48943,6 +48898,10 @@ namespace grid_collision {
     static_assert(NUM_COLLISION_SPHERES == grid::NUM_MULTI_TARGETS, "collision sphere batch must be the multi_target batch");
     __device__ const float g_collision_sphere_r[50] = {0.0967773346f, 0.0967773346f, 0.0967773346f, 0.0672681202f, 0.0672681202f, 0.047f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0611882342f, 0.0611882342f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f};
     __device__ const int g_collision_self_cc_ranges[177] = {0, 8, 16, 0, 19, 27, 0, 30, 38, 0, 41, 49, 1, 8, 16, 1, 19, 27, 1, 30, 38, 1, 41, 49, 2, 8, 16, 2, 19, 27, 2, 30, 38, 2, 41, 49, 3, 8, 16, 3, 19, 27, 3, 30, 38, 3, 41, 49, 4, 8, 16, 4, 19, 27, 4, 30, 38, 4, 41, 49, 5, 8, 16, 5, 19, 27, 5, 30, 38, 5, 41, 49, 6, 10, 49, 7, 10, 49, 8, 17, 49, 9, 17, 49, 10, 17, 49, 11, 17, 49, 12, 17, 49, 13, 17, 49, 14, 17, 49, 15, 17, 49, 16, 17, 49, 17, 21, 49, 18, 21, 49, 19, 28, 49, 20, 28, 49, 21, 28, 49, 22, 28, 49, 23, 28, 49, 24, 28, 49, 25, 28, 49, 26, 28, 49, 27, 28, 49, 28, 32, 49, 29, 32, 49, 30, 39, 49, 31, 39, 49, 32, 39, 49, 33, 39, 49, 34, 39, 49, 35, 39, 49, 36, 39, 49, 37, 39, 49, 38, 39, 49, 39, 43, 49, 40, 43, 49};
+    constexpr int NUM_SPHERES = NUM_COLLISION_SPHERES;
+    __device__ __constant__ int   sphere_anchor[50] = {0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9, 9, 9, 9, 10, 10, 11, 11, 12, 12, 12, 12, 12, 12, 12};
+    __device__ __constant__ float sphere_offset[150] = {-0.1254f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.1254f, 0.0f, 0.0f, 0.285f, 0.0f, -0.035f, 0.285f, 0.0f, 0.055f, 0.293f, 0.0f, -0.06f, 0.0f, 0.1f, -1.2246468e-18f, 0.0f, 0.06f, 1.2246468e-18f, -3.2606221e-18f, 0.0f, -0.05325f, 3.2606221e-18f, 0.0f, -0.15975f, 0.020507594f, 0.0f, -0.118681855f, -0.00450759399f, 0.0f, -0.00131814512f, 0.018375677f, 0.0f, -0.180459383f, 0.021624323f, 0.0f, -0.115540617f, 0.000430330507f, 0.0f, -0.200392325f, 0.0155963307f, 0.0f, -0.174508113f, -0.002f, 0.0f, -0.213f, 0.0f, -0.06f, -1.2246468e-18f, 0.0f, -0.1f, 1.2246468e-18f, -3.2606221e-18f, 0.0f, -0.05325f, 3.2606221e-18f, 0.0f, -0.15975f, 0.0219201598f, 0.0f, -0.118803995f, -0.00192015985f, 0.0f, -0.00119600533f, 0.018375677f, 0.0f, -0.180459383f, 0.021624323f, 0.0f, -0.115540617f, 0.000430330507f, 0.0f, -0.200392325f, 0.0155963307f, 0.0f, -0.174508113f, -0.002f, 0.0f, -0.213f, 0.0f, 0.1f, -1.2246468e-18f, 0.0f, 0.06f, 1.2246468e-18f, -3.2606221e-18f, 0.0f, -0.05325f, 3.2606221e-18f, 0.0f, -0.15975f, 0.0219201598f, 0.0f, -0.118803995f, -0.00192015985f, 0.0f, -0.00119600533f, 0.018375677f, 0.0f, -0.180459383f, 0.021624323f, 0.0f, -0.115540617f, 0.000430330507f, 0.0f, -0.200392325f, 0.0155963307f, 0.0f, -0.174508113f, -0.002f, 0.0f, -0.213f, 0.0f, -0.06f, -1.2246468e-18f, 0.0f, -0.1f, 1.2246468e-18f, -3.2606221e-18f, 0.0f, -0.05325f, 3.2606221e-18f, 0.0f, -0.15975f, 0.0219201598f, 0.0f, -0.118803995f, -0.00192015985f, 0.0f, -0.00119600533f, 0.018375677f, 0.0f, -0.180459383f, 0.021624323f, 0.0f, -0.115540617f, 0.000430330507f, 0.0f, -0.200392325f, 0.0155963307f, 0.0f, -0.174508113f, -0.002f, 0.0f, -0.213f};
+    __device__ __constant__ float sphere_radius[50] = {0.0967773346f, 0.0967773346f, 0.0967773346f, 0.0672681202f, 0.0672681202f, 0.047f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0611882342f, 0.0611882342f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f, 0.0501597448f, 0.0501597448f, 0.0572243392f, 0.0572243392f, 0.0613921819f, 0.0613921819f, 0.0343110769f, 0.0343110769f, 0.0215696546f, 0.0215696546f, 0.022f};
     /**
      * Fill s_r[NUM_COLLISION_SPHERES] with the baked fp32 radii cast to T
      *
@@ -48962,7 +48921,8 @@ namespace grid_collision {
      * Notes:
      *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
      *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
-     *   Every thread computes the same verdict; the self/env range loops are serial (parallelize = W3 perf TODO).
+     *   Block-parallel (G4, 2026-10-04): thread-per-self-range + thread-per-sphere env checks OR-ed into a
+     *   shared flag; every thread returns the same verdict; thread-count invariant; single block.
      *
      * @param s_q is the vector of joint positions
      * @param d_robotModel is the initialized model-specific helpers on the GPU
@@ -48974,16 +48934,91 @@ namespace grid_collision {
     template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __device__
     bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+        __shared__ int s_cc_hit;
+        if (threadIdx.x == 0 && threadIdx.y == 0) s_cc_hit = 0;   // published by the extractor's barriers
         grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
         load_collision_radii<T>(s_sphere_r);
         __syncthreads();
-        if (grid_cc_self_collision<T>(s_sphere_pos, s_sphere_r, g_collision_self_cc_ranges, NUM_COLLISION_SELF_CC_RANGES)) return false;
-        for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
-            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) return false;
+        for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
+            const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+            const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i];
+            for (int j = j0; j <= j1; ++j) {
+                if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { s_cc_hit = 1; break; }
+            }
         }
-        return true;
+        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
+            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) s_cc_hit = 1;
+        }
+        __syncthreads();
+        const bool is_free = (s_cc_hit == 0);
+        __syncthreads();
+        return is_free;
     }
 
+    
+    /**
+     * Warp-scoped collision API over caller-held joint world transforms (G2/G3, 2026-10-04)
+     *
+     * Notes:
+     *   The whole warp calls these; lanes stride the sphere batch, the verdict is warp-uniform.
+     *   s_Xworld = column-major 4x4 per movable joint (what ee_pose_inner_warp / the multi_target chain-up fill).
+     *   w_scratch = per-warp float scratch of 3*NUM_SPHERES floats.
+     *   Sphere positions are float even for T = double (HJCD-IK convention).
+     *
+     */
+    namespace warp {
+        constexpr unsigned FULL_MASK = 0xffffffffu;
+        constexpr int W_SCRATCH_FLOATS = 3*NUM_SPHERES;
+        template <typename T>
+        __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch) {
+            const int lane = threadIdx.x & 31;
+            float *w_pos = w_scratch;
+            bool hit = false;
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+            }
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s]);
+            }
+            __syncwarp(FULL_MASK);
+            for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
+                const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i];
+                for (int j = j0; j <= j1 && !hit; ++j) {
+                    hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
+                }
+            }
+            const bool any_hit = __any_sync(FULL_MASK, hit);
+            __syncwarp(FULL_MASK);   // scratch reads done before the caller reuses it
+            return !any_hit;
+        }
+
+        template <typename T>
+        __device__ void collision_distance(const T *s_Xworld, const Environment<float> &env, float *s_dist, float *s_normal, float *w_scratch) {
+            const int lane = threadIdx.x & 31;
+            float *w_pos = w_scratch;
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+            }
+            __syncwarp(FULL_MASK);
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                float nx, ny, nz;
+                s_dist[s] = grid_cc_nearest_obstacle<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s], &nx, &ny, &nz);
+                s_normal[3*s] = nx; s_normal[3*s+1] = ny; s_normal[3*s+2] = nz;
+            }
+            __syncwarp(FULL_MASK);
+        }
+
+    }
+    
     /**
      * collision_distance: per-sphere nearest signed clearance d_i(q) + surface normal (env only)
      *

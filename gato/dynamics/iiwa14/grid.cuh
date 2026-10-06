@@ -423,8 +423,8 @@ namespace grid {
     const int END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT = 197;
     const int END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT = 391;
     const int END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_COUNT = 755;
-    const int IDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 5649;
-    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 7182;
+    const int IDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 5187;
+    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 6720;
     const int MAX_PERF_LEVEL_THREADS = 352;
     
     // Resource-tier API (v2.0): each emitted kernel/_device/_inner takes a
@@ -523,8 +523,8 @@ namespace grid {
     template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((128) < tier_max_threads<TIER_LITE>()) ? (128) : tier_max_threads<TIER_LITE>(); };
     template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_GRADIENT> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((320) < tier_max_threads<TIER_MINIMAL>()) ? (320) : tier_max_threads<TIER_MINIMAL>(); };
     template <> struct launch_cfg<GRID_ALGO_END_EFFECTOR_POSE_HESSIAN> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((224) < tier_max_threads<TIER_MINIMAL>()) ? (224) : tier_max_threads<TIER_MINIMAL>(); };
-    template <> struct launch_cfg<GRID_ALGO_IDSVA_SO> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((320) < tier_max_threads<TIER_SHARED>()) ? (320) : tier_max_threads<TIER_SHARED>(); };
-    template <> struct launch_cfg<GRID_ALGO_IDSVA_SO_BODY_FRAME> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((352) < tier_max_threads<TIER_LITE>()) ? (352) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_IDSVA_SO> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((256) < tier_max_threads<TIER_LITE>()) ? (256) : tier_max_threads<TIER_LITE>(); };
+    template <> struct launch_cfg<GRID_ALGO_IDSVA_SO_BODY_FRAME> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((256) < tier_max_threads<TIER_LITE>()) ? (256) : tier_max_threads<TIER_LITE>(); };
     template <> struct launch_cfg<GRID_ALGO_IDSVA_SO_WORLD_FRAME> { static constexpr int TIER = TIER_LITE; static constexpr int THREADS = ((80) < tier_max_threads<TIER_LITE>()) ? (80) : tier_max_threads<TIER_LITE>(); };
     template <> struct launch_cfg<GRID_ALGO_FDSVA_SO> { static constexpr int TIER = TIER_SHARED; static constexpr int THREADS = ((192) < tier_max_threads<TIER_SHARED>()) ? (192) : tier_max_threads<TIER_SHARED>(); };
     template <> struct launch_cfg<GRID_ALGO_INTEGRATOR> { static constexpr int TIER = TIER_MINIMAL; static constexpr int THREADS = ((128) < tier_max_threads<TIER_MINIMAL>()) ? (128) : tier_max_threads<TIER_MINIMAL>(); };
@@ -604,9 +604,9 @@ namespace grid {
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1272, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1272, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(684, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_OUTPUT_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(7174, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(7174, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(686, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(6712, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(6712, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(686, TOPOLOGY_HELPERS_COUNT); }
     // Per-tier scratch sizes for fdsva_so_contract (inline-CUDA users only — the host launchers always use TIER_SHARED).
     // At TIER_SHARED the 4*NV^3 inner scratch lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing shared memory for the caller's outer kernel.
     // fdsva_so_contract scratch sizing, keyed on the INNER's placement choice
@@ -671,15 +671,15 @@ namespace grid {
             : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(1722); }
-    // Per-tier sizes for idsva_so_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 3744*sizeof(T) bytes of smem. Frame picked at codegen time: body_frame.
+    // Per-tier sizes for idsva_so_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 3282*sizeof(T) bytes of smem. Frame picked at codegen time: body_frame.
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
-            ? grid_shared_arena_bytes<T>(4248, TOPOLOGY_HELPERS_COUNT)
+            ? grid_shared_arena_bytes<T>(3786, TOPOLOGY_HELPERS_COUNT)
             : grid_shared_arena_bytes<T>(504, TOPOLOGY_HELPERS_COUNT);
     }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(3744); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(3282); }
     template <typename T> __host__ __device__ constexpr size_t GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(2604); }
-    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3744); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3282); }
     template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(147); }
     template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
     template <typename T> __host__ __device__ constexpr size_t GRID_WORKSPACE_BYTES_PER_TIMESTEP() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP<T>(); }
@@ -826,7 +826,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 8ce68a29bceb30c7764c9391d517a182d061697d
+    // Pinned commit: 9e57178ca146fa1cecae7e27c22260603b993aa6
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -12448,7 +12448,6 @@ namespace grid {
             s_XmatsHom[101] = static_cast<T>(-s_temp[6]);
             s_XmatsHom[102] = static_cast<T>(s_temp[13]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // dX_hom[0]
             s_dXmatsHom[0] = static_cast<T>(-s_temp[0]);
@@ -12562,7 +12561,6 @@ namespace grid {
             s_XmatsHom[101] = static_cast<T>(-s_temp[6]);
             s_XmatsHom[102] = static_cast<T>(s_temp[13]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // dX_hom[0]
             s_dXmatsHom[0] = static_cast<T>(-s_temp[0]);
@@ -12604,7 +12602,6 @@ namespace grid {
             s_dXmatsHom[101] = static_cast<T>(-s_temp[13]);
             s_dXmatsHom[102] = static_cast<T>(-s_temp[6]);
         }
-        __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // d2X_hom[0]
             s_d2XmatsHom[0] = static_cast<T>(-s_temp[7]);
@@ -14484,7 +14481,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -14563,7 +14559,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -14711,7 +14706,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*42];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -14773,7 +14767,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*42];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -16795,7 +16788,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -16874,7 +16866,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_hessian[ind] = s_end_effector_pose_hessian[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
                 d_end_effector_pose_gradient[ind] = s_end_effector_pose_gradient[ind];
@@ -17022,7 +17013,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*42];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -17084,7 +17074,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_end_effector_pose_hessian_k[ind] = s_end_effector_pose_hessian[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*42];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -25238,7 +25227,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*294];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
@@ -25318,7 +25306,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*294];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
@@ -25400,7 +25387,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dtau_dfext_k[ind] = s_dtau_dfext[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_dqdd_dfext_k = &d_dqdd_dfext[k*294];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
@@ -25515,7 +25501,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -25613,7 +25598,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -25713,7 +25697,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dtau_dfext[ind] = s_dtau_dfext[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dqdd_dfext[ind] = s_dqdd_dfext[ind];
@@ -27569,7 +27552,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[0 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s1 = static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[0 * 147];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -27620,7 +27602,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[7 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
@@ -27677,7 +27658,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[14 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[147];
@@ -27738,7 +27718,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[21 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s4 = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[3 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[294];
@@ -28033,7 +28012,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[0 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s1 = static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[0 * 147];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 147; ind += blockDim.x*blockDim.y){
@@ -28084,7 +28062,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[7 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s2 = (IT == IntegratorType::MIDPOINT) ? static_cast<T>(0.5) : (IT == IntegratorType::TRAPEZOIDAL) ? static_cast<T>(1.0) : (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[1 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[0];
@@ -28141,7 +28118,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[14 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s3 = (IT == IntegratorType::RK4) ? static_cast<T>(0.5) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[2 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[147];
@@ -28202,7 +28178,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                     s_stage_grad_qdd[21 + ind] = s_qdd[ind];
                 }
-                __syncthreads();
                 constexpr T c_prev_s4 = (IT == IntegratorType::RK4) ? static_cast<T>(1.0) : static_cast<T>(0);
                 T *s_D_qdd_cur = &s_D_qdd_stage[3 * 147];
                 T *s_D_qdd_prev = &s_D_qdd_stage[294];
@@ -28299,7 +28274,6 @@ namespace grid {
                 }
                 s_dAB[ind] = val;
             }
-            __syncthreads();
             // --- multi-stage gradient: assemble x_{k+1} ---
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
                 T accel = static_cast<T>(0);
@@ -29206,7 +29180,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -29329,7 +29302,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -29443,7 +29415,6 @@ namespace grid {
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                 d_dAB[ind] = s_dAB[ind];
             }
-            __syncthreads();
             // save down to global
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
                 d_x_kp1[ind] = s_x_kp1[ind];
@@ -29567,7 +29538,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -29673,7 +29643,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -29770,7 +29739,6 @@ namespace grid {
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
                     d_dAB_k[ind] = s_dAB[ind];
                 }
-                __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -29972,6 +29940,44 @@ namespace grid {
         }
     };
 
+    // Barrier audit 2026-10-03 (guide §7.z39): dot_prod<36>(outer(x, y), D) with the outer product
+    // re-formed in registers by the consumer instead of a block-shared t slab filled one stage
+    // earlier. Same k = m + 6*n order as the legacy slab and the same per-element value
+    // (legacy gemm stored 1 * (0 + x[m]*y[n]), which also normalises a -0 product to +0), so
+    // the running sum rounds identically -> bit-identical; the nine fill stages and their
+    // eighteen barriers are gone.
+    template <typename T>
+    __device__ __forceinline__ T idsva_so_outer_dot(const T *x, const T *y, const T *D) {
+        T res = static_cast<T>(0);
+        for (int n = 0; n < 6; ++n) {
+            T yn = y[n];
+            for (int m = 0; m < 6; ++m) { T tk = static_cast<T>(0) + x[m] * yn; res += tk * D[m + 6*n]; }
+        }
+        return res;
+    }
+    // dot_prod<6>(p, w) with p[r] = crm_mul<T>(r, a, b) (the legacy p1/p2/p3/p5 slabs) re-formed per
+    // row in registers: each p[r] is the same rounded value the slab held, summed in the same r order.
+    template <typename T>
+    __device__ __forceinline__ T idsva_so_crm_dot(T *a, T *b, const T *w) {
+        T res = static_cast<T>(0);
+        for (int r = 0; r < 6; ++r) { T pr = crm_mul<T>(r, a, b); res += pr * w[r]; }
+        return res;
+    }
+    // Same for the legacy p4 slab: p4[r] = crm_mul(r, a, b) - 2 * crm_mul(r, c, d).
+    template <typename T>
+    __device__ __forceinline__ T idsva_so_crm2_dot(T *a, T *b, T *c, T *d, const T *w) {
+        T res = static_cast<T>(0);
+        for (int r = 0; r < 6; ++r) { T pr = crm_mul<T>(r, a, b) - 2 * crm_mul<T>(r, c, d); res += pr * w[r]; }
+        return res;
+    }
+    // And the legacy p6 slab: p6[r] = IC_S[jid] . crm_S[anc][:, r] + S[anc] . crf_S_IC[jid][:, r].
+    template <typename T>
+    __device__ __forceinline__ T idsva_so_p6_dot(const T *IC_S_j, const T *crm_S_a, const T *S_a, const T *crf_S_IC_j, const T *w) {
+        T res = static_cast<T>(0);
+        for (int r = 0; r < 6; ++r) { T pr = dot_prod<T, 6, 1, 1>(IC_S_j, &crm_S_a[r*6]) + dot_prod<T, 6, 1, 1>(S_a, &crf_S_IC_j[r*6]); res += pr * w[r]; }
+        return res;
+    }
+    
     /**
      * Computes the second order derivatives of inverse dynamics
      *
@@ -29982,7 +29988,7 @@ namespace grid {
      * @param s_q is the vector of joint positions
      * @param s_qd is the vector of joint velocities
      * @param s_qdd is the vector of joint accelerations
-     * @param s_temp is the shared scratch pool (used when SCRATCH_IN_SMEM) of size  = 3744
+     * @param s_temp is the shared scratch pool (used when SCRATCH_IN_SMEM) of size  = 3282
      * @param d_workspace is the global scratch pool: routes the whole s_temp arena (when !SCRATCH_IN_SMEM) or just the cold BC slab (when !BC_IN_SMEM)
      * @param s_XImats is the (shared) memory holding the updated XI matricies for the given s_q
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
@@ -30043,16 +30049,12 @@ namespace grid {
         T *D3 = B_IC_S;
         T *D4 = crf_psid;
         T *tp_anchor = D2 + 36*NUM_BODIES;
-        T *t = tp_anchor;
-        if constexpr (!TP_IN_SMEM) { t = d_workspace; }
-        T *p1 = t;
-        T *p2 = p1 + 6*28;
-        T *p3 = p2 + 6*28;
-        T *p4 = p3 + 6*28;
-        T *p5 = p4 + 6*28;
-        T *p6 = p5 + 6*28;
+        T *IC_tot = tp_anchor;
+        if constexpr (!TP_IN_SMEM) { IC_tot = d_workspace; }
+        T *BC_tot = IC_tot + 36*NUM_BODIES;
+        T *f_tot = BC_tot + 36*NUM_BODIES;
         T *crf_S_IC = crm_psid;
-        T *BC = tp_anchor + (TP_IN_SMEM ? 36*28 : 0);
+        T *BC = tp_anchor + (TP_IN_SMEM ? 546 : 0);
         
 
 
@@ -30093,7 +30095,6 @@ namespace grid {
             int mat_idx = (i / 36) * 36;
             matmul_trans<T>(i % 36, &Xup[mat_idx], &I_Xup[mat_idx], &IC[mat_idx], 'a');
         }
-        __syncthreads();
         
 
 
@@ -30136,24 +30137,15 @@ namespace grid {
             
 
 
-            // Compute v = v[parent] + vJ
-            #pragma unroll
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                    if ((jid-1) == -1) v[jid*6 + i] = vJ[jid*6 + i];
-                    else v[jid*6 + i] = v[(jid-1)*6 + i] + vJ[jid*6 + i];
-                }
-                __syncthreads();
-            }
-            
-
-
-            // Finish aJ += crm(v[parent])@vJ
-            // For base, v[parent] = 0
+            // Compute v = v[parent] + vJ as the root-first prefix sum down each body's ancestor path
+            // (same left-nested order as the step-by-step propagation -> bit-identical, no per-step barrier).
+            static const int so_path_start[] = { 0, 1, 3, 6, 10, 15, 21, 28 };
+            static const int so_path[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6 }; // root-first ancestor-or-self path per body
             for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6*NUM_BODIES; i += blockDim.x*blockDim.y){
-                int jid = i / 6;
-                int index = i % 6;
-                if ((jid-1) != -1) aJ[i] += crm_mul<T>(index, &v[(jid-1)*6], &vJ[jid*6]);
+                int jid = i / 6; int idx = i % 6;
+                T acc = vJ[so_path[so_path_start[jid]]*6 + idx];
+                for (int k = so_path_start[jid] + 1; k < so_path_start[jid + 1]; ++k) acc = acc + vJ[so_path[k]*6 + idx];
+                v[jid*6 + idx] = acc;
             }
             __syncthreads();
             
@@ -30161,34 +30153,26 @@ namespace grid {
 
             // Compute Sd = crm(v) @ S & psid = crm(v[parent]) @ S
             // For base, v[parent] = 0
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 2*6*NUM_BODIES; i += blockDim.x*blockDim.y){
+            // Also a = a[parent] + aJ as the root-first prefix sum (aJ finished inline: aJ[k] + crm(v[parent_k]) @ vJ[k]) and a_world.
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 3*6*NUM_BODIES + 6; i += blockDim.x*blockDim.y){
                 int jid = (i / 6) % NUM_BODIES;
                 int index = i % 6;
                 if (i < 6*NUM_BODIES) Sd[i] = crm_mul<T>(index, &v[jid*6], &S[jid*6]);
-                else {
+                else if (i < 2*6*NUM_BODIES) {
                     if ((jid-1) == -1) psid[jid*6 + index] = 0;
                     else psid[i - 6 * NUM_BODIES] = crm_mul<T>(index, &v[(jid-1)*6], &S[jid*6]);
                 }
-            }
-            __syncthreads();
-            
-
-
-            // Compute a = a[parent] + aJ
-            #pragma unroll
-            for (int jid = 0; jid < NUM_BODIES; ++jid) {
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                    if ((jid-1) == -1) a[jid*6+ i] = aJ[jid*6 + i] - gravity * (i == 5); // Base joint's parent is the world
-                    else a[jid*6 + i] = a[(jid-1)*6 + i] + aJ[jid*6 + i];
+                else if (i < 3*6*NUM_BODIES) {
+                    int root = so_path[so_path_start[jid]];
+                    T acc = aJ[root*6 + index] - gravity * (index == 5); // Base joint's parent is the world
+                    for (int k = so_path_start[jid] + 1; k < so_path_start[jid + 1]; ++k) {
+                        int body = so_path[k]; int body_parent = so_path[k - 1];
+                        T aJ_body = aJ[body*6 + index] + crm_mul<T>(index, &v[body_parent*6], &vJ[body*6]);
+                        acc = acc + aJ_body;
+                    }
+                    a[jid*6 + index] = acc;
                 }
-                __syncthreads();
-            }
-            
-
-
-            // Initialize a_world
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                if (i < 5) a_world[i] = 0;
+                else if (i < 3*6*NUM_BODIES + 5) a_world[i - 3*6*NUM_BODIES] = 0;
                 else a_world[5] = -gravity; // a_base = gravity_vec[5] = -GRAVITY = +9.81 (gravity=-9.81)
             }
             __syncthreads();
@@ -30205,7 +30189,6 @@ namespace grid {
                 }
                 else IC_v[i - 6*NUM_BODIES] = dot_prod<T, 6, 6, 1>(&IC[index + jid*36], &v[jid*6]);
             }
-            __syncthreads();
             
 
 
@@ -30230,7 +30213,6 @@ namespace grid {
                         icrf<T>(i % 36, &IC_v[jid*6]) -
                         dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_v[col_idx]);
             }
-            __syncthreads();
             
 
 
@@ -30250,18 +30232,99 @@ namespace grid {
             
 
 
-            // Compute IC[parent] += IC[i], BC[parent] += BC[i], f[parent] += f[i]
-            #pragma unroll
-            for (int jid = NUM_BODIES-1; jid > 0; --jid) {
-                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 36*2 + 6; i += blockDim.x*blockDim.y){
-                    if ((jid-1) != -1) {
-                        if (i < 36) IC[(jid-1)*36 + i] += IC[jid*36 + i];
-                        else if (i < 36*2) BC[(jid-1)*36 + i - 36] += BC[jid*36 + i - 36];
-                        else f[(jid-1)*6 + i - 36*2] += f[jid*6 + i - 36*2];
+            // Compute IC[parent] += IC[i], BC[parent] += BC[i], f[parent] += f[i] as per-body subtree sums
+            // (same fold order as the legacy leaf-to-root walk -> bit-identical; one stage, no per-step barrier).
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 2*36*NUM_BODIES + 6*NUM_BODIES; i += blockDim.x*blockDim.y){
+                const T *X; T *X_tot; int stride; int jid; int idx;
+                if (i < 36*NUM_BODIES) { X = IC; X_tot = IC_tot; stride = 36; jid = i / 36; idx = i % 36; }
+                else if (i < 2*36*NUM_BODIES) { X = BC; X_tot = BC_tot; stride = 36; jid = (i - 36*NUM_BODIES) / 36; idx = i % 36; }
+                else { X = f; X_tot = f_tot; stride = 6; jid = (i - 2*36*NUM_BODIES) / 6; idx = i % 6; }
+                T acc;
+                switch (jid) {
+                    case 0: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        T t4 = X[4*stride + idx];
+                        t4 = t4 + t5;
+                        T t3 = X[3*stride + idx];
+                        t3 = t3 + t4;
+                        T t2 = X[2*stride + idx];
+                        t2 = t2 + t3;
+                        T t1 = X[1*stride + idx];
+                        t1 = t1 + t2;
+                        T t0 = X[0*stride + idx];
+                        t0 = t0 + t1;
+                        acc = t0;
+                        break;
                     }
+                    case 1: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        T t4 = X[4*stride + idx];
+                        t4 = t4 + t5;
+                        T t3 = X[3*stride + idx];
+                        t3 = t3 + t4;
+                        T t2 = X[2*stride + idx];
+                        t2 = t2 + t3;
+                        T t1 = X[1*stride + idx];
+                        t1 = t1 + t2;
+                        acc = t1;
+                        break;
+                    }
+                    case 2: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        T t4 = X[4*stride + idx];
+                        t4 = t4 + t5;
+                        T t3 = X[3*stride + idx];
+                        t3 = t3 + t4;
+                        T t2 = X[2*stride + idx];
+                        t2 = t2 + t3;
+                        acc = t2;
+                        break;
+                    }
+                    case 3: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        T t4 = X[4*stride + idx];
+                        t4 = t4 + t5;
+                        T t3 = X[3*stride + idx];
+                        t3 = t3 + t4;
+                        acc = t3;
+                        break;
+                    }
+                    case 4: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        T t4 = X[4*stride + idx];
+                        t4 = t4 + t5;
+                        acc = t4;
+                        break;
+                    }
+                    case 5: {
+                        T t6 = X[6*stride + idx];
+                        T t5 = X[5*stride + idx];
+                        t5 = t5 + t6;
+                        acc = t5;
+                        break;
+                    }
+                    case 6: {
+                        T t6 = X[6*stride + idx];
+                        acc = t6;
+                        break;
+                    }
+                    default: acc = static_cast<T>(0); break;
                 }
-                __syncthreads();
+                X_tot[jid*stride + idx] = acc;
             }
+            __syncthreads();
+            // Every later consumer reads the subtree totals.
+            IC = IC_tot; BC = BC_tot; f = f_tot;
             
 
 
@@ -30302,7 +30365,6 @@ namespace grid {
                                                     dot_prod<T, 6, 6, 1>(&IC[jid*36 + row], &crm_psid[jid*36 + col*6]);
                 }
             }
-            __syncthreads();
             
 
 
@@ -30349,26 +30411,9 @@ namespace grid {
             
 
 
-            // Compute t1 = outer(S[j], psid[ancestor])
-            // t1[j][k] is stored at t[((j*(j+1)/2) + k)*36]
+            // t1 = outer(S[j], psid[ancestor]) (re-formed in registers by each consumer; no shared slab, no fill barrier)
             static const int jids[] = { 0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6 }; // Joints with ancestor at equivalent index of ancestors_j
             static const int ancestors_j[] = { 0, 1, 0, 2, 1, 0, 3, 2, 1, 0, 4, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0, 6, 5, 4, 3, 2, 1, 0 }; // Joint or ancestor of joint at equivalent index of jids_a
-            static const int t_index_map[7][7] = {
-                {  0, -1, -1, -1, -1, -1, -1 },
-                {  2,  1, -1, -1, -1, -1, -1 },
-                {  5,  4,  3, -1, -1, -1, -1 },
-                {  9,  8,  7,  6, -1, -1, -1 },
-                { 14, 13, 12, 11, 10, -1, -1 },
-                { 20, 19, 18, 17, 16, 15, -1 },
-                { 27, 26, 25, 24, 23, 22, 21 },
-            };
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psid[ancestor_j*6], &t[t_idx]);
-            }
-            __syncthreads();
             
 
 
@@ -30385,25 +30430,16 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (i < 84) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (i < 168 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D2[st_j*36]);
-                else if (i < 252 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D2[st_j*36]);
-                else if (jid != st_j) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
+                if (i < 84) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -idsva_so_outer_dot<T>(&S[jid*6], &psid[ancestor_j*6], &D3[st_j*36]);
+                else if (i < 168 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = idsva_so_outer_dot<T>(&S[jid*6], &psid[ancestor_j*6], &D2[st_j*36]);
+                else if (i < 252 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[jid*6], &psid[ancestor_j*6], &D2[st_j*36]);
+                else if (jid != st_j) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[jid*6], &psid[ancestor_j*6], &D3[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t2 = outer(S[j], S[ancestor])
-            // t2[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &S[ancestor_j*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t2 = outer(S[j], S[ancestor]) (re-formed in registers by each consumer)
             
 
 
@@ -30419,27 +30455,18 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (i < 84 && ancestor_j < jid) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (i < 84 && jid == ancestor_j) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
-                else if (i < 168 && jid != st_j) d2tau_dqd2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (i < 252 && ancestor_j < jid) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (i < 336 && jid != st_j) d2tau_dqd2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (i >= 336 && jid != st_j) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D2[st_j*36]);
+                if (i < 84 && ancestor_j < jid) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D3[st_j*36]);
+                else if (i < 84 && jid == ancestor_j) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D1[st_j*36]);
+                else if (i < 168 && jid != st_j) d2tau_dqd2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D3[st_j*36]);
+                else if (i < 252 && ancestor_j < jid) d2tau_dqd2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D3[st_j*36]);
+                else if (i < 336 && jid != st_j) d2tau_dqd2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D3[st_j*36]);
+                else if (i >= 336 && jid != st_j) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] = idsva_so_outer_dot<T>(&S[jid*6], &S[ancestor_j*6], &D2[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t3 = outer(psid[j], psid[ancestor])
-            // t3[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &psid[jid*6], &psid[ancestor_j*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t3 = outer(psid[j], psid[ancestor]) (re-formed in registers by each consumer)
             
 
 
@@ -30451,23 +30478,14 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (i < 84) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                else if (ancestor_j < jid) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
+                if (i < 84) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = -idsva_so_outer_dot<T>(&psid[jid*6], &psid[ancestor_j*6], &D3[st_j*36]);
+                else if (ancestor_j < jid) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -idsva_so_outer_dot<T>(&psid[jid*6], &psid[ancestor_j*6], &D3[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t4 = outer(S[j], psidd[ancestor])
-            // t4[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psidd[ancestor_j*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t4 = outer(S[j], psidd[ancestor]) (re-formed in registers by each consumer)
             
 
 
@@ -30479,23 +30497,14 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (i < 84 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] += dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
-                else if (jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] += dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
+                if (i < 84 && jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] += idsva_so_outer_dot<T>(&S[jid*6], &psidd[ancestor_j*6], &D1[st_j*36]);
+                else if (jid != st_j) d2tau_dq2[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] += idsva_so_outer_dot<T>(&S[jid*6], &psidd[ancestor_j*6], &D1[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t5 = outer(S[j], (Sd+psid)[ancestor])
-            // t5[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[jid*6], &psid_Sd[ancestor_j*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t5 = outer(S[j], (Sd+psid)[ancestor]) (re-formed in registers by each consumer)
             
 
 
@@ -30506,22 +30515,13 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (st_j != jid) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] += dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
+                if (st_j != jid) d2tau_dvdq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + ancestor_j] += idsva_so_outer_dot<T>(&S[jid*6], &psid_Sd[ancestor_j*6], &D1[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t6 = outer(S[ancestor], psid[joint])
-            // t6[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psid[jid*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t6 = outer(S[ancestor], psid[joint]) (re-formed in registers by each consumer)
             
 
 
@@ -30534,26 +30534,17 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
                 if (ancestor_j < jid) {
-                    if (i < 84) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                    else if (i < 168) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D2[st_j*36]);
-                    else d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
+                    if (i < 84) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] = -idsva_so_outer_dot<T>(&S[ancestor_j*6], &psid[jid*6], &D3[st_j*36]);
+                    else if (i < 168) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &psid[jid*6], &D2[st_j*36]);
+                    else d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &psid[jid*6], &D3[st_j*36]);
                 }
             }
             __syncthreads();
             
 
 
-            // Compute t7 = outer(S[ancestor], psidd[joint])
-            // t7[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psidd[jid*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t7 = outer(S[ancestor], psidd[joint]) (re-formed in registers by each consumer)
             
 
 
@@ -30564,22 +30555,13 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (ancestor_j < jid) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] += dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
+                if (ancestor_j < jid) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] += idsva_so_outer_dot<T>(&S[ancestor_j*6], &psidd[jid*6], &D1[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t8 = outer(S[ancestor], S[joint])
-            // t8[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &S[jid*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t8 = outer(S[ancestor], S[joint]) (re-formed in registers by each consumer)
             
 
 
@@ -30595,32 +30577,23 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
                 if (ancestor_j < jid) {
-                    if (i < 84) dM_dq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D4[st_j*36]);
-                    else if (i < 168) dM_dq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D4[st_j*36]);
+                    if (i < 84) dM_dq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D4[st_j*36]);
+                    else if (i < 168) dM_dq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D4[st_j*36]);
                     if (st_j != jid) {
-                        if (i < 252) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                        else if (i < 336) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D3[st_j*36]);
-                        else if (i < 420) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D2[st_j*36]);
+                        if (i < 252) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D3[st_j*36]);
+                        else if (i < 336) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D3[st_j*36]);
+                        else if (i < 420) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D2[st_j*36]);
                     }
                 }
-                if (jid != st_j && i < 504) dM_dq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
-                else if (jid != st_j) dM_dq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
+                if (jid != st_j && i < 504) dM_dq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D1[st_j*36]);
+                else if (jid != st_j) dM_dq[jid*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + st_j] = idsva_so_outer_dot<T>(&S[ancestor_j*6], &S[jid*6], &D1[st_j*36]);
             }
             __syncthreads();
             
 
 
-            // Compute t9 = outer(S[ancestor], (Sd+psid)[joint])
-            // t9[j][k] is stored at t[((j*(j+1)/2) + k)*36]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
-                int jid = jids[i];
-                int ancestor_j = ancestors_j[i];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                glass::thread::gemm<T, 6, 6, 1>(static_cast<T>(1), &S[ancestor_j*6], &psid_Sd[jid*6], &t[t_idx]);
-            }
-            __syncthreads();
+            // t9 = outer(S[ancestor], (Sd+psid)[joint]) (re-formed in registers by each consumer)
             
 
 
@@ -30632,34 +30605,20 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int t_idx = t_index_map[jid][ancestor_j]*36;
-                if (i < 84 && ancestor_j < jid && st_j != jid) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] += dot_prod<T, 36, 1, 1>(&t[t_idx], &D1[st_j*36]);
+                if (i < 84 && ancestor_j < jid && st_j != jid) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] += idsva_so_outer_dot<T>(&S[ancestor_j*6], &psid_Sd[jid*6], &D1[st_j*36]);
                 else if (ancestor_j < jid & st_j != jid) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] = d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j];
             }
             __syncthreads();
             
 
 
-            // Compute p1..p6 in parallel
+            // p1..p6 re-formed in registers by each consumer (no shared slab, no fill barrier):
             // p1 = self.crm(psid_c) @ S_d
             // p2 = self.crm(psidd[:, k]) @ S_d
             // p3 = self.crm(S_c) @ S_d
             // p4 = self.crm(Sd_c + psid_c) @ S_d - 2 * self.crm(psid_d) @ S_c
             // p5 = self.crm(S_d) @ S_c
             // p6 = IC_S[joint] @ crm(S[ancestor]) + S[ancestor] @ crf_S_IC[joint]
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 1008; i += blockDim.x*blockDim.y){
-                int index = i % 168;
-                int jid = jids[index / 6];
-                int ancestor_j = ancestors_j[index / 6];
-                int p_idx = t_index_map[jid][ancestor_j]*6;
-                if (i < 168) p1[p_idx + i % 6] = crm_mul<T>(i % 6, &psid[ancestor_j*6], &S[jid*6]);
-                else if (i < 336) p2[p_idx + i % 6] = crm_mul<T>(i % 6, &psidd[ancestor_j*6], &S[jid*6]);
-                else if (i < 504) p3[p_idx + i % 6] = crm_mul<T>(i % 6, &S[ancestor_j*6], &S[jid*6]);
-                else if (i < 672) p4[p_idx + i % 6] = crm_mul<T>(i % 6, &psid_Sd[ancestor_j*6], &S[jid*6]) - 2 * crm_mul<T>(i % 6, &psid[jid*6], &S[ancestor_j*6]);
-                else if (i < 840) p5[p_idx + i % 6] = crm_mul<T>(i % 6, &S[jid*6], &S[ancestor_j*6]);
-                else p6[p_idx + i % 6] = dot_prod<T, 6, 1, 1>(&IC_S[jid*6], &crm_S[ancestor_j*36 + (i % 6)*6]) + dot_prod<T, 6, 1, 1>(&S[ancestor_j*6], &crf_S_IC[jid*36 + (i % 6)*6]);
-            }
-            __syncthreads();
             
 
 
@@ -30675,17 +30634,15 @@ namespace grid {
                 int jid = jids_compute[index];
                 int ancestor_j = ancestors_j_compute[index];
                 int st_j = st[index];
-                int p_idx = t_index_map[jid][ancestor_j]*6;
-                if (i < 84) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] += -dot_prod<T, 6, 1, 1>(&p1[p_idx], &T2[st_j*6]) + dot_prod<T, 6, 1, 1>(&p2[p_idx], &T1[st_j*6]);
+                if (i < 84) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + ancestor_j * SECOND_ORDER_COORDS + jid] += -idsva_so_crm_dot<T>(&psid[ancestor_j*6], &S[jid*6], &T2[st_j*6]) + idsva_so_crm_dot<T>(&psidd[ancestor_j*6], &S[jid*6], &T1[st_j*6]);
                 else if (ancestor_j < jid) {
-                    if (i < 168) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] += -dot_prod<T, 6, 1, 1>(&p1[p_idx], &T2[st_j*6]) + dot_prod<T, 6, 1, 1>(&p2[p_idx], &T1[st_j*6]);
-                    else if (i < 252) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] += -dot_prod<T, 6, 1, 1>(&p3[p_idx], &T2[st_j*6]) + dot_prod<T, 6, 1, 1>(&p4[p_idx], &T1[st_j*6]);
-                    else if (i < 336) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] -= dot_prod<T, 6, 1, 1>(&p5[p_idx], &T3[st_j*6]);
-                    else if (i < 420 && st_j != jid) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] -= dot_prod<T, 6, 1, 1>(&p5[p_idx], &T3[st_j*6]);
-                    else if (i >= 420) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] -= dot_prod<T, 6, 1, 1>(&p5[p_idx], &T4[st_j*6]);
+                    if (i < 168) d2tau_dq2[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] += -idsva_so_crm_dot<T>(&psid[ancestor_j*6], &S[jid*6], &T2[st_j*6]) + idsva_so_crm_dot<T>(&psidd[ancestor_j*6], &S[jid*6], &T1[st_j*6]);
+                    else if (i < 252) d2tau_dvdq[st_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + ancestor_j] += -idsva_so_crm_dot<T>(&S[ancestor_j*6], &S[jid*6], &T2[st_j*6]) + idsva_so_crm2_dot<T>(&psid_Sd[ancestor_j*6], &S[jid*6], &psid[jid*6], &S[ancestor_j*6], &T1[st_j*6]);
+                    else if (i < 336) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] -= idsva_so_crm_dot<T>(&S[jid*6], &S[ancestor_j*6], &T3[st_j*6]);
+                    else if (i < 420 && st_j != jid) d2tau_dq2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + st_j * SECOND_ORDER_COORDS + jid] -= idsva_so_crm_dot<T>(&S[jid*6], &S[ancestor_j*6], &T3[st_j*6]);
+                    else if (i >= 420) d2tau_dvdq[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + st_j] -= idsva_so_crm_dot<T>(&S[jid*6], &S[ancestor_j*6], &T4[st_j*6]);
                 }
             }
-            __syncthreads();
             
 
 
@@ -30694,8 +30651,7 @@ namespace grid {
             for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 28; i += blockDim.x*blockDim.y){
                 int jid = jids[i];
                 int ancestor_j = ancestors_j[i];
-                int p_idx = t_index_map[jid][ancestor_j]*6;
-                if (ancestor_j < jid) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + jid] = dot_prod<T, 6, 1, 1>(&p6[p_idx], &S[jid*6]);
+                if (ancestor_j < jid) d2tau_dqd2[ancestor_j*SECOND_ORDER_COORDS*SECOND_ORDER_COORDS + jid * SECOND_ORDER_COORDS + jid] = idsva_so_p6_dot<T>(&IC_S[jid*6], &crm_S[ancestor_j*36], &S[ancestor_j*6], &crf_S_IC[jid*36], &S[jid*6]);
             }
             __syncthreads();
         }
@@ -30713,14 +30669,14 @@ namespace grid {
          */
         template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
         __global__
-        __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
+        __maxnreg__(64)
         void idsva_so_body_frame_kernel_single_timing(T *d_idsva_so, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
             if constexpr (RESOURCE_TIER == TIER_SHARED) {
                 // GRID shared arena layout
                 //   T s_q_qd_u[21]
                 //   T s_idsva_so[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -30734,10 +30690,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5641, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5179, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30786,7 +30742,7 @@ namespace grid {
                 //   T s_q_qd_u[21]
                 //   T s_idsva_so[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -30800,10 +30756,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5641, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5179, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30918,14 +30874,14 @@ namespace grid {
          */
         template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
         __global__
-        __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
+        __maxnreg__(64)
         void idsva_so_body_frame_kernel(T *d_idsva_so, unsigned char *d_workspace, const T *d_q_qd_u, const int stride_q_qd_u, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS) {
             if constexpr (RESOURCE_TIER == TIER_SHARED) {
                 // GRID shared arena layout
                 //   T s_q_qd_u[21]
                 //   T s_idsva_so[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -30939,10 +30895,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5641, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5179, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30983,7 +30939,7 @@ namespace grid {
                 //   T s_q_qd_u[21]
                 //   T s_idsva_so[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -30997,10 +30953,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5641, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5179, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -31184,14 +31140,14 @@ namespace grid {
          * @param s_qdd is the vector of joint accelerations
          * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
          * @param gravity is the gravity constant
-         * @param d_workspace is the global scratch buffer; size IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 3744*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
+         * @param d_workspace is the global scratch buffer; size IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 3282*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
          */
         template <typename T, int RESOURCE_TIER = TIER_SHARED>
         __device__
         void idsva_so_device(T *s_idsva_so, const T *s_q, const T *s_qd, const T *s_qdd, const robotModel<T> *d_robotModel, const T gravity, T *d_workspace = nullptr) {
             // GRID shared arena layout
             //   T s_XImats[504]
-            //   T s_temp[3744] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
+            //   T s_temp[3282] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31202,7 +31158,7 @@ namespace grid {
                 (void)d_workspace;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
             }
             else {
                 s_temp = d_workspace;
@@ -31210,7 +31166,7 @@ namespace grid {
             int *s_topology_helpers = nullptr;
             #ifdef GRID_CUDA_DEBUG_LAYOUT
             if constexpr (RESOURCE_TIER == TIER_SHARED) {
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(4248, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(3786, 0, 0));
             }
             else {
                 assert(s_arena_offset == grid_shared_arena_bytes<T>(504, 0, 0));
@@ -31505,7 +31461,7 @@ namespace grid {
                 //   T s_idsva_so[1372]
                 //   T s_df2[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31531,10 +31487,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(7167, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(6705, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -31575,7 +31531,7 @@ namespace grid {
                 //   T s_idsva_so[1372]
                 //   T s_df2[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31601,10 +31557,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(7167, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(6705, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -31718,7 +31674,7 @@ namespace grid {
                 //   T s_idsva_so[1372]
                 //   T s_df2[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31744,10 +31700,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(7167, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(6705, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -31781,7 +31737,7 @@ namespace grid {
                 //   T s_idsva_so[1372]
                 //   T s_df2[1372]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31807,10 +31763,10 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(7167, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(6705, 0, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -34544,7 +34500,7 @@ namespace grid {
         };
 
         #define GRID_PLANT_HAS_STEP_GRADIENT 1
-        template <typename T> __host__ __device__ constexpr size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(12662); }
+        template <typename T> __host__ __device__ constexpr size_t PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(12200); }
         /**
          * plant_step_hessian kernel: s_d2AB = d^2 integrator([q;qd], u, dt) per timestep (tier-aware scratch; pass-through to grid::integrator_hessian_device)
          *
@@ -34572,7 +34528,7 @@ namespace grid {
                 //   T s_df_du[98]
                 //   T s_qdd[7]
                 //   T s_XImats[504]
-                //   T s_temp[3744]
+                //   T s_temp[3282]
                 //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
@@ -34605,7 +34561,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(504);
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
-                s_arena_offset += sizeof(T) * static_cast<size_t>(3744);
+                s_arena_offset += sizeof(T) * static_cast<size_t>(3282);
                 int *s_topology_helpers = nullptr;
                 unsigned char *s_linalg_smem = nullptr;
                 if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
@@ -34614,7 +34570,7 @@ namespace grid {
                     s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
                 }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(13341, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(12879, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -34688,7 +34644,7 @@ namespace grid {
                     T *s_d2AB = &d_ws[ws_off]; ws_off += 6174;
                     T *s_df2 = &d_ws[ws_off]; ws_off += 1372;
                     T *s_idsva_so = &d_ws[ws_off]; ws_off += 1372;
-                    T *s_fdsva_pool = &d_ws[ws_off]; ws_off += 3744;
+                    T *s_fdsva_pool = &d_ws[ws_off]; ws_off += 3282;
                     (void)ws_off;
                     plant_step_hessian<T, IT, false, false, false>(s_d2AB, s_x, s_u, s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_XImats, s_topology_helpers, s_temp, s_fdsva_pool, nullptr, s_fdsva_pool, d_robotModel, gravity, dt);
                     __syncthreads();
@@ -34752,7 +34708,7 @@ namespace grid {
                     T *s_d2AB = &d_ws[ws_off]; ws_off += 6174;
                     T *s_df2 = &d_ws[ws_off]; ws_off += 1372;
                     T *s_idsva_so = &d_ws[ws_off]; ws_off += 1372;
-                    T *s_fdsva_pool = &d_ws[ws_off]; ws_off += 3744;
+                    T *s_fdsva_pool = &d_ws[ws_off]; ws_off += 3282;
                     (void)ws_off;
                     plant_step_hessian<T, IT, false, false, false>(s_d2AB, s_x, s_u, s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_XImats, s_topology_helpers, s_temp, s_fdsva_pool, nullptr, s_fdsva_pool, d_robotModel, gravity, dt);
                     __syncthreads();
@@ -34764,7 +34720,7 @@ namespace grid {
             }
         }
 
-        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(13341, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(679, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid::grid_shared_arena_bytes<T>(679, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(12879, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(679, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid::grid_shared_arena_bytes<T>(679, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
         static const int GRID_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER = 1;
         #define GRID_PLANT_HAS_STEP_HESSIAN 1
         /**
@@ -34804,6 +34760,7 @@ namespace grid {
      * Collision namespace: baked sphere data + config_free composed over grid::multi_target_position + the static SDF geometry header
      *
      */
+    #define GRID_COLLISION_NUM_TIERS 1
     namespace grid_collision {
         using grid::TIER_SHARED; using grid::TIER_LITE; using grid::TIER_MINIMAL;
         constexpr int NUM_COLLISION_SPHERES = 44;
@@ -34811,6 +34768,10 @@ namespace grid {
         static_assert(NUM_COLLISION_SPHERES == grid::NUM_MULTI_TARGETS, "collision sphere batch must be the multi_target batch");
         __device__ const float g_collision_sphere_r[44] = {0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.033f};
         __device__ const int g_collision_self_cc_ranges[108] = {0, 21, 43, 1, 21, 43, 2, 21, 43, 3, 21, 43, 4, 21, 43, 5, 21, 43, 6, 21, 43, 7, 21, 43, 8, 21, 43, 9, 21, 43, 10, 21, 43, 11, 21, 43, 12, 21, 43, 13, 27, 43, 14, 27, 43, 15, 27, 43, 16, 27, 43, 17, 27, 43, 18, 27, 43, 19, 27, 43, 20, 27, 43, 21, 31, 43, 22, 31, 43, 23, 31, 43, 24, 31, 43, 25, 31, 43, 26, 31, 43, 27, 36, 43, 28, 36, 43, 29, 36, 43, 30, 36, 43, 31, 42, 43, 32, 42, 43, 33, 42, 43, 34, 42, 43, 35, 42, 43};
+        constexpr int NUM_SPHERES = NUM_COLLISION_SPHERES;
+        __device__ __constant__ int   sphere_anchor[44] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6};
+        __device__ __constant__ float sphere_offset[132] = {-0.15f, 0.0f, 0.0f, -0.15f, 0.0f, 0.15f, -0.15f, 0.0f, 0.3f, 0.0f, -0.15f, 0.0f, 0.0f, -0.15f, 0.15f, 0.0f, -0.15f, 0.3f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.0f, 0.0f, 0.3f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.15f, 0.0f, 0.15f, 0.15f, 0.0f, 0.3f, -0.15f, 0.0f, 0.0f, -0.15f, 0.0f, 0.15f, 0.0f, -0.15f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.0f, 0.0f, 0.3f, 0.0f, 0.15f, 0.0f, 0.0f, 0.15f, 0.15f, 0.0f, 0.15f, 0.3f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.15f, 0.15f, 0.0f, -0.15f, 0.15f, 0.0f, -0.15f, 0.3f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.0f, 0.0f, 0.3f, -0.15f, 0.0f, 0.0f, -0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.15f, 0.0f, 0.0f, 0.15f, 0.0f, 0.15f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.04f};
+        __device__ __constant__ float sphere_radius[44] = {0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.129903811f, 0.033f};
         /**
          * Fill s_r[NUM_COLLISION_SPHERES] with the baked fp32 radii cast to T
          *
@@ -34830,7 +34791,8 @@ namespace grid {
          * Notes:
          *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
          *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
-         *   Every thread computes the same verdict; the self/env range loops are serial (parallelize = W3 perf TODO).
+         *   Block-parallel (G4, 2026-10-04): thread-per-self-range + thread-per-sphere env checks OR-ed into a
+         *   shared flag; every thread returns the same verdict; thread-count invariant; single block.
          *
          * @param s_q is the vector of joint positions
          * @param d_robotModel is the initialized model-specific helpers on the GPU
@@ -34842,16 +34804,91 @@ namespace grid {
         template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
         __device__
         bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+            __shared__ int s_cc_hit;
+            if (threadIdx.x == 0 && threadIdx.y == 0) s_cc_hit = 0;   // published by the extractor's barriers
             grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
             load_collision_radii<T>(s_sphere_r);
             __syncthreads();
-            if (grid_cc_self_collision<T>(s_sphere_pos, s_sphere_r, g_collision_self_cc_ranges, NUM_COLLISION_SELF_CC_RANGES)) return false;
-            for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
-                if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) return false;
+            for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
+                const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i];
+                for (int j = j0; j <= j1; ++j) {
+                    if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { s_cc_hit = 1; break; }
+                }
             }
-            return true;
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
+                if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) s_cc_hit = 1;
+            }
+            __syncthreads();
+            const bool is_free = (s_cc_hit == 0);
+            __syncthreads();
+            return is_free;
         }
 
+        
+        /**
+         * Warp-scoped collision API over caller-held joint world transforms (G2/G3, 2026-10-04)
+         *
+         * Notes:
+         *   The whole warp calls these; lanes stride the sphere batch, the verdict is warp-uniform.
+         *   s_Xworld = column-major 4x4 per movable joint (what ee_pose_inner_warp / the multi_target chain-up fill).
+         *   w_scratch = per-warp float scratch of 3*NUM_SPHERES floats.
+         *   Sphere positions are float even for T = double (HJCD-IK convention).
+         *
+         */
+        namespace warp {
+            constexpr unsigned FULL_MASK = 0xffffffffu;
+            constexpr int W_SCRATCH_FLOATS = 3*NUM_SPHERES;
+            template <typename T>
+            __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch) {
+                const int lane = threadIdx.x & 31;
+                float *w_pos = w_scratch;
+                bool hit = false;
+                for (int s = lane; s < NUM_SPHERES; s += 32) {
+                    const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                    const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                    w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                    w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                    w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+                }
+                for (int s = lane; s < NUM_SPHERES; s += 32) {
+                    hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s]);
+                }
+                __syncwarp(FULL_MASK);
+                for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
+                    const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                    const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i];
+                    for (int j = j0; j <= j1 && !hit; ++j) {
+                        hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
+                    }
+                }
+                const bool any_hit = __any_sync(FULL_MASK, hit);
+                __syncwarp(FULL_MASK);   // scratch reads done before the caller reuses it
+                return !any_hit;
+            }
+
+            template <typename T>
+            __device__ void collision_distance(const T *s_Xworld, const Environment<float> &env, float *s_dist, float *s_normal, float *w_scratch) {
+                const int lane = threadIdx.x & 31;
+                float *w_pos = w_scratch;
+                for (int s = lane; s < NUM_SPHERES; s += 32) {
+                    const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                    const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                    w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                    w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                    w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+                }
+                __syncwarp(FULL_MASK);
+                for (int s = lane; s < NUM_SPHERES; s += 32) {
+                    float nx, ny, nz;
+                    s_dist[s] = grid_cc_nearest_obstacle<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s], &nx, &ny, &nz);
+                    s_normal[3*s] = nx; s_normal[3*s+1] = ny; s_normal[3*s+2] = nz;
+                }
+                __syncwarp(FULL_MASK);
+            }
+
+        }
+        
         /**
          * collision_distance: per-sphere nearest signed clearance d_i(q) + surface normal (env only)
          *

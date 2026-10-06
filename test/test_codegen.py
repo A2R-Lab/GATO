@@ -1,5 +1,7 @@
 """Codegen determinism: regenerating from the URDF must reproduce the vendored
 grid.cuh + limits.cuh byte-for-byte (catches forgot-to-regen drift)."""
+import subprocess
+
 import pytest
 
 from gato.builder import codegen, load_registry
@@ -26,6 +28,13 @@ def test_regen_matches_vendored(robot, urdfs, repo_root, tmp_path):
     """Regenerating from the URDF reproduces the vendored headers byte-for-byte
     AND the tracked registry entry (python/gato/_registry.json) — the registry
     is tracked, so its failure mode is STALENESS, not absence."""
+    nested = subprocess.check_output(
+        ["git", "-C", str(repo_root / "external/GRiD"), "ls-tree", "HEAD", "external/GLASS"],
+        text=True).split()[2]
+    compiled = subprocess.check_output(
+        ["git", "-C", str(repo_root / "external/GLASS"), "rev-parse", "HEAD"],
+        text=True).strip()
+    assert nested == compiled, "generate and compile with the same reviewed GLASS pin"
     out = tmp_path / robot
     meta = codegen(_urdf(robot, urdfs, repo_root), robot, out_dir=out, register=False, **ROBOT_KW[robot])
     vendored = repo_root / "gato" / "dynamics" / robot

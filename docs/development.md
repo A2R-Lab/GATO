@@ -12,6 +12,11 @@ GRiD and GLASS are developed in their own repositories and pinned here as gitlin
 GRiDCodeGenerator → GRiD → GATO; after a GRiD bump run `.venv/bin/python tools/regen_grid.py`
 and `pytest test/test_codegen.py` (the vendored `gato/dynamics/<robot>/grid.cuh` must
 regenerate byte-identically — never edit it by hand).
+The top-level GLASS gitlink must match GRiD's nested GLASS pin; the codegen gate
+checks this before comparing generated headers. A dependency update requires
+rebuilding the receipt profile and passing the existing numerical goldens.
+Previously collected timings remain evidence for their recorded pins, not the
+new checkout.
 
 ## Build
 
