@@ -8,6 +8,8 @@ Unreleased (no tag; installs are source-tree only).
   This includes upstream dynamics synchronization changes and collision APIs;
   collision sphere counts and controller defaults remain unchanged.
 - Codegen validation now requires matching GRiD and consumer GLASS pins.
+  Collision generation rejects spherizer fallbacks independently of warning
+  wording, preserving the same geometry when optional dependencies are missing.
   October 5 timing artifacts describe the preceding dependency revisions;
   no performance improvement is inferred from this update.
 

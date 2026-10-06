@@ -252,7 +252,11 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         import warnings as _warnings
         with _warnings.catch_warnings():
             _warnings.filterwarnings("error", message=r".*SKIPPING.*")
-            _warnings.filterwarnings("error", message=r".*mesh voxelization failed.*")
+            # Warning wording is not an API: upstream removed "mesh" from
+            # its voxelization warning. Reject all spherizer fallbacks rather
+            # than silently accepting a different constraint model.
+            _warnings.filterwarnings("error", category=UserWarning,
+                                     module=r"grid_codegen\.algorithms\._spherize")
             spec = collision_spec_from_urdf(robot, str(urdf_path),
                                             resolution=float(collision_res))
         n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
