@@ -37,6 +37,10 @@ research software, not a certified robot controller.
   and check feasibility telemetry. A report-only row is not an enforced bound.
 - **Integration:** default-stream execution is the supported path; do not
   assume concurrent solves on a shared solver instance are supported.
+- **Timing:** internal solve time and `MPCController.step` wall time have
+  different boundaries. Neither includes the entire robot cycle; small median
+  durations do not establish deadline compliance. The dated October 5 results
+  precede the latest GRiD/GLASS pin update.
 - **Dependencies:** MuJoCo remains pinned below 3.14 pending verification of a
   version fixing the observed URDF-compilation crash. Do not bypass that pin
   based solely on a newer version number.

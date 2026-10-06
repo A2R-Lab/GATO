@@ -11,6 +11,9 @@ module for 01–04, 06 and 08 (`MODULES="indy7:64" JOBS=2 ./tools/build.sh`).
 standing). `JOBS=2 ./tools/build.sh --profile receipt` covers the shipped
 variants. Install `--test` for pinocchio, MuJoCo and gymnasium; `--examples`
 adds plotting/notebook dependencies. These are correctness demos, not benchmarks.
+They demonstrate API use and simulated behavior, not guaranteed joint-limit
+feasibility or real-time deadlines. Inspect the printed violation telemetry and
+the independent simulated trajectory before interpreting a task as feasible.
 
 | Script | Shows |
 |---|---|

@@ -11,6 +11,10 @@ The software has grown beyond the paper. Paper figures describe the published
 experiments, not performance guarantees for the latest code. Floating-base
 standing and contact-row examples are available; closed-loop walking is still
 in development. See the feature-status page for the tested scope.
+Constraint mechanisms and simulated goal arrival do not by themselves establish
+joint-limit feasibility. Check solver residuals and the physical trajectory;
+the payload holdout and timing-boundary results are described in the
+[dated experiment report](docs/figure-refresh-2026-10-01.md).
 
 ## Quick start (host-native — no Docker needed)
 
@@ -96,7 +100,7 @@ cmake --build build --parallel 2                                # RAM-bound: rou
   horizons are compile blowups).
 - `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
   attests (`test/receipt_modules.txt`).
-- `tools/build.sh` defaults to four jobs; use `JOBS=2` on a shared or RAM-limited
+- `tools/build.sh` defaults to four jobs; use `JOBS=1` on the shared lab box or a RAM-limited
   machine. CMake caches `MODULES`: an old explicit list overrides `PLANT`/`KNOTS`.
   Clear it with `-DMODULES=""` when returning to the cross-product. The receipt
   profile takes precedence over both. `--clean` deletes `build/`, not just its cache.

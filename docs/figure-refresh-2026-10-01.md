@@ -205,6 +205,34 @@ retuned on this holdout. A feasible task needs a separately designed constraint
 and reference protocol, new development scenarios, then another frozen holdout.
 Neither task tests placing or releasing the payload onto a surface.
 
+## Controller call boundaries on October 5
+
+Source `1777568`, GRiD `0a14c0f`, GLASS `8ce68a2`, RTX 5090. These measurements
+precede the latest dependency update. They pair internal solver duration with
+`MPCController.step` wall time: N64, one SQP iteration, B1/8/128, three repeats,
+400 calls each with ten warmup samples dropped. All 7,020 retained pairs are
+finite and positive; outer durations are at least their paired internal durations.
+
+| Robot | Batch | Internal solver us | Controller wall us | Paired overhead us |
+| --- | ---: | ---: | ---: | ---: |
+| Indy7 | 1 | 262 | 304 | 42 |
+| Indy7 | 8 | 427 | 479 | 53 |
+| Indy7 | 128 | 3611 | 3798 | 180 |
+| iiwa14 | 1 | 452 | 493 | 42 |
+| iiwa14 | 8 | 720 | 774 | 54 |
+| iiwa14 | 128 | 4803 | 5010 | 206 |
+
+Values are medians across the three per-repeat medians. Overhead is computed
+on each paired difference, not by subtracting aggregate medians. The outer
+boundary excludes sensing, reference preparation, simulation and actuator I/O.
+This workload propagates solution state without physical simulation; it does
+not replace the Fig-3 tracking comparison or establish robot-cycle deadlines.
+The duration-only capture does not record new tracking or feasibility evidence.
+Raw data: `examples/benchmarks/night_logs/handoff_qspP1dhc` (local, not in Git),
+including source/module snapshots, frozen goals and paired JSON samples.
+Reproduce with `run_timing_handoff.sh --suite boundaries` in an assigned quiet
+window, using a freshly verified receipt and matching native modules.
+
 ## Fig-4: the published plotting script produced an empty figure
 
 Each solve's best-merit curve ends when its SQP loop stops, after 2 to 101 iterations. The script

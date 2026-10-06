@@ -124,7 +124,11 @@ GATO_QUIET_WINDOW=1 examples/benchmarks/run_timing_handoff.sh --suite all   # ch
 ```
 
 `--suite` is one of `checkpoint` (three iiwa14 N64 B1/8/128 repeats plus ten B128 Fig-7
-scenarios), `seed-ab`, `compile`, `calibrate` or `all`. Logs land in
+scenarios), `seed-ab`, `boundaries`, `compile`, `calibrate` or `all`. The `boundaries`
+suite pairs `MPCController.step` wall time with internal solver time on Indy7 and
+iiwa14, N64, B1/8/128, three repeats. It excludes sensing, reference preparation,
+simulation and actuator I/O. `all` selects checkpoint, compile and calibrate;
+it does not include boundaries or seed-ab. Logs land in
 `examples/benchmarks/night_logs/handoff_*/` with source, submodule, receipt and module
 hashes recorded before and after. The narrower `run_merge_checkpoint.sh` takes the same
 `--dry-run` / `GATO_QUIET_WINDOW=1` gate. Do not run heavy CPU work or compiles while a
