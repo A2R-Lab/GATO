@@ -116,8 +116,7 @@ def test_linsys_defaults_floating():
         pytest.fail("bsqpN16_go2 is a receipt-profile module and must be built")
     import gato
     from pathlib import Path
-    urdf = Path(gato.__file__).resolve().parents[2] / "external" / "GRiD" \
-        / "config" / "robot_assets" / "go2.urdf"
+    urdf = Path(gato.__file__).resolve().parents[2] / "examples" / "go2_description" / "go2.urdf"
     solver = gato.BSQP(model_path=str(urdf), batch_size=1, N=16, dt=0.01,
                        plant_type="go2")
     assert solver.floating_base

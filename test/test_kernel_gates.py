@@ -17,7 +17,9 @@ pytestmark = [pytest.mark.gpu, pytest.mark.slow]
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-arch=native", "-I", str(REPO / "external" / "GLASS")]
+from gato import _grid
+
+COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-arch=native", "-I", str(_grid.glass_dir())]
 HARNESSES = {
     "pcg_vs_cpu": [],
     "bdsv_vs_pcg": [],
@@ -27,7 +29,7 @@ HARNESSES = {
                           "-I", str(REPO / "gato"), "-I", str(HERE / "cuda")],
     "ee_rows": ["-DKNOT_POINTS=8", "-DGATO_PLANT_HEADER=\"dynamics/plant.cuh\"",
                 "-I", str(REPO / "gato"), "-I", str(REPO / "gato" / "dynamics" / "indy7"),
-                "-I", str(REPO / "external" / "GRiD" / "grid_codegen" / "collision"), "-I", str(HERE / "cuda")],
+                "-I", str(_grid.collision_dir()), "-I", str(HERE / "cuda")],
 }
 
 

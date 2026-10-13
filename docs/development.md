@@ -1,20 +1,22 @@
 # Development and validation
 
-`./tools/install.sh --test --dev` creates the project-local `.venv`, initializes the
-`external/GRiD` and `external/GLASS` submodules, installs the `[test]` + `[dev]` extras
-(pinocchio, mujoco, scipy, gymnasium, pytest, pytest-gpu-proof) and regenerates the
-vendored GRiD headers. That `.venv` is the only Python for this repo: receipts, tests and
+`./tools/install.sh --test --dev` creates the project-local `.venv`, installs the
+pinned `grid-rbd` wheel with the `[test]` + `[dev]` extras (pinocchio, mujoco, scipy,
+gymnasium, pytest, pytest-gpu-proof) and regenerates the vendored GRiD headers. That `.venv` is the only Python for this repo: receipts, tests and
 timing all run from it. Never import models, environments or generated files from a
 sibling checkout.
 
-GRiD and GLASS are developed in their own repositories and pinned here as gitlinks
-(`external/`), read-only except for pin bumps. Codegen changes travel
-GRiDCodeGenerator → GRiD → GATO; after a GRiD bump run `.venv/bin/python tools/regen_grid.py`
+GRiD and GLASS are developed in their own repositories; GATO consumes both through
+the released `grid-rbd` wheel, pinned to an exact version in `pyproject.toml` and
+`python/gato/_grid.py` (which also pins the GLASS commit the wheel must bundle —
+`gato._grid.require()` refuses any other install, at codegen, configure and test
+time). The wheel supplies the code generator, URDFParser, the global `glass::`
+headers and `grid_collision_geometry.cuh`; CMake asks `python/gato/_grid.py` for
+the include directories. After a grid-rbd bump run `.venv/bin/python tools/regen_grid.py`
 and `pytest test/test_codegen.py` (the vendored `gato/dynamics/<robot>/grid.cuh` must
-regenerate byte-identically — never edit it by hand).
-The top-level GLASS gitlink must match GRiD's nested GLASS pin; the codegen gate
-checks this before comparing generated headers. A dependency update requires
-rebuilding the receipt profile and passing the existing numerical goldens.
+regenerate byte-identically — never edit it by hand). A dependency update requires
+rebuilding the receipt profile (every module embeds a content identity of the
+dependency headers it was built from) and passing the existing numerical goldens.
 Previously collected timings remain evidence for their recorded pins, not the
 new checkout.
 
@@ -90,7 +92,7 @@ build tools/configuration, CI and dependency gitlinks (the exact scope is in
 that scope require a fresh receipt before an authorized push. A missing receipt
 fails CI; `test/expected_tests.txt` enforces the complete collected suite.
 
-1. Commit the source (and any submodule pin bump); the tree must be clean.
+1. Commit the source (and any grid-rbd pin bump); the tree must be clean.
 2. Configure and build the receipt profile: `./tools/build.sh --profile receipt` (capped,
    as above). Each module embeds a content identity of its actual native inputs.
    The signer refuses missing or stale/unidentified binaries; reconfigure after
@@ -129,7 +131,7 @@ suite pairs `MPCController.step` wall time with internal solver time on Indy7 an
 iiwa14, N64, B1/8/128, three repeats. It excludes sensing, reference preparation,
 simulation and actuator I/O. `all` selects checkpoint, compile and calibrate;
 it does not include boundaries or seed-ab. Logs land in
-`examples/benchmarks/night_logs/handoff_*/` with source, submodule, receipt and module
+`examples/benchmarks/night_logs/handoff_*/` with source, dependency, receipt and module
 hashes recorded before and after. The narrower `run_merge_checkpoint.sh` takes the same
 `--dry-run` / `GATO_QUIET_WINDOW=1` gate. Do not run heavy CPU work or compiles while a
 timing leg is in flight, and do not quote numbers from a contended box. The paper-figure

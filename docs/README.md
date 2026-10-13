@@ -6,7 +6,7 @@ needed by your example; the full receipt profile is for validation and research.
 
 | Question | Reference |
 |---|---|
-| What works, and what is experimental? | [Feature status and limitations](status.md) |
+| What works, and what is experimental? | [Feature status and limitations](status.md); [API stability](consumer_contract.md#8-api-stability) |
 | How do I use the Python API or migrate old code? | [Consumer contract and migration notes](consumer_contract.md) |
 | How do I add limits, cones, collision or foot rows? | [Constraint mechanisms and conventions](constraints.md) |
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |

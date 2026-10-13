@@ -5,7 +5,7 @@ robot (gato/dynamics/<name>/{grid.cuh, limits.cuh} + the registry entry) and
 compiles the bsqpN{N}_<name> solver module(s) in one call. Fixed-base serial
 chains with bounded <limit> tags; ee_frame must be a URDF FIXED joint (the EE
 target frame the tracking cost and FK use). Codegen is skipped when the URDF /
-GRiD pin / options are unchanged (a content key in the registry).
+grid-rbd release / options are unchanged (a content key in the registry).
 
     python examples/05_build_your_robot.py path/to/robot.urdf --name myrobot --ee-frame EE
     python examples/05_build_your_robot.py            # rebuilds the vendored indy7 at N=16

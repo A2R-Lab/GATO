@@ -14,7 +14,7 @@
     "floating_base": true,
     "nq": 19,
     "nv": 18,
-    "urdf": "external/GRiD/config/robot_assets/go2.urdf"
+    "urdf": "examples/go2_description/go2.urdf"
   },
   "iiwa14": {
     "collision": {

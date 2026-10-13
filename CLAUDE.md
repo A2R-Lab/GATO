@@ -3,7 +3,7 @@
 GATO is a **GPU-accelerated batched trajectory optimizer**: it solves tens-to-low-hundreds
 of optimal-control problems simultaneously in real time, one CUDA block per solve. It is the
 top layer of the A2R-Lab stack — it owns **only the SQP / batch / Schur structure** and defers
-everything else to its submodules:
+everything else to its dependencies (both arrive through the pinned `grid-rbd` wheel):
 
 - **dynamics, integrators, and plant costs → [GRiD](https://github.com/A2R-Lab/GRiD)** via the
   generated `grid.cuh` and the `grid_plant::` cost/step surface.
@@ -126,7 +126,8 @@ migrated to `glass::`.
 - `test/` — pytest suite (`gpu`/`slow` markers; see Validation): goldens in `test/golden/`,
   the receipt module set in `test/receipt_modules.txt`, kernel harnesses in `test/cuda/` (run by
   `test_kernel_gates.py`), `conftest.py` shared fixtures (TEST_PARAMS, go2 helpers).
-- `external/GRiD` (pinned to `main`), `external/GLASS` (pinned to `main`).
+- `python/gato/_grid.py` — the grid-rbd pin (exact version + bundled GLASS commit) and the
+  resolver CMake/native_identity use for the GLASS and collision include dirs. No `external/`.
 - `tools/` — `regen_grid.py` (CLI over `gato.builder.codegen`), `build.sh` (`--profile receipt`,
   `--variant fc|eh`), `install.sh` (`--test --dev`), `autotune_linsys.py`, `gen_dynamics_fingerprint.py`.
 
@@ -144,7 +145,7 @@ cmake -S . -B build -DKNOTS=64 -DPLANT=indy7 -DCMAKE_BUILD_TYPE=Release \
 cmake --build build --parallel 2      # cap jobs: each TU pulls the large grid.cuh (go2 ~7 GB)
 ```
 
-`tools/install.sh` sets up a project-local `.venv` + submodules + regen. `KNOTS`/`PLANT` accept
+`tools/install.sh` sets up a project-local `.venv` (with the pinned grid-rbd) + regen. `KNOTS`/`PLANT` accept
 semicolon lists. The project `.venv` is the ONLY python for this repo: `./tools/install.sh --test --dev`
 gives it pinocchio + mujoco + scipy + gymnasium + pytest-gpu-proof, which is what `test/run_gpu_proof.sh`
 requires (it refuses a python missing them — a skip-laden receipt fails CI). Do NOT sign receipts
@@ -172,7 +173,7 @@ the URDFs or dynamics semantics change — the pytest gate enforces staleness).
 ## Conventions & gotchas (learned the hard way)
 
 - **Two GLASS namespaces coexist.** `grid.cuh` inlines an older GLASS into **`grid::glass::`**;
-  the top-level `external/GLASS` (`#include "glass.cuh"`) is global **`glass::`**. They do not
+  the wheel's GLASS (`#include "glass.cuh"`, `grid_codegen/_data/GLASS`) is global **`glass::`**. They do not
   clash — use `glass::` in the bsqp kernels.
 - **`gpuAssert`/`gpuErrchk` are defined in BOTH `grid.cuh` (unconditional) and `utils/cuda.cuh`
   (`#ifndef NDEBUG`).** Release builds (`-DNDEBUG`) are clean; `cuda.cuh` is guarded with
@@ -252,6 +253,6 @@ automatically. See `docs/website.md`.
 
 ## Commit style
 
-Short, single-line commit messages; no `Co-Authored-By` footer. Work on branches → PRs. The
-submodule merge chain for codegen changes is GRiDCodeGenerator → GRiD → GATO (bump pins up the
-chain); GLASS is standalone.
+Short, single-line commit messages; no `Co-Authored-By` footer. Work on branches → PRs. Codegen
+changes travel GRiD → a grid-rbd release → GATO's pin (`python/gato/_grid.py` + pyproject);
+GLASS reaches GATO through the same wheel.

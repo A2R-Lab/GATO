@@ -660,7 +660,7 @@
    "nq": 19,
    "nv": 18,
    "nu": 12,
-   "urdf": "external/GRiD/config/robot_assets/go2.urdf",
+   "urdf": "examples/go2_description/go2.urdf",
    "urdf_sha256": "7d19fe48e2e689ee1a032ab99f2a4a8b671d87e73de48d3e65811682a5b48b9e",
    "probes": [
     {

@@ -86,6 +86,17 @@ whose (z, y) reinit every solve: a warm-started dual on a row the
 primal may not reach is an unbounded violation integrator (measured).
 stats gain admm_r_prim/admm_r_dual; telemetry stays on.
 
+Closed loop (examples/09_mpc_with_limits.py, test_limits_closed_loop.py; Indy7
+figure-8, velocity box tightened to ±1 rad/s, rho 0.01, 10 iterations, 5 SQP
+steps per tick, fixed pacing, measured 2026-10-12): the planner's residual
+violation is 0.035–0.039 rad/s at N32/N64 and the SIMULATED joint velocity
+peaks at 1.03–1.04 rad/s, versus 1.6–2.0 rad/s with telemetry only; tracking
+error rises from 0.024 to 0.030 m (N64). rho 0.1 tightens the plan (0.015) but
+costs tracking (0.045 m); horizons of 16 knots or fewer (≤160 ms lookahead)
+cannot brake in time (1.10 rad/s at N16, 1.19 at N8), so the closed-loop gate
+runs on N ≥ 32. The ADMM tick is ~16 ms at N64 on the shared box (bdsv factor
+per inner iteration) against 0.6 ms unconstrained.
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

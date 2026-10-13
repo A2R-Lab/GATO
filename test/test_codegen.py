@@ -4,13 +4,14 @@ import subprocess
 
 import pytest
 
+from gato import _grid
 from gato.builder import codegen, load_registry
 
 pytestmark = pytest.mark.slow
 
 # codegen kwargs per vendored robot — MUST mirror tools/regen_grid.py ROBOTS
 # (go2: floating base + the four baked foot contact frames; N16-only module)
-GO2_URDF = "external/GRiD/config/robot_assets/go2.urdf"
+GO2_URDF = "examples/go2_description/go2.urdf"
 ROBOT_KW = {
     "indy7": dict(ee_frame="EE"),
     "iiwa14": dict(ee_frame="EE"),
@@ -28,13 +29,8 @@ def test_regen_matches_vendored(robot, urdfs, repo_root, tmp_path):
     """Regenerating from the URDF reproduces the vendored headers byte-for-byte
     AND the tracked registry entry (python/gato/_registry.json) — the registry
     is tracked, so its failure mode is STALENESS, not absence."""
-    nested = subprocess.check_output(
-        ["git", "-C", str(repo_root / "external/GRiD"), "ls-tree", "HEAD", "external/GLASS"],
-        text=True).split()[2]
-    compiled = subprocess.check_output(
-        ["git", "-C", str(repo_root / "external/GLASS"), "rev-parse", "HEAD"],
-        text=True).strip()
-    assert nested == compiled, "generate and compile with the same reviewed GLASS pin"
+    # generate and compile with the same reviewed GLASS: the pinned wheel bundles it
+    assert _grid.require()["peers"]["GLASS"]["commit"] == _grid.GLASS_PIN
     out = tmp_path / robot
     meta = codegen(_urdf(robot, urdfs, repo_root), robot, out_dir=out, register=False, **ROBOT_KW[robot])
     vendored = repo_root / "gato" / "dynamics" / robot

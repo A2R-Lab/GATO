@@ -31,7 +31,7 @@ HAVE_MODULES = bool(gato.available())
 
 INDY7_URDF = REPO / "examples" / "indy7_description" / "indy7.urdf"
 IIWA14_URDF = REPO / "examples" / "iiwa_description" / "iiwa14.urdf"
-GO2_URDF = REPO / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf"
+GO2_URDF = REPO / "examples" / "go2_description" / "go2.urdf"
 URDFS = {"indy7": INDY7_URDF, "iiwa14": IIWA14_URDF}
 
 # ---- go2 (floating base, N16-only module) shared helpers ----

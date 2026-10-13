@@ -435,6 +435,11 @@ class MPC_GATO:
             stats['ee_actual'].append(ee_pos.copy())
             stats['joint_positions'].append(q.copy())
             stats['joint_velocities'].append(dq.copy())
+            # constraint telemetry of the winning plan (row groups in get_row_groups() order)
+            viol = r.solve.stats.row_max_violation
+            if viol is not None and np.size(viol):
+                stats.setdefault('row_max_violation', []).append(
+                    np.asarray(viol, dtype=float).reshape(len(self.solver.get_row_groups()), -1)[:, r.best_id].copy())
 
             if self.track_full_stats:
                 stats['sqp_iters'].append(int(r.solve.stats.sqp_iters[0]))

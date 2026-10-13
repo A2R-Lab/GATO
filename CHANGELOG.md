@@ -2,6 +2,23 @@
 
 Unreleased (no tag; installs are source-tree only).
 
+## Unreleased — GRiD and GLASS from the released `grid-rbd` wheel
+
+- GATO no longer carries `external/GRiD` and `external/GLASS` submodules. The code
+  generator, URDFParser, the global `glass::` headers and GRiD's collision headers
+  all come from `grid-rbd==0.5.1` (PyPI); `python/gato/_grid.py` pins that version
+  and the GLASS commit it must bundle (`9e57178`, unchanged), and refuses any other
+  install at codegen, CMake configure and test time. The Go2 URDF the Go2 headers
+  are generated from is vendored at `examples/go2_description/` (the wheel ships
+  no robot assets). A fresh clone needs no submodule to build.
+- Robot headers regenerated with the 0.5.1 generator: it adds per-kernel
+  `init_grid_kernel_attr_*_checked` registration helpers and makes the
+  collision-check hit flag an atomic exchange; dynamics, costs and sphere sets
+  are unchanged and the numerical goldens still pass.
+- Receipts: the fingerprint drops the two gitlinks and covers the pin instead;
+  native modules embed a content identity of the wheel's headers keyed by logical
+  name (independent of the install location). pytest-gpu-proof 0.4.1.
+
 ## 2026-10-05 — Dependency integration
 
 - Pin GRiD 8dccbfa and GLASS 9e57178 and regenerate all three robot headers.

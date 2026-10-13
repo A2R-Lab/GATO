@@ -28,14 +28,14 @@ jobs:
         with:
           fetch-depth: 0        # commit-SHA ancestry check needs history
           # no submodules here: the verifier installs pytest-gpu-proof from PyPI
-          # and fingerprints the parent tree only (gitlinks pin the submodules).
+          # and fingerprints the tracked tree (the grid-rbd pin lives in it).
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install pytest-gpu-proof (PyPI)
-        run: pip install "pytest-gpu-proof==0.4.0" pyyaml  # pinned: schema/policy/verifier move together
+        run: pip install "pytest-gpu-proof==0.4.1" pyyaml  # pinned: schema/policy/verifier move together
 
       - name: Verify receipt
         run: |
@@ -49,11 +49,10 @@ jobs:
   cpu-lane:
     runs-on: ubuntu-latest
     steps:
-      # submodules: recursive on a credential-less runner IS the fresh-clone gate:
-      # the public install path (README) must work without a GitHub SSH key.
+      # A plain checkout IS the fresh-clone gate: the public install path (README)
+      # needs no submodule and no GitHub SSH key — GRiD/GLASS come from the
+      # pinned grid-rbd wheel on PyPI; the CPU-baseline submodule is optional.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:

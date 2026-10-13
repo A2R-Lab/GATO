@@ -9,7 +9,7 @@ vendored GRiD code generator), registers the robot in ``python/gato/_registry.js
 and compiles the ``bsqpN{N}_<name>`` pybind modules with CMake. Afterwards
 ``BSQP(model_path=urdf, N=..., plant_type=name)`` just works.
 
-v1 targets a source checkout (the repo's CMakeLists + external/GRiD submodule are
+v1 targets a source checkout (the repo's CMakeLists + the pinned grid-rbd wheel are
 required); modules are always built from a source tree (plan D10).
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from . import _grid
 
 _PKG_DIR = Path(__file__).resolve().parent
 _REGISTRY_PATH = _PKG_DIR / "_registry.json"
@@ -53,18 +54,8 @@ def _update_registry(name, meta):
 
 def _parse_urdf(urdf_path, ee_frame, floating_base=False):
     """Parse with GRiD's URDFParser (same parse codegen uses); validate ee_frame."""
-    root = repo_root()
-    grid_root = root / "external" / "GRiD"
-    # GRiD packaging layout: grid_codegen at the GRiD root, URDFParser under
-    # external/ (both importable from a raw checkout; no pip install needed).
-    if not (grid_root / "external" / "URDFParser").exists():
-        raise RuntimeError(
-            f"GRiD submodule not found at {grid_root}. Run: "
-            f"git submodule update --init --recursive"
-        )
-    for p in (str(grid_root), str(grid_root / "external")):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    # URDFParser ships inside the pinned grid-rbd wheel (gato._grid checks the pin).
+    _grid.require()
     from URDFParser import URDFParser
 
     robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
@@ -154,21 +145,17 @@ GATO_ALGORITHMS = (
 
 def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base):
     """Cache key of the URDF
-    bytes, the GRiD submodule commit (the emitter), the consumed algorithm set
-    and the codegen options. gato.build() skips codegen when it is unchanged."""
+    bytes, the pinned grid-rbd release (the emitter: its version and bundled
+    source/peer provenance), the consumed algorithm set and the codegen options.
+    gato.build() skips codegen when it is unchanged."""
     import hashlib
     h = hashlib.sha256()
     # Invalidate cached bounding-box fallback geometry from lean installs that
     # lacked scipy. Such codegen is no longer accepted by the consumer below.
     h.update(b"gato-collision-voxel-required-v1")
     h.update(Path(urdf_path).read_bytes())
-    grid = repo_root() / "external" / "GRiD"
-    try:
-        sha = subprocess.run(["git", "-C", str(grid), "rev-parse", "HEAD"],
-                             capture_output=True, text=True, check=True).stdout.strip()
-    except Exception:
-        sha = "unknown"
-    h.update(sha.encode())
+    h.update(_grid.GRID_RBD_PIN.encode())
+    h.update(json.dumps(_grid.require(), sort_keys=True).encode())
     h.update(repr((tuple(GATO_ALGORITHMS), ee_frame, collision_res,
                    tuple(contact_frames) if contact_frames else None, bool(floating_base))).encode())
     return h.hexdigest()[:16]

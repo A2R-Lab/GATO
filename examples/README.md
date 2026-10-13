@@ -25,6 +25,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`06_constraints.py`](06_constraints.py) | The constraint layer: URDF limit boxes under ADMM, extra linear control rows, a collision obstacle; per-row-group violation telemetry. |
 | [`07_go2_floating.py`](07_go2_floating.py) | A floating-base robot (go2) in closed loop on a MuJoCo ground (or the device integrator): standing keyframe anchor, imu goal, the floating controller defaults. |
 | [`08_linsys_and_autotune.py`](08_linsys_and_autotune.py) | The `pcg` / `bdsv` / `bdsv_first` linear-system paths, cold vs warm-started, and where `tools/autotune_linsys.py` fits in. |
+| [`09_mpc_with_limits.py`](09_mpc_with_limits.py) | Joint limits in closed loop: the ADMM box mechanism holds a velocity cap the figure-8 cannot meet; the simulated plant, not the planner, is graded. |
 
 ```bash
 python examples/01_single_solve.py
@@ -35,6 +36,7 @@ python examples/05_build_your_robot.py      # builds a module (minutes; reconfig
 python examples/06_constraints.py
 python examples/07_go2_floating.py --fc     # standing; needs bsqpN16_go2_fc
 python examples/08_linsys_and_autotune.py
+python examples/09_mpc_with_limits.py
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

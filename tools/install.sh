@@ -4,7 +4,7 @@
 # host, same model as GRiD's base_install.sh). Creates a project-local .venv and
 # installs into it.
 #
-#   ./tools/install.sh              # lean: codegen + build deps + submodules + regen grid.cuh
+#   ./tools/install.sh              # lean: codegen + build deps (incl. the pinned grid-rbd) + regen grid.cuh
 #   ./tools/install.sh --examples   #   + heavy runtime to run MPC/benchmark examples (torch, pin, mujoco, viz)
 #   ./tools/install.sh --test       #   + full test-suite deps (pin, mujoco, scipy, gymnasium) — what run_gpu_proof.sh needs
 #   ./tools/install.sh --dev        #   + test tooling (pytest, pytest-gpu-proof)
@@ -78,10 +78,6 @@ if (( ! PREFLIGHT_OK )); then
   echo "Preflight failed — fix the errors above and re-run." >&2
   exit 1
 fi
-
-echo "----------------------------------------"
-echo "Initializing submodules (GRiD + nested GRiDCodeGenerator/URDFParser/RBDReference/GLASS)..."
-git -C "${REPO_ROOT}" submodule update --init --recursive
 
 echo "----------------------------------------"
 if [[ ! -d "${VENV_DIR}" ]]; then

@@ -9,8 +9,7 @@ python/gato/_registry.json. Run from the GATO repo root:
     python tools/regen_grid.py --robot indy7
     python tools/regen_grid.py --all-algos  # GRiD profile="all" instead of gato.builder.GATO_ALGORITHMS
 
-Requires the GRiD submodule initialized:
-    git submodule update --init --recursive
+Requires the pinned grid-rbd release (tools/install.sh installs it).
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ ROBOTS = {
     # contact frames = the four feet (fc-on-feet wave); floating_base=True is
     # REQUIRED (codegen does NOT auto-detect the free-flyer — a fixed-base
     # parse of go2 crashes the named-target EE emitter).
-    "go2": dict(urdf=REPO_ROOT / "external" / "GRiD" / "config" / "robot_assets" / "go2.urdf",
+    "go2": dict(urdf=REPO_ROOT / "examples" / "go2_description" / "go2.urdf",
                 ee_frame="imu_joint", collision_res=0.15, floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint",
                                 "RR_foot_joint", "RL_foot_joint"]),

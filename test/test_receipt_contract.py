@@ -1,6 +1,7 @@
 """Fail-closed receipt policy and native source identity gates."""
 import importlib.util
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -22,7 +23,7 @@ def test_receipt_scope_and_fail_closed_ci():
     config = tomllib.loads((ROOT/'pyproject.toml').read_text())['tool']['gpu_proof']
     policy = yaml.safe_load((ROOT/'test/gpu-proof-policy.yaml').read_text())
     required = {'python', 'gato', 'tools', 'examples', 'test', 'CMakeLists.txt',
-                'external/GRiD', 'external/GLASS', '.github', '.gitmodules', 'pyproject.toml'}
+                '.github', '.gitmodules', 'pyproject.toml'}
     assert required <= set(config['fingerprint_paths']) == set(policy['required_fingerprint_paths'])
     assert policy['required_test_manifest'] == 'test/expected_tests.txt'
     workflow = (ROOT/'.github/workflows/verify-gpu-proof.yml').read_text()
@@ -48,20 +49,26 @@ def test_native_identity_is_content_based(tmp_path):
     files = ['CMakeLists.txt', 'python/bindings.cu', 'tools/native_identity.py',
              'gato/constants.h', 'gato/dynamics/plant.cuh', 'gato/bsqp/bsqp.cuh',
              'gato/utils/cuda.cuh', 'gato/dynamics/testbot/grid.cuh',
-             'external/GLASS/glass.cuh', 'external/GRiD/grid_codegen/collision/geometry.cuh']
+             'deps/GLASS/glass.cuh', 'deps/collision/geometry.cuh']
     for name in files:
         path = tmp_path/name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('original')
-    original = native.native_identity(tmp_path, 'testbot')
+    grid_dirs = {'GLASS': tmp_path/'deps/GLASS', 'grid_collision': tmp_path/'deps/collision'}
+    native_identity = lambda root, plant: native.native_identity(root, plant, grid_dirs)
+    original = native_identity(tmp_path, 'testbot')
     for name in files:
         path = tmp_path/name
         before = path.stat()
         path.write_text('modified')
         os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
-        assert native.native_identity(tmp_path, 'testbot') != original, name
+        assert native_identity(tmp_path, 'testbot') != original, name
         path.write_text('original')
-    assert native.native_identity(tmp_path, 'testbot') == original
+    assert native_identity(tmp_path, 'testbot') == original
+    # the dependency headers are keyed by logical name: moving the wheel does not change the identity
+    moved = tmp_path/'elsewhere'
+    shutil.copytree(tmp_path/'deps', moved)
+    assert native.native_identity(tmp_path, 'testbot', {'GLASS': moved/'GLASS', 'grid_collision': moved/'collision'}) == original
 
 
 @pytest.mark.gpu

@@ -46347,6 +46347,26 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the inverse_dynamics kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_inverse_dynamics_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics", INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the inverse_dynamics(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46359,6 +46379,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the inverse_dynamics(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_inverse_dynamics_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics(mjx)", INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46379,6 +46417,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the minv kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_minv_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (MINV_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("minv", MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(minv)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the minv(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46391,6 +46447,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the minv(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_minv_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (MINV_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("minv(mjx)", MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(minv(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&minv_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, MINV_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46411,6 +46485,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the forward_dynamics kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_forward_dynamics_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the forward_dynamics(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46423,6 +46515,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the forward_dynamics(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_forward_dynamics_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics(mjx)", FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46443,6 +46553,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the crba kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_crba_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (CRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("crba", CRBA_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(crba)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the crba(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46455,6 +46583,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the crba(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_crba_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (CRBA_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("crba(mjx)", CRBA_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(crba(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&crba_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, CRBA_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46475,6 +46621,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the end_effector_pose(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46487,6 +46651,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose(mjx)", END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46507,6 +46689,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the end_effector_pose_gradient(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46519,6 +46719,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose_gradient(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_gradient_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_gradient(mjx)", END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_gradient(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46543,6 +46761,26 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the inverse_dynamics_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_inverse_dynamics_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the inverse_dynamics_gradient(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46555,6 +46793,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the inverse_dynamics_gradient(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_inverse_dynamics_gradient_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("inverse_dynamics_gradient(mjx)", INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(inverse_dynamics_gradient(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, T *, const robotModel<T> *, const T, const int)>(&inverse_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46579,6 +46835,26 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the forward_dynamics_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_forward_dynamics_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const T *, const T *, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the forward_dynamics_gradient(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46591,6 +46867,24 @@ namespace grid {
             auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the forward_dynamics_gradient(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_forward_dynamics_gradient_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("forward_dynamics_gradient(mjx)", FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(forward_dynamics_gradient(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&forward_dynamics_gradient_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46611,6 +46905,24 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the f_ext_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_f_ext_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("f_ext_gradient", F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(f_ext_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the f_ext_gradient_dq kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46625,6 +46937,24 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel_single_timing<T>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the f_ext_gradient_dq kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_f_ext_gradient_dq_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("f_ext_gradient_dq", F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(f_ext_gradient_dq)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&f_ext_gradient_dq_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46654,6 +46984,31 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the idsva_so_world_frame kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_idsva_so_world_frame_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(idsva_so_world_frame)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // idsva_so_world_frame: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(idsva_so_world_frame@TIER_MINIMAL)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the idsva_so_world_frame(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46673,6 +47028,31 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the idsva_so_world_frame(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_idsva_so_world_frame_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(idsva_so_world_frame(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // idsva_so_world_frame(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("idsva_so_world_frame(mjx)@TIER_MINIMAL", IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(idsva_so_world_frame(mjx)@TIER_MINIMAL)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, const T, const int)>(&idsva_so_world_frame_kernel<T, TIER_MINIMAL, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46702,6 +47082,31 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the fdsva_so kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_fdsva_so_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("fdsva_so", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(fdsva_so)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // fdsva_so: baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("fdsva_so@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(fdsva_so@TIER_MINIMAL)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the fdsva_so(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46721,6 +47126,31 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the fdsva_so(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_fdsva_so_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(fdsva_so(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // fdsva_so(mjx): baked launch_cfg tier TIER_MINIMAL != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("fdsva_so(mjx)@TIER_MINIMAL", FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(fdsva_so(mjx)@TIER_MINIMAL)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, T *, const robotModel<T> *, const T, const int)>(&fdsva_so_kernel<T, TIER_MINIMAL, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T, TIER_MINIMAL>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46761,6 +47191,34 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the integrator kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_integrator_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::MIDPOINT>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_2)", _e); } }
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::RK4>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_3)", _e); } }
+            auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_4)", _e); } }
+            auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_5)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the integrator(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46775,6 +47233,26 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the integrator(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_integrator_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator(mjx)", INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46844,6 +47322,51 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the integrator_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_integrator_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_2)", _e); } }
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_3)", _e); } }
+            auto _grid_kern_alias_4 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_4)", _e); } }
+            auto _grid_kern_alias_5 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_5)", _e); } }
+        }
+        // integrator_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_gradient@TIER_LITE)", _e); } }
+            auto _grid_kern_alias_6 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_6)", _e); } }
+            auto _grid_kern_alias_7 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_7)", _e); } }
+            auto _grid_kern_alias_8 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_8)", _e); } }
+            auto _grid_kern_alias_9 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_9)", _e); } }
+            auto _grid_kern_alias_10 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_10)", _e); } }
+            auto _grid_kern_alias_11 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_11)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the integrator_gradient(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46867,6 +47390,35 @@ namespace grid {
             auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the integrator_gradient(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_integrator_gradient_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_gradient(mjx)", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_gradient(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        // integrator_gradient(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_gradient(mjx)@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_gradient(mjx)@TIER_LITE)", _e); } }
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::EULER, TIER_LITE, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_2)", _e); } }
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_3)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -46936,6 +47488,51 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the integrator_with_gradient kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_integrator_with_gradient_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_with_gradient)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+            auto _grid_kern_alias_2 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_2, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_2)", _e); } }
+            auto _grid_kern_alias_3 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_3, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_3)", _e); } }
+            auto _grid_kern_alias_4 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_4, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_4)", _e); } }
+            auto _grid_kern_alias_5 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_5, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_5)", _e); } }
+        }
+        // integrator_with_gradient: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("integrator_with_gradient@TIER_LITE", INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(integrator_with_gradient@TIER_LITE)", _e); } }
+            auto _grid_kern_alias_6 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::EULER, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_6, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_6)", _e); } }
+            auto _grid_kern_alias_7 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::SEMI_IMPLICIT_EULER, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_7, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_7)", _e); } }
+            auto _grid_kern_alias_8 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::MIDPOINT, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_8, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_8)", _e); } }
+            auto _grid_kern_alias_9 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::RK4, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_9, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_9)", _e); } }
+            auto _grid_kern_alias_10 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::TRAPEZOIDAL, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_10, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_10)", _e); } }
+            auto _grid_kern_alias_11 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, T *, const T, const T, const int)>(&integrator_with_gradient_kernel<T, IntegratorType::CONSTANT_ACCELERATION, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_11, cudaFuncAttributeMaxDynamicSharedMemorySize, INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_11)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the end_effector_pose_hessian kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46962,6 +47559,31 @@ namespace grid {
     }
 
     /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose_hessian kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_hessian_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian)", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // end_effector_pose_hessian: baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian@TIER_LITE)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
+    }
+
+    /**
      * Set MaxDynamicSharedMemorySize for the end_effector_pose_hessian(mjx) kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
      *
      */
@@ -46981,6 +47603,31 @@ namespace grid {
             auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE, true>);
             gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>()));
         }
+    }
+
+    /**
+     * Library-safe MaxDynamicSharedMemorySize registration for the end_effector_pose_hessian(mjx) kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+     *
+     * @param failed_op (optional) receives a static string naming the failed operation
+     * @return cudaSuccess or the first error
+     */
+    template <typename T>
+    __host__ __forceinline__
+    cudaError_t init_grid_kernel_attr_end_effector_pose_hessian_mjx_checked(const char **failed_op = nullptr){
+        size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian(mjx)", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian(mjx))", _e); } }
+            auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, GRID_DEFAULT_RESOURCE_TIER, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+        }
+        // end_effector_pose_hessian(mjx): baked launch_cfg tier TIER_LITE != default — the launchers
+        // instantiate THAT kernel, so it needs its own dynamic-smem opt-in.
+        if (END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>() <= _grid_smem_max) {
+            { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian(mjx)@TIER_LITE", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian(mjx)@TIER_LITE)", _e); } }
+            auto _grid_kern_alias_1 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T, TIER_LITE, true>);
+            { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T, TIER_LITE>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_1)", _e); } }
+        }
+        return cudaSuccess;
     }
 
     /**
@@ -48943,11 +49590,11 @@ namespace grid_collision {
             const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
             const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i];
             for (int j = j0; j <= j1; ++j) {
-                if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { s_cc_hit = 1; break; }
+                if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { atomicExch(&s_cc_hit, 1); break; }
             }
         }
         for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
-            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) s_cc_hit = 1;
+            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) atomicExch(&s_cc_hit, 1);
         }
         __syncthreads();
         const bool is_free = (s_cc_hit == 0);

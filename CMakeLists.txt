@@ -51,6 +51,13 @@ message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDAToolkit REQUIRED)
+# Headers from the pinned grid-rbd wheel: GLASS (global `glass::`, distinct from
+# grid.cuh's vendored `grid::glass`) and GRiD's collision primitives. gato._grid
+# refuses an unpinned install, so a build never silently compiles against the wrong GLASS.
+execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/python/gato/_grid.py
+                OUTPUT_VARIABLE GATO_GRID_INCLUDE_DIRS OUTPUT_STRIP_TRAILING_WHITESPACE
+                COMMAND_ERROR_IS_FATAL ANY)
+message(STATUS "grid-rbd include dirs: ${GATO_GRID_INCLUDE_DIRS}")
 
 include_directories(${CMAKE_SOURCE_DIR}/gato)
 
@@ -67,11 +74,9 @@ if(GATO_BUILD_DEMO)
   if(GATO_CONTACT_FORCES)
     target_compile_definitions(bsqp PRIVATE GATO_CONTACT_FORCES=1)
   endif()
-  # Top-level GLASS (global `glass::`, distinct from grid.cuh's vendored `grid::glass`).
   # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
   target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/gato/dynamics/indy7
-                                          ${CMAKE_SOURCE_DIR}/external/GLASS
-                                          ${CMAKE_SOURCE_DIR}/external/GRiD/grid_codegen/collision)
+                                          ${GATO_GRID_INCLUDE_DIRS})
   target_link_libraries(bsqp PRIVATE CUDA::cudart)
 endif()
 
@@ -186,12 +191,11 @@ foreach(pair ${GATO_MODULE_PAIRS})
     target_compile_definitions(${MODULE_NAME} PRIVATE GATO_NATIVE_SOURCE_ID="${_native_id}")
 
     # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant
-    # header; the GRiD collision dir supplies grid_collision_geometry.cuh
+    # header; the wheel's collision dir supplies grid_collision_geometry.cuh
     # (SDF primitives grid.cuh includes when built with collision_res).
     target_include_directories(${MODULE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/gato
                                                       ${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}
-                                                      ${CMAKE_SOURCE_DIR}/external/GLASS
-                                                      ${CMAKE_SOURCE_DIR}/external/GRiD/grid_codegen/collision)
+                                                      ${GATO_GRID_INCLUDE_DIRS})
 
     target_compile_definitions(${MODULE_NAME} PRIVATE
       KNOT_POINTS=${knot}

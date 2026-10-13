@@ -48,16 +48,19 @@ GPU, cmake) and tells you exactly what's missing. Optional install choices
 (pick the extras you need; there is no need to run every line):
 
 ```sh
-./tools/install.sh            # lean: codegen + build deps + submodules + regen grid.cuh
+./tools/install.sh            # lean: codegen + build deps (incl. the pinned grid-rbd) + regen grid.cuh
 ./tools/install.sh --examples #   + runtime to run the MPC/benchmark examples (torch, pinocchio, mujoco, viz)
 ./tools/install.sh --test     #   + full test-suite deps (pinocchio, mujoco, scipy, gymnasium)
 ./tools/install.sh --dev      #   + test tooling (pytest, pytest-gpu-proof)
 ./tools/install.sh --all      #   + examples + test + dev
 ```
 
-(The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is fetched
-like every other submodule; `examples/benchmarks/baselines/build_cpu_baseline.sh`
-compiles it — osqp and osqp-eigen into a local prefix — only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
+GRiD (the code generator and its URDF parser) and the GLASS and collision headers
+come from one released wheel, [`grid-rbd`](https://pypi.org/project/grid-rbd/),
+pinned to an exact version in `pyproject.toml`; no submodule is needed to build.
+(The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is the one
+optional submodule; `examples/benchmarks/baselines/build_cpu_baseline.sh` fetches
+and compiles it — osqp and osqp-eigen into a local prefix — only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
 `gato.BSQP` (runtime: numpy + the built module). The lean installer also supplies
 trimesh and SciPy for collision-mesh code generation. Missing voxelization
 dependencies must not silently substitute a different collision geometry.
@@ -77,11 +80,11 @@ toolkit, CMake, Python — that drops you into a shell with the repo mounted; yo
 then run the same `tools/install.sh` + `tools/build.sh` inside it. It does not
 build GATO for you.
 
-**Distribution:** the supported native build path is a Git checkout with its
-pinned submodules initialized (the install script does this). The pure-python
-wheel contains no solver modules; these are GPU-arch/CUDA/ABI-specific CMake
-products. The sdist contains GATO's own build sources but does not bundle the
-external GRiD/GLASS trees, so it is NOT a standalone native-build distribution.
+**Distribution:** the supported native build path is a Git checkout plus the
+pinned `grid-rbd` wheel (the install script does this). The pure-python wheel
+contains no solver modules; these are GPU-arch/CUDA/ABI-specific CMake products.
+The sdist contains GATO's own build sources; the GRiD code generator and the
+GLASS/collision headers it compiles against come from `grid-rbd` at build time.
 
 ### Build Options
 
@@ -299,7 +302,7 @@ gato.build("path/to/robot.urdf", name="myrobot", N=[16], contact_forces=True)   
 tracks; on a floating base, the base-pose target frame); every actuated joint
 needs bounded `<limit>` tags (the barrier cost uses them). Scope: serial chains,
 fixed or floating base (quaternion free-flyer). Codegen is skipped when nothing
-that feeds it changed (URDF, GRiD pin, algorithm set, options). The same path is
+that feeds it changed (URDF, the grid-rbd release, algorithm set, options). The same path is
 exposed as a CLI for the vendored robots: `python tools/regen_grid.py`. Built
 modules and robot metadata are discoverable via `gato.available()` /
 `gato.robot_info(name)`; the registry (`python/gato/_registry.json`) is tracked

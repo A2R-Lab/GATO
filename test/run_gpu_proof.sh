@@ -16,7 +16,7 @@
 #     script REFUSES to run without them: missing deps turn tests into skips,
 #     and a receipt with unexpected skips fails CI verification (skips prove
 #     nothing). The project .venv is the canonical signer python.
-#   - the pytest-gpu-proof plugin (PyPI, pinned 0.4.0 — schema 3) and an SSH
+#   - the pytest-gpu-proof plugin (PyPI, pinned 0.4.1 — schema 3) and an SSH
 #     signing key (~/.ssh/id_*) whose public half is on the keyholder's GitHub.
 #
 # Usage:
@@ -29,11 +29,9 @@ if [[ $# -ne 0 || -n "${PYTEST_ADDOPTS:-}" ]]; then
     exit 1
 fi
 
-# Refuse to sign a dirty tree: dependency gitlinks are fingerprinted, but
-# their files are not recursively hashed by the plugin. Require clean
-# checkouts (mirrors test/gpu-proof-policy.yaml allow_dirty:false).
-# Untracked content inside a submodule (sqpcpu build deps) is fine — the pin is
-# what matters.
+# Refuse to sign a dirty tree (mirrors test/gpu-proof-policy.yaml
+# allow_dirty:false). Untracked content inside the optional sqpcpu baseline
+# submodule is fine — its gitlink pin is what matters.
 if [[ -n "$(git status --porcelain --ignore-submodules=untracked)" ]]; then
     echo "ERROR: working tree is dirty. Commit or stash before signing a receipt." >&2
     exit 1

@@ -15,7 +15,7 @@ import pytest
 pin = pytest.importorskip("pinocchio")
 from scipy.spatial.transform import Rotation
 
-GO2_URDF = "external/GRiD/config/robot_assets/go2.urdf"
+GO2_URDF = "examples/go2_description/go2.urdf"
 RNG = np.random.default_rng(0)
 
 
