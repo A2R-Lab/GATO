@@ -21,6 +21,9 @@ def native_files():
     for p in (ROOT / "gato").rglob("*"):
         if p.is_file() and p.suffix in NATIVE_SUFFIXES:
             files[p.relative_to(ROOT).as_posix()] = p
+    for p in (ROOT / "examples" / "cpp").iterdir():   # the C++/CUDA example + its standalone CMake
+        if p.is_file():
+            files[p.relative_to(ROOT).as_posix()] = p
     # the vendored robot descriptions at their registry paths (gato.robot_urdf):
     # the URDF plus its COLLISION meshes, so a copy of a vendored URDF can be
     # re-registered (collision spheres are generated from those meshes). Visual-only

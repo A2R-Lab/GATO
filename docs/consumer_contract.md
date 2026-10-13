@@ -184,7 +184,27 @@ runtime/compile performance. Check which test exercises the feature you use.
 Open a GitHub issue with the URDF, the module name (`gato.module_name(plant, N, variant)`), the
 `SolverParams`, and a replayable `.npz` of `(x, goals, xu_warm)` plus the observed vs expected numbers.
 
-## 8. API stability
+## 8. C++/CUDA interface
+
+`BSQP<T>` (`gato/bsqp/bsqp.cuh`, header-only; `T` = float from `settings.h`)
+is the solver the Python class wraps — same constructor arguments as
+`gato.SolverParams` (batch, SQP/PCG budgets, `pcg_tol`, `solve_ratio`, `mu`,
+cost weights, `rho`), same `enable_limit_*` / `add_*` / `set_*` surface on host
+pointers, and `solve(T* d_xu_traj_batch, ProblemInputs<T>)` on device pointers
+you own: `d_x_s_batch` (B, nx), `d_reference_traj_batch` (B, 6N), and
+`d_xu_traj_batch` (B, N*(nx+nu) − nu) as warm start in / solution out, in the
+Python layout. Dimensions are compile-time constants (`gato::constants::
+XU_STATE_SIZE`, `CONTROL_SIZE`, `XU_TRAJ_SIZE`, `REFERENCE_TRAJ_SIZE`) fixed by
+the defines `KNOT_POINTS`, `GATO_PLANT_NAME`, `GATO_PLANT_HEADER` (+ one per
+variant). `python -m gato.paths --robot R --N N [--variant V]` prints the
+include directories (GATO, the robot's generated headers, GLASS and the
+collision header from the pinned grid-rbd wheel), defines and flags;
+`examples/cpp/` has the template and a standalone CMake. Stable: the class,
+`ProblemInputs`, `SQPStats` (`solve_time_us`, per-row `sqp_iterations`), the
+three defines and the array layouts. Not stable: private members, kernel
+signatures, and anything under `gato/bsqp/kernels/`.
+
+## 9. API stability
 
 Stable (the release surface; changes are announced in the changelog and come
 with a migration note):

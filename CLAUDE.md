@@ -207,7 +207,7 @@ the URDFs or dynamics semantics change — the pytest gate enforces staleness).
   base header breaks this (namespace-blind: whichever copy is included first claims the macro
   and the other namespace loses the block — the 2026-07-05 tile4-helpers parse error). Fixed
   upstream: GCG namespaces vendored `GLASS_*` guards as `GRID_VENDORED_GLASS_*`. If a future
-  GLASS bump reintroduces a bare guard, the demo `examples/bsqp.cu` TU is the canary.
+  GLASS bump reintroduces a bare guard, the C++ demo `examples/cpp/batched_solve.cu` TU (`build/bsqp`) is the canary.
 
 ## Validation
 

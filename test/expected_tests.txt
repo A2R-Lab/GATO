@@ -392,3 +392,6 @@ test/test_arrays.py::test_device_warm_start_and_device_mismatch
 test/test_arrays.py::test_controller_returns_callers_kind
 test/test_register_robot.py::test_vendored_robot_compiles_from_bundled_headers
 test/test_examples.py::test_intro_example_syntax[10_torch_jax_arrays.py]
+test/test_cpp_interface.py::test_paths_resolve_vendored_robot
+test/test_cpp_interface.py::test_paths_cli_formats
+test/test_cpp_interface.py::test_standalone_cpp_example_builds_and_runs

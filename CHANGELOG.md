@@ -28,6 +28,12 @@ Installs are source-tree only (no tag, no PyPI release); the version is `gato.__
   bit-identical to the host path, cold and warm-started; CPU tensors go through
   the host path. `MPC_GATO` and the controller keep their host warm-start buffers.
 - `[test]` extra now lists torch and jax (CPU builds suffice for the host tier).
+- C++/CUDA tier documented as a first-class interface: `python -m gato.paths`
+  prints the include directories, defines and flags for any (robot, horizon,
+  variant) — vendored, cached or registered; `examples/cpp/` holds a real
+  batched-solve template on `BSQP<T>` with a standalone CMake that works from
+  a wheel (the headers and the example ship in it). The old `examples/bsqp.cu`
+  demo is replaced; the in-tree `build/bsqp` target builds the new source.
 
 ## 0.1.0 — 2026-10-13: wheel-based dependency, closed-loop limits gate, declared API surface
 

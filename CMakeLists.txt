@@ -64,10 +64,11 @@ include_directories(${CMAKE_SOURCE_DIR}/gato)
 
 # --- Executable Targets ---
 if(GATO_BUILD_DEMO)
-  add_executable(bsqp examples/bsqp.cu)
+  add_executable(bsqp examples/cpp/batched_solve.cu)
   target_compile_definitions(bsqp PRIVATE
     KNOT_POINTS=16
     GATO_PLANT_NAME=indy7
+    GATO_PLANT_NAME_STR="indy7"
     GATO_PLANT_HEADER="dynamics/plant.cuh")
   if(GATO_EXACT_HESSIAN)
     target_compile_definitions(bsqp PRIVATE USE_EXACT_HESSIAN=1)

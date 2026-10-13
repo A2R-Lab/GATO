@@ -199,7 +199,31 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `07_go2_floating.py` (quadruped, floating base), `08_linsys_and_autotune.py`,
 `09_mpc_with_limits.py` (joint limits enforced in closed loop),
 `10_torch_jax_arrays.py` (the solver as a batched tensor op).
-See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve.
+See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).
+
+### C++/CUDA interface (power users)
+
+The Python package is a thin wrapper: the solver is the header-only `BSQP<T>`
+class in `gato/bsqp/bsqp.cuh`, and everything it reads or writes is device
+memory you own (`solve(d_xu, inputs)` with `ProblemInputs{dt, d_x_s_batch,
+d_reference_traj_batch}`; the same constraint, cost and warm-start surface the
+Python class exposes). Python is needed once, to generate a robot's headers
+(`gato.register_robot`, or the vendored robots as shipped); after that a
+translation unit needs four include directories and three defines, which
+`python -m gato.paths` prints for any (robot, horizon, variant):
+
+```sh
+pip install gato-mpc                                   # headers ship in the wheel
+cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7 -DGATO_N=32   # python -m gato.paths resolves the rest
+cmake --build build-cpp && ./build-cpp/batched_solve   # B figure-8 solves + a warm start, straight on BSQP<T>
+```
+
+`examples/cpp/batched_solve.cu` is the template (60 lines of setup around two
+`solve` calls); `examples/cpp/CMakeLists.txt` is a standalone build that works
+from a wheel or a checkout. Plant, horizon and variant are compile-time
+(`KNOT_POINTS`, `GATO_PLANT_NAME`, `GATO_PLANT_HEADER`, plus
+`GATO_CONTACT_FORCES=1` / `USE_EXACT_HESSIAN=1`), so one binary is one
+(robot, N, variant) — exactly how the Python modules are built.
 
 ### Python API at a glance
 

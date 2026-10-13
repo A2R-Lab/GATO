@@ -71,6 +71,14 @@ python examples/paper-figures/reproduce_fig3_fair.py              # assemble fig
 python examples/paper-figures/make_all.py --quick                 # smoke all figures
 ```
 
+## C++/CUDA — `cpp/`
+[`cpp/batched_solve.cu`](cpp/batched_solve.cu) runs the same batched figure-8
+solve straight on the header-only `BSQP<T>` class the Python package wraps, with
+[`cpp/CMakeLists.txt`](cpp/CMakeLists.txt) as a standalone build that works from
+a wheel or a checkout (`cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7
+-DGATO_N=32`; `python -m gato.paths` resolves the include directories and
+defines). The in-tree `build/bsqp` target compiles the same file.
+
 ## Benchmarks / timing — `benchmarks/`, `contact-task/`
 The timing harnesses (fig3-fair sweeps, the linsys CDF study, the constraint-eval
 matrix, the go2 linsys sweep) share [`benchmarks/_bench.py`](benchmarks/_bench.py)
