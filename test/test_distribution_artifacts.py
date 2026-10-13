@@ -72,7 +72,8 @@ def test_sdist_contains_owned_build_sources(artifacts):
     required = ["CMakeLists.txt", "python/bindings.cu", "tools/build.sh", "tools/regen_grid.py", "tools/native_identity.py",
                 "gato/settings.h", "gato/bsqp/bsqp.cuh", "gato/dynamics/plant.cuh",
                 "gato/dynamics/indy7/grid.cuh", "gato/dynamics/iiwa14/grid.cuh", "gato/dynamics/go2/grid.cuh",
-                "examples/indy7_description/indy7.urdf", "test/receipt_modules.txt"]
+                "examples/indy7_description/indy7.urdf", "test/receipt_modules.txt",
+                "examples/cpp/batched_solve.cu", "examples/cpp/CMakeLists.txt", "_build_resources.py", "setup.py"]
     missing = [r for r in required if r not in names]
     assert not missing, f"sdist is missing owned build sources: {missing}"
     assert not [n for n in names if n.endswith(".so")]
