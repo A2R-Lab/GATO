@@ -753,6 +753,14 @@ python examples/01_single_solve.py        # ... through 10_torch_jax_arrays.py</
       </div>
     </div>
 
+    <div class="code-step">
+      <h4>C++/CUDA (power users) — the same solver, no wrapper in the loop</h4>
+      <div class="code-block">
+<pre>cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7 -DGATO_N=32   # includes + defines via gato.paths
+cmake --build build-cpp && ./build-cpp/batched_solve                  # BSQP&lt;T&gt;::solve on your device buffers</pre>
+      </div>
+    </div>
+
     <p class="code-note">
       The CUDA module for each (robot, horizon) is compiled on your machine the first time it is used — a few
       minutes, logged when it starts — and cached under <code>~/.cache/gato</code>; GRiD and GLASS arrive through the
