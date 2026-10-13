@@ -30,7 +30,7 @@ Prerequisites (Linux):
 ### pip install
 
 ```sh
-pip install gato            # until the PyPI release: pip install git+https://github.com/A2R-Lab/GATO
+pip install gato-mpc        # the import name is gato
 ```
 
 ```python

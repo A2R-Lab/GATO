@@ -6,7 +6,7 @@ force estimators, gym env) pull in pinocchio / gymnasium lazily on first access.
 try:
     from importlib.metadata import version as _version
 
-    __version__ = _version("gato")
+    __version__ = _version("gato-mpc")
 except Exception:  # not installed (e.g. sys.path use from a checkout)
     __version__ = "0.1.1"
 

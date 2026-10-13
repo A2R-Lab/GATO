@@ -8,7 +8,7 @@ sibling checkout.
 
 ## Installing from a wheel: register_robot and the per-host cache
 
-`pip install gato` (or `pip install .` from a checkout) ships GATO's native
+`pip install gato-mpc` (or `pip install .` from a checkout) ships GATO's native
 sources under `gato/_native` and no compiled module. `gato.register_robot(name,
 urdf, N=[...])` runs codegen into the cache (`GATO_CACHE_DIR`, default the
 platform user cache, e.g. `~/.cache/gato`): `robots/<codegen_key>/<name>/` holds
@@ -26,6 +26,33 @@ robots are pre-registered from the bundled headers (`_cache.resolve`). Package
 modules in `python/gato/` (the receipt profile) win over cache modules with the
 same name; `gato.available()` lists both. `test/test_register_robot.py` is the
 gate (its slow tier compiles into a temporary cache).
+
+## Releasing to PyPI
+
+`.github/workflows/publish.yml` is the only upload path (PyPI trusted
+publishing, OIDC; no token is stored anywhere). It builds the universal wheel
+and sdist, installs the wheel outside the checkout and runs
+`tools/check_installed_package.py` without a GPU, then uploads to TestPyPI and,
+for a `v*` tag, to PyPI — each upload behind a protected environment whose
+reviewer approves by hand. One-time set-up, by a maintainer:
+
+1. On pypi.org and test.pypi.org, add a *pending* trusted publisher for the
+   project `gato-mpc`: owner `A2R-Lab`, repository `GATO`, workflow
+   `publish.yml`, environment `pypi` (resp. `testpypi`). The project is
+   created by its first upload.
+2. In the GitHub repository settings create environments `testpypi` and
+   `pypi`, each with a required reviewer; restrict `pypi` to tags `v*`.
+
+Per release: the signed receipt must be valid at the release commit; bump
+`version` in `pyproject.toml` and `python/gato/__init__.py`, date the CHANGELOG
+entry, merge to `main`. Rehearse with `workflow_dispatch` (approve `testpypi`),
+then on a GPU box: `pip install -i https://test.pypi.org/simple/
+--extra-index-url https://pypi.org/simple gato-mpc` into a clean venv and run
+`python -I tools/check_installed_package.py --work /tmp/gato-smoke --gpu`.
+Release: push the tag `v<version>` (the workflow refuses a tag that does not
+match `pyproject.toml`), approve `testpypi`, re-check, approve `pypi`; write
+the GitHub release from `CHANGELOG.md` and attach `SHA256SUMS.txt` from the
+build artifact. Wheels never contain compiled solver modules.
 
 GRiD and GLASS are developed in their own repositories; GATO consumes both through
 the released `grid-rbd` wheel, pinned to an exact version in `pyproject.toml` and

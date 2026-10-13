@@ -4,6 +4,9 @@ Installs are source-tree only (no tag, no PyPI release); the version is `gato.__
 
 ## 0.1.1 — 2026-10-13: the pip-install path
 
+- Published on PyPI as `gato-mpc` (the name `gato` belongs to an unrelated
+  package); the import name stays `gato`.
+
 - `gato.register_robot(name, urdf, N=[...])` generates a robot's dynamics headers
   into a per-host cache (`GATO_CACHE_DIR` or the platform user cache, e.g.
   `~/.cache/gato`); the first `gato.BSQP(..., plant_type=name)` for a horizon

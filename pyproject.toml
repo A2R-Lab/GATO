@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gato"
+name = "gato-mpc"           # import name: gato (PyPI's "gato" is an unrelated 2021 graph toolbox)
 version = "0.1.1"
 authors = [
     { name="Alexander Du" },

@@ -1,0 +1,97 @@
+name: Publish to PyPI
+# Trusted publishing (OIDC): no API tokens are stored in this repository.
+# Both upload jobs are gated by a protected GitHub environment whose required
+# reviewer approves each run by hand. Nothing here runs on an ordinary push.
+#
+#   workflow_dispatch  -> builds + uploads to TestPyPI only (rehearsal)
+#   tag v*             -> builds, uploads to TestPyPI, then (after a second
+#                         approval) to PyPI
+#
+# The wheel is universal (python layer + GATO's native CUDA sources, no
+# binaries): solver modules compile on the user's machine at first use
+# (gato.register_robot / the per-host cache). One-time set-up and the release
+# checklist: docs/development.md, "Releasing to PyPI".
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the tag matches pyproject.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'EOF'
+          import os, re, sys
+          version = re.search(r'^version\s*=\s*"([^"]+)"', open('pyproject.toml').read(), re.M).group(1)
+          tag = os.environ['GITHUB_REF_NAME']
+          sys.exit(0 if tag == f'v{version}' else f'tag {tag} != v{version}')
+          EOF
+      - name: Build sdist and wheel, check
+        run: |
+          python -m pip install build twine
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          python -m build
+          python -m twine check dist/*
+          ls -l dist/
+      - name: Test the wheel outside the checkout without GPU or build tools
+        env:
+          CUDA_VISIBLE_DEVICES: ''
+        run: |
+          python -m venv "$RUNNER_TEMP/package-test"
+          "$RUNNER_TEMP/package-test/bin/python" -m pip install --only-binary=:all: dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/package-test/bin/python" -I "$GITHUB_WORKSPACE/tools/check_installed_package.py" --work "$RUNNER_TEMP/package-smoke"
+      - name: Checksums
+        run: |
+          sha256sum dist/* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/
+            SHA256SUMS.txt
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/gato-mpc
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release/
+      - run: mkdir -p dist && cp release/dist/* dist/ && ls -l dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: testpypi
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/gato-mpc
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release/
+      - run: mkdir -p dist && cp release/dist/* dist/ && ls -l dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
