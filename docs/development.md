@@ -6,6 +6,27 @@ gymnasium, pytest, pytest-gpu-proof) and regenerates the vendored GRiD headers. 
 timing all run from it. Never import models, environments or generated files from a
 sibling checkout.
 
+## Installing from a wheel: register_robot and the per-host cache
+
+`pip install gato` (or `pip install .` from a checkout) ships GATO's native
+sources under `gato/_native` and no compiled module. `gato.register_robot(name,
+urdf, N=[...])` runs codegen into the cache (`GATO_CACHE_DIR`, default the
+platform user cache, e.g. `~/.cache/gato`): `robots/<codegen_key>/<name>/` holds
+`grid.cuh` + `limits.cuh`, `manifest.json` maps names to entries. The first
+`BSQP(..., plant_type=name)` for a horizon compiles `bsqpN{N}_{name}` into
+`modules/<name>/<module_key>/` (CMake on the bundled tree with
+`GATO_PLANT_ROOT` pointing at the cache, `GATO_MODULE_OUTPUT_DIR` at the entry;
+build tree removed on success; `build.log` and `meta.json` kept) and logs the
+one-time cost. The module key hashes the robot's codegen key, N, variant, the
+native source identity (`tools/native_identity.py`, the same content hash every
+module embeds) and the toolchain (CUDA arch from `nvidia-smi`, nvcc, host
+compiler, CMake, Python ABI tag, pybind11) — any change is a cache miss, never a
+stale binary; `register_robot(..., build=True)` compiles up front. The vendored
+robots are pre-registered from the bundled headers (`_cache.resolve`). Package
+modules in `python/gato/` (the receipt profile) win over cache modules with the
+same name; `gato.available()` lists both. `test/test_register_robot.py` is the
+gate (its slow tier compiles into a temporary cache).
+
 GRiD and GLASS are developed in their own repositories; GATO consumes both through
 the released `grid-rbd` wheel, pinned to an exact version in `pyproject.toml` and
 `python/gato/_grid.py` (which also pins the GLASS commit the wheel must bundle —
@@ -37,9 +58,9 @@ MODULES="indy7:8,16;go2:16:fc" JOBS=1 ./tools/build.sh   # explicit plant:N[:var
 architecture (default `native`); set it explicitly, e.g. `ARCH=120` on the lab box, whenever
 native detection could pick another target (worktree builds) — the symptom of a wrong
 architecture is frozen solves, not a build error. Every translation unit pulls the whole generated
-`grid.cuh`, so one go2 compile peaks near 7 GB of RAM; `gato.build(...)` and
-`examples/05_build_your_robot.py` reconfigure `build/` for their own module request, so
-re-run your usual configure afterwards.
+`grid.cuh`, so one go2 compile peaks near 7 GB of RAM; `gato.build(...)` reconfigures
+`build/` for its own module request, so re-run your usual configure afterwards
+(`gato.register_robot` / example 05 build in the per-host cache and leave `build/` alone).
 
 On the shared lab box every build or test command runs in a memory-capped scope with one
 compiler job, and the GPU is left to whoever is timing:

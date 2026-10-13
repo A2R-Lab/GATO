@@ -1,3 +1,4 @@
+from pathlib import Path
 import glob
 import importlib
 import os
@@ -66,6 +67,21 @@ def robot_info(plant_type):
         entry = _cache.robot_entry(plant_type)
         info = dict(entry["meta"], codegen_key=entry["codegen_key"]) if entry else {}
     return info
+
+
+def robot_urdf(plant_type):
+    """Absolute path of a registered robot's URDF: the checkout's copy for the
+    vendored robots (examples/<robot>_description, with meshes), the wheel's
+    bundled copy (URDF only — the headers are pre-generated, so no meshes are
+    needed), or the path recorded by gato.register_robot."""
+    info = robot_info(plant_type)
+    if not info:
+        raise ValueError(f"unknown robot {plant_type!r}: not vendored and not registered with gato.register_robot")
+    path = Path(info["urdf"])
+    if path.is_absolute():
+        return path
+    from ._cache import native_root
+    return native_root() / path
 
 
 # S·λ = γ linear-system paths (see gato/bsqp/kernels/{pcg,bdsv}.cuh):

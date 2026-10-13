@@ -9,8 +9,6 @@ time. This is the driver the paper's Fig-3/Fig-5 experiments use
 Needs the bsqpN64_indy7 module and a python with pinocchio; runs from any cwd:
     python examples/03_mpc_loop.py
 """
-from pathlib import Path
-
 import numpy as np
 import pinocchio as pin
 
@@ -19,8 +17,7 @@ from gato import MPC_GATO
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = str(REPO / gato.robot_info("indy7")["urdf"])
+URDF = str(gato.robot_urdf("indy7"))
 # M=1 here for a clean, deterministic tracking demo. (Batched solves are shown in
 # 02_batched_solve.py; batched MPC with online force estimation is in 04_gym_mpc.py and
 # examples/paper-figures/reproduce_fig5_disturbance.py, where the batch hypothesizes

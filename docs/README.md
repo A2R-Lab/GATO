@@ -9,6 +9,8 @@ needed by your example; the full receipt profile is for validation and research.
 | What works, and what is experimental? | [Feature status and limitations](status.md); [API stability](consumer_contract.md#8-api-stability) |
 | How do I use the Python API or migrate old code? | [Consumer contract and migration notes](consumer_contract.md) |
 | How do I add limits, cones, collision or foot rows? | [Constraint mechanisms and conventions](constraints.md) |
+| How do I install from a wheel and use my own URDF? | [register_robot and the per-host cache](development.md#installing-from-a-wheel-register_robot-and-the-per-host-cache), [example 05](../examples/05_build_your_robot.py) |
+| How do I use torch or JAX arrays? | [Array kinds](consumer_contract.md#4-solve-interface) |
 | How do I add a robot or use the native solver? | [Dynamics adapter](../gato/dynamics/README.md), [C++/CUDA example](../examples/bsqp.cu) |
 | How do I build, test, sign a receipt or time a change? | [Development and validation](development.md) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |

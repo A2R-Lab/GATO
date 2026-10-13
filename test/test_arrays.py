@@ -37,7 +37,7 @@ def _problem(B, N):
 
 
 def _indy7_solver(N):
-    return gato.BSQP(gato.robot_info("indy7")["urdf"], batch_size=2, N=N, dt=0.01, plant_type="indy7",
+    return gato.BSQP(gato.robot_urdf("indy7"), batch_size=2, N=N, dt=0.01, plant_type="indy7",
                      max_sqp_iters=3)
 
 

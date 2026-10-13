@@ -7,8 +7,6 @@ possible use of the core solver object.
 Needs the bsqpN64_indy7 module built (see README); runs from any cwd:
     python examples/01_single_solve.py
 """
-from pathlib import Path
-
 import numpy as np
 
 import gato
@@ -16,8 +14,7 @@ from gato import BSQP
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = REPO / gato.robot_info("indy7")["urdf"]   # the registry holds repo-relative URDF paths
+URDF = gato.robot_urdf("indy7")
 N, DT = 64, 0.01
 
 # build the solver (one problem instance; the defaults are gato.SolverParams())

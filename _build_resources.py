@@ -21,6 +21,13 @@ def native_files():
     for p in (ROOT / "gato").rglob("*"):
         if p.is_file() and p.suffix in NATIVE_SUFFIXES:
             files[p.relative_to(ROOT).as_posix()] = p
+    # the vendored robots' URDFs at their registry paths (gato.robot_urdf); meshes
+    # are not needed — their headers are pre-generated
+    import json
+    for meta in json.loads((ROOT / "python/gato/_registry.json").read_text()).values():
+        rel = meta["urdf"]
+        if (ROOT / rel).is_file():
+            files[rel] = ROOT / rel
     return files
 
 

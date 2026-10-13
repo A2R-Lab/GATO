@@ -91,6 +91,17 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   base, bdsv floating base) — the static arm of `MPCController`'s per-step
   policy ("auto" = pcg warm / bdsv_first cold, same resolver:
   `gato.linsys_autotune.resolve_linsys`). An explicit mode always wins.
+- **Array kinds.** `solve()` / `step()` take numpy, torch or JAX arrays and
+  return the same kind. CUDA tensors (torch on a CUDA device, JAX on a GPU)
+  use the device path: inputs are read in place through their device pointer
+  (float32 + contiguous; converted on the device otherwise) and `xu` comes
+  back on the device through DLPack — no host round trip, bit-identical to the
+  host path. A device `xu_warm` must live on the same device and is used as
+  given (knot-0 states replaced by `xcur_B`; no floating-base quaternion
+  healing). CPU tensors take the host path. Inputs must be complete on the
+  device: synchronize side streams before calling. The controller runs the
+  host path (its warm-start buffer is host memory) and returns `u` in the
+  caller's kind.
 - `solve(xcur_B, eepos_goals_B, xu_warm=None)` — ALL batch-dim arrays; xu layout
   is `[x_0, u_0, x_1, u_1, ..., x_{N-1}]`, row length `N*(nx+nu) − nu`.
   **Stateless in the trajectory**: `xu_warm=None` seeds a hold at `xcur_B`

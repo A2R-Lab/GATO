@@ -9,8 +9,6 @@ of solves through a block-parallel kernel pipeline.
 Needs the bsqpN64_indy7 module built; runs from any cwd:
     python examples/02_batched_solve.py
 """
-from pathlib import Path
-
 import numpy as np
 
 import gato
@@ -18,8 +16,7 @@ from gato import BSQP, SolverParams
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = REPO / gato.robot_info("indy7")["urdf"]
+URDF = gato.robot_urdf("indy7")
 N, DT, M = 64, 0.01, 8
 # one rho per batch member, log-spaced 1e-4..1e1 (the line search adapts each one per iter)
 rho_batch = np.power(10, np.linspace(-4, 1, M)).astype(np.float32)

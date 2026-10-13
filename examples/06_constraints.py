@@ -15,8 +15,6 @@ Rulings, measured defaults and provenance: docs/constraints.md.
 Needs the bsqpN64_indy7 module; runs from any cwd:
     python examples/06_constraints.py
 """
-from pathlib import Path
-
 import numpy as np
 
 import gato
@@ -24,8 +22,7 @@ from gato import BSQP, SolverParams
 from gato.common import figure8
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = REPO / gato.robot_info("indy7")["urdf"]
+URDF = gato.robot_urdf("indy7")
 N, DT = 64, 0.01
 
 # rho=1e-3: the ADMM inner loop factors the Schur system directly (f32 bdsv), which

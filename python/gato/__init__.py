@@ -10,7 +10,7 @@ try:
 except Exception:  # not installed (e.g. sys.path use from a checkout)
     __version__ = "0.1.0"
 
-from .interface import BSQP, SolveResult, SolverStats, available, module_name, robot_info
+from .interface import BSQP, SolveResult, SolverStats, available, module_name, robot_info, robot_urdf
 from .config import SolverParams
 
 # Heavy-dependency exports resolved lazily (PEP 562) so `import gato` works in a
@@ -52,5 +52,5 @@ def __getattr__(name):
     raise AttributeError(f"module 'gato' has no attribute {name!r}")
 
 
-__all__ = ["BSQP", "SolveResult", "SolverStats", "SolverParams", "available", "module_name", "robot_info",
+__all__ = ["BSQP", "SolveResult", "SolverStats", "SolverParams", "available", "module_name", "robot_info", "robot_urdf",
            "__version__", *sorted(_LAZY)]

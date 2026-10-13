@@ -19,8 +19,6 @@ Needs the bsqpN64_indy7 module and the [examples] extra (gymnasium, pinocchio);
 runs from any cwd:
     python examples/04_gym_mpc.py
 """
-from pathlib import Path
-
 import numpy as np
 
 import gato
@@ -31,8 +29,7 @@ from gato.common import figure8
 import pinocchio as pin  # noqa: F401  (the [examples] extra)
 from gato.config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = str(REPO / gato.robot_info("indy7")["urdf"])
+URDF = str(gato.robot_urdf("indy7"))
 N, DT = 64, 0.01
 F_EXT = np.array([0.0, 0.0, -20.0, 0.0, 0.0, 0.0])  # unmodeled EE force (world frame)
 SIM_S = 3.0

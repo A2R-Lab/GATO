@@ -16,7 +16,7 @@ joint-limit feasibility. Check solver residuals and the physical trajectory;
 the payload holdout and timing-boundary results are described in the
 [dated experiment report](docs/figure-refresh-2026-10-01.md).
 
-## Quick start (host-native — no Docker needed)
+## Quick start
 
 Prerequisites (Linux):
 
@@ -26,6 +26,30 @@ Prerequisites (Linux):
   (CMake ≥ 3.24 recommended so the build auto-detects your GPU arch; older
   CMake requires an explicit architecture, e.g. `ARCH=120` for sm_120)
 - Python ≥ 3.10
+
+### pip install
+
+```sh
+pip install gato            # until the PyPI release: pip install git+https://github.com/A2R-Lab/GATO
+```
+
+```python
+import numpy as np, gato
+
+# the vendored robots (indy7, iiwa14, go2) need no registration; your own URDF does:
+# gato.register_robot("myarm", "myarm.urdf", N=[32], ee_frame="EE")      # codegen, seconds
+solver = gato.BSQP(gato.robot_urdf("indy7"), batch_size=8, N=32, dt=0.01, plant_type="indy7")
+```
+
+The first solver constructed for a (robot, horizon) on this machine compiles
+its CUDA module — a one-time build of a few minutes that is logged when it
+starts — into `~/.cache/gato` (`GATO_CACHE_DIR` to move it); every later
+process loads it from there. `gato.register_robot(..., build=True)` compiles
+up front. Solver modules are specific to your GPU architecture, CUDA toolkit
+and Python; the cache key covers all of them, so nothing stale is ever loaded.
+Inputs may be numpy, torch or JAX arrays — see [Usage](#usage).
+
+### From a checkout (development, the receipt profile, the paper figures)
 
 ```sh
 git clone https://github.com/A2R-Lab/GATO.git
@@ -37,8 +61,9 @@ python examples/01_single_solve.py
 python examples/02_batched_solve.py
 ```
 
-This builds one solver module, sufficient for the two introductory demos and
-the usage snippet below. Each demo reports solve results; printed durations on
+This builds one solver module into `python/gato/`, sufficient for the two
+introductory demos and the usage snippet below (any other horizon compiles into
+the cache on first use). Each demo reports solve results; printed durations on
 a shared GPU are not benchmark measurements.
 
 GATO installs host-native into a project-local `.venv`, using only the Python
@@ -144,6 +169,18 @@ res = solver.solve(x0, goals, xu_warm=res.xu)            # warm-started from the
 print(res.u0(0), res.stats.sqp_iters, res.solve_time_us)
 ```
 
+The same call takes torch or JAX arrays and returns the same kind. CUDA tensors
+never leave the device: inputs are read in place and `res.xu` comes back
+through DLPack, bit-identical to the numpy path.
+
+```python
+import torch
+x0_t = torch.from_numpy(x0).cuda()
+goals_t = torch.from_numpy(goals).cuda()
+res = solver.solve(x0_t, goals_t)                        # res.xu: torch.float32 tensor on cuda:0
+res = solver.solve(x0_t, goals_t, xu_warm=res.xu)        # warm start stays on the device
+```
+
 For closed-loop control, wrap the solver in the task-agnostic `MPCController`
 (warm-start shifting, best-of-batch hypothesis selection) or go straight to a
 gymnasium policy:
@@ -156,8 +193,10 @@ from gato.envs import ArmTrackEnv   # needs the [examples] extra (gymnasium)
 The intro demos in [examples/](examples/) walk the whole surface:
 `01_single_solve.py`, `02_batched_solve.py` (per-batch hyperparameters),
 `03_mpc_loop.py`, `04_gym_mpc.py` (MPC-as-policy + force-hypothesis batch),
-`05_build_your_robot.py` (`gato.build` on your URDF), `06_constraints.py`,
-`07_go2_floating.py` (quadruped, floating base), `08_linsys_and_autotune.py`.
+`05_build_your_robot.py` (`gato.register_robot` / `gato.build` on your URDF), `06_constraints.py`,
+`07_go2_floating.py` (quadruped, floating base), `08_linsys_and_autotune.py`,
+`09_mpc_with_limits.py` (joint limits enforced in closed loop),
+`10_torch_jax_arrays.py` (the solver as a batched tensor op).
 See [bsqp.cu](examples/bsqp.cu) for a minimal C++/CUDA batched solve.
 
 ### Python API at a glance
@@ -298,6 +337,16 @@ gato.build("path/to/robot.urdf", name="myrobot", N=[16], contact_forces=True)   
 # then: gato.BSQP(model_path="path/to/robot.urdf", N=32, plant_type="myrobot", ...)
 ```
 
+From a wheel (no checkout), the same robot is registered once and compiled on
+first use into the per-host cache:
+
+```python
+gato.register_robot("myrobot", "path/to/robot.urdf", N=[32, 64], ee_frame="EE")
+gato.register_robot("quad", "path/to/quad.urdf", N=[16], ee_frame="imu_joint", floating_base=True,
+                    contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"])
+solver = gato.BSQP("path/to/robot.urdf", N=32, plant_type="myrobot", ...)   # compiles bsqpN32_myrobot once
+```
+
 `ee_frame` must be a **fixed joint** in the URDF (the EE target frame the cost
 tracks; on a floating base, the base-pose target frame); every actuated joint
 needs bounded `<limit>` tags (the barrier cost uses them). Scope: serial chains,
@@ -305,8 +354,9 @@ fixed or floating base (quaternion free-flyer). Codegen is skipped when nothing
 that feeds it changed (URDF, the grid-rbd release, algorithm set, options). The same path is
 exposed as a CLI for the vendored robots: `python tools/regen_grid.py`. Built
 modules and robot metadata are discoverable via `gato.available()` /
-`gato.robot_info(name)`; the registry (`python/gato/_registry.json`) is tracked
-and gated for freshness by `test/test_codegen.py`.
+`gato.robot_info(name)` / `gato.robot_urdf(name)`; the registry
+(`python/gato/_registry.json`) is tracked and gated for freshness by
+`test/test_codegen.py`; registered robots live in the cache manifest.
 
 Constraint layer (limit boxes, EE rows, cones, collision; barrier / ADMM / AL
 mechanisms, measured defaults and provenance): [docs/constraints.md](docs/constraints.md).

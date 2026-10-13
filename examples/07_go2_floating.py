@@ -34,16 +34,13 @@ contact world); runs from any cwd:
 """
 import argparse
 import importlib.util
-from pathlib import Path
-
 import numpy as np
 
 import gato
 from gato import BSQP, MPCController, SolverParams
 from gato.config import GO2_START_CONFIGS
 
-REPO = Path(__file__).resolve().parents[1]
-URDF = str(REPO / gato.robot_info("go2")["urdf"])
+URDF = str(gato.robot_urdf("go2"))
 N, DT, SIM_DT = 16, 0.01, 1e-3
 FOOT_RADIUS = 0.022   # go2.urdf *_foot collision sphere
 

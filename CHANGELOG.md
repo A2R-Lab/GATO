@@ -2,6 +2,28 @@
 
 Installs are source-tree only (no tag, no PyPI release); the version is `gato.__version__`.
 
+## 0.1.1 — unreleased: the pip-install path
+
+- `gato.register_robot(name, urdf, N=[...])` generates a robot's dynamics headers
+  into a per-host cache (`GATO_CACHE_DIR` or the platform user cache, e.g.
+  `~/.cache/gato`); the first `gato.BSQP(..., plant_type=name)` for a horizon
+  compiles that module once — with a logged warning naming the one-time cost —
+  and every later process loads it from the cache. Module keys cover the URDF
+  bytes and options, the grid-rbd provenance, GATO's native sources, the GPU
+  architecture and the toolchain, so nothing stale is ever loaded. The three
+  vendored robots (Indy7, iiwa14, Go2) are pre-registered: any horizon compiles
+  from the bundled headers without a `register_robot` call.
+- Wheels ship GATO's native sources (`gato/_native`: CMakeLists, headers, the
+  bindings TU, the vendored robot headers and URDFs) and never compiled modules;
+  `pip install` needs no checkout and no submodule. `gato.robot_urdf(name)` is
+  the URDF path that works in both a checkout and a wheel.
+- `solve()` and `MPCController.step()` accept numpy, torch or JAX arrays and
+  return the same kind. CUDA tensors take a device-pointer path (inputs read in
+  place, `xu` returned on the device through DLPack, no host round trip) that is
+  bit-identical to the host path, cold and warm-started; CPU tensors go through
+  the host path. `MPC_GATO` and the controller keep their host warm-start buffers.
+- `[test]` extra now lists torch and jax (CPU builds suffice for the host tier).
+
 ## 0.1.0 — 2026-10-13: wheel-based dependency, closed-loop limits gate, declared API surface
 
 Everything below this heading down to the 2026-10-05 entry ships in 0.1.0; the
