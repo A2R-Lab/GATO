@@ -19,7 +19,9 @@ Installs are source-tree only (no tag, no PyPI release); the version is `gato.__
 - Wheels ship GATO's native sources (`gato/_native`: CMakeLists, headers, the
   bindings TU, the vendored robot headers and URDFs) and never compiled modules;
   `pip install` needs no checkout and no submodule. `gato.robot_urdf(name)` is
-  the URDF path that works in both a checkout and a wheel.
+  the URDF path that works in both a checkout and a wheel; the bundled
+  descriptions include the collision meshes, so a copy of a vendored URDF can
+  be registered as a new robot (visual-only meshes are left out).
 - `solve()` and `MPCController.step()` accept numpy, torch or JAX arrays and
   return the same kind. CUDA tensors take a device-pointer path (inputs read in
   place, `xu` returned on the device through DLPack, no host round trip) that is

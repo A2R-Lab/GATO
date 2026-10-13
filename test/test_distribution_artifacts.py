@@ -58,9 +58,12 @@ def test_wheel_is_pure_python_without_native_modules(artifacts):
     for src in ("gato/_native/CMakeLists.txt", "gato/_native/python/bindings.cu",
                 "gato/_native/tools/native_identity.py", "gato/_native/gato/bsqp/bsqp.cuh",
                 "gato/_native/gato/dynamics/plant.cuh", "gato/_native/gato/dynamics/indy7/grid.cuh",
-                "gato/_native/gato/dynamics/go2/grid.cuh"):
-        assert any(n.endswith(src) for n in names), f"wheel must ship the native source {src}"
-    assert whl.stat().st_size < 12_000_000, "wheel is the python layer plus native sources (no binaries)"
+                "gato/_native/gato/dynamics/go2/grid.cuh",
+                "gato/_native/examples/indy7_description/indy7.urdf", "gato/_native/examples/iiwa_description/iiwa14.urdf",
+                "gato/_native/examples/go2_description/go2.urdf", "gato/_native/examples/iiwa_description/iiwa_link_1.stl"):
+        assert any(n.endswith(src) for n in names), f"wheel must ship {src}"
+    assert not any("/meshes/visual/" in n for n in names), "visual-only meshes stay out of the wheel"
+    assert whl.stat().st_size < 40_000_000, "wheel is the python layer, native sources and collision meshes (no binaries)"
 
 
 def test_sdist_contains_owned_build_sources(artifacts):

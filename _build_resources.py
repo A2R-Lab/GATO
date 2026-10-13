@@ -21,13 +21,18 @@ def native_files():
     for p in (ROOT / "gato").rglob("*"):
         if p.is_file() and p.suffix in NATIVE_SUFFIXES:
             files[p.relative_to(ROOT).as_posix()] = p
-    # the vendored robots' URDFs at their registry paths (gato.robot_urdf); meshes
-    # are not needed — their headers are pre-generated
+    # the vendored robot descriptions at their registry paths (gato.robot_urdf):
+    # the URDF plus its COLLISION meshes, so a copy of a vendored URDF can be
+    # re-registered (collision spheres are generated from those meshes). Visual-only
+    # mesh folders stay out (indy7's is 14 MB of rendering geometry).
     import json
     for meta in json.loads((ROOT / "python/gato/_registry.json").read_text()).values():
-        rel = meta["urdf"]
-        if (ROOT / rel).is_file():
-            files[rel] = ROOT / rel
+        urdf = ROOT / meta["urdf"]
+        if not urdf.is_file():
+            continue
+        for p in urdf.parent.rglob("*"):
+            if p.is_file() and "visual" not in p.relative_to(urdf.parent).parts and p.suffix.lower() in (".urdf", ".stl", ".dae", ".obj", ".md"):
+                files[p.relative_to(ROOT).as_posix()] = p
     return files
 
 

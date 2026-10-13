@@ -213,9 +213,8 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                 if "could not be resolved" in str(e):
                     raise ValueError(
                         f"{e}\nregister_robot needs the robot's collision meshes next to its URDF (the collision "
-                        f"spheres are generated from them). The URDFs bundled with the gato wheel carry no meshes: "
-                        f"use the vendored robots by name (plant_type='indy7' / 'iiwa14' / 'go2', no registration "
-                        f"needed) or register your own full robot description.") from e
+                        f"spheres are generated from them): keep the mesh folders with the URDF, or resolve "
+                        f"package:// URIs through ROS_PACKAGE_PATH.") from e
                 raise
             (dyn / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
         else:

@@ -41,6 +41,8 @@ import numpy as np, gato
 solver = gato.BSQP(gato.robot_urdf("indy7"), batch_size=8, N=32, dt=0.01, plant_type="indy7")
 ```
 
+`gato.robot_urdf(name)` returns the bundled description of a vendored robot
+(URDF + collision meshes), which you can copy and edit as a starting point.
 The first solver constructed for a (robot, horizon) on this machine compiles
 its CUDA module — a one-time build of a few minutes that is logged when it
 starts — into `~/.cache/gato` (`GATO_CACHE_DIR` to move it); every later
