@@ -2,7 +2,7 @@
 
 Installs are source-tree only (no tag, no PyPI release); the version is `gato.__version__`.
 
-## 0.1.1 — unreleased: the pip-install path
+## 0.1.1 — 2026-10-13: the pip-install path
 
 - `gato.register_robot(name, urdf, N=[...])` generates a robot's dynamics headers
   into a per-host cache (`GATO_CACHE_DIR` or the platform user cache, e.g.

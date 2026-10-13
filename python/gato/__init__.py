@@ -8,7 +8,7 @@ try:
 
     __version__ = _version("gato")
 except Exception:  # not installed (e.g. sys.path use from a checkout)
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
 from .interface import BSQP, SolveResult, SolverStats, available, module_name, robot_info, robot_urdf
 from .config import SolverParams

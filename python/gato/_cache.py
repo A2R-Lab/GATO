@@ -205,9 +205,18 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     dyn = cache / "robots" / key / name
     with _locked(cache):
         if force or not (dyn / "grid.cuh").exists() or not (dyn / "limits.cuh").exists():
-            meta = codegen(urdf_path, name, ee_frame=ee_frame, out_dir=dyn, register=False,
-                           collision_res=collision_res, contact_frames=contact_frames,
-                           floating_base=floating_base)
+            try:
+                meta = codegen(urdf_path, name, ee_frame=ee_frame, out_dir=dyn, register=False,
+                               collision_res=collision_res, contact_frames=contact_frames,
+                               floating_base=floating_base)
+            except ValueError as e:
+                if "could not be resolved" in str(e):
+                    raise ValueError(
+                        f"{e}\nregister_robot needs the robot's collision meshes next to its URDF (the collision "
+                        f"spheres are generated from them). The URDFs bundled with the gato wheel carry no meshes: "
+                        f"use the vendored robots by name (plant_type='indy7' / 'iiwa14' / 'go2', no registration "
+                        f"needed) or register your own full robot description.") from e
+                raise
             (dyn / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
         else:
             meta = json.loads((dyn / "meta.json").read_text())

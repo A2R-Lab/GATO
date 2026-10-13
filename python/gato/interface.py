@@ -45,7 +45,7 @@ def available(variant="default"):
         cached = _cache.available_cached()
     except Exception:   # no cache dir / unreadable manifest: nothing registered
         cached = {}
-    entries += [(p, n, v, f) for (p, n, v), f in cached.items()]
+    entries += [(p, n, v, os.path.basename(f)) for (p, n, v), f in cached.items()]
     for plant, N, var, fname in entries:
         if variant == "all":
             found.setdefault((plant, N, var), fname)
