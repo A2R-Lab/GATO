@@ -50,7 +50,13 @@ if missing:
 PY
 then exit 1; fi
 
-"$PYTHON" -c 'import importlib.metadata as m; assert m.version("pytest-gpu-proof") == "0.4.0", "Install the pinned dev dependencies first"'
+# The plugin pin lives in pyproject's [dev] extra (schema/policy/verifier move together).
+"$PYTHON" - <<'PY'
+import importlib.metadata as m, re, pathlib
+pin = re.search(r'"pytest-gpu-proof==([0-9.]+)"', pathlib.Path("pyproject.toml").read_text()).group(1)
+got = m.version("pytest-gpu-proof")
+assert got == pin, f"pytest-gpu-proof {got} installed, pyproject pins {pin}: install the pinned dev dependencies first"
+PY
 
 # Refuse to sign with a partial module set (test/receipt_modules.txt = D12 profile).
 missing=()
