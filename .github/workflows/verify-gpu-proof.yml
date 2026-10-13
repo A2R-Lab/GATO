@@ -59,7 +59,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install GATO (python package + full host-tier test deps, no CUDA build)
-        run: pip install -e ".[test,dev]"   # pin/mujoco/scipy/gymnasium: no host test may skip for a missing dep
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU torch (the default wheel is a 2.5 GB CUDA build)
+          pip install -e ".[test,dev]"   # pin/mujoco/scipy/gymnasium/jax: no host test may skip for a missing dep
 
       - name: Host-only test tier (no silent skips)
         run: |

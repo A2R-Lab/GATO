@@ -87,6 +87,10 @@ test = [
     "pin>=3.4.0",
     "mujoco>=3.2,<3.14",   # see the [examples] pin
     "gymnasium>=0.29",
+    # the array boundary (test_arrays.py): CPU builds suffice for the host tier; the
+    # receipt box installs CUDA builds (torch cu*, jax[cuda*]) for the device path
+    "torch>=2.6.0",
+    "jax>=0.4.40",
 ]
 
 [tool.setuptools]

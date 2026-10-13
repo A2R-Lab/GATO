@@ -89,3 +89,22 @@ def test_first_solver_compiles_once_then_hits_cache(cache, urdfs, caplog):
     with caplog.at_level(logging.WARNING, logger="gato"):
         gato.BSQP(urdf, batch_size=1, N=8, dt=0.01, plant_type=NAME)
     assert not [r for r in caplog.records if "compiling" in r.getMessage()], "second construction must hit the cache"
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_vendored_robot_compiles_from_bundled_headers(cache, urdfs, caplog):
+    """The robots GATO ships headers for need no register_robot call: a horizon
+    with no package module compiles from the bundled headers into the cache."""
+    N = 12   # not in the receipt profile, so never a package module
+    assert ("indy7", N) not in gato.available()
+    urdf = str(urdfs["indy7"])
+    with caplog.at_level(logging.WARNING, logger="gato"):
+        s = gato.BSQP(urdf, batch_size=1, N=N, dt=0.01, plant_type="indy7", max_sqp_iters=2)
+    assert any(f"bsqpN{N}_indy7" in r.getMessage() for r in caplog.records)
+    assert s.N == N and _cache.find_module("indy7", N) is not None
+    assert ("indy7", N) in gato.available()
+    x = np.zeros((1, s.nx), np.float32)
+    goals = np.zeros((1, N * 6), np.float32)
+    goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
+    assert np.isfinite(s.solve(x, goals).xu).all()

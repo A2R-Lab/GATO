@@ -385,3 +385,9 @@ test/test_register_robot.py::test_register_rejects_bad_name_and_missing_urdf
 test/test_register_robot.py::test_unregistered_robot_raises_with_register_hint
 test/test_register_robot.py::test_module_key_tracks_inputs
 test/test_register_robot.py::test_first_solver_compiles_once_then_hits_cache
+test/test_arrays.py::test_kind_and_host_conversions
+test/test_arrays.py::test_device_path_matches_host_path
+test/test_arrays.py::test_device_path_jax
+test/test_arrays.py::test_device_warm_start_and_device_mismatch
+test/test_arrays.py::test_controller_returns_callers_kind
+test/test_register_robot.py::test_vendored_robot_compiles_from_bundled_headers

@@ -420,6 +420,21 @@ class BSQP:
             if bad.any():
                 XU_B[bad, k * step:k * step + self.nx] = xcur_B[bad]
 
+    def _solve_device(self, xcur_B, eepos_goals_B, xu_warm):
+        """solve() on CUDA inputs: validate, hand device pointers to the binding."""
+        from . import _arrays
+        B = self.batch_size
+        ref_size = int(getattr(self.lib, "REFERENCE_TRAJ_SIZE", 6 * self.N))
+        x_ptr, keep_x = _arrays.device_f32(xcur_B, B * self.nx, "xcur_B")
+        g_ptr, keep_g = _arrays.device_f32(eepos_goals_B, B * ref_size, "eepos_goals_B")
+        if xu_warm is None:
+            xu_ptr, keep_xu = 0, None
+        else:
+            if not _arrays.is_cuda(xu_warm):
+                raise TypeError("xu_warm must live on the same device as xcur_B for the device path")
+            xu_ptr, keep_xu = _arrays.device_f32(xu_warm, B * self.xu_size, "xu_warm")
+        return self.solver.solve_device(int(xu_ptr), self.dt, int(x_ptr), int(g_ptr))
+
     def solve(self, xcur_B, eepos_goals_B, xu_warm=None):
         """Solve the batch from states ``xcur_B`` (B, nx) toward the EE reference
         ``eepos_goals_B`` (B, 6N) — see the class docstring for both layouts.
@@ -429,21 +444,36 @@ class BSQP:
         keeps no trajectory state; pass the last ``SolveResult.xu`` to
         warm-start, or use MPCController). The caller's array is never
         modified; ``SolveResult.xu`` is a fresh array.
+
+        Arrays may be numpy, torch or JAX; the result's ``xu`` is of the same
+        kind. CUDA tensors (torch on a CUDA device, JAX on a GPU) take the
+        device path: inputs are read in place through their device pointer and
+        ``xu`` comes back on the device through DLPack, with no host round
+        trip; a device ``xu_warm`` is used as given (its knot-0 states are
+        replaced by ``xcur_B``; the floating-base quaternion healing of the
+        host path is not applied). CPU tensors go through the host path.
         """
-        xcur_B = np.asarray(xcur_B, dtype=np.float32).reshape(self.batch_size, self.nx)
-        eepos_goals_B = np.asarray(eepos_goals_B, dtype=np.float32).reshape(self.batch_size, -1)
-        if xu_warm is None:
-            XU_B = np.stack([initialize_warm_start(xcur_B[b], self.N, self.nx, self.nu)
-                             for b in range(self.batch_size)]).astype(np.float32)
+        from . import _arrays
+        in_kind = _arrays.kind(xcur_B)
+        if _arrays.is_cuda(xcur_B):
+            raw = self._solve_device(xcur_B, eepos_goals_B, xu_warm)
+            xu = _arrays.from_device(raw["XU"], in_kind)
         else:
-            XU_B = np.array(xu_warm, dtype=np.float32, copy=True).reshape(self.batch_size, self.xu_size)
-        XU_B[:, : self.nx] = xcur_B
-        if self.floating_base:
-            self._heal_floating_warm_start(XU_B, xcur_B)
+            xcur_np = _arrays.to_numpy(xcur_B).reshape(self.batch_size, self.nx)
+            goals_np = _arrays.to_numpy(eepos_goals_B).reshape(self.batch_size, -1)
+            if xu_warm is None:
+                XU_B = np.stack([initialize_warm_start(xcur_np[b], self.N, self.nx, self.nu)
+                                 for b in range(self.batch_size)]).astype(np.float32)
+            else:
+                XU_B = _arrays.to_numpy(xu_warm).reshape(self.batch_size, self.xu_size).copy()
+            XU_B[:, : self.nx] = xcur_np
+            if self.floating_base:
+                self._heal_floating_warm_start(XU_B, xcur_np)
 
-        raw = self.solver.solve(XU_B, self.dt, xcur_B, eepos_goals_B)
-
-        xu = np.array(raw["XU"], dtype=np.float32, copy=True)
+            raw = self.solver.solve(XU_B, self.dt, xcur_np, goals_np)
+            xu = np.array(raw["XU"], dtype=np.float32, copy=True)
+            if in_kind != "numpy":
+                xu = _arrays.like(xu, in_kind, device=getattr(xcur_B, "device", None))
         B = self.batch_size
         stats = SolverStats(
             solve_time_us=int(raw["sqp_time_us"]),

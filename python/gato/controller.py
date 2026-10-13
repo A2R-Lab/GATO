@@ -177,9 +177,16 @@ class MPCController:
             dt_elapsed: how long the PREVIOUS control was actually applied
                 (used only for hypothesis scoring); defaults to solver.dt.
                 Pass the REALIZED integration time, not wall time.
+
+        ``x_measured`` / ``reference`` may be numpy, torch or JAX arrays on any
+        device; the controller runs the solver's host path (its warm-start
+        buffer is host memory) and returns ``u`` in the caller's kind.
         """
-        x = np.asarray(x_measured, dtype=np.float32).reshape(self.nx)
-        ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+        from . import _arrays
+        in_kind = _arrays.kind(x_measured)
+        in_device = getattr(x_measured, "device", None) if in_kind == "torch" else None
+        x = _arrays.to_numpy(x_measured).reshape(self.nx)
+        ref = _arrays.to_numpy(reference).reshape(-1)
         check_floating_state(x, self.nq, self.nv, "x_measured")
 
         # warm-startedness signal: after last tick's shift, _XU[0,:nx] is the model's
@@ -242,6 +249,8 @@ class MPCController:
         self._prev_capout = bool(
             res.stats.pcg_iters.size
             and int(res.stats.pcg_iters.max()) >= self.solver.max_pcg_iters)
+        if in_kind != "numpy":
+            u = _arrays.like(u, in_kind, device=in_device)
         return StepResult(
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,

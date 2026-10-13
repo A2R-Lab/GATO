@@ -4,8 +4,84 @@
 #include "bsqp/bsqp.cuh"
 #include "types.cuh"
 #include "utils/cuda.cuh"
+#include "utils/dlpack.h"
+
+#include <memory>
 
 namespace py = pybind11;
+
+// A device-resident float array handed to the caller through the DLPack
+// protocol (torch.from_dlpack / jax.dlpack.from_dlpack): zero-copy outputs of
+// the device-pointer solve path. The memory lives as long as any consumer holds it.
+struct DeviceArray {
+        std::shared_ptr<void>  mem;
+        std::vector<int64_t>   shape;
+        int                    device = 0;
+
+        static DeviceArray alloc(std::vector<int64_t> shape)
+        {
+                size_t n = 1;
+                for (auto d : shape) n *= static_cast<size_t>(d);
+                void* p = nullptr;
+                gpuErrchk(cudaMalloc(&p, n * sizeof(float)));
+                DeviceArray a;
+                a.mem = std::shared_ptr<void>(p, [](void* q) { cudaFree(q); });
+                a.shape = std::move(shape);
+                gpuErrchk(cudaGetDevice(&a.device));
+                return a;
+        }
+        uintptr_t data_ptr() const { return reinterpret_cast<uintptr_t>(mem.get()); }
+        size_t    numel() const { size_t n = 1; for (auto d : shape) n *= static_cast<size_t>(d); return n; }
+
+        py::capsule dlpack() const
+        {
+                struct Holder {
+                        std::shared_ptr<void> mem;
+                        std::vector<int64_t>  shape, strides;
+                        DLManagedTensor       tensor;
+                };
+                auto* h = new Holder{mem, shape, {}, {}};
+                h->strides.resize(shape.size());
+                int64_t s = 1;
+                for (int i = static_cast<int>(shape.size()) - 1; i >= 0; --i) { h->strides[i] = s; s *= shape[i]; }
+                h->tensor.dl_tensor.data = mem.get();
+                h->tensor.dl_tensor.device = DLDevice{kDLCUDA, device};
+                h->tensor.dl_tensor.ndim = static_cast<int32_t>(shape.size());
+                h->tensor.dl_tensor.dtype = DLDataType{kDLFloat, 32, 1};
+                h->tensor.dl_tensor.shape = h->shape.data();
+                h->tensor.dl_tensor.strides = h->strides.data();
+                h->tensor.dl_tensor.byte_offset = 0;
+                h->tensor.manager_ctx = h;
+                h->tensor.deleter = [](DLManagedTensor* t) { delete static_cast<Holder*>(t->manager_ctx); };
+                return py::capsule(&h->tensor, "dltensor", [](PyObject* cap) {
+                        if (PyCapsule_IsValid(cap, "dltensor")) {   // never consumed: release here
+                                auto* t = static_cast<DLManagedTensor*>(PyCapsule_GetPointer(cap, "dltensor"));
+                                t->deleter(t);
+                        }
+                });
+        }
+        py::tuple dlpack_device() const { return py::make_tuple(static_cast<int>(kDLCUDA), device); }
+        py::array_t<float> to_numpy() const
+        {
+                std::vector<py::ssize_t> sh(shape.begin(), shape.end());
+                py::array_t<float> out(sh);
+                gpuErrchk(cudaMemcpy(out.request().ptr, mem.get(), numel() * sizeof(float), cudaMemcpyDeviceToHost));
+                return out;
+        }
+};
+
+// hold-at-x cold start written directly on the device: every knot's state = x_b, controls 0
+template<typename T>
+__global__ void fill_hold_warm_start_kernel(T* xu, const T* x_s, uint32_t knots, uint32_t nx, uint32_t nu)
+{
+        const uint32_t stride = nx + nu;
+        T* row = xu + blockIdx.x * (knots * stride - nu);
+        const T* x = x_s + blockIdx.x * nx;
+        for (uint32_t i = threadIdx.x; i < knots * stride - nu; i += blockDim.x) {
+                const uint32_t k = i / stride, j = i - k * stride;
+                row[i] = (j < nx) ? x[j] : T(0);
+        }
+}
 
 // batch_size is a runtime constructor argument (the solver kernels only use it
 // as the outermost grid dimension), so ONE binding class covers every batch size.
@@ -98,6 +174,51 @@ class PyBSQP {
                 gpuErrchk(cudaMemcpy(h_xu_staging_, d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
                 memcpy(xu_out.request().ptr, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
 
+                py::dict result = collect_stats(stats);
+                result["XU"] = xu_out;
+                return result;
+        }
+
+        // Device-pointer solve (the torch / JAX path): x_s and the reference are read
+        // from CUDA memory the caller owns (float32, contiguous, exactly batch_size
+        // rows); xu_ptr == 0 seeds the hold-at-x cold start on the device, otherwise
+        // the warm start is copied device-to-device and its knot-0 states are
+        // overwritten by x_s. The returned "XU" is a DeviceArray (DLPack-exportable);
+        // the caller's buffers are never written. Inputs must be complete on the
+        // device: work queued on non-blocking streams needs a sync first.
+        py::dict solve_device(uintptr_t xu_ptr, T timestep, uintptr_t x_ptr, uintptr_t ref_ptr)
+        {
+                if (!x_ptr || !ref_ptr) { throw py::value_error("solve_device: x_s and reference device pointers are required"); }
+                gpuErrchk(cudaMemcpy(d_x_s_batch_, reinterpret_cast<const void*>(x_ptr), XU_STATE_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                gpuErrchk(cudaMemcpy(d_reference_traj_batch_, reinterpret_cast<const void*>(ref_ptr), REFERENCE_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                if (xu_ptr) {
+                        gpuErrchk(cudaMemcpy(d_xu_traj_batch_, reinterpret_cast<const void*>(xu_ptr), XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                        // knot-0 state := measured state (one strided copy over the batch)
+                        gpuErrchk(cudaMemcpy2D(d_xu_traj_batch_, XU_TRAJ_SIZE * sizeof(T), d_x_s_batch_, XU_STATE_SIZE * sizeof(T),
+                                               XU_STATE_SIZE * sizeof(T), batch_size_, cudaMemcpyDeviceToDevice));
+                } else {
+                        fill_hold_warm_start_kernel<T><<<batch_size_, 256>>>(d_xu_traj_batch_, d_x_s_batch_, KNOT_POINTS, XU_STATE_SIZE, CONTROL_SIZE);
+                        gpuErrchk(cudaPeekAtLastError());
+                }
+                gpuErrchk(cudaDeviceSynchronize());
+                ProblemInputs<T> inputs;
+                inputs.timestep = timestep;
+                inputs.d_x_s_batch = d_x_s_batch_;
+                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+
+                SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
+
+                DeviceArray xu_out = DeviceArray::alloc({static_cast<int64_t>(batch_size_), static_cast<int64_t>(XU_TRAJ_SIZE)});
+                gpuErrchk(cudaMemcpy(reinterpret_cast<void*>(xu_out.data_ptr()), d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                gpuErrchk(cudaDeviceSynchronize());
+                py::dict result = collect_stats(stats);
+                result["XU"] = xu_out;
+                return result;
+        }
+
+        // everything solve() returns besides the trajectory itself
+        py::dict collect_stats(const SQPStats<T>& stats)
+        {
                 // Copy final merits (computed at end of solve) and initial (pre-iteration) merits back to host
                 std::vector<T> h_final_merit(batch_size_);
                 std::vector<T> h_initial_merit(batch_size_);
@@ -107,7 +228,6 @@ class PyBSQP {
                 const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
 
                 py::dict result;
-                result["XU"] = xu_out;
                 result["sqp_time_us"] = stats.solve_time_us;
                 result["sqp_iters"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.sqp_iterations.data());
                 result["kkt_converged"] = py::array_t<int32_t>({B}, {sizeof(int32_t)}, stats.kkt_converged.data());
@@ -550,6 +670,7 @@ class PyBSQP {
             .def(py::init<const uint32_t, const uint32_t, const uint32_t, const Type, const Type, const Type, const Type, const Type, const Type, const Type, const Type, \
                           const Type, const Type, const Type>())                                                                                                                                    \
             .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
+            .def("solve_device", &PyBSQP<Type>::solve_device, py::arg("xu_ptr"), py::arg("timestep"), py::arg("x_ptr"), py::arg("ref_ptr"))                                                      \
             .def("reset_dual", &PyBSQP<Type>::reset_dual)                                                                                                                                          \
             .def("set_f_ext_batch", &PyBSQP<Type>::set_f_ext_batch)                                                                                                                                \
             .def("set_f_ext_knot_batch", &PyBSQP<Type>::set_f_ext_knot_batch)                                                                                                                      \
@@ -624,6 +745,17 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("NQ") = gato::constants::NQ;
         m.attr("NV") = gato::constants::NV;
         m.attr("FLOATING_BASE") = gato::constants::FLOATING_BASE;
+        // flat per-batch-row sizes the device path validates against
+        m.attr("XU_TRAJ_SIZE") = XU_TRAJ_SIZE;
+        m.attr("REFERENCE_TRAJ_SIZE") = REFERENCE_TRAJ_SIZE;
+
+        // zero-copy device outputs (solve_device): torch.from_dlpack(a) / jax.dlpack.from_dlpack(a)
+        py::class_<DeviceArray>(m, "DeviceArray", py::module_local())
+            .def_property_readonly("shape", [](const DeviceArray& a) { return py::tuple(py::cast(a.shape)); })
+            .def_property_readonly("data_ptr", &DeviceArray::data_ptr)
+            .def("__dlpack__", [](const DeviceArray& a, py::kwargs) { return a.dlpack(); })
+            .def("__dlpack_device__", &DeviceArray::dlpack_device)
+            .def("numpy", &DeviceArray::to_numpy);
 
 #ifdef USE_DOUBLES
         REGISTER_BSQP_CLASS(double);
