@@ -16,13 +16,18 @@ import sys
 
 URDF = '''<robot name="package_probe">
   <link name="base"/>
-  <link name="arm"><inertial><origin xyz="0.3 0 0"/><mass value="1"/>
-    <inertia ixx="0.1" iyy="0.2" izz="0.2" ixy="0" ixz="0" iyz="0"/></inertial>
-    <collision><origin xyz="0.3 0 0"/><geometry><cylinder radius="0.05" length="0.6"/></geometry></collision></link>
+  <link name="upper"><inertial><origin xyz="0.2 0 0"/><mass value="1"/>
+    <inertia ixx="0.05" iyy="0.1" izz="0.1" ixy="0" ixz="0" iyz="0"/></inertial>
+    <collision><origin xyz="0.2 0 0"/><geometry><cylinder radius="0.04" length="0.4"/></geometry></collision></link>
+  <link name="lower"><inertial><origin xyz="0.2 0 0"/><mass value="0.5"/>
+    <inertia ixx="0.02" iyy="0.05" izz="0.05" ixy="0" ixz="0" iyz="0"/></inertial>
+    <collision><origin xyz="0.2 0 0"/><geometry><cylinder radius="0.03" length="0.4"/></geometry></collision></link>
   <link name="tool"/>
-  <joint name="hinge" type="revolute"><parent link="base"/><child link="arm"/>
+  <joint name="shoulder" type="revolute"><parent link="base"/><child link="upper"/>
+    <axis xyz="0 1 0"/><limit lower="-3" upper="3" effort="20" velocity="10"/></joint>
+  <joint name="elbow" type="revolute"><parent link="upper"/><child link="lower"/><origin xyz="0.4 0 0"/>
     <axis xyz="0 1 0"/><limit lower="-3" upper="3" effort="10" velocity="10"/></joint>
-  <joint name="EE" type="fixed"><parent link="arm"/><child link="tool"/><origin xyz="0.6 0 0"/></joint>
+  <joint name="EE" type="fixed"><parent link="lower"/><child link="tool"/><origin xyz="0.4 0 0"/></joint>
 </robot>'''
 
 
@@ -54,7 +59,7 @@ def main():
     urdf = args.work / 'probe.urdf'
     urdf.write_text(URDF)
     meta = gato.register_robot('package_probe', urdf, N=[8], cache_dir_override=cache)
-    assert meta['nq'] == meta['nv'] == 1 and meta['ee_frame'] == 'EE', meta
+    assert meta['nq'] == meta['nv'] == 2 and meta['ee_frame'] == 'EE', meta
     entry = _cache.robot_entry('package_probe', cache)
     assert (cache / 'robots' / entry['codegen_key'] / 'package_probe' / 'grid.cuh').is_file()
 
@@ -67,7 +72,7 @@ def main():
         s = gato.BSQP(urdf, batch_size=2, N=8, dt=0.01, plant_type='package_probe', max_sqp_iters=3)
         x = np.zeros((2, s.nx), np.float32)
         goals = np.zeros((2, 8 * 6), np.float32)
-        goals[:, 0::6] = 0.6
+        goals[:, 0::6] = 0.8
         host = s.solve(x, goals)
         assert np.isfinite(host.xu).all()
         assert _cache.find_module('package_probe', 8, cache=cache) is not None

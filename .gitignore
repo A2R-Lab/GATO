@@ -45,7 +45,7 @@ Makefile
 
 .vscode/
 
-python/gato.egg-info/
+python/*.egg-info/
 
 .venv
 .venv-cpu-baseline/
