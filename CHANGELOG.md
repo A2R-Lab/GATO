@@ -1,8 +1,25 @@
 # Changelog
 
-Unreleased (no tag; installs are source-tree only).
+Installs are source-tree only (no tag, no PyPI release); the version is `gato.__version__`.
 
-## Unreleased — GRiD and GLASS from the released `grid-rbd` wheel
+## 0.1.0 — 2026-10-13: wheel-based dependency, closed-loop limits gate, declared API surface
+
+Everything below this heading down to the 2026-10-05 entry ships in 0.1.0; the
+earlier entries were the unreleased 0.0.2 line.
+
+- Closed-loop joint-limit enforcement: `examples/09_mpc_with_limits.py` and
+  `test/test_limits_closed_loop.py` grade the SIMULATED plant, not the planner:
+  with the ADMM box mechanism and a ±1 rad/s velocity box the Indy7 figure-8
+  peaks at 1.03–1.04 rad/s (1.6–2.0 unenforced) at N ≥ 32; horizons of 16 or
+  fewer knots cannot brake in time (measured, `docs/constraints.md`).
+  `MPC_GATO` loops now record the winning plan's `row_max_violation`.
+- `MPCController.step()` contract (fixed iteration budget, no deadline-aware
+  exit, caller owns the schedule) and a stable/experimental API list:
+  `docs/consumer_contract.md` §4 and §8.
+- Version 0.1.0 (was 0.0.2): the install contract changed (below), so this is a
+  minor bump under the pre-1.0 convention. Development status stays Alpha.
+
+### GRiD and GLASS from the released `grid-rbd` wheel
 
 - GATO no longer carries `external/GRiD` and `external/GLASS` submodules. The code
   generator, URDFParser, the global `glass::` headers and GRiD's collision headers
