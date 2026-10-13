@@ -700,7 +700,7 @@
     <h2>Supported Robot Systems</h2>
     <p class="systems-intro">
       GATO ships with the two arm models used in the paper and experimental Go2 floating-base examples.
-      Generate a solver for your URDF with <code>gato.build(...)</code>. See the
+      Register your own URDF with <code>gato.register_robot(...)</code>; its solver compiles once on first use. See the
       <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/status.md">feature-status page</a>
       for tested configurations: Go2 standing is demonstrated; closed-loop walking remains in development.
     </p>
@@ -716,7 +716,7 @@
       </table>
     </div>
     <p class="systems-note">
-      Configurable horizon lengths: 8, 16, 32, 64, 128 knot points (set via <code>-DKNOTS</code> at build time).
+      Any horizon length: solver modules are compiled per (robot, knot points) and cached per machine.
     </p>
   </section>
 
@@ -726,37 +726,38 @@
     <h2>Quick Start</h2>
 
     <div class="code-step">
-      <h4>Setup (Linux + NVIDIA CUDA)</h4>
+      <h4>Install (Linux + NVIDIA CUDA toolkit)</h4>
       <div class="code-block">
-<pre>git clone https://github.com/A2R-Lab/GATO.git
-cd GATO
-./tools/install.sh   # creates .venv, installs dependencies and initializes submodules</pre>
+<pre>pip install gato     # until the PyPI release: pip install git+https://github.com/A2R-Lab/GATO</pre>
       </div>
     </div>
 
     <div class="code-step">
-      <h4>Build the CUDA Solver</h4>
+      <h4>Solve a batch — numpy, torch or JAX arrays in, the same kind out</h4>
       <div class="code-block">
-<pre>MODULES="indy7:64" JOBS=2 ./tools/build.sh
-source .venv/bin/activate
-python examples/01_single_solve.py
-python examples/02_batched_solve.py</pre>
+<pre>import gato, torch
+gato.register_robot("myarm", "myarm.urdf", N=[32])          # your URDF; indy7 / iiwa14 / go2 need no registration
+solver = gato.BSQP("myarm.urdf", batch_size=8, N=32, dt=0.01, plant_type="myarm")   # first use compiles once
+res = solver.solve(x0_cuda, goals_cuda)                     # CUDA tensors stay on the device (DLPack out)
+res = solver.solve(x0_cuda, goals_cuda, xu_warm=res.xu)     # warm start</pre>
       </div>
     </div>
 
     <div class="code-step">
-      <h4>Simulation Examples</h4>
+      <h4>From a checkout (examples, paper figures, the signed receipt)</h4>
       <div class="code-block">
-<pre>./tools/install.sh --test
-python examples/03_mpc_loop.py
-python examples/04_gym_mpc.py</pre>
+<pre>git clone https://github.com/A2R-Lab/GATO.git && cd GATO
+./tools/install.sh --test
+MODULES="indy7:64" JOBS=2 ./tools/build.sh
+python examples/01_single_solve.py        # ... through 10_torch_jax_arrays.py</pre>
       </div>
     </div>
 
     <p class="code-note">
-      Install a CUDA toolkit matching your GPU; Docker is optional. Modules are built into
-      <code>python/gato/</code> and are not supplied in a universal binary wheel.
-      See the <a href="https://github.com/A2R-Lab/GATO/blob/main/README.md#quick-start-host-native--no-docker-needed">quick start and requirements</a>,
+      The CUDA module for each (robot, horizon) is compiled on your machine the first time it is used — a few
+      minutes, logged when it starts — and cached under <code>~/.cache/gato</code>; GRiD and GLASS arrive through the
+      pinned <code>grid-rbd</code> wheel, so no submodule is needed. Wheels never contain compiled modules.
+      See the <a href="https://github.com/A2R-Lab/GATO/blob/main/README.md#quick-start">quick start and requirements</a>,
       <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/README.md">documentation</a>, and
       <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/README.md">numbered examples</a>.
       Printed demo durations on a shared GPU are not performance measurements.
