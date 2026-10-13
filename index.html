@@ -736,10 +736,10 @@
       <h4>Solve a batch — numpy, torch or JAX arrays in, the same kind out</h4>
       <div class="code-block">
 <pre>import gato, torch
-gato.register_robot("myarm", "myarm.urdf", N=[32])          # your URDF; indy7 / iiwa14 / go2 need no registration
-solver = gato.BSQP("myarm.urdf", batch_size=8, N=32, dt=0.01, plant_type="myarm")   # first use compiles once
-res = solver.solve(x0_cuda, goals_cuda)                     # CUDA tensors stay on the device (DLPack out)
-res = solver.solve(x0_cuda, goals_cuda, xu_warm=res.xu)     # warm start</pre>
+gato.register_robot("myarm", "myarm.urdf", N=[32])     # your URDF (vendored robots need none)
+solver = gato.BSQP("myarm.urdf", batch_size=8, N=32, dt=0.01, plant_type="myarm")  # compiles once
+res = solver.solve(x0_cuda, goals_cuda)                 # CUDA tensors stay on the device
+res = solver.solve(x0_cuda, goals_cuda, xu_warm=res.xu) # warm start</pre>
       </div>
     </div>
 
