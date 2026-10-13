@@ -20,6 +20,7 @@ from .config import SolverParams
 _LAZY = {
     "build": ".builder",
     "codegen": ".builder",
+    "register_robot": "._cache",
     "MPC_GATO": ".mpc_gato",
     "MPCController": ".controller",
     "StepResult": ".controller",

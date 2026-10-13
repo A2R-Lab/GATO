@@ -33,15 +33,23 @@ def available(variant="default"):
     variant="all" -> {(plant, N, variant): filename}."""
     here = os.path.dirname(os.path.abspath(__file__))
     found = {}
+    entries = []
     for so in sorted(glob.glob(os.path.join(here, "bsqpN*_*.so"))):
         m = _MODULE_RE.match(os.path.basename(so))
-        if not m:
-            continue
-        N, plant, var = int(m.group(1)), m.group(2), m.group(3) or "default"
+        if m:
+            entries.append((m.group(2), int(m.group(1)), m.group(3) or "default", os.path.basename(so)))
+    # modules compiled through gato.register_robot (per-host cache); package modules win
+    from . import _cache
+    try:
+        cached = _cache.available_cached()
+    except Exception:   # no cache dir / unreadable manifest: nothing registered
+        cached = {}
+    entries += [(p, n, v, f) for (p, n, v), f in cached.items()]
+    for plant, N, var, fname in entries:
         if variant == "all":
-            found[(plant, N, var)] = os.path.basename(so)
+            found.setdefault((plant, N, var), fname)
         elif var == variant:
-            found[(plant, N)] = os.path.basename(so)
+            found.setdefault((plant, N), fname)
     return found
 
 
@@ -49,9 +57,15 @@ def robot_info(plant_type):
     """Registry metadata for a plant ({nq, nv, ee_frame, urdf, floating_base,
     contact_frames, collision, codegen_key}), or {} if unregistered.
 
-    The registry (_registry.json) is written by gato.build / tools/regen_grid.py."""
+    The registry (_registry.json) is written by gato.build / tools/regen_grid.py;
+    robots registered with gato.register_robot are read from the per-host cache."""
     from .builder import load_registry
-    return load_registry().get(plant_type, {})
+    info = load_registry().get(plant_type)
+    if info is None:
+        from . import _cache
+        entry = _cache.robot_entry(plant_type)
+        info = dict(entry["meta"], codegen_key=entry["codegen_key"]) if entry else {}
+    return info
 
 
 # S·λ = γ linear-system paths (see gato/bsqp/kernels/{pcg,bdsv}.cuh):
@@ -222,14 +236,19 @@ class BSQP:
         try:
             base = importlib.import_module("gato." + mod)
         except ImportError as e:
-            flag = {"fc": " contact_forces=True", "eh": " exact_hessian=True", "default": ""}[self.variant]
-            raise ValueError(
-                f"No compiled module for plant={plant_type!r}, N={N}, variant={self.variant!r} "
-                f"(could not import gato.{mod}): {e}\n"
-                f"Built modules: {sorted(available('all')) or 'none'} — build with, e.g.:\n"
-                f"  python -c \"import gato; gato.build('{model_path}', name='{plant_type}', N=[{N}],{flag})\"\n"
-                f"  or: cmake -S . -B build -DMODULES={plant_type}:{N} && cmake --build build --parallel 2"
-            )
+            # the per-host cache (gato.register_robot): compiles once on first use
+            from . import _cache
+            base = _cache.load_module(plant_type, N, self.variant)
+            if base is None:
+                flag = {"fc": " contact_forces=True", "eh": " exact_hessian=True", "default": ""}[self.variant]
+                raise ValueError(
+                    f"No compiled module for plant={plant_type!r}, N={N}, variant={self.variant!r} "
+                    f"(could not import gato.{mod}): {e}\n"
+                    f"Built modules: {sorted(available('all')) or 'none'}. Register the robot once —\n"
+                    f"  python -c \"import gato; gato.register_robot('{plant_type}', '{model_path}', N=[{N}])\"\n"
+                    f"— and the first solver constructed for it compiles the module (cached afterwards);\n"
+                    f"from a source checkout: gato.build('{model_path}', name='{plant_type}', N=[{N}],{flag})"
+                )
 
         # batch_size is a runtime constructor argument (one class per precision)
         class_name = "BSQP_float"

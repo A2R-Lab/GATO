@@ -54,7 +54,8 @@ find_package(CUDAToolkit REQUIRED)
 # Headers from the pinned grid-rbd wheel: GLASS (global `glass::`, distinct from
 # grid.cuh's vendored `grid::glass`) and GRiD's collision primitives. gato._grid
 # refuses an unpinned install, so a build never silently compiles against the wrong GLASS.
-execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/python/gato/_grid.py
+# `gato` is importable from the configured python (editable checkout or installed wheel).
+execute_process(COMMAND ${Python3_EXECUTABLE} -m gato._grid
                 OUTPUT_VARIABLE GATO_GRID_INCLUDE_DIRS OUTPUT_STRIP_TRAILING_WHITESPACE
                 COMMAND_ERROR_IS_FATAL ANY)
 message(STATUS "grid-rbd include dirs: ${GATO_GRID_INCLUDE_DIRS}")
@@ -92,6 +93,9 @@ set(PLANT_DEFAULT "indy7;iiwa14")
 # them up). Point it elsewhere for side-by-side variant builds (e.g. an
 # exact-Hessian A/B) so a variant configure can't clobber the default modules.
 set(GATO_MODULE_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/python/gato" CACHE PATH "Output directory for the bsqp python modules")
+# Where <plant>/{grid.cuh,limits.cuh} live: the checkout's vendored robots by default;
+# gato.register_robot points this at its per-host cache for user robots.
+set(GATO_PLANT_ROOT "${CMAKE_SOURCE_DIR}/gato/dynamics" CACHE PATH "Directory holding <plant>/{grid.cuh,limits.cuh}")
 set(KNOTS "${KNOTS_DEFAULT}" CACHE STRING "Semicolon-separated horizon lengths (e.g., 32;64;128)")
 set(PLANT "${PLANT_DEFAULT}" CACHE STRING "Semicolon-separated plant targets (e.g., indy7;iiwa14)")
 # Explicit per-plant horizons: 'plant:N,N;plant:N' (overrides the PLANT x KNOTS
@@ -170,9 +174,9 @@ foreach(pair ${GATO_MODULE_PAIRS})
     message(FATAL_ERROR "module ${pair}: variant must be default|fc|eh")
   endif()
   foreach(gen_header grid.cuh limits.cuh)
-    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}/${gen_header}")
-      message(FATAL_ERROR "Plant '${plant}': missing gato/dynamics/${plant}/${gen_header} "
-                          "(generate it with gato.build / tools/regen_grid.py)")
+    if(NOT EXISTS "${GATO_PLANT_ROOT}/${plant}/${gen_header}")
+      message(FATAL_ERROR "Plant '${plant}': missing ${GATO_PLANT_ROOT}/${plant}/${gen_header} "
+                          "(generate it with gato.register_robot / gato.build / tools/regen_grid.py)")
     endif()
   endforeach()
   block()
@@ -186,7 +190,7 @@ foreach(pair ${GATO_MODULE_PAIRS})
     # Bind the module to actual native inputs, not their mtimes. Reconfigure
     # after source changes (tools/build.sh does this) before signing a receipt.
     execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/native_identity.py
-                    --plant ${plant} OUTPUT_VARIABLE _native_id
+                    --plant ${plant} --plant-root ${GATO_PLANT_ROOT} OUTPUT_VARIABLE _native_id
                     OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
     target_compile_definitions(${MODULE_NAME} PRIVATE GATO_NATIVE_SOURCE_ID="${_native_id}")
 
@@ -194,7 +198,7 @@ foreach(pair ${GATO_MODULE_PAIRS})
     # header; the wheel's collision dir supplies grid_collision_geometry.cuh
     # (SDF primitives grid.cuh includes when built with collision_res).
     target_include_directories(${MODULE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/gato
-                                                      ${CMAKE_SOURCE_DIR}/gato/dynamics/${plant}
+                                                      ${GATO_PLANT_ROOT}/${plant}
                                                       ${GATO_GRID_INCLUDE_DIRS})
 
     target_compile_definitions(${MODULE_NAME} PRIVATE

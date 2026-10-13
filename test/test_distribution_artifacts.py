@@ -3,8 +3,9 @@
 Builds the wheel + sdist from a CLEAN export of the tracked tree (git archive)
 and asserts the honest contract:
   * the wheel is pure-python (universal tag) and carries NO native solver
-    modules — they are CMake/arch/CUDA-specific and must come from a source
-    tree build;
+    modules — they are CMake/arch/CUDA-specific and are compiled on the
+    user's machine (gato.register_robot) from the native SOURCES the wheel
+    ships under gato/_native;
   * the sdist includes GATO-owned build sources: CMakeLists.txt, gato/, the
     bindings TU, tools/build.sh and vendored arm descriptions. It does NOT
     include external dependency trees and is not a standalone native build.
@@ -45,6 +46,8 @@ def artifacts(repo_root, tmp_path_factory):
 
 
 def test_wheel_is_pure_python_without_native_modules(artifacts):
+    """Universal wheel: python layer + GATO's native SOURCES (so register_robot
+    can compile on the user's machine), never compiled modules."""
     whl, _ = artifacts
     assert whl.name.endswith("py3-none-any.whl"), whl.name
     names = zipfile.ZipFile(whl).namelist()
@@ -52,7 +55,12 @@ def test_wheel_is_pure_python_without_native_modules(artifacts):
     assert not native, f"native modules must never ride a universal wheel: {native}"
     assert any(n.endswith("gato/_registry.json") for n in names)
     assert any(n.endswith("gato/interface.py") for n in names)
-    assert whl.stat().st_size < 2_000_000, "wheel should be the python layer only"
+    for src in ("gato/_native/CMakeLists.txt", "gato/_native/python/bindings.cu",
+                "gato/_native/tools/native_identity.py", "gato/_native/gato/bsqp/bsqp.cuh",
+                "gato/_native/gato/dynamics/plant.cuh", "gato/_native/gato/dynamics/indy7/grid.cuh",
+                "gato/_native/gato/dynamics/go2/grid.cuh"):
+        assert any(n.endswith(src) for n in names), f"wheel must ship the native source {src}"
+    assert whl.stat().st_size < 12_000_000, "wheel is the python layer plus native sources (no binaries)"
 
 
 def test_sdist_contains_owned_build_sources(artifacts):

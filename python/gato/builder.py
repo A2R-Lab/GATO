@@ -195,7 +195,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
         raise FileNotFoundError(f"URDF not found: {urdf_path}")
-    root = repo_root()
+    root = None if out_dir else repo_root()   # an explicit out_dir (the cache) needs no checkout
     out_dir = Path(out_dir) if out_dir else root / "gato" / "dynamics" / name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -261,7 +261,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         stale_abi.unlink()
 
     try:
-        urdf_rel = str(urdf_path.relative_to(root))
+        urdf_rel = str(urdf_path.relative_to(root)) if root else str(urdf_path)
     except ValueError:
         urdf_rel = str(urdf_path)
     meta = {"nq": robot.get_num_pos(), "nv": robot.get_num_vel(),
