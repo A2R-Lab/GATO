@@ -110,6 +110,7 @@ class SolverStats:
     # non-PD pivot — barely-regularized costs; λ kept its warm start and rho
     # adaptation retries). Only == 0 carries meaning downstream.
     linsys: str = "pcg"         # "pcg" | "bdsv" | "bdsv_first"
+    budget_hit: bool = False    # the SQP loop stopped on solve(budget_s=...), not on convergence
     # constraint row-group telemetry (None until a row group exists — any
     # enable_limit_* mode or an appended group): (n_groups, B) true violation of
     # the RETURNED trajectory per group, in get_row_groups() order (the three
@@ -355,6 +356,7 @@ class BSQP:
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
         self._n_appended_groups = 0
         self.exact_hessian = False  # the C++ default
+        self._time_budget_us = 0.0  # solve(budget_s=...) state mirrored in the C++ solver
         if params.exact_hessian:
             self.set_exact_hessian(True)
 
@@ -377,6 +379,19 @@ class BSQP:
         if mode not in ("bdsv_factor", "pcg"):
             raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')
         self.solver.set_admm_linsys_pcg(mode == "pcg")
+
+    def _apply_budget(self, budget_s):
+        """Mirror solve(budget_s=...) into the C++ solver (a host-side switch; only
+        touched when the value changes, so the unbudgeted path makes no extra call)."""
+        if budget_s is None:
+            us = 0.0
+        else:
+            us = float(budget_s) * 1e6
+            if not us > 0.0:
+                raise ValueError(f"budget_s must be positive (None = no budget), got {budget_s!r}")
+        if us != self._time_budget_us:
+            self.solver.set_time_budget_us(us)
+            self._time_budget_us = us
 
     def set_collect_stats(self, on):
         """Collect per-iteration solver stats (PCG timings via cudaEvents,
@@ -451,9 +466,20 @@ class BSQP:
             xu_ptr, keep_xu = _arrays.device_f32(xu_warm, B * self.xu_size, "xu_warm")
         return self.solver.solve_device(int(xu_ptr), self.dt, int(x_ptr), int(g_ptr))
 
-    def solve(self, xcur_B, eepos_goals_B, xu_warm=None):
+    def solve(self, xcur_B, eepos_goals_B, xu_warm=None, *, budget_s=None):
         """Solve the batch from states ``xcur_B`` (B, nx) toward the EE reference
         ``eepos_goals_B`` (B, 6N) — see the class docstring for both layouts.
+
+        ``budget_s``: wall-clock budget for the SQP loop, in seconds. The loop
+        runs the next iteration only while the time spent so far plus that
+        iteration's predicted cost (its measured cost in the previous budgeted
+        solve; the most expensive iteration of this solve when there is none)
+        still fits, and returns the current trajectory (the line search
+        accepts descent steps only, so it is the best plan so far); the first
+        iteration always runs. The cut is at the iteration boundary, never
+        inside a kernel, so a budget is exceeded by at most one iteration. ``SolverStats.budget_hit`` reports a
+        budget stop and ``sqp_iters`` the iterations run. None (default): no
+        budget, ``max_sqp_iters`` iterations, the path unchanged by this option.
 
         ``xu_warm`` (B, N*(nx+nu)-nu): the warm-start trajectory. None seeds a
         hold at ``xcur_B`` (a cold start; NOT the previous solution — the solver
@@ -470,6 +496,7 @@ class BSQP:
         host path is not applied). CPU tensors go through the host path.
         """
         from . import _arrays
+        self._apply_budget(budget_s)
         in_kind = _arrays.kind(xcur_B)
         if _arrays.is_cuda(xcur_B):
             raw = self._solve_device(xcur_B, eepos_goals_B, xu_warm)
@@ -503,6 +530,7 @@ class BSQP:
             min_merit=np.asarray(raw["ls_min_merit"], dtype=np.float32).reshape(-1, B),
             step_size=np.asarray(raw["ls_step_size"], dtype=np.float32).reshape(-1, B),
             linsys=_LINSYS_NAMES[int(raw.get("linsys_mode", 0))],
+            budget_hit=bool(raw["budget_hit"]),
             row_max_violation=(np.asarray(raw["row_max_violation"], dtype=np.float32)
                                if "row_max_violation" in raw else None),
             row_sum_violation=(np.asarray(raw["row_sum_violation"], dtype=np.float32)

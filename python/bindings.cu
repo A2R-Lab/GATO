@@ -234,6 +234,7 @@ class PyBSQP {
                 result["final_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_final_merit.data());
                 result["initial_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_initial_merit.data());
                 result["linsys_mode"] = solver_.linsys_mode();
+                result["budget_hit"] = stats.budget_hit;
 
                 // Per-iteration stats: shape them as (iters, batch_size)
                 result["ls_num_iters"] = static_cast<int>(stats.line_search_stats.size());
@@ -463,6 +464,7 @@ class PyBSQP {
         void reset_rho() { solver_.reset_rho(); }
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
         void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
+        void set_time_budget_us(double us) { solver_.set_time_budget_us(us); }
         void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
         void set_admm_linsys_pcg(bool on) { solver_.set_admm_linsys_pcg(on); }
         void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
@@ -682,6 +684,7 @@ class PyBSQP {
             .def("reset_rho", &PyBSQP<Type>::reset_rho)                                                                                                                                            \
             .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
             .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
+            .def("set_time_budget_us", &PyBSQP<Type>::set_time_budget_us, py::arg("us"))                                                                                                                                \
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
             .def("set_admm_linsys_pcg", &PyBSQP<Type>::set_admm_linsys_pcg, py::arg("on"))                                                                                                             \
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \

@@ -195,9 +195,9 @@ def test_reseed_triggers_hold_seed_and_forces_cold(make_solver, smallest_module)
     seen = {}
     orig_solve = solver.solve
 
-    def spy(xcur_B, goals_B, XU_B=None):
+    def spy(xcur_B, goals_B, XU_B=None, **kw):
         seen["xu"] = np.array(XU_B, copy=True)
-        return orig_solve(xcur_B, goals_B, XU_B)
+        return orig_solve(xcur_B, goals_B, XU_B, **kw)
 
     solver.solve = spy
     r = ctrl.step(x0, ref)               # warm: no reseed, warm path
@@ -269,3 +269,37 @@ def test_linsys_auto_default_deterministic(make_solver, smallest_module):
         return np.stack(out)
 
     np.testing.assert_array_equal(run(), run())
+
+
+def test_deadline_budget(make_solver, smallest_module):
+    """step(budget_s=...) is the iteration-level cutoff: a budget no iteration
+    fits runs exactly one (bit-identical to a max_sqp_iters=1 solver) and
+    reports it; a generous budget changes nothing; None is the unbudgeted path
+    and a later unbudgeted step on the same controller is unbudgeted again."""
+    plant, N = smallest_module
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+
+    def run(budget_s, **kw):
+        s = make_solver(plant, N, batch_size=1, **kw)
+        c = MPCController(s, linsys="pcg")
+        x0 = np.full(s.nx, 0.1, dtype=np.float32)
+        c.reset(x0)
+        return c, c.step(x0, ref, budget_s=budget_s)
+
+    _, base = run(None)
+    assert base.iterations == int(base.solve.stats.sqp_iters.max()) >= 2
+    assert not base.budget_hit and not base.solve.stats.budget_hit and base.wall_s > 0.0
+
+    c, tiny = run(1e-9)
+    assert tiny.iterations == 1 and tiny.budget_hit and tiny.solve.stats.budget_hit
+    _, one = run(None, max_sqp_iters=1)
+    np.testing.assert_array_equal(tiny.xu_best, one.xu_best)
+    again = c.step(np.full(c.nx, 0.1, dtype=np.float32), ref)
+    assert not again.budget_hit and again.iterations >= 1
+
+    _, big = run(10.0)
+    assert not big.budget_hit and big.iterations == base.iterations
+    np.testing.assert_array_equal(big.xu_best, base.xu_best)
+
+    with pytest.raises(ValueError, match="budget_s"):
+        run(0.0)

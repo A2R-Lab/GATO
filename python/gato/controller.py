@@ -7,6 +7,7 @@ and timing belong to the caller (a gym env, a hardware loop, or the legacy
 MPC_GATO driver).
 """
 from dataclasses import dataclass
+from time import perf_counter
 
 import numpy as np
 
@@ -28,6 +29,9 @@ class StepResult:
     pred_err: float = 0.0    # ‖x_measured − x_predicted‖ (warm-startedness; drives linsys="auto")
     reseeded: bool = False   # this step's warm start was re-seeded to hold-at-x
     fc: np.ndarray = None    # (n_fc,) the winner's first contact-wrench slots (fc variants; else empty)
+    iterations: int = 0      # SQP iterations the solve ran (the batch runs them in lockstep)
+    budget_hit: bool = False # the solve stopped on step(budget_s=...) rather than on max_sqp_iters/convergence
+    wall_s: float = 0.0      # wall time of this step() call, entry to return (host staging + solve + shift)
 
 
 class MPCController:
@@ -168,7 +172,7 @@ class MPCController:
         self._u_prev = res.xu[0, self.nx : self.nx + self.nu].copy()
         return res
 
-    def step(self, x_measured, reference, dt_elapsed=None):
+    def step(self, x_measured, reference, dt_elapsed=None, *, budget_s=None):
         """One MPC tick: solve from the measured state, return the control.
 
         Args:
@@ -177,11 +181,24 @@ class MPCController:
             dt_elapsed: how long the PREVIOUS control was actually applied
                 (used only for hypothesis scoring); defaults to solver.dt.
                 Pass the REALIZED integration time, not wall time.
+            budget_s: wall-clock budget for this step, in seconds, measured
+                from entry. The solver runs SQP iterations while the time
+                spent plus the next iteration's predicted cost (its measured
+                cost in the previous budgeted solve) still fits the remainder,
+                then returns the best plan so far (always at least one
+                iteration; the cut is at an iteration boundary, so a budget is
+                exceeded by at most one iteration).
+                None (default): ``max_sqp_iters`` iterations, the path
+                unchanged by this option. ``StepResult.iterations``,
+                ``budget_hit`` and ``wall_s`` report what happened.
 
         ``x_measured`` / ``reference`` may be numpy, torch or JAX arrays on any
         device; the controller runs the solver's host path (its warm-start
         buffer is host memory) and returns ``u`` in the caller's kind.
         """
+        t0 = perf_counter()
+        if budget_s is not None and not float(budget_s) > 0.0:
+            raise ValueError(f"budget_s must be positive (None = no budget), got {budget_s!r}")
         from . import _arrays
         in_kind = _arrays.kind(x_measured)
         in_device = getattr(x_measured, "device", None) if in_kind == "torch" else None
@@ -219,8 +236,11 @@ class MPCController:
             self.solver.reset_rho()
         self._XU[:, : self.nx] = x
 
+        # the solver's budget is what is left of the step's: host staging above
+        # counts; a budget already spent still buys the one iteration that always runs
+        remaining = None if budget_s is None else max(float(budget_s) - (perf_counter() - t0), 1e-9)
         res = self.solver.solve(np.tile(x, (self.batch_size, 1)),
-                                np.tile(ref, (self.batch_size, 1)), self._XU)
+                                np.tile(ref, (self.batch_size, 1)), self._XU, budget_s=remaining)
 
         # reality picks the winning hypothesis (0 on the first tick / B==1)
         best_id = 0
@@ -255,4 +275,6 @@ class MPCController:
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
             pred_err=pred_err, reseeded=reseeded,
+            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
+            wall_s=perf_counter() - t0,
         )

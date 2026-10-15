@@ -51,6 +51,7 @@ struct SQPStats {
         // for each solve
         std::vector<int> sqp_iterations;
         std::vector<int> kkt_converged;  // 1 if converged, 0 if not
+        bool             budget_hit = false;  // the SQP loop stopped on set_time_budget_us (not on convergence)
 
         // for each SQP iteration
         std::vector<PCGStats>           pcg_stats;

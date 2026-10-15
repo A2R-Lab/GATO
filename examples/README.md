@@ -13,7 +13,8 @@ use the Indy7 at N64: in a checkout build it once (`MODULES="indy7:64" JOBS=2
 --profile receipt` covers the shipped variants. Install `--test` for pinocchio, MuJoCo and gymnasium; `--examples`
 adds plotting/notebook dependencies. These are correctness demos, not benchmarks.
 They demonstrate API use and simulated behavior, not guaranteed joint-limit
-feasibility or real-time deadlines. Inspect the printed violation telemetry and
+feasibility or real-time deadlines (a step budget bounds the solver's
+iterations, not your loop). Inspect the printed violation telemetry and
 the independent simulated trajectory before interpreting a task as feasible.
 
 | Script | Shows |
@@ -28,6 +29,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`08_linsys_and_autotune.py`](08_linsys_and_autotune.py) | The `pcg` / `bdsv` / `bdsv_first` linear-system paths, cold vs warm-started, and where `tools/autotune_linsys.py` fits in. |
 | [`09_mpc_with_limits.py`](09_mpc_with_limits.py) | Joint limits in closed loop: the ADMM box mechanism holds a velocity cap the figure-8 cannot meet; the simulated plant, not the planner, is graded. |
 | [`10_torch_jax_arrays.py`](10_torch_jax_arrays.py) | The solver as a batched tensor op: torch / JAX CUDA arrays in, the same kind out through DLPack, bit-identical to the numpy path; warm starts stay on the device. |
+| [`11_deadline_step.py`](11_deadline_step.py) | The deadline-aware step: `step(x, ref, budget_s=...)` runs SQP iterations while the next one still fits and returns the best plan so far; iterations, budget hits and wall time per tick. |
 
 ```bash
 python examples/01_single_solve.py
@@ -40,6 +42,7 @@ python examples/07_go2_floating.py --fc     # standing; needs bsqpN16_go2_fc
 python examples/08_linsys_and_autotune.py
 python examples/09_mpc_with_limits.py
 python examples/10_torch_jax_arrays.py
+python examples/11_deadline_step.py
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

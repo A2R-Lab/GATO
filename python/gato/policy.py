@@ -58,12 +58,15 @@ class MPCPolicy:
             also used as the hypothesis-scoring dt.
         obs_to_state: maps the env observation to the (nx,) solver state
             (default: identity/asarray — for envs whose obs IS [q, dq]).
+        budget_s: per-call wall-clock budget handed to ``MPCController.step``
+            (iterations while the next one still fits; None = unbudgeted).
     """
 
-    def __init__(self, controller, reference, dt_step, obs_to_state=None):
+    def __init__(self, controller, reference, dt_step, obs_to_state=None, budget_s=None):
         self.controller = controller
         self.reference = reference
         self.dt_step = float(dt_step)
+        self.budget_s = budget_s  # per-call step budget (MPCController.step budget_s); None = unbudgeted
         self.obs_to_state = obs_to_state or (lambda o: np.asarray(o, dtype=np.float32))
         self.t = 0.0
         self.last = None  # StepResult of the most recent __call__
@@ -78,7 +81,8 @@ class MPCPolicy:
 
     def __call__(self, obs):
         x = self.obs_to_state(obs)
-        r = self.controller.step(x, self.reference.window(self.t), dt_elapsed=self.dt_step)
+        r = self.controller.step(x, self.reference.window(self.t), dt_elapsed=self.dt_step,
+                                 budget_s=self.budget_s)
         self.t += self.dt_step
         self.last = r
         return r.u

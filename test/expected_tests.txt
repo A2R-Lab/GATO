@@ -395,3 +395,6 @@ test/test_examples.py::test_intro_example_syntax[10_torch_jax_arrays.py]
 test/test_cpp_interface.py::test_paths_resolve_vendored_robot
 test/test_cpp_interface.py::test_paths_cli_formats
 test/test_cpp_interface.py::test_standalone_cpp_example_builds_and_runs
+test/test_controller.py::test_deadline_budget
+test/test_smoke_solve.py::test_solve_budget_cutoff
+test/test_examples.py::test_intro_example_syntax[11_deadline_step.py]

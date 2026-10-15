@@ -135,19 +135,37 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   does not pin is the default-mech trap.
 - `MuJoCoWorld.last_contact["fn_by_body"]` splits the normal force per robot
   link (URDF link name) — the per-foot signal the standing gates read.
-- **`MPCController.step()` contract.** One call = one solve of
-  `SolverParams.max_sqp_iters` SQP iterations (each with its PCG/ADMM budget)
-  from the measured state, warm-started from the previous tick's shifted
-  plan; it returns when that budget is spent or the merit test stops it. There
-  is **no time budget and no deadline-aware exit**: the step takes as long as
-  its iterations take, and the caller owns the schedule (choose `max_sqp_iters`
-  and `N` so the measured step fits your period; the paired internal-vs-wall
-  numbers are in the [figure refresh](figure-refresh-2026-10-01.md), controller
-  call boundaries). `StepResult.u` is the ACTUATED control only (what you
-  apply; `StepResult.fc` carries the contact-wrench slots on fc variants);
+- **`MPCController.step()` contract.** One call = one solve from the measured
+  state, warm-started from the previous tick's shifted plan, of up to
+  `SolverParams.max_sqp_iters` SQP iterations (each with its PCG/ADMM budget);
+  it returns when those are spent, when the merit test stops it, or when a
+  time budget is hit. **Time budget**: `step(x, ref, budget_s=...)` (and
+  `solve(..., budget_s=...)` on the raw solver) is measured from entry to the
+  call; the solver runs the next SQP iteration only while the time spent plus
+  that iteration's predicted cost still fits, then returns the best plan so
+  far (the line search accepts descent steps only, so that is the current
+  trajectory). The prediction is the measured cost of the same iteration in
+  the previous budgeted solve, since an MPC tick repeats its predecessor's
+  profile (the first iteration carries the PCG work, the later ones are cheap
+  refinements); the most expensive iteration of the current solve stands in
+  when there is no history. At least one iteration always runs and the
+  cut is at an iteration boundary, never inside a kernel, so the budget holds
+  to within one iteration. It is a budget, not a hard real-time guarantee:
+  launch latency and the caller's own loop are outside it, and a GPU shared
+  with other work stretches the iteration it measures. `budget_s=None`
+  (default) is the unbudgeted path, unchanged by the option: the step takes as
+  long as its iterations take and the caller owns the schedule (choose
+  `max_sqp_iters` and `N` so the measured step fits your period; the paired
+  internal-vs-wall numbers are in the [figure refresh](figure-refresh-2026-10-01.md),
+  controller call boundaries). `StepResult.iterations`, `budget_hit` and
+  `wall_s` (the raw solver: `SolverStats.sqp_iters`, `budget_hit`) report what
+  happened. `StepResult.u` is the ACTUATED control only (what you apply;
+  `StepResult.fc` carries the contact-wrench slots on fc variants);
   `StepResult.solve.stats` carries the iteration counts and, once a row group
   exists, the true violation of the returned plan (`row_max_violation`).
-  Solves are bit-deterministic run-to-run; batch entries are independent.
+  Solves are bit-deterministic run-to-run; batch entries are independent. A
+  budgeted solve is deterministic in its result given the iteration count it
+  reached, but that count depends on the clock.
 - The measured state enters as a hard initial-state constraint (x_0 is data;
   don't put state limits at knot 0 — they'd be unsatisfiable under violation).
 
@@ -199,9 +217,12 @@ the defines `KNOT_POINTS`, `GATO_PLANT_NAME`, `GATO_PLANT_HEADER` (+ one per
 variant). `python -m gato.paths --robot R --N N [--variant V]` prints the
 include directories (GATO, the robot's generated headers, GLASS and the
 collision header from the pinned grid-rbd wheel), defines and flags;
-`examples/cpp/` has the template and a standalone CMake. Stable: the class,
-`ProblemInputs`, `SQPStats` (`solve_time_us`, per-row `sqp_iterations`), the
-three defines and the array layouts. Not stable: private members, kernel
+`examples/cpp/` has the template and a standalone CMake. The time budget is
+`set_time_budget_us(us)` (0 = off) with the stop reported in
+`SQPStats::budget_hit`, the same iteration-boundary semantics as `budget_s`
+above. Stable: the class, `ProblemInputs`, `SQPStats` (`solve_time_us`,
+per-row `sqp_iterations`, `budget_hit`), the three defines and the array
+layouts. Not stable: private members, kernel
 signatures, and anything under `gato/bsqp/kernels/`.
 
 ## 9. API stability

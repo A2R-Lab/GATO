@@ -94,3 +94,26 @@ def test_terminal_merit_ignores_stale_shared_memory(urdfs):
         res = solver.solve(np.zeros((B, solver.nx), np.float32), np.tile(goal, (B, 1)))
         assert np.isfinite(res.stats.initial_merit).all(), res.stats.initial_merit
         assert np.isfinite(res.stats.min_merit).all()
+
+
+def test_solve_budget_cutoff(make_solver, smallest_module):
+    """solve(budget_s=...): the iteration-level cutoff on the raw solver. A budget
+    no iteration fits runs exactly one iteration on every batch entry, bit-identical
+    to a max_sqp_iters=1 solver, and reports it; None reports no budget stop."""
+    plant, N = smallest_module
+    x, goals = arm_problem(plant, N, B=3, jitter=0.05)
+    s = make_solver(plant, N, batch_size=3)
+    r = s.solve(x, goals, budget_s=1e-9)
+    assert r.stats.budget_hit and (r.stats.sqp_iters == 1).all()
+    one = make_solver(plant, N, batch_size=3, max_sqp_iters=1).solve(x, goals)
+    assert not one.stats.budget_hit
+    np.testing.assert_array_equal(r.xu, one.xu)
+    full = make_solver(plant, N, batch_size=3).solve(x, goals)
+    assert not full.stats.budget_hit and int(full.stats.sqp_iters.max()) >= 2
+    with pytest.raises(ValueError, match="budget_s"):
+        s.solve(x, goals, budget_s=-1.0)
+    # a one-iteration solver under a generous budget: the iteration-cost history
+    # has one slot and the solve ends on max_sqp_iters, not on the budget
+    r1 = make_solver(plant, N, batch_size=3, max_sqp_iters=1).solve(x, goals, budget_s=1.0)
+    assert not r1.stats.budget_hit and (r1.stats.sqp_iters == 1).all()
+    np.testing.assert_array_equal(r1.xu, one.xu)

@@ -39,7 +39,9 @@ research software, not a certified robot controller.
   assume concurrent solves on a shared solver instance are supported.
 - **Timing:** internal solve time and `MPCController.step` wall time have
   different boundaries. Neither includes the entire robot cycle; small median
-  durations do not establish deadline compliance. The dated October 6 results
+  durations do not establish deadline compliance. `step(..., budget_s=...)`
+  bounds the solver's SQP iterations to the budget (to within one iteration,
+  measured on the host); it is not a real-time guarantee for the loop around it. The dated October 6 results
   were collected on the current GRiD/GLASS pins.
 - **Dependencies:** MuJoCo remains pinned below 3.14 pending verification of a
   version fixing the observed URDF-compilation crash. Do not bypass that pin

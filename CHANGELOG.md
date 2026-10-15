@@ -1,6 +1,19 @@
 # Changelog
 
-Installs are source-tree only (no tag, no PyPI release); the version is `gato.__version__`.
+Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
+
+## Unreleased
+
+- Deadline-aware step: `MPCController.step(x, ref, budget_s=...)` and
+  `BSQP.solve(..., budget_s=...)` run SQP iterations while the time spent plus
+  the next iteration's predicted cost (its measured cost in the previous
+  budgeted solve) still fits the budget, then return the best plan so far (at
+  least one iteration; the cut is at the iteration boundary, never inside a
+  kernel, so a budget is exceeded by at most one iteration). `StepResult.iterations`,
+  `budget_hit`, `wall_s` and `SolverStats.budget_hit` report what happened;
+  `MPCPolicy(..., budget_s=...)` passes it through. C++: `set_time_budget_us`
+  and `SQPStats::budget_hit`. `budget_s=None` is the previous behaviour, with
+  the solver loop unchanged. `examples/11_deadline_step.py`.
 
 ## 0.1.1 — 2026-10-13: the pip-install path
 

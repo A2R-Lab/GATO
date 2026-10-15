@@ -135,6 +135,24 @@ class BSQP {
 
         void set_rho_adaptation(bool enabled) { adapt_rho_ = enabled; }
         void set_collect_stats(bool enabled) { collect_stats_ = enabled; }
+
+        // Deadline-aware solve (plan H1, 2026-10-15): with a positive budget the SQP
+        // loop runs iteration i only when the time already spent plus the predicted
+        // cost of iteration i still fits; it returns the current trajectory (the line
+        // search only accepts descent steps, so that IS the best plan so far).
+        // Iteration 0 always runs. The prediction is the measured cost of iteration
+        // i in the previous budgeted solve (an MPC tick repeats its predecessor's
+        // iteration profile: in a warm-started tick iteration 0 carries the PCG work,
+        // the later ones are cheap refinements — measured 2026-10-15, Indy7 N64:
+        // 0.32 ms then ~0.14 ms each), falling back to the most expensive iteration
+        // of this solve when there is no history for i. The cutoff is at the
+        // iteration boundary (host side), never mid kernel, so a budget is exceeded
+        // by at most one iteration (when the prediction was low). Measuring costs one
+        // stream synchronization per iteration while a budget is set. 0 (default) =
+        // no budget: the loop is byte-identical to before this switch existed.
+        // SQPStats::budget_hit reports a budget stop.
+        void set_time_budget_us(double us) { time_budget_us_ = us > 0.0 ? us : 0.0; }
+        double time_budget_us() const { return time_budget_us_; }
         // (Re)install the canonical three limit groups (BOX_Q / BOX_QD / BOX_U from the
         // vendored URDF tables) bound to one mechanism; the enable_limit_* methods
         // validate their own knobs and call this. Appended groups (EE / LIN_U /
@@ -916,8 +934,35 @@ class BSQP {
                         rows::admm_init_state_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/true, h_env_);
                 }
 
-                // SQP Loop
+                // SQP Loop. set_time_budget_us: iteration costs are measured between loop
+                // boundaries with the stream drained (iteration 0 from the loop entry: the
+                // pre-loop memsets and merit count as elapsed time, not as an iteration's
+                // cost) and remembered per iteration index for the next budgeted solve.
+                const bool budgeted = time_budget_us_ > 0.0;
+                double   iter_cost_max_us = 0.0;   // most expensive iteration of this solve so far
+                uint32_t iters_started    = 0;
+                auto     iter_boundary    = sqp_start_time;
+                if (budgeted) {
+                        gpuErrchk(cudaEventRecord(sync_event_));
+                        gpuErrchk(cudaEventSynchronize(sync_event_));
+                        iter_boundary = std::chrono::high_resolution_clock::now();
+                }
                 for (uint32_t i = 0; i < max_sqp_iters_; i++) {
+                        if (budgeted && i > 0) {
+                                // the previous iteration's line search is still in the stream:
+                                // wait for it so the boundary time is a full iteration's cost
+                                gpuErrchk(cudaEventRecord(sync_event_));
+                                gpuErrchk(cudaEventSynchronize(sync_event_));
+                                const auto now = std::chrono::high_resolution_clock::now();
+                                const double iter_us = std::chrono::duration<double, std::micro>(now - iter_boundary).count();
+                                const double elapsed_us = std::chrono::duration<double, std::micro>(now - sqp_start_time).count();
+                                iter_boundary = now;
+                                iter_cost_hist_[i - 1] = iter_us;
+                                if (iter_us > iter_cost_max_us) { iter_cost_max_us = iter_us; }
+                                const double predicted_us = iter_cost_hist_[i] > 0.0 ? iter_cost_hist_[i] : iter_cost_max_us;
+                                if (elapsed_us + predicted_us > time_budget_us_) { sqp_stats.budget_hit = true; break; }
+                        }
+                        iters_started = i + 1;
                         setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
 
@@ -1056,6 +1101,11 @@ class BSQP {
                 // success and leaves both trajectory and merit untouched on failure).
 
                 gpuErrchk(cudaDeviceSynchronize());
+                if (budgeted && !sqp_stats.budget_hit && iters_started > 0) {
+                        // the last iteration had no boundary after it: record its cost here
+                        iter_cost_hist_[iters_started - 1] = std::chrono::duration<double, std::micro>(
+                            std::chrono::high_resolution_clock::now() - iter_boundary).count();
+                }
 
                 // row-group telemetry on the RETURNED trajectory (off the solver path;
                 // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
@@ -1212,6 +1262,7 @@ class BSQP {
 
                 gpuErrchk(cudaMallocHost(&h_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMallocHost(&h_sqp_iters_B_, BI));
+                iter_cost_hist_.assign(max_sqp_iters_, 0.0);
                 gpuErrchk(cudaMallocHost(&h_pcg_iters_, BI));
                 // per-iteration line-search stat staging (read once after the final sync)
                 gpuErrchk(cudaMallocHost(&h_ls_min_merit_, max_sqp_iters_ * BT));
@@ -1373,6 +1424,8 @@ class BSQP {
         cudaEvent_t pcg_start_event_, pcg_stop_event_;
         uint32_t*   h_sqp_iters_B_;
         uint32_t    max_sqp_iters_;
+        double      time_budget_us_ = 0.0;  // set_time_budget_us (0 = off)
+        std::vector<double> iter_cost_hist_;  // per-iteration-index cost (us) from the last budgeted solve; 0 = unknown
         uint32_t    max_pcg_iters_;
         T           pcg_tol_;
         T           solve_ratio_;

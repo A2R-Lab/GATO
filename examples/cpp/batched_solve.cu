@@ -110,6 +110,21 @@ int main()
         solver.copy_final_merit_to_host(merit.data());
         std::printf("  warm-started solve: %.3f ms (internal solver time), merit row 0 %.3f\n", again.solve_time_us / 1000.0, merit[0]);
 
+        // deadline-aware solve: the SQP loop runs the next iteration only while the
+        // time spent plus that iteration's predicted cost (measured in the previous
+        // budgeted solve; the most expensive iteration so far on the first) fits the
+        // budget (set_time_budget_us; 0 = off), then returns the best plan so far.
+        // Half of the warm-started solve's time: expect fewer iterations and budget_hit.
+        gpuErrchk(cudaMemcpy2D(d_xu, XU_TRAJ_SIZE * sizeof(T), d_x, XU_STATE_SIZE * sizeof(T),
+                               XU_STATE_SIZE * sizeof(T), B, cudaMemcpyDeviceToDevice));
+        solver.set_time_budget_us(0.5 * again.solve_time_us);
+        SQPStats<T> budgeted = solver.solve(d_xu, inputs);
+        gpuErrchk(cudaDeviceSynchronize());
+        solver.set_time_budget_us(0.0);
+        std::printf("  budgeted solve (%.3f ms budget): %.3f ms, %d SQP iterations, budget hit: %s\n",
+                    0.5 * again.solve_time_us / 1000.0, budgeted.solve_time_us / 1000.0, budgeted.sqp_iterations[0],
+                    budgeted.budget_hit ? "yes" : "no");
+
         bool finite = true;
         gpuErrchk(cudaMemcpy(h_xu.data(), d_xu, h_xu.size() * sizeof(T), cudaMemcpyDeviceToHost));
         for (T v : h_xu) finite = finite && std::isfinite(v);
