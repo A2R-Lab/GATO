@@ -389,6 +389,7 @@ class PyBSQP {
         }
 
         void set_row_group_soft(int32_t g, T sigma) { solver_.set_row_group_soft(g, sigma); }
+        void set_row_group_rho(int32_t g, T rho) { solver_.set_row_group_rho(g, rho); }
         void set_admm_merit(bool on) { solver_.set_admm_merit(on); }
         void set_admm_rho_adaptation(bool on) { solver_.set_admm_rho_adaptation(on); }
         // per-solve adapted rho scale (B,): rho_effective = group rho * scale
@@ -437,6 +438,7 @@ class PyBSQP {
                         d["knot_lo"] = grp.knot_lo;
                         d["knot_hi"] = grp.knot_hi;
                         d["sigma"] = grp.sigma;
+                        d["rho"] = grp.mu;    // the mechanism weight: barrier mu / ADMM rho / AL rho
                         d["cone"] = grp.cone;
                         d["lo"] = lo;
                         d["hi"] = hi;
@@ -721,6 +723,7 @@ class PyBSQP {
             .def("set_row_group_targets", &PyBSQP<Type>::set_row_group_targets, py::arg("g"), py::arg("tgt")) \
             .def("set_row_group_bounds", &PyBSQP<Type>::set_row_group_bounds, py::arg("g"), py::arg("lo"), py::arg("hi"))                                                                            \
             .def("set_row_group_soft", &PyBSQP<Type>::set_row_group_soft, py::arg("g"), py::arg("sigma"))                                                                     \
+            .def("set_row_group_rho", &PyBSQP<Type>::set_row_group_rho, py::arg("g"), py::arg("rho"))                                                                         \
             .def("set_admm_merit", &PyBSQP<Type>::set_admm_merit, py::arg("on"))                                                                                              \
             .def("set_admm_rho_adaptation", &PyBSQP<Type>::set_admm_rho_adaptation, py::arg("on"))                                                                            \
             .def("get_admm_rho_scale", &PyBSQP<Type>::get_admm_rho_scale)                                                                                                     \

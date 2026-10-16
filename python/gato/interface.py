@@ -653,30 +653,60 @@ class BSQP:
         self.solver.enable_limit_barrier(float(mu), float(delta))
         self._row_mech = "barrier"
 
-    def enable_limit_admm(self, rho=0.01, iters=10, *, eps_abs=None, eps_rel=None, check_every=1):
+    def enable_limit_admm(self, rho=0.01, iters=10, *, rho_q=None, rho_qd=None, rho_u=None,
+                          eps_abs=None, eps_rel=None, check_every=1):
         """Bind the limit row-groups to the ADMM-projection mechanism: an OSQP-style
         inner loop per SQP iteration (``iters`` iterations, warm PCG or the reused
         direct factor, see set_admm_linsys) — the layer's "approximately hard"
-        mode; ``rho`` is the ADMM penalty. ``eps_abs`` / ``eps_rel`` (either given)
-        turn on the residual early exit of set_admm_exit, with ``iters`` as the cap.
+        mode; ``rho`` is the ADMM penalty, and ``rho_q`` / ``rho_qd`` / ``rho_u``
+        override it per box (position, velocity, torque rows; see
+        set_row_group_rho: the proximal fold belongs at each block's cost scale).
+        ``eps_abs`` / ``eps_rel`` (either given) turn on the residual early exit of
+        set_admm_exit, with ``iters`` as the cap.
 
         Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_admm`)."""
         self._check_no_appended_groups("enable_limit_admm")
         self.solver.enable_limit_admm(float(rho), int(iters))
         self._row_mech = "admm"
+        self._set_limit_rhos(rho_q, rho_qd, rho_u)
         if eps_abs is not None or eps_rel is not None:
             self.set_admm_exit(eps_abs or 0.0, eps_rel or 0.0, check_every)
 
-    def enable_limit_al(self, rho=1.0):
+    def enable_limit_al(self, rho=1.0, *, rho_q=None, rho_qd=None, rho_u=None):
         """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism: the
         outer dual update runs once per solve on the final trajectory, so
-        warm-started repeat solves are the outer loop (``rho`` fixed per enable;
-        duals persist across solves, reset_dual() zeroes them).
+        warm-started repeat solves are the outer loop (``rho`` fixed per enable,
+        ``rho_q`` / ``rho_qd`` / ``rho_u`` override it per box; duals persist
+        across solves, reset_dual() zeroes them).
 
         Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_al`)."""
         self._check_no_appended_groups("enable_limit_al")
         self.solver.enable_limit_al(float(rho))
         self._row_mech = "al"
+        self._set_limit_rhos(rho_q, rho_qd, rho_u)
+
+    def _set_limit_rhos(self, rho_q, rho_qd, rho_u):
+        """Per-box mechanism weights for the three canonical limit groups (None = keep)."""
+        from .rowkinds import KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U
+        wanted = {KIND_BOX_Q: rho_q, KIND_BOX_QD: rho_qd, KIND_BOX_U: rho_u}
+        for g, grp in enumerate(self.solver.get_row_groups()):
+            r = wanted.get(grp["kind"])
+            if r is not None:
+                self.set_row_group_rho(g, r)
+
+    def set_row_group_rho(self, g, rho):
+        """Mechanism weight of row group ``g`` (barrier mu, ADMM rho or AL rho,
+        whichever mechanism the group runs; ``get_row_groups()[g]["rho"]`` reads
+        it). The enable calls give the three limit boxes one weight; the ADMM
+        proximal fold rho*G'G belongs at each block's cost scale (measured
+        October 16, 2026: rho 0.01 on the torque rows against the 2e-6 control
+        cost over-regularizes the controls and slows the arm where no limit
+        binds). ADMM re-initializes (z, y) on the next solve.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_admm`)."""
+        if not float(rho) >= 0.0:
+            raise ValueError(f"set_row_group_rho: rho must be >= 0, got {rho!r}")
+        self.solver.set_row_group_rho(int(g), float(rho))
 
     def enable_ee_terminal_equality(self, target, rho=10.0):
         """Append an EE terminal-position equality row-group (final-knot EE position ==

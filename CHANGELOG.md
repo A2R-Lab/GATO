@@ -13,7 +13,11 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   factorization from 64); a solver the caller configured is left as
   configured, floating-base solvers get nothing, `limits="off"` installs
   nothing, and `"admm"` / `"barrier"` / `"al"` / `"telemetry"` pick a
-  mechanism (`limits_kw` overrides its arguments). `StepResult.limits` names
+  mechanism (`limits_kw` overrides its arguments). Per-box mechanism weights:
+  `enable_limit_admm(..., rho_q=, rho_qd=, rho_u=)`, `enable_limit_al(...)`
+  likewise, and `BSQP.set_row_group_rho(g, rho)` (C++ `set_row_group_rho`;
+  `get_row_groups()[g]["rho"]` reads it): the ADMM proximal fold belongs at
+  each block's cost scale. `StepResult.limits` names
   the mechanism in force and `StepResult.row_viol` carries the winning plan's
   violation per row group; `BSQP.row_mech`, `admm_eps_abs`, `admm_eps_rel`
   and `admm_check_every` read the installed state. The raw solver is

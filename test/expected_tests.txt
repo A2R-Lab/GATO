@@ -414,3 +414,5 @@ test/test_controller_limits.py::test_caller_configuration_stands
 test/test_controller_limits.py::test_default_installs_admm_limit_rows
 test/test_controller_limits.py::test_explicit_mechanisms_and_overrides
 test/test_controller_limits.py::test_off_installs_nothing
+test/test_controller_limits.py::test_per_box_rho
+test/test_examples.py::test_intro_example_syntax[12_constraint_mechanisms.py]

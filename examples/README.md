@@ -30,6 +30,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`09_mpc_with_limits.py`](09_mpc_with_limits.py) | Joint limits in closed loop through `MPCController(limits=...)`: telemetry only, ADMM with a fixed inner budget, and the controller default (ADMM with the residual exit and the inner linear solver by horizon) hold a velocity cap the figure-8 cannot meet; the simulated plant, not the planner, is graded; inner iterations spent per tick. |
 | [`10_torch_jax_arrays.py`](10_torch_jax_arrays.py) | The solver as a batched tensor op: torch / JAX CUDA arrays in, the same kind out through DLPack, bit-identical to the numpy path; warm starts stay on the device. |
 | [`11_deadline_step.py`](11_deadline_step.py) | The deadline-aware step: `step(x, ref, budget_s=...)` runs SQP iterations while the next one still fits and returns the best plan so far; iterations, budget hits and wall time per tick. |
+| [`12_constraint_mechanisms.py`](12_constraint_mechanisms.py) | The four limit mechanisms (`limits="telemetry"`, `"barrier"`, `"al"`, `"admm"`) on one pick-and-place task with a step reference, at N16/32/64, on shared axes: the simulated plant's peak velocity and torque against the URDF limits, the planner's own violation, goals reached, task time; `--plot` saves the figure. |
 
 ```bash
 python examples/01_single_solve.py
@@ -43,6 +44,7 @@ python examples/08_linsys_and_autotune.py
 python examples/09_mpc_with_limits.py
 python examples/10_torch_jax_arrays.py
 python examples/11_deadline_step.py
+python examples/12_constraint_mechanisms.py
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

@@ -633,6 +633,24 @@ class BSQP {
                 if (admm_active_) { admm_needs_init_ = true; }  // projection semantics changed
         }
 
+        // Per-group mechanism weight (barrier mu / ADMM rho / AL rho). The
+        // enable_limit_* calls give the three limit boxes one weight, but the
+        // ADMM proximal fold rho*G'G belongs at each block's cost scale: rho
+        // 0.01 on the torque rows against a 2e-6 control cost over-regularizes
+        // the controls and slows the arm where no limit binds (measured in
+        // closed loop, October 16, 2026), while the velocity rows want ~1e-2.
+        // ADMM re-inits (z, y) on the next solve; AL multipliers persist.
+        void set_row_group_rho(int32_t g, T rho)
+        {
+                if (g < 0 || g >= n_row_groups_) { throw std::invalid_argument("set_row_group_rho: group index out of range"); }
+                if (!(rho >= static_cast<T>(0))) { throw std::invalid_argument("set_row_group_rho: rho must be >= 0"); }
+                rows::RowGroupDesc<T> h_grp;
+                gpuErrchk(cudaMemcpy(&h_grp, d_row_groups_ + g, sizeof(rows::RowGroupDesc<T>), cudaMemcpyDeviceToHost));
+                h_grp.mu = rho;
+                gpuErrchk(cudaMemcpy(d_row_groups_ + g, &h_grp, sizeof(rows::RowGroupDesc<T>), cudaMemcpyHostToDevice));
+                if (admm_active_) { admm_needs_init_ = true; }
+        }
+
         // R1 ablation toggle: include the AL-form ADMM value term
         // y^T (g - z) + (mu/2)|g - z|^2 (current row state) in the line-search
         // merit. v1 ADMM's merit is tracking-only, so the line search REJECTS

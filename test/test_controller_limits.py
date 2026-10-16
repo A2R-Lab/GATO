@@ -86,3 +86,28 @@ def test_batch_reports_the_winner(make_solver, smallest_module):
     r = _tick(ctrl, solver)
     viol = np.asarray(r.solve.stats.row_max_violation, dtype=np.float32).reshape(3, 3)
     np.testing.assert_array_equal(r.row_viol, viol[:, r.best_id])
+
+
+def test_per_box_rho(make_solver, smallest_module):
+    """enable_limit_admm(rho_q, rho_qd, rho_u) / set_row_group_rho set each limit
+    box's mechanism weight; get_row_groups() reads it back as "rho"; the solve
+    runs and stays finite; a negative rho is rejected."""
+    plant, N = smallest_module
+    solver = make_solver(plant, N, batch_size=1)
+    solver.enable_limit_admm(rho=0.01, iters=10, rho_q=0.1, rho_u=1e-5, eps_rel=1e-2)
+    rhos = {g["kind"]: g["rho"] for g in solver.get_row_groups()}
+    assert rhos[KIND_BOX_Q] == pytest.approx(0.1) and rhos[KIND_BOX_QD] == pytest.approx(0.01)
+    assert rhos[KIND_BOX_U] == pytest.approx(1e-5)
+    solver.set_row_group_rho(1, 0.03)
+    assert solver.get_row_groups()[1]["rho"] == pytest.approx(0.03)
+    ctrl = MPCController(solver, linsys="pcg")          # the caller's rows stand
+    r = _tick(ctrl, solver)
+    assert np.isfinite(r.xu_best).all() and r.row_viol.shape == (3,)
+    with pytest.raises(ValueError):
+        solver.set_row_group_rho(0, -1.0)
+    with pytest.raises(Exception):
+        solver.set_row_group_rho(7, 0.1)
+    # through the controller: limits_kw reaches the enable call
+    s2 = make_solver(plant, N, batch_size=1)
+    MPCController(s2, linsys="pcg", limits="admm", limits_kw=dict(rho_u=2e-6))
+    assert {g["kind"]: g["rho"] for g in s2.get_row_groups()}[KIND_BOX_U] == pytest.approx(2e-6)
