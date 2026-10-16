@@ -82,10 +82,11 @@ def main():
             print(f"{N:>4} {mech:<9} {r['qd']:>12.2f} {100 * r['qd_over']:>9.0f}% {r['u']:>11.2f} "
                   f"{r['plan_viol']:>12.1e} {r['reached']:>5d}/3 {t_all:>9} {r['solve_ms']:>9.3f}")
     print("\nThe simulated plant is graded against the URDF limits (1.0 = at the limit). Telemetry rows"
-          " report the violation and leave it;\nthe barrier and the augmented Lagrangian soften it;"
-          " the ADMM projection holds the plan inside the box to within its residual, and the\n"
-          "simulated peak follows the plan to within the tracking error of one control period."
-          " Short horizons cannot brake in time (N16).")
+          " report the violation and leave it;\nthe barrier and the augmented Lagrangian soften it"
+          " (one SQP iteration per tick is one outer AL step); the ADMM projection with the\n"
+          "controller's per-box rho holds the plan inside the box to within its residual, and the"
+          " simulated peak follows the plan to within\nthe tracking error of one control period,"
+          " at no cost in goals reached or task time.")
     if args.plot:
         import matplotlib
         matplotlib.use("Agg")

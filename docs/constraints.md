@@ -201,6 +201,94 @@ R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
 rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
 controls at the warm start (closed-loop MPC parks); the measured
 pocket is ~0.005-0.02.
+That pocket was measured on a binding velocity box with one rho for the
+three boxes. On tasks where no limit binds, one rho still costs tracking:
+rho 0.01 on the torque rows against the 2e-6 control cost is a 5000x
+control regularizer that the ten-iteration inner loop never unwinds
+(October 16, 2026: applied torque peaks at 0.2 of the limit under ADMM
+against 0.6 under the other mechanisms, and a feasible figure-8 tracks
+25 to 65 % worse). Per-box weights (`enable_limit_admm(rho_q=, rho_qd=,
+rho_u=)`, `set_row_group_rho(g, rho)`) put each fold at its block's
+scale; the controller default is 0.1 / 0.03 / 1e-5 for the position /
+velocity / torque rows, set on the dev set below.
+
+Dev set (October 16, 2026, `examples/benchmarks/limits_holdout.py --set dev`,
+seed 1, 20 seeded scenarios per task and arm, N32 and N64, fixed pacing,
+pinocchio plant, MPC default of one SQP iteration per tick; rows in
+`examples/benchmarks/data/limits_holdout/dev.jsonl`). Tasks from
+`gato.tasks`: figure-8s whose period makes the demanded joint speed 0.6 to
+1.6 times the velocity limit (the arm lags rather than exceeds, so nothing
+should bind), and three-goal pick-and-place with step or ramped references
+(the step reference asks for maximal acceleration and the velocity box binds).
+The simulated plant is graded against the URDF limits; "ticks over" is the
+fraction of control periods with a joint above its velocity limit. Twenty
+configurations were run (uniform ADMM rho 1e-3 to 3e-2, the fixed budget,
+eps_rel 1e-3, barrier mu 1e-2, AL rho 10, three SQP iterations per tick,
+per-box rho variants); the five that decide the default:
+
+| task | arm, N | mechanism | sim peak qd / limit p50 / p90 / max | ticks over | tracking p50 (m) or goals, task time p50 (s) | planner viol qd max |
+|---|---|---|---|---|---|---|
+| fig8 | indy7 N32 | none | 0.81 / 0.95 / 1.02 | 0.0 % | 0.0618 | 2.0e-02 |
+| fig8 | indy7 N32 | barrier | 0.76 / 0.95 / 1.00 | 0.0 % | 0.0649 | 0.0e+00 |
+| fig8 | indy7 N32 | al | 0.70 / 0.84 / 0.86 | 0.0 % | 0.0677 | 0.0e+00 |
+| fig8 | indy7 N32 | admm, one rho 0.01 | 0.83 / 0.99 / 0.99 | 0.0 % | 0.0764 | 1.1e-01 |
+| fig8 | indy7 N32 | admm, per-box rho (default) | 0.71 / 0.84 / 0.87 | 0.0 % | 0.0647 | 0.0e+00 |
+| fig8 | indy7 N64 | none | 0.74 / 0.85 / 0.90 | 0.0 % | 0.0709 | 0.0e+00 |
+| fig8 | indy7 N64 | barrier | 0.69 / 0.72 / 0.85 | 0.0 % | 0.0756 | 0.0e+00 |
+| fig8 | indy7 N64 | al | 0.67 / 0.77 / 0.83 | 0.0 % | 0.0718 | 0.0e+00 |
+| fig8 | indy7 N64 | admm, one rho 0.01 | 0.64 / 0.76 / 0.78 | 0.0 % | 0.1054 | 4.6e-02 |
+| fig8 | indy7 N64 | admm, per-box rho (default) | 0.67 / 0.77 / 0.83 | 0.0 % | 0.0721 | 0.0e+00 |
+| fig8 | iiwa14 N32 | none | 0.78 / 0.96 / 1.04 | 0.1 % | 0.0378 | 1.4e-01 |
+| fig8 | iiwa14 N32 | barrier | 0.62 / 0.72 / 0.79 | 0.0 % | 0.0454 | 0.0e+00 |
+| fig8 | iiwa14 N32 | al | 0.78 / 0.95 / 1.03 | 0.0 % | 0.0377 | 1.3e-01 |
+| fig8 | iiwa14 N32 | admm, one rho 0.01 | 0.93 / 1.01 / 1.02 | 0.1 % | 0.0488 | 1.7e+00 |
+| fig8 | iiwa14 N32 | admm, per-box rho (default) | 0.79 / 0.92 / 0.93 | 0.0 % | 0.0377 | 7.0e-03 |
+| fig8 | iiwa14 N64 | none | 0.73 / 0.96 / 1.05 | 0.1 % | 0.0438 | 1.7e-01 |
+| fig8 | iiwa14 N64 | barrier | 0.60 / 0.74 / 0.79 | 0.0 % | 0.0519 | 0.0e+00 |
+| fig8 | iiwa14 N64 | al | 0.73 / 0.92 / 0.93 | 0.0 % | 0.0439 | 1.7e-01 |
+| fig8 | iiwa14 N64 | admm, one rho 0.01 | 1.00 / 1.09 / 1.11 | 0.3 % | 0.0716 | 5.6e-01 |
+| fig8 | iiwa14 N64 | admm, per-box rho (default) | 0.75 / 0.92 / 0.93 | 0.0 % | 0.0440 | 8.2e-03 |
+| pickplace | indy7 N32 | none | 0.49 / 0.95 / 1.98 | 0.6 % | 3.00 of 3, 3.07 s | 2.7e+00 |
+| pickplace | indy7 N32 | barrier | 0.48 / 0.80 / 1.29 | 0.1 % | 3.00 of 3, 3.10 s | 1.1e-01 |
+| pickplace | indy7 N32 | al | 0.47 / 0.83 / 1.42 | 0.1 % | 3.00 of 3, 3.07 s | 1.3e+00 |
+| pickplace | indy7 N32 | admm, one rho 0.01 | 0.47 / 0.97 / 1.10 | 0.3 % | 3.00 of 3, 3.14 s | 5.4e-01 |
+| pickplace | indy7 N32 | admm, per-box rho (default) | 0.47 / 0.82 / 1.02 | 0.0 % | 3.00 of 3, 3.08 s | 2.8e-02 |
+| pickplace | indy7 N64 | none | 0.47 / 0.86 / 1.97 | 0.4 % | 3.00 of 3, 3.07 s | 2.6e+00 |
+| pickplace | indy7 N64 | barrier | 0.44 / 0.81 / 1.26 | 0.1 % | 3.00 of 3, 3.08 s | 1.5e-01 |
+| pickplace | indy7 N64 | al | 0.45 / 0.84 / 1.51 | 0.2 % | 3.00 of 3, 3.06 s | 1.7e+00 |
+| pickplace | indy7 N64 | admm, one rho 0.01 | 0.49 / 0.97 / 1.09 | 0.3 % | 3.00 of 3, 3.26 s | 1.0e+00 |
+| pickplace | indy7 N64 | admm, per-box rho (default) | 0.45 / 0.84 / 1.01 | 0.0 % | 3.00 of 3, 3.06 s | 2.4e-02 |
+| pickplace | iiwa14 N32 | none | 1.59 / 3.00 / 3.54 | 19.2 % | 2.95 of 3, 1.70 s | 3.8e+00 |
+| pickplace | iiwa14 N32 | barrier | 0.91 / 1.08 / 1.18 | 0.1 % | 2.75 of 3, 2.20 s | 7.4e-01 |
+| pickplace | iiwa14 N32 | al | 1.03 / 1.35 / 1.50 | 3.7 % | 2.95 of 3, 2.08 s | 2.0e+00 |
+| pickplace | iiwa14 N32 | admm, one rho 0.01 | 1.11 / 1.42 / 1.47 | 5.0 % | 2.95 of 3, 2.97 s | 1.5e+00 |
+| pickplace | iiwa14 N32 | admm, per-box rho (default) | 0.96 / 1.02 / 1.05 | 0.1 % | 2.95 of 3, 2.24 s | 1.6e-01 |
+| pickplace | iiwa14 N64 | none | 1.59 / 2.88 / 3.13 | 15.4 % | 2.65 of 3, 1.72 s | 3.3e+00 |
+| pickplace | iiwa14 N64 | barrier | 0.91 / 1.07 / 1.13 | 0.1 % | 2.45 of 3, 1.92 s | 9.5e-01 |
+| pickplace | iiwa14 N64 | al | 1.00 / 1.20 / 1.43 | 3.3 % | 2.60 of 3, 1.99 s | 1.9e+00 |
+| pickplace | iiwa14 N64 | admm, one rho 0.01 | 1.11 / 1.35 / 1.44 | 4.5 % | 2.85 of 3, 3.04 s | 8.5e-01 |
+| pickplace | iiwa14 N64 | admm, per-box rho (default) | 0.95 / 1.00 / 1.01 | 0.1 % | 2.70 of 3, 2.01 s | 4.5e-02 |
+
+Reading. Where nothing binds (figure-8), the per-box ADMM tracks like the
+unconstrained controller (within 2 % at N64 and 5 % at N32 on the Indy7,
+equal on the iiwa14) with a planner violation below 1e-2 rad/s, where one rho
+costs 25 to 65 % and on the iiwa14 lets the plan violate its own box by 0.5
+to 1.7 rad/s; the barrier costs 5 to 20 % as a prior that always acts; AL
+costs nothing and enforces nothing it does not have to. Where the box binds
+(pick-and-place, step reference), the per-box ADMM holds the simulated peak
+to 1.01 to 1.05 of the limit with at most 0.1 % of ticks over, against 1.98
+to 3.54 unconstrained, 1.13 to 1.29 for the barrier and 1.42 to 1.51 for AL,
+at the unconstrained controller's goals and task time on the Indy7 and 0.3 s
+behind it on the iiwa14 (whose unconstrained runs reach goals faster by
+running at 1.6 to 3.5 times its velocity limit). Among the per-box variants,
+rho_qd 0.03 against 0.01 tightens the peak from 1.02 to 1.10 down to 0.98 to
+1.02 at identical tracking; rho_u 1e-4 brings the control bias back (the
+torque rows regularize again), 2e-6 equals 1e-5. Three SQP iterations per
+tick make AL enforce (1.0 to 1.05) and make the unconstrained arm more
+aggressive; they do not change the ADMM verdict. The residual exit costs
+nothing in enforcement against the fixed budget on this set. The default is
+therefore rho 0.1 / 0.03 / 1e-5 with the exit at 1e-2; the holdout below is a
+fresh draw run once with it.
 iters=10 BOUND by R2: 2/5 park the feasible
 cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
 inner cost).
