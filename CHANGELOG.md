@@ -8,9 +8,12 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   (and `MPC_GATO(limits=, limits_kw=)`) installs the URDF position, velocity
   and torque boxes as constraint rows. The default on a fixed-base arm whose
   solver has no row groups is the ADMM-projection mechanism with the measured
-  settings (rho 0.01, cap 10 inner iterations, residual exit at eps_rel 1e-2,
-  inner linear solver by horizon: warm PCG below 64 knots, the reused
-  factorization from 64); a solver the caller configured is left as
+  settings (per-box rho 0.1 / 0.03 / 1e-5 for the position / velocity /
+  torque rows, cap 10 inner iterations, residual exit at eps_rel 1e-2, inner
+  linear solver by horizon: warm PCG below 64 knots, the reused factorization
+  from 64), set on a 20-scenario dev set per task and arm and published on a
+  fresh 100-scenario holdout (`examples/benchmarks/limits_holdout.py`,
+  `docs/constraints.md`); a solver the caller configured is left as
   configured, floating-base solvers get nothing, `limits="off"` installs
   nothing, and `"admm"` / `"barrier"` / `"al"` / `"telemetry"` pick a
   mechanism (`limits_kw` overrides its arguments). Per-box mechanism weights:

@@ -9,7 +9,8 @@ N32 and N64, under each limit mechanism of MPCController(limits=...):
     none        telemetry rows (the paper setting; limits reported, not enforced)
     barrier     relaxed log barrier (soft)
     al          augmented Lagrangian (outer loop = the warm-started ticks)
-    admm        ADMM projection, the controller default (residual exit 1e-2)
+    admm        ADMM projection, the controller default (per-box rho 0.1 /
+                0.03 / 1e-5 since the dev set of October 16, residual exit 1e-2)
     and, on the dev set only, the strength sweeps (MECHS below: ADMM rho 1e-3
     to 3e-2, AL rho 10, barrier mu 1e-2, ADMM at eps_rel 1e-3 and with the
     fixed budget) and three SQP iterations per tick (none / admm / al).

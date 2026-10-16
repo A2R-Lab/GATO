@@ -182,7 +182,8 @@ comparison. Telemetry (stats.row_*_violation) stays on.
 
 Controller default since October 16, 2026: `MPCController(limits=...)` installs
 these rows itself on a fixed-base arm whose solver has none (`limits=None`),
-with rho 0.01, cap 10, the residual exit at eps_rel 1e-2 and the inner linear
+with per-box rho 0.1 (position rows), 0.03 (velocity rows) and 1e-5 (torque
+rows), cap 10, the residual exit at eps_rel 1e-2 and the inner linear
 solver by horizon (`gato.linsys_autotune.ADMM_FACTOR_MIN_N` = 64: warm PCG
 below, the reused factorization from there; see `set_admm_linsys`). A solver
 the caller configured stands, `limits="off"` installs nothing, and the raw

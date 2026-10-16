@@ -98,8 +98,9 @@ class MPCController:
             constraint rows on the solver, installed by the controller.
             None (default): a fixed-base arm whose solver has no row groups
             yet gets the ADMM-projection mechanism with the measured defaults
-            (rho 0.01, cap 10 inner iterations, residual exit at eps_rel 1e-2;
-            see docs/constraints.md); a solver the caller already configured
+            (per-box rho 0.1 / 0.03 / 1e-5 for the position / velocity /
+            torque rows, cap 10 inner iterations, residual exit at eps_rel
+            1e-2; LIMIT_DEFAULTS, docs/constraints.md); a solver the caller already configured
             (any row group installed) is left as configured, as are
             floating-base solvers. "off": install nothing. "admm" / "barrier"
             / "al" / "telemetry": install that mechanism (re-installing the
@@ -113,7 +114,15 @@ class MPCController:
             "barrier").
     """
 
-    LIMIT_DEFAULTS = {"admm": dict(rho=0.01, iters=10, eps_rel=1e-2),
+    # The ADMM defaults were set on the October 16, 2026 dev set (examples/
+    # benchmarks/limits_holdout.py, 20 scenarios per task and arm, N32 and N64):
+    # one rho for the three boxes costs 25 to 65 % of tracking where no limit
+    # binds (the fold on the torque rows against the 2e-6 control cost); with
+    # each box's rho at its block's cost scale the tracking equals the
+    # unconstrained controller's and the simulated peak velocity stays within
+    # 2 % of the limit on the step-reference pick-and-place (2.0 to 2.5 times
+    # the limit unconstrained). docs/constraints.md (`enable_limit_admm`).
+    LIMIT_DEFAULTS = {"admm": dict(rho=0.01, iters=10, eps_rel=1e-2, rho_q=0.1, rho_qd=0.03, rho_u=1e-5),
                       "barrier": {}, "al": {}, "telemetry": {}}
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",

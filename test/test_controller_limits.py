@@ -29,8 +29,10 @@ def test_default_installs_admm_limit_rows(make_solver, smallest_module):
     assert ctrl.limits == "admm" and solver.row_mech == "admm" and solver.admm_active
     kinds = [g["kind"] for g in solver.get_row_groups()]
     assert kinds == [KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U]
-    # the measured defaults: cap 10 with the residual exit at eps_rel 1e-2
+    # the measured defaults: cap 10 with the residual exit at eps_rel 1e-2, per-box rho
     assert solver.admm_eps_rel == pytest.approx(1e-2) and solver.admm_eps_abs == 0.0
+    rhos = {g["kind"]: g["rho"] for g in solver.get_row_groups()}
+    assert rhos == pytest.approx({KIND_BOX_Q: 0.1, KIND_BOX_QD: 0.03, KIND_BOX_U: 1e-5})
     # the inner linear solver follows the horizon unless tuned or pinned
     assert ctrl.admm_linsys == ("bdsv_factor" if N >= ADMM_FACTOR_MIN_N else "pcg")
     r = _tick(ctrl, solver)

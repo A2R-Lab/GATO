@@ -166,14 +166,17 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   `StepResult.row_viol` is the winner's, per row group). **Limits**: on a
   fixed-base arm whose solver has no row groups, the controller installs the
   URDF position, velocity and torque boxes under the ADMM mechanism with the
-  measured defaults (rho 0.01, cap 10, residual exit at eps_rel 1e-2, inner
-  linear solver by horizon) and `StepResult.limits` reads "admm"; a solver
+  measured defaults (per-box rho 0.1 / 0.03 / 1e-5, cap 10, residual exit at
+  eps_rel 1e-2, inner linear solver by horizon) and `StepResult.limits` reads "admm"; a solver
   the caller configured is left as configured, floating-base solvers get
   nothing, `limits="off"` is the unconstrained step of 0.1.1 bit for bit, and
   `"admm"` / `"barrier"` / `"al"` / `"telemetry"` (with `limits_kw`) pick a
   mechanism. The plan then respects the limits to within the reported
-  residual (measured: 3e-2 rad/s on a 1 rad/s velocity box at N64), in
-  closed loop on the tasks of `docs/constraints.md`; it is a bounded,
+  residual (measured on the October 16, 2026 dev set: the simulated peak
+  joint velocity within 2 % of the URDF limit on a step-reference
+  pick-and-place that runs at 2 to 2.5 times the limit unconstrained, at the
+  unconstrained controller's tracking error and task time where no limit
+  binds; holdout numbers in `docs/constraints.md`); it is a bounded,
   measured property, not a certificate, and the executed torque is what the
   caller applies (clamp it; the integrator's own safety layer stays).
   Solves are bit-deterministic run-to-run; batch entries are independent. A
