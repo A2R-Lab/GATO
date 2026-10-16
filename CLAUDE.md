@@ -105,7 +105,8 @@ migrated to `glass::`.
   - `interface.py` — `BSQP` (stateless `solve(x, ref, xu_warm)` → `SolveResult`/`SolverStats`),
     `available(variant)`, `module_name`, `robot_info()`.
   - `controller.py` — task-agnostic `MPCController` (owns the warm start; shift/hold, linsys
-    "auto", reseed, hypothesis hooks, `step(..., budget_s=)` = the iteration-boundary time
+    "auto" and admm_linsys "auto" (the ADMM inner loop's pcg/bdsv_factor arm, same pred_err
+    signal), reseed, hypothesis hooks, `step(..., budget_s=)` = the iteration-boundary time
     budget, host-side in `bsqp.cuh::solve`); `StepResult.u` is the ACTUATED control.
   - `hypotheses.py` / `estimators.py` — `HypothesisBatch` ABC, `ForceHypothesisBatch`,
     `ForceEstimator`/`CEMForceEstimator`, `OneStepWrenchIdentifier`, `IdentifiedWrenchSampler`

@@ -4,6 +4,20 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- ADMM inner-loop residual early exit: `BSQP.set_admm_exit(eps_abs, eps_rel,
+  check_every)` (also `enable_limit_admm(..., eps_rel=...)`) stops the inner
+  loop, per batch entry and per row group, once the iterate's primal and dual
+  residuals are within tolerance and its linear solve converged (the
+  inexact-ADMM guard); `iters` becomes the cap. Off by default: the fixed
+  budget is unchanged bit for bit. `SolverStats.admm_iters` /
+  `admm_linsys_iters` count the inner work. `MPCController(admm_linsys="auto",
+  admm_threshold=...)` picks the inner linear solver per tick from the
+  warm-startedness signal (`StepResult.admm_linsys`; `MPC_GATO` passes both
+  through), with a tuned `admm_policy` / `admm_tau` from
+  `tools/autotune_linsys.py --admm`. Example 09 gains the residual-exit run.
+  Measured counts in `docs/constraints.md` (`set_admm_exit`); C++:
+  `set_admm_exit`, `SQPStats::admm_iters`, `admm_linsys_iters`.
+
 - Deadline-aware step: `MPCController.step(x, ref, budget_s=...)` and
   `BSQP.solve(..., budget_s=...)` run SQP iterations while the time spent plus
   the next iteration's predicted cost (its measured cost in the previous

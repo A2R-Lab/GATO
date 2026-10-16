@@ -58,10 +58,31 @@
 // multiplier because the primal CAN satisfy them).
 //
 // v1 semantics (documented in the arc plan): fixed iteration budget
-// (approximately-hard); residuals reported per solve, no in-loop early exit;
-// the merit/line search excludes the ADMM rows by default (telemetry reports the
-// true violation of whatever the line search accepts); set_admm_merit adds the
-// AL-form (z, y) term for the rows' own residual.
+// (approximately-hard); residuals reported per solve; the merit/line search
+// excludes the ADMM rows by default (telemetry reports the true violation of
+// whatever the line search accepts); set_admm_merit adds the AL-form (z, y)
+// term for the rows' own residual.
+//
+// Residual early exit (W2a, 2026-10-15; BSQP::set_admm_exit, off by default =
+// the bitwise v1 fixed budget): after every inner iteration the projection
+// kernel tests, PER SOLVE and on the iterate it just produced, FOR EVERY
+// ADMM group g (rows of one group share units; a global max would let the
+// torque rows' scale excuse the velocity rows),
+//   r_prim_g <= eps_abs + eps_rel * max|z_g|
+//   r_dual_g <= eps_abs + eps_rel * rho_g * max|z_g|
+// (OSQP's abs+rel form with the auxiliary as the scale) AND requires the
+// x-update that produced the iterate to have been solved: PCG arm = fewer
+// than max_pcg_iters steps, factor arm = an OK factor (a non-PD skip never
+// exits). r_dual = rho*max|z - z_prev| is exact only for an exact x-update,
+// so an unconverged inner solve must not be allowed to read as a fixed point
+// (the inexact-ADMM guard). A converged solve raises its flag in the skip
+// mask (d_skip_batch, seeded from d_kkt_converged each SQP iteration): every
+// inner kernel skips it from then on, so entries of one batch exit at their
+// own iteration without a host sync; the host additionally breaks the launch
+// loop every check_every iterations once all entries are flagged. (z, y) at
+// exit are the converged iterate (the last projection ran before the test).
+// Counts (inner iterations, inner linsys iterations) accumulate per solve
+// into d_admm_iters/d_admm_linsys_iters for SQPStats.
 
 using namespace sqp;
 
@@ -345,11 +366,33 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* 
         }
 }
 
+// exact (order-independent) block-wide max; every thread returns the same value
+template<typename T>
+__device__ __forceinline__ T block_max_all(T v, T* s_red)
+{
+        for (int o = 16; o > 0; o >>= 1) {
+                const T w = __shfl_xor_sync(0xffffffffu, v, o);
+                v = w > v ? w : v;
+        }
+        __syncthreads();
+        if ((threadIdx.x & 31) == 0) s_red[threadIdx.x >> 5] = v;
+        __syncthreads();
+        const uint32_t nw = (blockDim.x + 31) >> 5;
+        T r = s_red[0];
+        for (uint32_t w = 1; w < nw; ++w) r = s_red[w] > r ? s_red[w] : r;
+        return r;
+}
+
 // ---- projection + dual update + residuals --------------------------------
 // One block per solve. Per active row: w = sel(x + dz); z <- clip(w + y/rho);
 // y += rho*(w - z). Residuals (per solve): r_prim = max|w - z|,
 // r_dual = rho * max|z - z_prev| — deterministic (scratch + rank-0 fold, same
 // pattern as the telemetry kernel). Output d_resid[solve*2 + {0,1}].
+// d_skip_batch: the inner loop's per-solve skip mask (read: skip this solve;
+// written: the residual exit test, header). d_linsys_iters / max_pcg_iters:
+// this iteration's x-update report (max_pcg_iters == 0 = factor arm, whose
+// report is 1 solved / 2 non-PD). eps_abs == eps_rel == 0 disables the test.
+// d_admm_iters / d_admm_linsys_iters (nullable): per-solve accumulators.
 template<typename T>
 __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel(T* __restrict__ d_z_batch,
                                                                              T* __restrict__ d_y_batch,
@@ -358,13 +401,20 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                                                              const T* __restrict__ d_dz_batch,
                                                                              const RowGroupDesc<T>* __restrict__ d_groups,
                                                                              int32_t n_groups,
-                                                                             const int32_t* __restrict__ d_kkt_converged_batch,
+                                                                             int32_t* __restrict__ d_skip_batch,
                                                                              const grid::robotModel<T>* __restrict__ d_robot_model,
                                                                              const grid_collision::Environment<T> env,
-                                                                             const T* __restrict__ d_rho_scale_batch)
+                                                                             const T* __restrict__ d_rho_scale_batch,
+                                                                             const uint32_t* __restrict__ d_linsys_iters,
+                                                                             uint32_t max_pcg_iters,
+                                                                             T eps_abs,
+                                                                             T eps_rel,
+                                                                             int32_t* __restrict__ d_admm_iters,
+                                                                             int32_t* __restrict__ d_admm_linsys_iters)
 {
         const uint32_t solve_idx = blockIdx.x;
-        if (d_kkt_converged_batch && d_kkt_converged_batch[solve_idx]) return;
+        if (d_skip_batch[solve_idx]) return;
+        __shared__ T s_red[32];
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         // per-solve ADMM rho adaptation scale (P4.3); nullptr -> 1 (bitwise-off)
@@ -380,6 +430,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
         const T* d_xu = d_xu_traj_batch + (size_t)solve_idx * constants::XU_TRAJ_SIZE;
         const T* d_dz = d_dz_batch + (size_t)solve_idx * constants::TRAJ_SIZE;
 
+        const bool exit_on = (eps_abs > static_cast<T>(0)) || (eps_rel > static_cast<T>(0));
+        bool exit_ok = exit_on;   // rank 0: every group passed its residual test
         T run_prim = static_cast<T>(0), run_dual = static_cast<T>(0);
         for (int32_t gi = 0; gi < n_groups; gi++) {
                 const RowGroupDesc<T>& grp = d_groups[gi];
@@ -430,10 +482,38 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                         }
                 }
                 __syncthreads();
+                // exit-test scale of this group (header): max|z_g| over its slot
+                // range of the dense row state just written — unused slots are
+                // zero from init; the collision band is its own range
+                T zmax = static_cast<T>(0);
+                if (exit_on && eps_rel > static_cast<T>(0)) {
+                        uint32_t lo, hi;
+                        if (grp.kind == COLLISION) {
+                                lo = collision_row_state_index((uint32_t)grp.knot_lo, 0);
+                                hi = collision_row_state_index((uint32_t)grp.knot_hi, 0);
+                        } else {
+                                lo = row_state_index((uint32_t)gi, (uint32_t)grp.knot_lo, 0);
+                                hi = row_state_index((uint32_t)gi, (uint32_t)grp.knot_hi, 0);
+                        }
+                        T v = static_cast<T>(0);
+                        for (uint32_t e = lo + rank; e < hi; e += size) {
+                                T a = d_z[e];
+                                if (a < 0) a = -a;
+                                if (a > v) v = a;
+                        }
+                        zmax = block_max_all<T>(v, s_red);
+                }
                 if (rank == 0) {
+                        T g_prim = static_cast<T>(0), g_dual = static_cast<T>(0);
                         for (int32_t e = 0; e < n_elems; e++) {  // fixed order: deterministic
-                                if (s_prim[e] > run_prim) run_prim = s_prim[e];
-                                if (s_dual[e] > run_dual) run_dual = s_dual[e];
+                                if (s_prim[e] > g_prim) g_prim = s_prim[e];
+                                if (s_dual[e] > g_dual) g_dual = s_dual[e];
+                        }
+                        if (g_prim > run_prim) run_prim = g_prim;
+                        if (g_dual > run_dual) run_dual = g_dual;
+                        if (exit_on) {
+                                exit_ok = exit_ok && (g_prim <= eps_abs + eps_rel * zmax)
+                                                  && (g_dual <= eps_abs + eps_rel * rho * zmax);
                         }
                 }
                 __syncthreads();
@@ -441,6 +521,14 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
         if (rank == 0) {
                 d_resid_batch[2 * solve_idx + 0] = run_prim;
                 d_resid_batch[2 * solve_idx + 1] = run_dual;
+                const uint32_t li = d_linsys_iters ? d_linsys_iters[solve_idx] : 0u;
+                if (d_admm_iters) d_admm_iters[solve_idx] += 1;
+                if (d_admm_linsys_iters) d_admm_linsys_iters[solve_idx] += max_pcg_iters ? (int32_t)li : 1;
+                if (exit_on) {
+                        // the inexact-ADMM guard: the x-update behind this iterate converged
+                        const bool linsys_ok = max_pcg_iters ? (li < max_pcg_iters) : (li != 2u);
+                        if (linsys_ok && exit_ok) d_skip_batch[solve_idx] = 1;
+                }
         }
 }
 
@@ -478,14 +566,17 @@ __host__ size_t get_admm_project_dual_smem_size()
 
 template<typename T>
 __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_y_batch, T* d_resid_batch, const T* d_xu_traj_batch, const T* d_dz_batch,
-                                     const RowGroupDesc<T>* d_groups, int32_t n_groups, const int32_t* d_kkt_converged_batch, const void* d_GRiD_mem,
-                                     const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_rho_scale_batch = nullptr)
+                                     const RowGroupDesc<T>* d_groups, int32_t n_groups, int32_t* d_skip_batch, const void* d_GRiD_mem,
+                                     const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_rho_scale_batch = nullptr,
+                                     const uint32_t* d_linsys_iters = nullptr, uint32_t max_pcg_iters = 0, T eps_abs = static_cast<T>(0), T eps_rel = static_cast<T>(0),
+                                     int32_t* d_admm_iters = nullptr, int32_t* d_admm_linsys_iters = nullptr)
 {
         const size_t s_mem_size = get_admm_project_dual_smem_size<T>();
         // the TELEMETRY_MAX_ROWS residual scratch can exceed the 48KB default at large N
         static size_t attr_bytes = 0;
         opt_in_dynamic_smem(admm_project_dual_batched_kernel<T>, s_mem_size, attr_bytes);
-        admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_kkt_converged_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch);
+        admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_skip_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch,
+                                                                                    d_linsys_iters, max_pcg_iters, eps_abs, eps_rel, d_admm_iters, d_admm_linsys_iters);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 

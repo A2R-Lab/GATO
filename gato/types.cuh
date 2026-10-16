@@ -52,12 +52,17 @@ struct SQPStats {
         std::vector<int> sqp_iterations;
         std::vector<int> kkt_converged;  // 1 if converged, 0 if not
         bool             budget_hit = false;  // the SQP loop stopped on set_time_budget_us (not on convergence)
+        // ADMM mode only (kernels/admm.cuh): inner iterations run this solve and the
+        // inner linear-system work they took (PCG steps on the pcg arm, back-solves
+        // on the factor arm); 0 outside ADMM mode
+        std::vector<int> admm_iters;
+        std::vector<int> admm_linsys_iters;
 
         // for each SQP iteration
         std::vector<PCGStats>           pcg_stats;
         std::vector<LineSearchStats<T>> line_search_stats;
 
-        explicit SQPStats(uint32_t batch_size) : sqp_iterations(batch_size, 0), kkt_converged(batch_size, 0) {}
+        explicit SQPStats(uint32_t batch_size) : sqp_iterations(batch_size, 0), kkt_converged(batch_size, 0), admm_iters(batch_size, 0), admm_linsys_iters(batch_size, 0) {}
 };
 
 // --------------------------------------------------

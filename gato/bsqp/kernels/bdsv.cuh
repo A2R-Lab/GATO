@@ -215,13 +215,17 @@ __global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_factored_batched_kern
                                                                                T* __restrict__             d_x_batch,
                                                                                const T* __restrict__       d_A_batch,  // factored strips (read-only)
                                                                                const T* __restrict__       d_rhs_batch,
-                                                                               const int32_t* __restrict__ d_factor_status)
+                                                                               const int32_t* __restrict__ d_factor_status,
+                                                                               const int32_t* __restrict__ d_skip_batch = nullptr)
 {
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t rank = threadIdx.x;
         const uint32_t size = blockDim.x;
         constexpr uint32_t VEC = VEC_SIZE_PADDED;
 
+        // ADMM residual exit (kernels/admm.cuh): a flagged solve is left untouched,
+        // its last report included
+        if (d_skip_batch && d_skip_batch[solve_idx]) return;
 
         const int32_t status = d_factor_status[solve_idx];
         if (status == bdsv_status::SKIPPED) {
@@ -272,7 +276,7 @@ __host__ void factor_bdsv_batched(uint32_t batch_size, SchurSystem<T> schur, int
 // schur.d_gamma_batch for the plain Schur solve, or the ADMM iteration's own
 // RHS buffer for factor-reuse solves.
 template<typename T>
-__host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, SchurSystem<T> schur, const T* d_rhs_batch, const int32_t* d_factor_status, uint32_t* d_iterations)
+__host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, SchurSystem<T> schur, const T* d_rhs_batch, const int32_t* d_factor_status, uint32_t* d_iterations, const int32_t* d_skip_batch = nullptr)
 {
         dim3           grid(batch_size);
         dim3           thread_block(BDSV_THREADS);
@@ -280,6 +284,6 @@ __host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, Sch
         static size_t  attr_bytes = 0;
         opt_in_dynamic_smem(solve_bdsv_factored_batched_kernel<T>, s_mem_size, attr_bytes);
 
-        solve_bdsv_factored_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status);
+        solve_bdsv_factored_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status, d_skip_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

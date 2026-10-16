@@ -7,7 +7,7 @@ quiet windows only.
 import numpy as np
 import pytest
 
-from gato.linsys_autotune import (decide_policy, fit_tau, load_tuning, lookup,
+from gato.linsys_autotune import (decide_policy, fit_tau, load_tuning, lookup, resolve_admm_linsys,
                                   resolve_linsys, save_tuning)
 
 RNG = np.random.default_rng(3)
@@ -106,3 +106,29 @@ def test_resolve_wired_defaults():
     assert resolve_linsys(False, "auto", None) == ("auto", 0.1)
     assert resolve_linsys(False, "auto", 0.25) == ("auto", 0.25)
     assert resolve_linsys(True, "pcg", None) == ("pcg", None)
+
+
+def test_resolve_admm_linsys_precedence(tmp_path):
+    p = tmp_path / "tuning.json"
+    save_tuning("indy7", 64, "fig8", {"policy": "auto", "tau": 0.2,
+                                      "admm_policy": "bdsv_factor", "admm_tau": None}, path=p)
+    save_tuning("indy7", 64, "kicky", {"policy": "auto", "tau": 0.2,
+                                       "admm_policy": "auto", "admm_tau": 0.07}, path=p)
+    save_tuning("indy7", 64, "sqponly", {"policy": "pcg", "tau": None}, path=p)
+    # explicit beats tuned
+    assert resolve_admm_linsys("pcg", None, plant="indy7", N=64, task_tag="fig8", path=p) == ("pcg", None)
+    # tuned beats the default
+    assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="fig8", path=p) == ("bdsv_factor", None)
+    assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="kicky", path=p) == ("auto", 0.07)
+    # explicit threshold beats the tuned tau
+    assert resolve_admm_linsys(None, 0.5, plant="indy7", N=64, task_tag="kicky", path=p) == ("auto", 0.5)
+    # an entry without an ADMM verdict, or an unknown tag, falls through to auto @ the fallback
+    assert resolve_admm_linsys(None, None, fallback_tau=0.3, plant="indy7", N=64, task_tag="sqponly", path=p) == ("auto", 0.3)
+    assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="nope", path=p) == ("auto", 0.1)
+
+
+def test_resolve_admm_linsys_defaults():
+    assert resolve_admm_linsys() == ("auto", 0.1)
+    assert resolve_admm_linsys(fallback_tau=0.25) == ("auto", 0.25)
+    assert resolve_admm_linsys("auto", 0.05) == ("auto", 0.05)
+    assert resolve_admm_linsys("bdsv_factor") == ("bdsv_factor", None)

@@ -7,7 +7,13 @@ boxes) to the ADMM-projection mechanism, tightens the velocity box to a cap the
 figure-8 cannot satisfy at full speed, and runs the same MPC loop twice:
 
   * telemetry only  — the boxes are reported, not enforced (the paper setting);
-  * ADMM            — the planner keeps every knot inside the boxes.
+  * ADMM            — the planner keeps every knot inside the boxes, a fixed
+                      budget of inner iterations per SQP iteration;
+  * ADMM, exit      — the same with the residual early exit (set_admm_exit)
+                      and the controller's warm-startedness-driven inner linear
+                      solver (admm_linsys="auto"): the loop stops once the
+                      iterate's residuals are below tolerance, so a warm tick
+                      spends a fraction of the budget.
 
 It then reports the SIMULATED joint velocities against the cap (the plant is
 integrated by pinocchio from the applied torques, so this is not the planner
@@ -35,12 +41,14 @@ QD_CAP = 1.0          # rad/s, every joint — well below what the figure-8 asks
 PARAMS = dict(max_sqp_iters=5, rho=1e-3)
 
 
-def run(enforce):
+def run(enforce, exit_tol=None):
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type="indy7",
-                   params=PARAMS, linsys="pcg")
+                   params=PARAMS, linsys="pcg", admm_linsys="auto" if exit_tol else "pcg")
     solver = mpc.solver
-    if enforce:
+    if enforce and exit_tol:
+        solver.enable_limit_admm(rho=0.01, iters=10, eps_rel=exit_tol)
+    elif enforce:
         solver.enable_limit_admm(rho=0.01, iters=10)
     else:
         solver.enable_limit_telemetry()
@@ -55,16 +63,22 @@ def run(enforce):
     _, stats = mpc.run_mpc_fig8(x0, fig8, sim_dt=0.001, sim_time=SIM_TIME, pace_by_solve_time=False)
     qd = np.abs(np.asarray(stats["joint_velocities"]))
     viol = np.asarray(stats["row_max_violation"])          # (steps, n_groups)
+    inner = np.asarray(stats.get("admm_iters", []), dtype=float)
     return dict(steps=len(qd), qd_max=qd.max(), qd_over=float((qd > QD_CAP).any(axis=1).mean()),
                 plan_viol=viol.max(axis=0), groups=groups,
-                err=np.asarray(stats["goal_distances_knot0"]).mean())
+                err=np.asarray(stats["goal_distances_knot0"]).mean(),
+                inner_per_step=inner.mean() if inner.size else None)
 
 
-for label, enforce in (("telemetry only", False), ("ADMM boxes", True)):
-    r = run(enforce)
+for label, enforce, tol in (("telemetry only", False, None), ("ADMM boxes", True, None),
+                            ("ADMM boxes, residual exit", True, 1e-2)):
+    r = run(enforce, tol)
     print(f"\n{label} (Indy7, N={N}, {SIM_TIME} s, velocity box ±{QD_CAP} rad/s, {r['steps']} steps):")
     print(f"  simulated max |qd| : {r['qd_max']:.2f} rad/s   steps over the cap: {100 * r['qd_over']:.0f}%")
     print(f"  mean tracking err  : {r['err']:.4f} m")
+    if r["inner_per_step"] is not None:
+        print(f"  ADMM inner iterations per tick: {r['inner_per_step']:.1f} "
+              f"(budget {10 * PARAMS['max_sqp_iters']})")
     print("  planner max violation per row group:")
     for g, v in zip(r["groups"], r["plan_viol"]):
         print(f"    {KIND_NAMES[g['kind']]:<8} {v:.2e}")

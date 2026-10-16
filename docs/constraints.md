@@ -32,6 +32,79 @@ box violations ~2-3x higher (same order, still enforced — e.g.
 3.7e-2 -> 1.0e-1 on fig8 boxes). Pick "bdsv_factor" when tightest
 transient enforcement matters more than speed.
 
+Per-step policy (October 15, 2026): `MPCController(admm_linsys="auto",
+admm_threshold=tau)` switches the arm per tick from the warm-startedness
+signal that drives `linsys="auto"`: a cold tick (pred_err above the
+threshold, a PCG cap-out on the previous tick, or a re-seed) runs
+"bdsv_factor", a warm tick "pcg"; `StepResult.admm_linsys` reports the arm.
+Resolution: an explicit argument, else a tuned entry's `admm_policy` /
+`admm_tau` (`tools/autotune_linsys.py --admm`, a quiet-window probe), else
+auto at the SQP `bdsv_threshold`. Counts behind the crossover (Indy7 N32
+figure-8 with kicks, residual exit at eps_rel 1e-2): warm ticks cost 2.3
+inner iterations of 13 PCG steps each per SQP iteration, kicked ticks 7.7 of
+37; the factor arm costs one factorization plus 2.5 (warm) to 8.5 (kicked)
+back-solves. Where the wall-time crossover lies is the window's question; the
+tool fits it from the pcg arm's cost-vs-pred_err curve against the factor
+arm's flat cost, exactly as the SQP policy was fitted.
+
+## `set_admm_exit(eps_abs, eps_rel, check_every)`
+
+Residual early exit of the ADMM inner loop (added October 15, 2026, the H2 ADMM
+speed study). Off by default (`eps_abs = eps_rel = 0`): the inner loop runs the
+fixed budget of `enable_limit_admm(iters)` bit for bit. With a tolerance the
+budget is a cap and the loop stops, per batch entry, after the first inner
+iteration whose iterate passes, for every ADMM row group g,
+
+    r_prim_g <= eps_abs + eps_rel * max|z_g|
+    r_dual_g <= eps_abs + eps_rel * rho_g * max|z_g|
+
+(OSQP's absolute-plus-relative form with the auxiliary variable as the scale;
+per group because the rows of one group share units and a global scale would
+let the torque rows excuse the velocity rows) and whose x-update converged:
+PCG below its iteration cap on the "pcg" arm, an OK factor on "bdsv_factor".
+The second condition is the inexact-ADMM guard: `r_dual = rho * max|z - z_prev|`
+is the dual residual only for an exact x-update, so an unconverged inner solve
+is never allowed to read as a fixed point. The test runs on the device
+(a per-entry skip mask seeded from the SQP convergence mask each iteration), so
+batch entries exit at their own iteration without a host sync; the host breaks
+the launch loop every `check_every` inner iterations once every entry has
+exited (0 = never; exited entries are still skipped on the device, so only
+empty launches remain). `stats.admm_iters` / `stats.admm_linsys_iters` report
+the inner iterations run and the inner linear-system work (PCG steps, or one
+per back-solve). The iterates do not depend on `check_every`
+(`test_admm_exit.py`).
+
+Measured (October 15, 2026, counts only; Indy7 N32 figure-8, velocity box
+±1 rad/s, rho 0.01, cap 10, 5 SQP iterations per tick, fixed pacing):
+
+| inner linsys | eps_rel | inner iterations per SQP iteration (mean / p90) | plan violation max | simulated peak |
+|---|---|---|---|---|
+| pcg | off (fixed 10) | 10 / 10 | 3.5e-2 rad/s | 1.034 rad/s |
+| pcg | 1e-3 | 7.0 / 10 | 3.5e-2 | 1.034 |
+| pcg | 1e-2 | 1.9 / 2.6 | 2.4e-2 | 1.027 |
+| bdsv_factor | 1e-3 | 3.6 / 9.2 | 5.4e-3 | 1.005 |
+
+At N64 (example 09, 3 s, cap 10 x 5 SQP iterations = 50 per tick) the exit at
+1e-2 with `admm_linsys="auto"` spends 10.9 inner iterations per tick against
+the fixed 50, at the same simulated peak (1.04 rad/s), a planner violation of
+3.4e-2 against 3.9e-2 and a tracking error of 0.035 m against 0.030 m.
+At 1e-2 the warm tick spends two inner iterations and the enforcement is
+unchanged; 1e-3 is below what the inner loop reaches within the cap on the PCG
+arm (the fixed point is approached to about 1e-2 relative, and the PCG
+inexactness keeps `r_dual` above 1e-3 of the scale). The factor arm reaches a
+tighter iterate and exits sooner at the same tolerance; its returned violation
+is 6x smaller, as the August 1 A/B found. With disturbances (q kicked by
+N(0, 0.1 rad) every 25 ticks) the PCG arm averages 3.1 inner iterations per
+SQP iteration with 17 PCG steps each, rising to 7.7 and 37 on the kicked
+ticks; the factor arm averages 2.5 with one back-solve each. On the solver-level
+reach problem (iiwa14 N8, rho 10, `test_admm_exit.py`) a warm repeat exits
+after 1-1.6 inner iterations per SQP iteration at 1e-2 with zero violation.
+The inner loop's fixed point is approached only to ~1e-2 relative within 10
+iterations at these cost scales (rho 0.01 against a 1e-6 control weight is a
+proximal step, not a Newton step): tighter tolerances buy budget-length loops,
+not better enforcement. Wall-time effects are a quiet-window item
+(`tools/autotune_linsys.py --admm`).
+
 ## `set_exact_hessian(on)`
 
 Toggle the SO-SQP stage-Hessian PSD projection for subsequent solves.
@@ -69,10 +142,12 @@ comparison. Telemetry (stats.row_*_violation) stays on.
 ## `enable_limit_admm(rho, iters)`
 
 Bind the limit row-groups to the ADMM-projection mechanism: an
-OSQP-style fixed-budget inner loop per SQP iteration (warm PCG by default;
+OSQP-style inner loop per SQP iteration (warm PCG by default;
 optionally a reused direct BDSV factorization) — the constraint layer's
 "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
-a solve; adapt it between solves), ``iters`` the fixed budget.
+a solve; adapt it between solves), ``iters`` the inner budget: fixed by
+default, a cap once the residual exit is on (`set_admm_exit`, or the
+``eps_abs`` / ``eps_rel`` keywords here).
 R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
 rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
 controls at the warm start (closed-loop MPC parks); the measured
@@ -95,7 +170,11 @@ error rises from 0.024 to 0.030 m (N64). rho 0.1 tightens the plan (0.015) but
 costs tracking (0.045 m); horizons of 16 knots or fewer (≤160 ms lookahead)
 cannot brake in time (1.10 rad/s at N16, 1.19 at N8), so the closed-loop gate
 runs on N ≥ 32. The ADMM tick is ~16 ms at N64 on the shared box (bdsv factor
-per inner iteration) against 0.6 ms unconstrained.
+per inner iteration) against 0.6 ms unconstrained; that figure is the fixed
+budget of 10 inner iterations with the factor arm. The residual exit
+(`set_admm_exit`) cuts the inner work to about two iterations per SQP iteration
+on warm ticks at unchanged enforcement (counts in that section); its wall-time
+effect is measured in a quiet window.
 
 ## `enable_limit_al(rho)`
 

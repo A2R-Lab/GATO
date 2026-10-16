@@ -120,6 +120,11 @@ class SolverStats:
     # (B,) last-iteration ADMM residuals (None unless enable_limit_admm())
     admm_r_prim: np.ndarray = None
     admm_r_dual: np.ndarray = None
+    # (B,) ADMM inner iterations run this solve (summed over SQP iterations) and
+    # the inner linear-system work they took: PCG steps on the "pcg" arm, one
+    # per back-solve on the "bdsv_factor" arm (None unless ADMM is active)
+    admm_iters: np.ndarray = None
+    admm_linsys_iters: np.ndarray = None
 
 
 @dataclass(frozen=True)
@@ -357,6 +362,7 @@ class BSQP:
         self._n_appended_groups = 0
         self.exact_hessian = False  # the C++ default
         self._time_budget_us = 0.0  # solve(budget_s=...) state mirrored in the C++ solver
+        self._admm_linsys = "pcg"   # set_admm_linsys; the C++ default
         if params.exact_hessian:
             self.set_exact_hessian(True)
 
@@ -379,6 +385,38 @@ class BSQP:
         if mode not in ("bdsv_factor", "pcg"):
             raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')
         self.solver.set_admm_linsys_pcg(mode == "pcg")
+        self._admm_linsys = mode
+
+    @property
+    def admm_linsys(self):
+        """The ADMM inner-loop linear solver currently set ("pcg" | "bdsv_factor")."""
+        return self._admm_linsys
+
+    @property
+    def admm_active(self):
+        """True while any row group runs the ADMM mechanism (limits or appended)."""
+        return bool(self.solver.admm_active())
+
+    def set_admm_exit(self, eps_abs=0.0, eps_rel=0.0, check_every=1):
+        """Residual early exit of the ADMM inner loop. Per solve, after each inner
+        iteration, the loop stops once every ADMM row group g has
+        ``r_prim_g <= eps_abs + eps_rel*max|z_g|`` and
+        ``r_dual_g <= eps_abs + eps_rel*rho_g*max|z_g|`` on the iterate just
+        produced (rows of a group share units; the test is per group so one
+        group's scale cannot excuse another's) AND that iterate's linear solve converged (PCG below its
+        cap, or an OK direct factor): an unconverged inner solve cannot read as
+        a fixed point. ``eps_abs = eps_rel = 0`` (default) is the fixed budget of
+        ``enable_limit_admm(iters=...)``, bit for bit; with a tolerance ``iters``
+        is the cap. ``check_every``: inner iterations between host checks that
+        break the launch loop once every batch entry has exited (0 = never; exited
+        entries are skipped on-device regardless). ``stats.admm_iters`` and
+        ``stats.admm_linsys_iters`` report what ran.
+
+        Measured defaults, rulings and provenance: docs/constraints.md (`set_admm_exit`)."""
+        if eps_abs < 0.0 or eps_rel < 0.0 or int(check_every) < 0:
+            raise ValueError(f"set_admm_exit: eps_abs, eps_rel and check_every must be >= 0, "
+                             f"got {eps_abs!r}, {eps_rel!r}, {check_every!r}")
+        self.solver.set_admm_exit(float(eps_abs), float(eps_rel), int(check_every))
 
     def _apply_budget(self, budget_s):
         """Mirror solve(budget_s=...) into the C++ solver (a host-side switch; only
@@ -539,6 +577,10 @@ class BSQP:
                          if "admm_r_prim" in raw else None),
             admm_r_dual=(np.asarray(raw["admm_r_dual"], dtype=np.float32)
                          if "admm_r_dual" in raw else None),
+            admm_iters=(np.asarray(raw["admm_iters"], dtype=np.int32).reshape(B)
+                        if "admm_iters" in raw else None),
+            admm_linsys_iters=(np.asarray(raw["admm_linsys_iters"], dtype=np.int32).reshape(B)
+                               if "admm_linsys_iters" in raw else None),
         )
         return SolveResult(xu=xu, solve_time_us=stats.solve_time_us,
                            stats=stats, nx=self.nx, nu=self.nu, N=self.N,
@@ -588,15 +630,19 @@ class BSQP:
         self.solver.enable_limit_barrier(float(mu), float(delta))
         self._row_mech = "barrier"
 
-    def enable_limit_admm(self, rho=0.01, iters=10):
-        """Bind the limit row-groups to the ADMM-projection mechanism: a fixed-budget
-        (``iters``) OSQP-style inner loop per SQP iteration on the reused direct
-        factor — the layer's "approximately hard" mode; ``rho`` is the ADMM penalty.
+    def enable_limit_admm(self, rho=0.01, iters=10, *, eps_abs=None, eps_rel=None, check_every=1):
+        """Bind the limit row-groups to the ADMM-projection mechanism: an OSQP-style
+        inner loop per SQP iteration (``iters`` iterations, warm PCG or the reused
+        direct factor, see set_admm_linsys) — the layer's "approximately hard"
+        mode; ``rho`` is the ADMM penalty. ``eps_abs`` / ``eps_rel`` (either given)
+        turn on the residual early exit of set_admm_exit, with ``iters`` as the cap.
 
         Measured defaults, rulings and provenance: docs/constraints.md (`enable_limit_admm`)."""
         self._check_no_appended_groups("enable_limit_admm")
         self.solver.enable_limit_admm(float(rho), int(iters))
         self._row_mech = "admm"
+        if eps_abs is not None or eps_rel is not None:
+            self.set_admm_exit(eps_abs or 0.0, eps_rel or 0.0, check_every)
 
     def enable_limit_al(self, rho=1.0):
         """Bind the limit row-groups to the PHR augmented-Lagrangian mechanism: the

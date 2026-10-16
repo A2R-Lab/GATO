@@ -163,7 +163,7 @@ def fig8_task(plant, N, dt):
 
 
 def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
-                   kick_every=25, seed=7):
+                   kick_every=25, seed=7, admm=None):
     """One fixed-pacing fig8 MPC run under linsys policy `mode` with a seeded,
     stream-aligned kick schedule (the 08-12 CDF study rig; also the
     tools/autotune_linsys.py probe). TIMING-CLASS: callers own the quiet-box guard.
@@ -173,6 +173,14 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     qd+=N(0,.5)). Non-kick steps burn the identical number of rng draws so
     the disturbance stream stays aligned across arms. Returns a trace dict
     (solve_ms / pred_err / pcg_iters per solve + tracking summary).
+
+    `admm` (W2a ADMM speed study): None = no row groups (the paper setting);
+    a dict {"rho", "iters", "eps_abs", "eps_rel", "linsys", "tau"} binds the
+    URDF limit boxes to the ADMM mechanism with the residual exit
+    (solver.set_admm_exit) and the inner linsys policy `linsys` in
+    {"pcg", "bdsv_factor", "auto"} (auto at threshold `tau`); the trace then
+    also carries admm_iters / admm_linsys_iters / admm_linsys per solve and the
+    max row violation per solve.
     """
     from gato.mpc_gato import MPC_GATO
     from gato.controller import MPCController
@@ -185,10 +193,17 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     kw = {"linsys": mode}
     if mode == "auto":
         kw["bdsv_threshold"] = tau
+    if admm is not None:
+        mpc.solver.enable_limit_admm(rho=admm.get("rho", 0.01), iters=admm.get("iters", 10),
+                                     eps_abs=admm.get("eps_abs"), eps_rel=admm.get("eps_rel"))
+        kw["admm_linsys"] = admm.get("linsys", "pcg")
+        if kw["admm_linsys"] == "auto":
+            kw["admm_threshold"] = admm.get("tau", tau)
     mpc.controller = MPCController(mpc.solver, hypotheses=mpc.controller.hypotheses,
                                    warm_start="shift", reset_rho_each_step=True, **kw)
 
     pred_errs, iters, colds = [], [], []
+    admm_iters, admm_lin, admm_arm, viol = [], [], [], []
     rng = np.random.default_rng(seed)
     orig_step = mpc.controller.step
     nq, nx = mpc.solver.nq, mpc.solver.nx
@@ -213,6 +228,12 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         iters.append(int(np.asarray(r.solve.stats.pcg_iters).reshape(-1).max()))
         if mode == "auto":
             colds.append(bool(r.pred_err > tau))
+        if admm is not None:
+            st = r.solve.stats
+            admm_iters.append(int(st.admm_iters.max()))
+            admm_lin.append(int(st.admm_linsys_iters.max()))
+            admm_arm.append(r.admm_linsys)
+            viol.append(float(st.row_max_violation.max()))
         return r
 
     mpc.controller.step = step
@@ -223,7 +244,7 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     st = np.asarray(stats["solve_times"], dtype=float)
     gd = np.asarray(stats["goal_distances"], dtype=float)
     n = min(len(st), len(pred_errs))
-    return {
+    out = {
         "mode": mode, "tau": tau, "steps": n,
         "solve_ms": st[:n].tolist(),
         "pred_err": pred_errs[:n],
@@ -231,3 +252,7 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         "cold": colds[:n] if mode == "auto" else None,
         "track_mean": float(gd.mean()), "track_max": float(gd.max()),
     }
+    if admm is not None:
+        out.update(admm=dict(admm), admm_iters=admm_iters[:n], admm_linsys_iters=admm_lin[:n],
+                   admm_linsys=admm_arm[:n], row_viol=viol[:n])
+    return out

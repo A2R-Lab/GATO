@@ -149,6 +149,32 @@ def lookup(plant, N, task_tag, path=None):
     return load_tuning(path).get(_key(plant, N, task_tag))
 
 
+def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=None,
+                        plant=None, N=None, task_tag=None, path=None):
+    """Controller-side resolution of the ADMM inner-loop linsys policy:
+    explicit > tuned entry (``admm_policy`` / ``admm_tau``) > "auto".
+
+    Returns (admm_linsys, admm_threshold) with admm_linsys in
+    {"pcg", "bdsv_factor", "auto"} and admm_threshold set iff auto. Under auto
+    an unset threshold takes the tuned ``admm_tau``, else ``fallback_tau`` (the
+    controller passes its SQP bdsv_threshold: one warm-startedness signal, two
+    switches), else 0.1.
+    """
+    if admm_linsys is None and task_tag is not None and plant is not None:
+        entry = lookup(plant, N, task_tag, path)
+        if entry is not None and "admm_policy" in entry:
+            admm_linsys = entry["admm_policy"]
+            if admm_linsys == "auto" and admm_threshold is None:
+                admm_threshold = entry.get("admm_tau")
+    if admm_linsys is None:
+        admm_linsys = "auto"
+    if admm_linsys != "auto":
+        return admm_linsys, None
+    if admm_threshold is None:
+        admm_threshold = fallback_tau if fallback_tau is not None else 0.1
+    return admm_linsys, float(admm_threshold)
+
+
 def resolve_linsys(floating_base, linsys=None, bdsv_threshold=None,
                    plant=None, N=None, task_tag=None, path=None):
     """Controller-side resolution: explicit > tuned > wired default.

@@ -311,7 +311,7 @@ controls. Groups bind to one of four mechanisms:
 |---|---|---|
 | telemetry | `enable_limit_telemetry()` | report-only — violation stats every solve, solver path untouched (bit-identical) |
 | relaxed barrier | `enable_limit_barrier(mu, delta)` | soft interior penalty, infeasible-start safe |
-| ADMM projection | `enable_limit_admm(rho, iters)` | inner splitting loop per SQP step, tight transients |
+| ADMM projection | `enable_limit_admm(rho, iters, eps_rel=...)` | inner splitting loop per SQP step, tight transients; `set_admm_exit` stops the loop on its residuals |
 | augmented Lagrangian | `enable_limit_al(rho)` | PHR outer duals — exact at convergence, made for warm-started MPC |
 
 ```python

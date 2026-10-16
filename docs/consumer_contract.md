@@ -220,9 +220,11 @@ collision header from the pinned grid-rbd wheel), defines and flags;
 `examples/cpp/` has the template and a standalone CMake. The time budget is
 `set_time_budget_us(us)` (0 = off) with the stop reported in
 `SQPStats::budget_hit`, the same iteration-boundary semantics as `budget_s`
-above. Stable: the class, `ProblemInputs`, `SQPStats` (`solve_time_us`,
-per-row `sqp_iterations`, `budget_hit`), the three defines and the array
-layouts. Not stable: private members, kernel
+above. The ADMM residual exit is `set_admm_exit(eps_abs, eps_rel, check_every)`
+with the inner work in `SQPStats::admm_iters` / `admm_linsys_iters`. Stable:
+the class, `ProblemInputs`, `SQPStats` (`solve_time_us`, per-row
+`sqp_iterations`, `budget_hit`, `admm_iters`, `admm_linsys_iters`), the three
+defines and the array layouts. Not stable: private members, kernel
 signatures, and anything under `gato/bsqp/kernels/`.
 
 ## 9. API stability

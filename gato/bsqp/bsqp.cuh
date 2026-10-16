@@ -196,9 +196,10 @@ class BSQP {
                 install_limit_groups(rows::MECH_BARRIER_RELAXED, mu, delta);
         }
         // Same limit groups bound to MECH_ADMM: OSQP-style interval projection
-        // run as a fixed-budget inner loop per SQP iteration on the REUSED bdsv
-        // factor (see kernels/admm.cuh). rho = the ADMM penalty (grp.mu),
-        // iters = the fixed budget ("approximately hard" — final violation is
+        // run as a budgeted inner loop per SQP iteration on warm PCG or the
+        // REUSED bdsv factor (see kernels/admm.cuh). rho = the ADMM penalty
+        // (grp.mu), iters = the inner budget — fixed, or the cap once
+        // set_admm_exit is on ("approximately hard" — final violation is
         // telemetry-reported). (z, y) warm-start across solves; reset_dual()
         // or re-enabling reinitializes them from the next warm start.
         // EXCEPTION: equality rows (lo == hi) reinit every solve — persistent
@@ -663,6 +664,28 @@ class BSQP {
         void set_admm_linsys_pcg(bool on) { admm_linsys_pcg_ = on; }
         bool admm_linsys_pcg() const { return admm_linsys_pcg_; }
 
+        // Residual early exit of the ADMM inner loop (kernels/admm.cuh header):
+        // per solve, after each inner iteration, stop once every ADMM group g has
+        //   r_prim_g <= eps_abs + eps_rel*max|z_g|  and  r_dual_g <= eps_abs + eps_rel*rho_g*max|z_g|
+        // on an iterate whose x-update converged (PCG below its cap / an OK
+        // factor) — the inexact-ADMM guard. eps_abs = eps_rel = 0 (default)
+        // restores the bitwise fixed budget; otherwise enable_limit_admm's
+        // iters is the cap. check_every: how often (inner iterations) the host
+        // drains the stream to break the launch loop once every solve has
+        // exited (0 = never — converged solves are still skipped on-device,
+        // only the empty launches remain). The exit holds the ADMM semantics
+        // (z, y warm start, telemetry, residual reporting) unchanged.
+        void set_admm_exit(T eps_abs, T eps_rel, uint32_t check_every)
+        {
+                if (eps_abs < static_cast<T>(0) || eps_rel < static_cast<T>(0)) { throw std::invalid_argument("set_admm_exit: eps_abs and eps_rel must be >= 0"); }
+                admm_eps_abs_ = eps_abs;
+                admm_eps_rel_ = eps_rel;
+                admm_check_every_ = check_every;
+        }
+        T        admm_eps_abs() const { return admm_eps_abs_; }
+        T        admm_eps_rel() const { return admm_eps_rel_; }
+        uint32_t admm_check_every() const { return admm_check_every_; }
+
         // OSQP-style ADMM rho adaptation (P4.3, opt-in): ONE per-solve scalar
         // multiplier on top of the bound per-group rho baselines (grp.mu — the
         // R2/2b block-scale ratios between groups are preserved), updated once
@@ -933,6 +956,10 @@ class BSQP {
                 } else if (admm_active_ && admm_has_eq_rows_) {
                         rows::admm_init_state_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, /*eq_rows_only=*/true, h_env_);
                 }
+                if (admm_active_) {
+                        gpuErrchk(cudaMemsetAsync(d_admm_iters_batch_, 0, batch_size_ * sizeof(int32_t)));
+                        gpuErrchk(cudaMemsetAsync(d_admm_linsys_iters_batch_, 0, batch_size_ * sizeof(int32_t)));
+                }
 
                 // SQP Loop. set_time_budget_us: iteration costs are measured between loop
                 // boundaries with the stream drained (iteration 0 from the loop entry: the
@@ -978,20 +1005,37 @@ class BSQP {
                                 gpuErrchk(cudaMemcpyAsync(d_r_base_, kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                                 if (!admm_linsys_pcg_) { factor_bdsv_batched<T>(batch_size_, schur_system_batch_, d_factor_status_, d_kkt_converged_batch_); }
                                 direct_this_iter = !admm_linsys_pcg_;
+                                // the inner skip mask starts as the SQP convergence mask; the
+                                // projection kernel raises a solve's flag on the residual exit
+                                // (set_admm_exit) and every inner kernel skips it from then on
+                                const bool admm_exit = (admm_eps_abs_ > static_cast<T>(0)) || (admm_eps_rel_ > static_cast<T>(0));
+                                gpuErrchk(cudaMemcpyAsync(d_admm_skip_batch_, d_kkt_converged_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToDevice));
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
-                                        rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
-                                        compute_gamma_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_kkt_converged_batch_);
+                                        rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
+                                        compute_gamma_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_admm_skip_batch_);
                                         if (admm_linsys_pcg_) {
-                                                solve_pcg_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_kkt_converged_batch_, d_pcg_iterations_);
+                                                solve_pcg_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_admm_skip_batch_, d_pcg_iterations_);
                                         } else {
-                                                solve_bdsv_factored_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_);
+                                                solve_bdsv_factored_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, schur_system_batch_.d_gamma_batch, d_factor_status_, d_pcg_iterations_, d_admm_skip_batch_);
                                         }
-                                        compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
-                                        rows::admm_project_dual_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_kkt_converged_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
+                                        compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_admm_skip_batch_);
+                                        rows::admm_project_dual_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr(),
+                                                                           d_pcg_iterations_, admm_linsys_pcg_ ? max_pcg_iters_ : 0u, admm_eps_abs_, admm_eps_rel_, d_admm_iters_batch_, d_admm_linsys_iters_batch_);
+                                        if (admm_exit && admm_check_every_ > 0 && k + 1 < admm_iters_ && (k + 1) % admm_check_every_ == 0) {
+                                                // every solve exited (or was already converged): the remaining
+                                                // launches would be empty — break here
+                                                gpuErrchk(cudaMemcpyAsync(h_admm_skip_, d_admm_skip_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToHost));
+                                                gpuErrchk(cudaEventRecord(sync_event_));
+                                                gpuErrchk(cudaEventSynchronize(sync_event_));
+                                                bool all_done = true;
+                                                for (uint32_t b = 0; b < batch_size_; ++b) { if (!h_admm_skip_[b]) { all_done = false; break; } }
+                                                if (all_done) break;
+                                        }
                                 }
-                                // NOTE: ADMM mode is fixed-budget by design (approximately-hard):
-                                // the pcg_iters==0 SQP early-exit is guarded on !admm_active_
-                                // below. Factor arm: the factored solve reports 1 (solved) / 2
+                                // NOTE: ADMM mode is budgeted by design (approximately-hard; the
+                                // residual exit of set_admm_exit stops the inner loop early, the SQP
+                                // loop runs on): the pcg_iters==0 SQP early-exit is guarded on
+                                // !admm_active_ below. Factor arm: the factored solve reports 1 (solved) / 2
                                 // (non-PD skip) / 0 only for already-converged solves, so the
                                 // guard is a no-op there. PCG arm: warm-started PCG CAN report 0
                                 // near convergence — the guard keeps both arms on identical
@@ -1141,6 +1185,10 @@ class BSQP {
                 sqp_stats.solve_time_us = std::chrono::duration_cast<std::chrono::microseconds>(sqp_end_time - sqp_start_time).count();
                 memcpy(sqp_stats.kkt_converged.data(), h_kkt_converged_batch_, batch_size_ * sizeof(int32_t));
                 memcpy(sqp_stats.sqp_iterations.data(), h_sqp_iters_B_, batch_size_ * sizeof(uint32_t));
+                if (admm_active_) {
+                        gpuErrchk(cudaMemcpy(sqp_stats.admm_iters.data(), d_admm_iters_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToHost));
+                        gpuErrchk(cudaMemcpy(sqp_stats.admm_linsys_iters.data(), d_admm_linsys_iters_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToHost));
+                }
                 memset(h_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t));
                 memset(h_sqp_iters_B_, 0, batch_size_ * sizeof(uint32_t));
 
@@ -1259,6 +1307,13 @@ class BSQP {
                         gpuErrchk(cudaMemcpy(d_admm_rho_scale_batch_, ones.data(), batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
                 }
                 gpuErrchk(cudaMalloc(&d_factor_status_, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMalloc(&d_admm_skip_batch_, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMemset(d_admm_skip_batch_, 0, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMalloc(&d_admm_iters_batch_, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMalloc(&d_admm_linsys_iters_batch_, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMemset(d_admm_iters_batch_, 0, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMemset(d_admm_linsys_iters_batch_, 0, batch_size_ * sizeof(int32_t)));
+                gpuErrchk(cudaMallocHost(&h_admm_skip_, batch_size_ * sizeof(int32_t)));
 
                 gpuErrchk(cudaMallocHost(&h_kkt_converged_batch_, BI));
                 gpuErrchk(cudaMallocHost(&h_sqp_iters_B_, BI));
@@ -1325,6 +1380,10 @@ class BSQP {
                 gpuErrchk(cudaFree(d_admm_resid_));
                 gpuErrchk(cudaFree(d_admm_rho_scale_batch_));
                 gpuErrchk(cudaFree(d_factor_status_));
+                gpuErrchk(cudaFree(d_admm_skip_batch_));
+                gpuErrchk(cudaFree(d_admm_iters_batch_));
+                gpuErrchk(cudaFree(d_admm_linsys_iters_batch_));
+                gpuErrchk(cudaFreeHost(h_admm_skip_));
 
                 gpuErrchk(cudaFreeHost(h_kkt_converged_batch_));
                 gpuErrchk(cudaFreeHost(h_sqp_iters_B_));
@@ -1387,8 +1446,16 @@ class BSQP {
         bool     admm_active_ = false;
         bool     admm_needs_init_ = false;
         bool     admm_has_eq_rows_ = false;
-        uint32_t admm_iters_ = 10;
+        uint32_t admm_iters_ = 10;          // inner budget (the cap once set_admm_exit is on)
         bool     admm_merit_term_ = false;  // set_admm_merit (R1 ablation)
+        // residual early exit (set_admm_exit; kernels/admm.cuh header)
+        int32_t* d_admm_skip_batch_;          // inner-loop skip mask: kkt_converged | exited
+        int32_t* h_admm_skip_;                // pinned mirror for the host launch-loop break
+        int32_t* d_admm_iters_batch_;         // per-solve inner iterations run (this solve)
+        int32_t* d_admm_linsys_iters_batch_;  // per-solve inner linsys iterations (this solve)
+        T        admm_eps_abs_ = 0;           // 0 and eps_rel 0 = the fixed budget (bitwise v1)
+        T        admm_eps_rel_ = 0;
+        uint32_t admm_check_every_ = 1;       // host break check period in inner iterations (0 = device gating only)
 
         // AL/PHR duals (rowgroups.cuh MECH_AL; al_active_ == false -> inert)
         T*   d_lam_hi_;

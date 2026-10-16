@@ -13,7 +13,7 @@ import numpy as np
 
 from .common import check_floating_state, initialize_warm_start, state_difference
 from .interface import SolveResult
-from .linsys_autotune import resolve_linsys
+from .linsys_autotune import resolve_admm_linsys, resolve_linsys
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,7 @@ class StepResult:
     iterations: int = 0      # SQP iterations the solve ran (the batch runs them in lockstep)
     budget_hit: bool = False # the solve stopped on step(budget_s=...) rather than on max_sqp_iters/convergence
     wall_s: float = 0.0      # wall time of this step() call, entry to return (host staging + solve + shift)
+    admm_linsys: str = ""    # ADMM inner linsys this step ran ("pcg" | "bdsv_factor"; "" when ADMM is off)
 
 
 class MPCController:
@@ -77,15 +78,32 @@ class MPCController:
             pred_err signal as linsys="auto"; a re-seeded step is treated as
             cold there. Floating tasks should set this; set it above
             bdsv_threshold (re-seeding is the bigger hammer).
+        admm_linsys: the ADMM inner loop's linear solver policy, read only
+            while a row group runs the ADMM mechanism (solver.admm_active).
+            "pcg" / "bdsv_factor" pin solver.set_admm_linsys; "auto" picks per
+            step from the SAME warm-startedness signal as linsys="auto": a cold
+            step (pred_err above admm_threshold, a PCG cap-out on the previous
+            step, or a re-seed) factors the Schur system once and back-solves
+            per inner iteration, a warm step runs warm PCG per inner
+            iteration (the inner loop then starts near its fixed point and
+            the residual exit of solver.set_admm_exit stops it after a few
+            iterations). None (default) resolves "auto", with a tuned
+            (plant, N, task_tag) entry's admm_policy/admm_tau when present.
+        admm_threshold: pred_err threshold for admm_linsys="auto"; defaults
+            to bdsv_threshold (one signal, two switches) until a fitted value
+            exists (tools/autotune_linsys.py --admm).
     """
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
                  reset_rho_each_step=True, linsys=None, bdsv_threshold=None,
-                 task_tag=None, reseed_threshold=None):
+                 task_tag=None, reseed_threshold=None, admm_linsys=None,
+                 admm_threshold=None):
         if warm_start not in ("shift", "hold"):
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
             raise ValueError(f"linsys must be None, 'pcg', 'bdsv', 'bdsv_first' or 'auto', got {linsys!r}")
+        if admm_linsys not in (None, "pcg", "bdsv_factor", "auto"):
+            raise ValueError(f"admm_linsys must be None, 'pcg', 'bdsv_factor' or 'auto', got {admm_linsys!r}")
         if hypotheses is not None and hypotheses.batch_size != solver.batch_size:
             raise ValueError(
                 f"hypotheses.batch_size ({hypotheses.batch_size}) != "
@@ -105,6 +123,13 @@ class MPCController:
         self.reseed_threshold = reseed_threshold
         if linsys != "auto":
             solver.set_linsys(linsys)
+        admm_linsys, admm_threshold = resolve_admm_linsys(
+            admm_linsys, admm_threshold, fallback_tau=bdsv_threshold,
+            plant=getattr(solver, "plant_type", None), N=solver.N, task_tag=task_tag)
+        self.admm_linsys = admm_linsys
+        self.admm_threshold = admm_threshold
+        if admm_linsys != "auto" and hasattr(solver, "set_admm_linsys"):
+            solver.set_admm_linsys(admm_linsys)
         self.nx, self.nu, self.N = solver.nx, solver.nu, solver.N
         self.n_actuated, self.n_fc = solver.n_actuated, solver.n_fc
         self.nq, self.nv = solver.nq, solver.nv
@@ -228,6 +253,12 @@ class MPCController:
         if self.linsys == "auto":
             cold = pred_err > self.bdsv_threshold or self._prev_capout or reseeded
             self.solver.set_linsys("bdsv_first" if cold else "pcg")
+        admm_linsys = ""
+        if getattr(self.solver, "admm_active", False):
+            if self.admm_linsys == "auto":
+                cold = pred_err > self.admm_threshold or self._prev_capout or reseeded
+                self.solver.set_admm_linsys("bdsv_factor" if cold else "pcg")
+            admm_linsys = self.solver.admm_linsys
 
         # program the hypothesis batch, then solve from the measured state
         if self.hypotheses is not None:
@@ -276,5 +307,5 @@ class MPCController:
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
             pred_err=pred_err, reseeded=reseeded,
             iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
-            wall_s=perf_counter() - t0,
+            wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
         )
