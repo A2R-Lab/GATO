@@ -72,9 +72,22 @@ def rewrite_links(text, source_rel):
     return LINK.sub(repl, text)
 
 
+def committed_receipt():
+    """The receipt the site documents is the COMMITTED one: ``git show HEAD:gpu-proof.json``
+    in a checkout (a receipt run removes the working-tree file while it records, and an
+    uncommitted receipt attests nothing); the file itself outside git (an sdist)."""
+    try:
+        out = subprocess.run(["git", "show", "HEAD:gpu-proof.json"], cwd=REPO, capture_output=True, text=True)
+        if out.returncode == 0:
+            return json.loads(out.stdout)
+    except OSError:
+        pass
+    return json.loads((REPO / "gpu-proof.json").read_text())
+
+
 def receipt_page():
-    """The receipt page: what gpu-proof.json says, in words, and how to check it."""
-    r = json.loads((REPO / "gpu-proof.json").read_text())
+    """The receipt page: what the committed gpu-proof.json says, in words, and how to check it."""
+    r = committed_receipt()
     env, repo, sess, signer, fp = r["environment"], r["repo"], r["session"], r["signer"], r["fingerprint"]
     tests = r["tests"]
     by = {}

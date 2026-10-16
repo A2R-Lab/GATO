@@ -38,10 +38,9 @@ def test_links_are_rewritten_and_checked(tmp_path):
 
 
 def test_receipt_page_reflects_the_committed_receipt():
-    import json
     mod = _load()
     page = mod.receipt_page()
-    r = json.loads((REPO / "gpu-proof.json").read_text())
+    r = mod.committed_receipt()          # HEAD's receipt: the working-tree file is absent during a receipt run
     assert r["repo"]["commit_sha"] in page and r["signer"]["github_user"] in page
     assert f"{len(r['tests'])} recorded" in page
     for line in (REPO / "test/receipt_modules.txt").read_text().splitlines():
