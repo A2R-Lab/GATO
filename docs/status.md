@@ -38,7 +38,13 @@ research software, not a certified robot controller.
   installs nothing); follow row-group ordering and check feasibility
   telemetry (`StepResult.row_viol`). A report-only row is not an enforced
   bound, and a finite-budget ADMM plan is feasible to within its reported
-  residual, not exactly.
+  residual, not exactly. Measured on the October 16, 2026 holdout (100
+  fresh scenarios per task and arm, `docs/constraints.md`): the simulated
+  peak joint velocity at the limit at the 90th percentile on a step-reference
+  pick-and-place that runs at two to four times the limit unconstrained, at
+  the unconstrained controller's tracking error and task time where no
+  limit binds; the worst single scenario overshoots by 44 % for one control
+  period.
 - **Integration:** default-stream execution is the supported path; do not
   assume concurrent solves on a shared solver instance are supported.
 - **Timing:** internal solve time and `MPCController.step` wall time have

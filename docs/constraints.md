@@ -289,6 +289,73 @@ aggressive; they do not change the ADMM verdict. The residual exit costs
 nothing in enforcement against the fixed budget on this set. The default is
 therefore rho 0.1 / 0.03 / 1e-5 with the exit at 1e-2; the holdout below is a
 fresh draw run once with it.
+
+Holdout (October 16, 2026, `--set holdout`, seed 20261016, 100 fresh scenarios
+per task and arm, N32 and N64, the four mechanisms at the frozen defaults, no
+retuning; 3200 episodes in `examples/benchmarks/data/limits_holdout/holdout.jsonl`,
+published as run):
+
+| task | arm, N | mechanism | sim peak qd / limit p50 / p90 / max | ticks over | sim peak u / limit max | tracking p50 / p90 (m) or goals, task time p50 (s) | planner viol qd p50 / max |
+|---|---|---|---|---|---|---|---|
+| fig8 | indy7 N32 | none | 0.79 / 1.02 / 1.18 | 0.1 % | 0.46 | 0.0661 / 0.0951 | 0.0e+00 / 1.6e-01 |
+| fig8 | indy7 N32 | barrier | 0.72 / 0.89 / 1.04 | 0.0 % | 0.45 | 0.0704 / 0.1008 | 0.0e+00 / 2.3e-02 |
+| fig8 | indy7 N32 | al | 0.66 / 0.88 / 0.96 | 0.0 % | 0.32 | 0.0731 / 0.1021 | 0.0e+00 / 1.5e-02 |
+| fig8 | indy7 N32 | admm (default) | 0.67 / 0.88 / 0.96 | 0.0 % | 0.33 | 0.0718 / 0.1009 | 0.0e+00 / 7.1e-03 |
+| fig8 | indy7 N64 | none | 0.69 / 0.88 / 1.09 | 0.0 % | 0.43 | 0.0762 / 0.1027 | 0.0e+00 / 1.1e-03 |
+| fig8 | indy7 N64 | barrier | 0.63 / 0.78 / 0.94 | 0.0 % | 0.42 | 0.0807 / 0.1101 | 0.0e+00 / 0.0e+00 |
+| fig8 | indy7 N64 | al | 0.62 / 0.84 / 0.91 | 0.0 % | 0.30 | 0.0767 / 0.1025 | 0.0e+00 / 8.9e-03 |
+| fig8 | indy7 N64 | admm (default) | 0.62 / 0.84 / 0.91 | 0.0 % | 0.30 | 0.0770 / 0.1028 | 0.0e+00 / 1.4e-04 |
+| fig8 | iiwa14 N32 | none | 0.80 / 0.95 / 1.05 | 0.1 % | 0.23 | 0.0360 / 0.0475 | 0.0e+00 / 1.6e-01 |
+| fig8 | iiwa14 N32 | barrier | 0.63 / 0.71 / 0.80 | 0.0 % | 0.23 | 0.0435 / 0.0548 | 0.0e+00 / 0.0e+00 |
+| fig8 | iiwa14 N32 | al | 0.80 / 0.94 / 1.04 | 0.0 % | 0.23 | 0.0360 / 0.0476 | 0.0e+00 / 1.5e-01 |
+| fig8 | iiwa14 N32 | admm (default) | 0.81 / 0.93 / 0.93 | 0.0 % | 0.23 | 0.0361 / 0.0476 | 0.0e+00 / 8.9e-03 |
+| fig8 | iiwa14 N64 | none | 0.77 / 0.95 / 1.04 | 0.0 % | 0.36 | 0.0417 / 0.0566 | 0.0e+00 / 1.6e-01 |
+| fig8 | iiwa14 N64 | barrier | 0.62 / 0.73 / 0.82 | 0.0 % | 0.34 | 0.0490 / 0.0641 | 0.0e+00 / 0.0e+00 |
+| fig8 | iiwa14 N64 | al | 0.77 / 0.93 / 0.97 | 0.0 % | 0.37 | 0.0421 / 0.0569 | 0.0e+00 / 1.5e-01 |
+| fig8 | iiwa14 N64 | admm (default) | 0.79 / 0.92 / 0.93 | 0.0 % | 0.36 | 0.0422 / 0.0570 | 0.0e+00 / 9.9e-03 |
+| pickplace | indy7 N32 | none | 0.68 / 2.02 / 2.57 | 3.3 % | 1.16 | 3.00 of 3, 1.93 s | 0.0e+00 / 4.0e+00 |
+| pickplace | indy7 N32 | barrier | 0.63 / 1.44 / 2.24 | 0.5 % | 0.80 | 3.00 of 3, 1.94 s | 0.0e+00 / 1.3e+00 |
+| pickplace | indy7 N32 | al | 0.66 / 1.84 / 2.13 | 1.2 % | 0.96 | 3.00 of 3, 1.92 s | 0.0e+00 / 3.1e+00 |
+| pickplace | indy7 N32 | admm (default) | 0.65 / 0.97 / 1.44 | 0.0 % | 0.79 | 3.00 of 3, 1.91 s | 0.0e+00 / 7.1e-02 |
+| pickplace | indy7 N64 | none | 0.67 / 1.96 / 2.57 | 2.6 % | 1.00 | 3.00 of 3, 2.00 s | 0.0e+00 / 3.9e+00 |
+| pickplace | indy7 N64 | barrier | 0.66 / 1.50 / 2.25 | 0.5 % | 0.81 | 3.00 of 3, 1.98 s | 0.0e+00 / 1.1e+00 |
+| pickplace | indy7 N64 | al | 0.64 / 1.79 / 2.51 | 1.2 % | 0.95 | 3.00 of 3, 1.91 s | 0.0e+00 / 4.1e+00 |
+| pickplace | indy7 N64 | admm (default) | 0.64 / 0.99 / 1.43 | 0.1 % | 0.81 | 3.00 of 3, 1.91 s | 0.0e+00 / 4.7e-02 |
+| pickplace | iiwa14 N32 | none | 1.39 / 2.87 / 4.17 | 16.3 % | 1.02 | 2.93 of 3, 2.01 s | 7.0e-01 / 5.6e+00 |
+| pickplace | iiwa14 N32 | barrier | 0.88 / 1.00 / 1.23 | 0.1 % | 0.98 | 2.78 of 3, 2.48 s | 0.0e+00 / 1.0e+00 |
+| pickplace | iiwa14 N32 | al | 0.96 / 1.29 / 1.62 | 2.2 % | 0.91 | 2.92 of 3, 2.28 s | 3.3e-01 / 2.0e+00 |
+| pickplace | iiwa14 N32 | admm (default) | 0.94 / 1.00 / 1.08 | 0.1 % | 0.99 | 2.93 of 3, 2.26 s | 1.3e-02 / 2.1e-01 |
+| pickplace | iiwa14 N64 | none | 1.48 / 2.57 / 4.02 | 14.4 % | 1.11 | 2.76 of 3, 2.08 s | 8.0e-01 / 5.4e+00 |
+| pickplace | iiwa14 N64 | barrier | 0.88 / 1.01 / 1.29 | 0.0 % | 0.97 | 2.56 of 3, 2.45 s | 0.0e+00 / 1.0e+00 |
+| pickplace | iiwa14 N64 | al | 0.99 / 1.23 / 1.56 | 2.0 % | 0.91 | 2.73 of 3, 2.30 s | 2.6e-01 / 2.0e+00 |
+| pickplace | iiwa14 N64 | admm (default) | 0.94 / 0.97 / 1.00 | 0.0 % | 0.96 | 2.73 of 3, 2.28 s | 1.2e-02 / 8.8e-02 |
+
+Reading. On the figure-8 the default tracks within 1 % of the unconstrained
+controller on both arms at N64 (0.0770 against 0.0762 m; 0.0422 against
+0.0417), 9 % at N32 on the Indy7 and equal on the iiwa14, with the planner
+violation of the velocity rows at most 1e-2 rad/s where the unconstrained
+plan reaches 0.16. On the step-reference pick-and-place the simulated peak
+velocity is at the limit at the 90th percentile (0.97 to 1.00 of the limit)
+with at most 0.1 % of control periods over, against 1.96 to 2.87 at the 90th
+percentile and 2.6 to 16 % of periods over unconstrained; the barrier holds
+the iiwa14 (1.00 to 1.01) but not the Indy7 (1.44 to 1.50) and loses goals on
+the iiwa14 (2.56 to 2.78 of 3); AL sits between (1.23 to 1.84). The worst
+single scenario under the default peaks at 1.43 to 1.44 on the Indy7 (one of
+100; the plan itself violates by at most 7e-2 rad/s, so the excess is the
+plant overshooting a feasible plan within one control period) and at 1.00 to
+1.08 on the iiwa14. Goals reached and task time match the unconstrained
+controller on the Indy7 (3 of 3, 1.91 against 1.93 to 2.00 s) and come within
+0.2 to 0.3 s on the iiwa14, whose unconstrained runs reach goals by running at
+up to four times its velocity limit. The applied torque stays inside the
+limit under the default (0.96 to 0.99 of the limit at the peak) where the
+unconstrained controller exceeds it (1.00 to 1.16), and no default run leaves
+the position box (the unconstrained controller leaves it by up to 0.24 rad).
+The exit spends 3.7 inner iterations per tick on average. The claim this
+supports: inside the URDF position, velocity and torque limits to within the
+reported residual on these tasks, in closed loop on the simulated plant, with
+the per-tick overshoot above bounded by one control period of plant motion;
+a bounded, measured property, not a certificate (hard per-solve guarantees are
+research, column 2 of the plan).
 iters=10 BOUND by R2: 2/5 park the feasible
 cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
 inner cost).
