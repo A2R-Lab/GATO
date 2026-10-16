@@ -96,23 +96,26 @@ from dataclasses import dataclass, asdict, replace as _dc_replace
 class SolverParams:
     """BSQP solver configuration. Immutable; derive variants with ``.replace()``.
 
-    SQP / linear system
-        max_sqp_iters: SQP iterations per solve (1 = RTI/MPC; raise for one-shot).
-        max_pcg_iters, pcg_tol: PCG budget / tolerance (pcg and bdsv_first paths).
-        solve_ratio: fraction of the batch that must converge before early exit.
-        mu: merit-function constraint weight.
-        rho: trust-region / regularization floor (> 0: f32 bdsv returns garbage
-            steps at rho=0); adapt_rho lets the line search adapt it per solve.
-        linsys: "pcg" | "bdsv" | "bdsv_first" | None (None = wired default:
-            pcg fixed-base, bdsv floating-base — the static arm of the
-            controller's per-step policy; see gato.linsys_autotune.resolve_linsys).
-    Cost weights (grid_plant tracking cost)
-        q_cost (running EE position), N_cost (terminal EE position), qd_cost,
-        u_cost, and the clamped-log-barrier limit weights q_lim_cost /
-        vel_lim_cost / ctrl_lim_cost. Per-knot and per-joint refinements are
-        runtime setters on BSQP (set_cost_weights_per_knot, set_q_pos_cost,
-        set_u_cost_vec, set_fc_cost/ref) and take precedence over these.
-    exact_hessian: SO-SQP stage-Hessian projection (needs an "eh" variant module).
+    SQP and linear system:
+
+    - ``max_sqp_iters``: SQP iterations per solve (1 = RTI/MPC; raise for one-shot).
+    - ``max_pcg_iters``, ``pcg_tol``: PCG budget / tolerance (pcg and bdsv_first paths).
+    - ``solve_ratio``: fraction of the batch that must converge before early exit.
+    - ``mu``: merit-function constraint weight.
+    - ``rho``: trust-region / regularization floor (> 0: f32 bdsv returns garbage
+      steps at rho=0); ``adapt_rho`` lets the line search adapt it per solve.
+    - ``linsys``: "pcg" | "bdsv" | "bdsv_first" | None (None = wired default:
+      pcg fixed-base, bdsv floating-base, the static arm of the controller's
+      per-step policy; see ``gato.linsys_autotune.resolve_linsys``).
+
+    Cost weights (grid_plant tracking cost): ``q_cost`` (running EE position),
+    ``N_cost`` (terminal EE position), ``qd_cost``, ``u_cost``, and the
+    clamped-log-barrier limit weights ``q_lim_cost`` / ``vel_lim_cost`` /
+    ``ctrl_lim_cost``. Per-knot and per-joint refinements are runtime setters on
+    BSQP (``set_cost_weights_per_knot``, ``set_q_pos_cost``, ``set_u_cost_vec``,
+    ``set_fc_cost`` / ``set_fc_ref``) and take precedence over these.
+
+    ``exact_hessian``: SO-SQP stage-Hessian projection (needs an "eh" variant module).
     """
     max_sqp_iters: int = 1
     max_pcg_iters: int = 200

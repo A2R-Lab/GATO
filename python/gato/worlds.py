@@ -17,6 +17,7 @@ sensor-rate substep at a time through a WORLD object::
   the solver's rigid fc model is deliberate.
 
 MuJoCo gotchas this module encodes (found 2026-08-04):
+
 - the vendored URDF's ``<mujoco><compiler meshdir=...>`` block points at a
   nonexistent dir — ``MjSpec.meshdir`` overrides it to the URDF's own dir;
 - MuJoCo does NOT exclude contacts between a world-welded base and its child

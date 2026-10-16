@@ -1,7 +1,8 @@
 """Force-disturbance estimators: sample B wrench hypotheses, refit on feedback.
 
 Both classes share the duck-typed estimator contract consumed by
-gato.hypotheses.ForceHypothesisBatch:
+``gato.hypotheses.ForceHypothesisBatch``::
+
     generate_batch() -> (B, 6) world-frame wrenches
     update(best_idx, prediction_errors, batch_used)
     reset(); get_stats() -> dict
@@ -492,7 +493,7 @@ class OneStepWrenchIdentifier:
         acceleration over [t, t+dt], so the dynamics must be evaluated at the
         interval MIDPOINT (second-order) rather than its start (first-order),
         and dt must be the SENSOR period, not the control period. Measured on
-        the closed-loop pick-place task against an exact-acceleration observer:
+        the closed-loop pick-place task against an exact-acceleration observer::
 
             1 ms interval, midpoint  ->  0.5% median error   (usable)
            10 ms interval, start     ->  9.4% median error   (diverges in the

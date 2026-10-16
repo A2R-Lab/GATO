@@ -170,6 +170,10 @@ usual configure (`./tools/build.sh --profile receipt`) afterwards.
 
 Constraint-layer rulings/provenance (moved out of the docstrings): [`docs/constraints.md`](docs/constraints.md).
 
+The documentation site (<https://a2r-lab.org/GATO/docs/>) is built from the repository's markdown by
+`docs/site/build.py` (host-tier test `test/test_docs_site.py`, warnings are errors: docstrings must be
+valid reStructuredText and every markdown link must resolve); the project page stays on `gh-pages`.
+
 **External consumers start at [`docs/consumer_contract.md`](docs/consumer_contract.md)** —
 the conventions cross-repo integrations depend on (EE frame, JOINT_LIMIT_MARGIN, cost
 semantics, xu layout, receipt scope) + the **dynamics fingerprint**

@@ -131,7 +131,7 @@ pytest                        # + slow: codegen diff for every robot, gato.build
 ## Signed receipt
 
 GPU CI is a signed [pytest-gpu-proof](https://github.com/A2R-Lab/pytest-gpu-proof) receipt
-(`gpu-proof.json` at the repo root, schema 3, plugin 0.4.0) produced on the lab GPU and
+(`gpu-proof.json` at the repo root, schema 3, plugin 0.4.1) produced on the lab GPU and
 verified CPU-only by the `verify-gpu-proof` workflow against the signer's GitHub keys.
 The receipt attests the full suite on exactly the `test/receipt_modules.txt` module set;
 the fingerprint covers native sources and bindings, Python, tests, examples,
@@ -158,6 +158,18 @@ fails CI; `test/expected_tests.txt` enforces the complete collected suite.
    Push only when authorized, then check the workflow run.
 
 Never edit a signed receipt; a dirty-tree local pass is not a receipt.
+
+## Documentation site
+
+The reference tier of the public site (<https://a2r-lab.org/GATO/docs/>) is built from this
+repository's markdown by `docs/site/build.py` (links rewritten and checked, a receipt page
+from `gpu-proof.json`, the API reference from the docstrings) and deployed by
+`.github/workflows/docs.yml` on pushes to `main`; the project page stays on the `gh-pages`
+branch ([website.md](website.md)). `pip install -e ".[docs]"` then
+`python docs/site/build.py` builds it locally into `docs/site/_build/html`; the host-tier test
+`test/test_docs_site.py` runs the same build with warnings as errors, so a dangling link or an
+invalid docstring fails the suite. Edit the markdown in place; `docs/site/` holds only the
+configuration, the landing and the API page.
 
 ## Timing
 

@@ -88,3 +88,7 @@ examples/benchmarks/data/bdsv_timing/session_run_*.log
 examples/benchmarks/data/bdsv_timing/so_orig/
 night_logs/
 python/gato/linsys_tuning.json
+
+# documentation site: assembled sources and the Sphinx build (docs/site/build.py)
+docs/site/_src/
+docs/site/_build/

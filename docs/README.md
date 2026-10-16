@@ -1,6 +1,9 @@
 # GATO documentation
 
-Start with the [quick start](../README.md#quick-start-host-native--no-docker-needed),
+These pages are also published as the reference tier of the project site,
+<https://a2r-lab.org/GATO/docs/>, with the API reference and the current receipt.
+
+Start with the [quick start](../README.md#quick-start),
 then run the [numbered examples](../examples/README.md). Build only the module
 needed by your example; the full receipt profile is for validation and research.
 

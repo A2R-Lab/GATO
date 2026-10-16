@@ -21,12 +21,12 @@ from .common import _require_pin, rk4, world_wrench_to_joint_local
 class ArmTrackEnv(gym.Env):
     """Torque-controlled arm with RK4 substeps and an optional unmodeled EE wrench.
 
-    Observation: the state [q, dq] (Box, (nq+nv,)).
-    Action: joint torques (Box bounded by the URDF effort limits), applied
-        zero-order-hold for `ctrl_dt` (int(ctrl_dt/sim_dt) RK4 substeps).
-    Reward: -||ee_pos(q) - reference.window(t)[0:3]|| (0 if no reference).
-    terminated: non-finite state. truncated: t >= horizon_s or reference.done(t).
-    info: {"t", "ee_pos", "ref0", "tracking_err"}.
+    - Observation: the state ``[q, dq]`` (Box, ``(nq+nv,)``).
+    - Action: joint torques (Box bounded by the URDF effort limits), applied
+      zero-order-hold for ``ctrl_dt`` (``int(ctrl_dt/sim_dt)`` RK4 substeps).
+    - Reward: ``-||ee_pos(q) - reference.window(t)[0:3]||`` (0 if no reference).
+    - terminated: non-finite state. truncated: ``t >= horizon_s`` or ``reference.done(t)``.
+    - info: ``{"t", "ee_pos", "ref0", "tracking_err"}``.
     """
 
     metadata = {"render_modes": []}

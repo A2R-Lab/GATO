@@ -78,7 +78,8 @@ fi
 "$PYTHON" -m pytest test/ -q \
     --gpu-proof-enable \
     --gpu-proof-out gpu-proof.json \
-    --gpu-proof-github-user plancherb1
+    --gpu-proof-github-user plancherb1 \
+    --gpu-proof-require-gpu
 
 echo
 echo "Signed receipt: gpu-proof.json — 'git add gpu-proof.json' to attest this run."

@@ -125,7 +125,7 @@ def within_q_limits(model, qs, margin=Q_MARGIN):
 
 def joint_speed_ratio(model, ee_frame, q0, path_xyz, dt):
     """Peak demanded joint speed along the IK path as a fraction of the URDF
-    velocity limit: max over points and joints of |qd_j| / qd_lim_j, plus the
+    velocity limit: max over points and joints of ``|qd_j| / qd_lim_j``, plus the
     IK position error max (m) and whether the path stays inside the position
     limits (reachability checks)."""
     qs, errs = ik_track(model, ee_frame, q0, path_xyz)
@@ -135,7 +135,7 @@ def joint_speed_ratio(model, ee_frame, q0, path_xyz, dt):
 
 
 def fig8_path(params, dt):
-    """(T, 3) positions of figure8(dt, **params)."""
+    """(T, 3) positions of ``figure8(dt, **params)``."""
     return np.asarray(figure8(dt, **params), dtype=float).reshape(-1, 6)[:, :3]
 
 

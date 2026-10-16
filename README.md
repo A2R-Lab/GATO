@@ -450,8 +450,15 @@ QUIET-BOX runs — never on a shared machine. Provenance for every recovered dat
 
 ## Related
 
-- The open-source [MPCGPU solver](https://github.com/A2R-Lab/MPCGPU)
-- [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for computing rigid body dynamics with analytical gradients
+GATO is the top of a chain of A²R Lab libraries, each released and pinned on its own:
+[GLASS](https://github.com/A2R-Lab/GLASS) (block-local GPU linear algebra) is bundled by
+[GRiD](https://github.com/A2R-Lab/GRiD) (rigid-body dynamics, kinematics and collision code
+generated per robot from its URDF, with analytical derivatives; the `grid-rbd` wheel GATO pins
+in `pyproject.toml` and `python/gato/_grid.py`), and GATO adds the batched SQP, the
+controller and the constraint layer on top. [MPCGPU](https://github.com/A2R-Lab/MPCGPU) is the
+single-solve GPU MPC solver this project grew from. The documentation site is
+<https://a2r-lab.org/GATO/docs/>; the project page with the paper's results is
+<https://a2r-lab.org/GATO/>.
 
 ## Cite
 ```bibtex

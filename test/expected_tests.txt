@@ -89,6 +89,9 @@ test/test_cpp_interface.py::test_paths_resolve_vendored_robot
 test/test_cpp_interface.py::test_standalone_cpp_example_builds_and_runs
 test/test_distribution_artifacts.py::test_sdist_contains_owned_build_sources
 test/test_distribution_artifacts.py::test_wheel_is_pure_python_without_native_modules
+test/test_docs_site.py::test_links_are_rewritten_and_checked
+test/test_docs_site.py::test_receipt_page_reflects_the_committed_receipt
+test/test_docs_site.py::test_site_builds_without_warnings
 test/test_dynamics_fingerprint.py::test_device_dynamics_match_fingerprint[fr3-64]
 test/test_dynamics_fingerprint.py::test_device_dynamics_match_fingerprint[gen3-64]
 test/test_dynamics_fingerprint.py::test_device_dynamics_match_fingerprint[iiwa14-8]
@@ -113,6 +116,7 @@ test/test_examples.py::test_intro_example_syntax[10_torch_jax_arrays.py]
 test/test_examples.py::test_intro_example_syntax[11_deadline_step.py]
 test/test_examples.py::test_intro_example_syntax[12_constraint_mechanisms.py]
 test/test_examples.py::test_intro_example_syntax[13_more_arms.py]
+test/test_examples.py::test_intro_example_syntax[14_mujoco_closed_loop.py]
 test/test_examples.py::test_merge_checkpoint_dry_run
 test/test_examples.py::test_merge_checkpoint_requires_quiet_declaration
 test/test_examples.py::test_seed_ab_preview_and_refusal[boundaries]

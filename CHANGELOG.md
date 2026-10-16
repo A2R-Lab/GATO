@@ -4,6 +4,19 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Documentation site: the reference tier at <https://a2r-lab.org/GATO/docs/>, built from the
+  repository's own markdown by `docs/site/build.py` (links rewritten and checked), with a
+  receipt page generated from `gpu-proof.json` and an API reference from the docstrings;
+  deployed by `.github/workflows/docs.yml` next to the project page; the host-tier test
+  `test/test_docs_site.py` builds it with warnings as errors. Docstrings that were not valid
+  reStructuredText were rewritten; `[docs]` extra.
+- Example 14: GATO as the controller inside a MuJoCo loop (MjSpec from the same URDF, the
+  dynamics fingerprint check on MuJoCo's forward dynamics, the controller defaults with a step
+  budget, torques through `qfrc_applied`, substeps), on the iiwa14 figure-8 sized from its
+  velocity limits.
+- Receipt hygiene: `test/run_gpu_proof.sh` records with `--gpu-proof-require-gpu`; the
+  development notes name plugin 0.4.1; the README describes the GLASS, GRiD, GATO chain.
+
 - Device-resident controller: `MPCController.step()` on CUDA inputs (torch on
   a CUDA device or JAX on a GPU, both the state and the reference, no
   hypothesis batch) keeps the warm start in the solver's resident device

@@ -1291,10 +1291,12 @@ spherizer), so margin is extra safety on top.
         reordered — see hypotheses.world_wrench_to_gato_slot.
 
         Accepted shapes (N = knot count; wrench k applies to interval [k, k+1]):
-          (B, 6)               per-solve EE wrench, broadcast over knots
-          (B, 6*NUM_BODIES)    per-solve body-major, broadcast over knots
-          (B, N, 6)            per-knot EE wrench (scattered into the EE body slot)
-          (B, N, 6*NUM_BODIES) per-knot body-major
+
+        - ``(B, 6)``: per-solve EE wrench, broadcast over knots
+        - ``(B, 6*NUM_BODIES)``: per-solve body-major, broadcast over knots
+        - ``(B, N, 6)``: per-knot EE wrench (scattered into the EE body slot)
+        - ``(B, N, 6*NUM_BODIES)``: per-knot body-major
+
         A correctly-sized contiguous buffer is always uploaded (a short buffer
         would make the device copy over-read -> garbage wrench -> NaN dynamics)."""
         f_ext_B = np.asarray(f_ext_B, dtype=np.float32)

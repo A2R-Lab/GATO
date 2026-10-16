@@ -239,8 +239,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     every module); pass "all" for GRiD's full profile, or an explicit list.
     out_dir/register let tests generate elsewhere without touching the repo.
 
-    collision_res: sphere spacing in meters for the grid_collision namespace
-   . The URDF's <collision> geometry is spherized at this resolution
+    collision_res: sphere spacing in meters for the grid_collision namespace.
+    The URDF's <collision> geometry is spherized at this resolution
     (GRiD's spherizer; meshes need trimesh and scipy) and grid.cuh grows the
     grid_collision:: device ABI (config_free + the differentiable clearance
     family). REQUIRED for solver modules — the constraint layer
@@ -250,14 +250,15 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     Coarser = fewer/fatter spheres; the sphere set IS the clearance
     row set, so keep it small (0.15 ⇒ ~30-45 spheres on the vendored arms).
 
-    contact_frames: list of URDF fixed-joint names to bake as contact frames
-   : grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
+    contact_frames: list of URDF fixed-joint names to bake as contact frames:
+    grid.cuh grows the f_ext_body[_jacobian_*] contact-wrench map.
     None (default) bakes [ee_frame] — every GATO plant carries its EE contact
     map; pass [] to opt out.
 
-    floating_base: parse/generate with a quaternion free-flyer root: the modules run the grid_plant SE(3) step/linearization
-    path (SI-EULER integrator, tangent state cost). ee_frame is then the
-    base-pose target frame (go2: imu_joint).
+    floating_base: parse/generate with a quaternion free-flyer root: the modules
+    run the grid_plant SE(3) step/linearization path (SI-EULER integrator,
+    tangent state cost). ee_frame is then the base-pose target frame (go2:
+    imu_joint).
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():

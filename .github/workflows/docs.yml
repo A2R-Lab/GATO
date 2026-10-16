@@ -1,0 +1,75 @@
+# Documentation tier: build docs/site with Sphinx (warnings are errors) on every
+# push and pull request that can change it; on main, assemble the whole public
+# site (the project page from the gh-pages branch + this build under /docs/) and
+# deploy it to GitHub Pages. No GPU, no CUDA build: the API reference imports
+# the python package numpy-only. The gh-pages branch carries the twin of this
+# deploy (docs/site/gh-pages-workflow.yml) so a project-page edit republishes
+# the same assembly.
+name: docs
+
+on:
+  pull_request:
+    paths: ['docs/**', 'python/**', 'examples/README.md', 'examples/paper-figures/README.md', 'gato/dynamics/README.md',
+            'README.md', 'CHANGELOG.md', 'gpu-proof.json', 'test/receipt_modules.txt', 'pyproject.toml', '.github/workflows/docs.yml']
+  push:
+    branches: [main]
+    paths: ['docs/**', 'python/**', 'examples/README.md', 'examples/paper-figures/README.md', 'gato/dynamics/README.md',
+            'README.md', 'CHANGELOG.md', 'gpu-proof.json', 'test/receipt_modules.txt', 'pyproject.toml', '.github/workflows/docs.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the python layer and the docs stack (no CUDA build)
+        run: pip install -e ".[docs]"
+      - name: Build the documentation tier (warnings are errors)
+        run: python docs/site/build.py --out _site/docs
+      - name: Project page from the gh-pages branch
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: _landing
+      - name: Assemble the public site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          cp _landing/index.html _site/
+          cp -r _landing/static _site/
+          touch _site/.nojekyll
+      - name: Upload the review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gato-docs-preview
+          path: _site
+      - name: Upload the Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4

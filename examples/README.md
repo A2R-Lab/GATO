@@ -10,7 +10,7 @@ and 11 use the Indy7 at N64: in a checkout build it once (`MODULES="indy7:64"
 JOBS=2 ./tools/build.sh`), or let the first run compile it into the per-host
 cache (a few minutes, logged). 05 registers and compiles the requested robot
 itself; 07 needs go2 N16 (the `_fc` variant for standing); 12 needs the Indy7 at
-N16, N32 and N64; 13 needs the FR3, Gen3 and UR5e at N64. `JOBS=2
+N16, N32 and N64; 13 needs the FR3, Gen3 and UR5e at N64; 14 the iiwa14 at N64 with mujoco. `JOBS=2
 ./tools/build.sh --profile receipt` covers all of them. Install `--test` for pinocchio, MuJoCo and gymnasium; `--examples`
 adds plotting/notebook dependencies. These are correctness demos, not benchmarks.
 They demonstrate API use and simulated behavior, not guaranteed joint-limit
@@ -33,6 +33,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`11_deadline_step.py`](11_deadline_step.py) | The deadline-aware step: `step(x, ref, budget_s=...)` runs SQP iterations while the next one still fits and returns the best plan so far; iterations, budget hits and wall time per tick. |
 | [`12_constraint_mechanisms.py`](12_constraint_mechanisms.py) | The four limit mechanisms (`limits="telemetry"`, `"barrier"`, `"al"`, `"admm"`) on one pick-and-place task with a step reference, at N16/32/64, on shared axes: the simulated plant's peak velocity and torque against the URDF limits, the planner's own violation, goals reached, task time; `--plot` saves the figure. |
 | [`13_more_arms.py`](13_more_arms.py) | The arms added in 0.2.0 (FR3, Gen3, UR5e) under the controller defaults on figure-8s sized from their own URDF limits (`gato.tasks`): a feasible reference and one that asks for more than the velocity limit, with the telemetry-only run for contrast; the simulated plant's peak velocity and torque against the limits, the planner's violation, ADMM inner iterations. |
+| [`14_mujoco_closed_loop.py`](14_mujoco_closed_loop.py) | GATO inside a MuJoCo loop: the MuJoCo model from the same URDF, the dynamics fingerprint check on MuJoCo's forward dynamics, the controller defaults with a step budget, torques through `qfrc_applied` and substeps; the iiwa14 on a figure-8 sized from its velocity limits. |
 
 ```bash
 python examples/01_single_solve.py
@@ -48,6 +49,7 @@ python examples/10_torch_jax_arrays.py
 python examples/11_deadline_step.py
 python examples/12_constraint_mechanisms.py
 python examples/13_more_arms.py             # needs bsqpN64_{fr3,gen3,ur5e} (the receipt profile)
+python examples/14_mujoco_closed_loop.py    # needs bsqpN64_iiwa14 and mujoco
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or
