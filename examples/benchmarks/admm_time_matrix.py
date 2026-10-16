@@ -20,6 +20,7 @@ Legs (--leg, default all):
              exit-fac-ce0  exit-fac with the host break off (device gating only)
              exit-fac-ce2  exit-fac with the host break every 2nd iteration
              exit3-fac     factor arm at eps_rel 1e-3
+             default       the shipped controller default (per-box rho, exit, solver by horizon)
            Per cell: per-solve wall (ms) percentiles, inner iterations and inner
            linsys iterations per SQP iteration, max row violation, tracking.
            Fixed pacing (one solve per 10 ms control period, pinocchio plant).
@@ -67,6 +68,9 @@ ADMM_CELLS = {
     "exit-fac-ce0": dict(linsys="bdsv_factor", eps_rel=EPS_REL, check_every=0),
     "exit-fac-ce2": dict(linsys="bdsv_factor", eps_rel=EPS_REL, check_every=2),
     "exit3-fac": dict(linsys="bdsv_factor", eps_rel=1e-3),
+    # the shipped controller default (W2b: per-box rho 0.1/0.03/1e-5, cap 10, eps_rel 1e-2,
+    # inner solver by horizon) on the same 1.0 rad/s velocity cap: the wall time of what ships
+    "default": "default",
 }
 
 
@@ -89,7 +93,7 @@ def leg_matrix(args, quotable, out):
         for N in args.Ns:
             for kick_every in (0, 25):
                 for cell, cfg in ADMM_CELLS.items():
-                    admm = None if cfg is None else dict(rho=RHO, iters=ITERS, qd_cap=QD_CAP, **cfg)
+                    admm = cfg if cfg in (None, "default") else dict(rho=RHO, iters=ITERS, qd_cap=QD_CAP, **cfg)
                     tr = run_kicked_arm("pcg", TAU, plant=plant, N=N, sim_time=args.sim_time,
                                         kick_every=kick_every, admm=admm)
                     name = f"{plant}-N{N}-{'kick' if kick_every else 'quiet'}-{cell}"

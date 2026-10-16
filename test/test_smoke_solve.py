@@ -5,11 +5,9 @@ import pytest
 
 import gato
 from conftest import arm_problem  # noqa: E402
-from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS
+from conftest import ARM_START as START  # noqa: E402  (every fixed-base arm in the receipt profile)
 
 pytestmark = pytest.mark.gpu
-
-START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
 
 
 def _inputs(plant, N, B):

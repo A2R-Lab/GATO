@@ -47,6 +47,25 @@ IIWA14_START_CONFIGS = {
     'ready': np.array([0.0, np.pi/6, np.pi/8, -np.pi/3, 0.0, np.pi/3, 0.0]),
 }
 
+# Starting configurations for the arms added in 0.2.0 (examples/<robot>_description).
+# 'ready' is a mid-workspace elbow-bent pose with the end effector in front of the
+# base, inside the joint limits by at least 0.3 rad, well conditioned (cond(J) ~ 2):
+#   fr3  : the Franka "ready" pose; EE (tool centre point) at [0.307, 0, 0.487]
+#   gen3 : Kinova's "Home" keyframe; EE (tool frame) at [0.457, 0.002, 0.434]
+#   ur5e : shoulder lifted, elbow bent, wrist down; EE (tool0) at [0.492, 0.133, 0.488]
+FR3_START_CONFIGS = {
+    'zero': np.zeros(7),
+    'ready': np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]),
+}
+GEN3_START_CONFIGS = {
+    'zero': np.zeros(7),
+    'ready': np.array([0.0, 0.262, 3.14, -2.269, 0.0, 0.96, 1.57]),
+}
+UR5E_START_CONFIGS = {
+    'zero': np.zeros(6),
+    'ready': np.array([0.0, -1.571, 1.571, -1.571, -1.571, 0.0]),
+}
+
 # Standard starting configurations for the go2 quadruped (STORED layout:
 # [p(3); quat xyzw(4); 12 actuated joints hip/thigh/calf x FL/FR/RL/RR]).
 # 'standing' is the nominal stance (base 0.35 m up, legs [0, 0.9, -1.8]);

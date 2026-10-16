@@ -17,6 +17,9 @@ ROBOT_KW = {
     "iiwa14": dict(ee_frame="EE"),
     "go2": dict(ee_frame="imu_joint", floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"]),
+    "fr3": dict(ee_frame="fr3_hand_tcp_joint"),
+    "gen3": dict(ee_frame="tool_frame_joint"),
+    "ur5e": dict(ee_frame="tool0_joint"),
 }
 
 
@@ -24,7 +27,7 @@ def _urdf(robot, urdfs, repo_root):
     return urdfs[robot] if robot in urdfs else repo_root / GO2_URDF
 
 
-@pytest.mark.parametrize("robot", ["indy7", "iiwa14", "go2"])
+@pytest.mark.parametrize("robot", list(ROBOT_KW))
 def test_regen_matches_vendored(robot, urdfs, repo_root, tmp_path):
     """Regenerating from the URDF reproduces the vendored headers byte-for-byte
     AND the tracked registry entry (python/gato/_registry.json) — the registry
@@ -64,6 +67,49 @@ def test_unbounded_joint_rejected(tmp_path):
 </robot>""")
     with pytest.raises(ValueError, match="finite.*limit|not supported"):
         codegen(urdf, "cont", ee_frame="EE", out_dir=tmp_path / "out", register=False)
+
+
+ROTATED_URDF = """<robot name="rot">
+  <link name="world"/>
+  <link name="l1"><inertial><mass value="1"/>
+    <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="l2"><inertial><origin xyz="0 0 0.1" rpy="1.5707963 0 0"/><mass value="2"/>
+    <inertia ixx="0.03" iyy="0.01" izz="0.02" ixy="0.001" ixz="0.002" iyz="0.003"/></inertial></link>
+  <link name="l3"><inertial><mass value="1"/>
+    <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <joint name="j0" type="fixed"><parent link="world"/><child link="l1"/></joint>
+  <joint name="j1" type="revolute"><parent link="l1"/><child link="l2"/>
+    <axis xyz="0 0 1"/><limit lower="-3" upper="3" effort="10" velocity="1"/></joint>
+  <joint name="EE" type="fixed"><parent link="l2"/><child link="l3"/></joint>
+</robot>"""
+
+
+def test_rotated_inertial_origin_refused_and_canonicalized(tmp_path):
+    """A rotated <inertial><origin> is refused by codegen (the pinned GRiD parser
+    mis-rotates the tensor; the UR5e came out 10 % off pinocchio) and
+    canonicalize_inertials writes the exact link-frame equivalent, which parses
+    and leaves pinocchio's dynamics unchanged."""
+    import numpy as np
+    from gato.builder import canonicalize_inertials, rotated_inertial_origins
+    pin = pytest.importorskip("pinocchio")
+    urdf = tmp_path / "rot.urdf"
+    urdf.write_text(ROTATED_URDF)
+    assert rotated_inertial_origins(urdf) == ["l2"]
+    with pytest.raises(ValueError, match="rotated inertial frame"):
+        codegen(urdf, "rot", ee_frame="EE", out_dir=tmp_path / "out", register=False)
+    canon = tmp_path / "rot_canonical.urdf"
+    assert canonicalize_inertials(urdf, canon) == ["l2"]
+    assert rotated_inertial_origins(canon) == []
+    m_a, m_b = pin.buildModelFromUrdf(str(urdf)), pin.buildModelFromUrdf(str(canon))
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        q, v, tau = rng.uniform(-2, 2, 1), rng.normal(size=1), rng.normal(size=1)
+        np.testing.assert_allclose(pin.aba(m_a, m_a.createData(), q, v, tau),
+                                   pin.aba(m_b, m_b.createData(), q, v, tau), rtol=1e-12, atol=1e-12)
+    # the canonical copy passes the parse (the limits emitter runs before the heavy codegen)
+    from gato.builder import _parse_urdf
+    robot = _parse_urdf(canon, "EE")
+    assert robot.get_num_pos() == 1
 
 
 def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, urdfs, tmp_path):

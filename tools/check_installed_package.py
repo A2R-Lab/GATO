@@ -51,7 +51,11 @@ def main():
     provenance = _grid.require()
     assert provenance['peers']['GLASS']['commit'] == _grid.GLASS_PIN
     assert (_grid.collision_dir() / 'grid_collision_geometry.cuh').is_file()
-    for name in ('indy7', 'iiwa14', 'go2'):
+    # every vendored robot (the registry): URDF bundled, headers resolvable
+    from gato.builder import load_registry
+    vendored = sorted(load_registry())
+    assert {'indy7', 'iiwa14', 'go2', 'fr3', 'gen3', 'ur5e'} <= set(vendored), vendored
+    for name in vendored:
         assert gato.robot_urdf(name).is_file(), name
         assert _cache.resolve(name) is not None, name
 

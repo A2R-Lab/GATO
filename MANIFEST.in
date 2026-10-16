@@ -11,5 +11,8 @@ recursive-include test *.py *.txt *.yaml *.cu *.cuh *.json
 recursive-include examples/indy7_description *
 recursive-include examples/iiwa_description *
 recursive-include examples/go2_description *
+recursive-include examples/fr3_description *
+recursive-include examples/gen3_description *
+recursive-include examples/ur5e_description *
 recursive-include examples/cpp *
 global-exclude *.so *.pyc __pycache__

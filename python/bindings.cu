@@ -2,6 +2,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include "bsqp/bsqp.cuh"
+#include "dynamics/manifold.cuh"
 #include "types.cuh"
 #include "utils/cuda.cuh"
 #include "utils/dlpack.h"
@@ -83,6 +84,63 @@ __global__ void fill_hold_warm_start_kernel(T* xu, const T* x_s, uint32_t knots,
         }
 }
 
+// ---- device-resident warm start (MPCController's device path) ----------------
+// one source row broadcast to every batch row
+template<typename T>
+__global__ void tile_rows_kernel(T* dst, const T* src, uint32_t row_len)
+{
+        T* row = dst + blockIdx.x * row_len;
+        for (uint32_t i = threadIdx.x; i < row_len; i += blockDim.x) row[i] = src[i];
+}
+
+// the controller's warm start for the next tick, written to every batch row from
+// the winning row: shift = numpy's concatenate([xu[stride:], xu[-stride:]]) (the
+// plan advanced one knot, the last knot repeated), hold = the plan as solved
+template<typename T>
+__global__ void shift_rows_kernel(T* xu, const T* src_row, uint32_t row_len, uint32_t stride, bool hold)
+{
+        T* row = xu + blockIdx.x * row_len;
+        for (uint32_t i = threadIdx.x; i < row_len; i += blockDim.x) {
+                row[i] = (hold || i + stride >= row_len) ? src_row[i] : src_row[i + stride];
+        }
+}
+
+// ||x - xu0|| for the controller's warm-startedness signal: knot 0 of the resident
+// plan (the model's one-step-ahead prediction after last tick's shift) against the
+// measured state. Floating base with a unit base quaternion: the tangent norm
+// ||x ⊟ x_pred|| (the host path's rule); otherwise the Euclidean norm on the stored
+// layout. ONE block; the result is a single T.
+template<typename T>
+__global__ void pred_err_kernel(T* out, const T* xu0, const T* x)
+{
+        using namespace gato::constants;
+        constexpr uint32_t NMAX = (STATE_SIZE > XU_STATE_SIZE) ? STATE_SIZE : XU_STATE_SIZE;
+        __shared__ T s_diff[NMAX];
+        __shared__ T s_red[256];
+        uint32_t n = XU_STATE_SIZE;
+        bool tangent = false;
+        if constexpr (FLOATING_BASE) {
+                const T qn = sqrt(xu0[3] * xu0[3] + xu0[4] * xu0[4] + xu0[5] * xu0[5] + xu0[6] * xu0[6]);
+                tangent = fabs(qn - static_cast<T>(1)) < static_cast<T>(1e-3);
+        }
+        if (tangent) {
+                gato::plant::state_difference<T>(s_diff, xu0, x);   // x ⊟ x_pred
+                n = STATE_SIZE;
+        } else {
+                for (uint32_t i = threadIdx.x; i < n; i += blockDim.x) s_diff[i] = x[i] - xu0[i];
+        }
+        __syncthreads();
+        T acc = static_cast<T>(0);
+        for (uint32_t i = threadIdx.x; i < n; i += blockDim.x) acc += s_diff[i] * s_diff[i];
+        s_red[threadIdx.x] = acc;
+        __syncthreads();
+        for (uint32_t s = blockDim.x / 2; s > 0; s >>= 1) {
+                if (threadIdx.x < s) s_red[threadIdx.x] += s_red[threadIdx.x + s];
+                __syncthreads();
+        }
+        if (threadIdx.x == 0) *out = sqrt(s_red[0]);
+}
+
 // batch_size is a runtime constructor argument (the solver kernels only use it
 // as the outermost grid dimension), so ONE binding class covers every batch size.
 template<typename T>
@@ -117,6 +175,8 @@ class PyBSQP {
                 gpuErrchk(cudaMalloc(&d_xkp1_batch_, XU_STATE_SIZE * batch_size_ * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_xk_, XU_STATE_SIZE * sizeof(T)));
                 gpuErrchk(cudaMalloc(&d_uk_, CONTROL_SIZE * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_xu_row_, XU_TRAJ_SIZE * sizeof(T)));
+                gpuErrchk(cudaMalloc(&d_scalar_, sizeof(T)));
 
                 // pinned staging: numpy -> pinned -> device beats numpy(pageable) -> device
                 gpuErrchk(cudaMallocHost(&h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T)));
@@ -133,6 +193,8 @@ class PyBSQP {
                 gpuErrchk(cudaFree(d_xkp1_batch_));
                 gpuErrchk(cudaFree(d_xk_));
                 gpuErrchk(cudaFree(d_uk_));
+                gpuErrchk(cudaFree(d_xu_row_));
+                gpuErrchk(cudaFree(d_scalar_));
         }
 
         // shape/size validation: a wrong-width numpy array would otherwise silently
@@ -179,6 +241,27 @@ class PyBSQP {
                 return result;
         }
 
+        // The device-side solve both device paths end in: the staged x_s / reference
+        // and the trajectory buffer are complete, solve, hand the solution out as a
+        // DeviceArray copy (the buffer itself keeps the solution for solve_resident).
+        py::dict solve_staged_to_device(T timestep)
+        {
+                gpuErrchk(cudaDeviceSynchronize());
+                ProblemInputs<T> inputs;
+                inputs.timestep = timestep;
+                inputs.d_x_s_batch = d_x_s_batch_;
+                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+
+                SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
+
+                DeviceArray xu_out = DeviceArray::alloc({static_cast<int64_t>(batch_size_), static_cast<int64_t>(XU_TRAJ_SIZE)});
+                gpuErrchk(cudaMemcpy(reinterpret_cast<void*>(xu_out.data_ptr()), d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                gpuErrchk(cudaDeviceSynchronize());
+                py::dict result = collect_stats(stats);
+                result["XU"] = xu_out;
+                return result;
+        }
+
         // Device-pointer solve (the torch / JAX path): x_s and the reference are read
         // from CUDA memory the caller owns (float32, contiguous, exactly batch_size
         // rows); xu_ptr == 0 seeds the hold-at-x cold start on the device, otherwise
@@ -200,20 +283,88 @@ class PyBSQP {
                         fill_hold_warm_start_kernel<T><<<batch_size_, 256>>>(d_xu_traj_batch_, d_x_s_batch_, KNOT_POINTS, XU_STATE_SIZE, CONTROL_SIZE);
                         gpuErrchk(cudaPeekAtLastError());
                 }
-                gpuErrchk(cudaDeviceSynchronize());
-                ProblemInputs<T> inputs;
-                inputs.timestep = timestep;
-                inputs.d_x_s_batch = d_x_s_batch_;
-                inputs.d_reference_traj_batch = d_reference_traj_batch_;
+                return solve_staged_to_device(timestep);
+        }
 
-                SQPStats<T> stats = solver_.solve(d_xu_traj_batch_, inputs);
-
-                DeviceArray xu_out = DeviceArray::alloc({static_cast<int64_t>(batch_size_), static_cast<int64_t>(XU_TRAJ_SIZE)});
-                gpuErrchk(cudaMemcpy(reinterpret_cast<void*>(xu_out.data_ptr()), d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+        // ---- device-resident warm start (MPCController's device path) ----------
+        // d_xu_traj_batch_ doubles as the resident warm-start buffer: solve_resident
+        // reads it as the warm start and leaves the solution in it, shift_resident
+        // advances it one knot for the next tick, resident_set_* / resident_hold
+        // seed it. x and the reference are CUDA memory the caller owns (float32,
+        // contiguous; one row broadcast to the batch, or exactly batch_size rows);
+        // the caller's buffers are only ever read. Inputs must be complete on the
+        // device: work queued on non-blocking streams needs a sync first.
+        void tile_rows(T* dst, uintptr_t src, uint32_t row_len, bool batched, const char* name)
+        {
+                if (!src) { throw py::value_error(std::string(name) + ": a device pointer is required"); }
+                if (batched) {
+                        gpuErrchk(cudaMemcpy(dst, reinterpret_cast<const void*>(src), row_len * batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                } else {
+                        tile_rows_kernel<T><<<batch_size_, 256>>>(dst, reinterpret_cast<const T*>(src), row_len);
+                        gpuErrchk(cudaPeekAtLastError());
+                }
+        }
+        void resident_set_device(uintptr_t xu_ptr, bool batched)
+        {
+                tile_rows(d_xu_traj_batch_, xu_ptr, XU_TRAJ_SIZE, batched, "resident_set_device");
                 gpuErrchk(cudaDeviceSynchronize());
-                py::dict result = collect_stats(stats);
-                result["XU"] = xu_out;
-                return result;
+        }
+        void resident_set_host(DenseArray xu)
+        {
+                py::buffer_info buf = xu.request();
+                const size_t n = static_cast<size_t>(buf.size);
+                if (n == (size_t)XU_TRAJ_SIZE * batch_size_) {
+                        memcpy(h_xu_staging_, buf.ptr, n * sizeof(T));
+                } else if (n == XU_TRAJ_SIZE) {
+                        for (uint32_t b = 0; b < batch_size_; ++b) memcpy(h_xu_staging_ + (size_t)b * XU_TRAJ_SIZE, buf.ptr, XU_TRAJ_SIZE * sizeof(T));
+                } else {
+                        throw py::value_error("resident_set_host: expected " + std::to_string(XU_TRAJ_SIZE) + " or " + std::to_string((size_t)XU_TRAJ_SIZE * batch_size_) + " elements, got " + std::to_string(n));
+                }
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+        }
+        py::array_t<T> resident_get_host()
+        {
+                const py::ssize_t Bs = static_cast<py::ssize_t>(batch_size_);
+                py::array_t<T>    out({Bs, (py::ssize_t)XU_TRAJ_SIZE});
+                gpuErrchk(cudaMemcpy(out.request().ptr, d_xu_traj_batch_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                return out;
+        }
+        // hold-at-x cold seed (the host path's initialize_warm_start), on the device
+        void resident_hold(uintptr_t x_ptr, bool batched)
+        {
+                tile_rows(d_x_s_batch_, x_ptr, XU_STATE_SIZE, batched, "resident_hold");
+                fill_hold_warm_start_kernel<T><<<batch_size_, 256>>>(d_xu_traj_batch_, d_x_s_batch_, KNOT_POINTS, XU_STATE_SIZE, CONTROL_SIZE);
+                gpuErrchk(cudaPeekAtLastError());
+                gpuErrchk(cudaDeviceSynchronize());
+        }
+        // ||x - knot 0 of resident row 0|| (x: one state row on the device)
+        T resident_pred_err(uintptr_t x_ptr)
+        {
+                if (!x_ptr) { throw py::value_error("resident_pred_err: a device pointer is required"); }
+                pred_err_kernel<T><<<1, 256>>>(d_scalar_, d_xu_traj_batch_, reinterpret_cast<const T*>(x_ptr));
+                gpuErrchk(cudaPeekAtLastError());
+                T out;
+                gpuErrchk(cudaMemcpy(&out, d_scalar_, sizeof(T), cudaMemcpyDeviceToHost));
+                return out;
+        }
+        // solve from the resident warm start (knot-0 states := x); the solution stays
+        // resident and a copy is returned as a DeviceArray
+        py::dict solve_resident(uintptr_t x_ptr, bool x_batched, uintptr_t ref_ptr, bool ref_batched, T timestep)
+        {
+                tile_rows(d_x_s_batch_, x_ptr, XU_STATE_SIZE, x_batched, "solve_resident: x");
+                tile_rows(d_reference_traj_batch_, ref_ptr, REFERENCE_TRAJ_SIZE, ref_batched, "solve_resident: reference");
+                gpuErrchk(cudaMemcpy2D(d_xu_traj_batch_, XU_TRAJ_SIZE * sizeof(T), d_x_s_batch_, XU_STATE_SIZE * sizeof(T),
+                                       XU_STATE_SIZE * sizeof(T), batch_size_, cudaMemcpyDeviceToDevice));
+                return solve_staged_to_device(timestep);
+        }
+        // next tick's warm start from resident row `best`, into every row
+        void resident_shift(uint32_t best, bool hold)
+        {
+                if (best >= batch_size_) { throw py::value_error("resident_shift: best_id " + std::to_string(best) + " >= batch_size " + std::to_string(batch_size_)); }
+                gpuErrchk(cudaMemcpy(d_xu_row_, d_xu_traj_batch_ + (size_t)best * XU_TRAJ_SIZE, XU_TRAJ_SIZE * sizeof(T), cudaMemcpyDeviceToDevice));
+                shift_rows_kernel<T><<<batch_size_, 256>>>(d_xu_traj_batch_, d_xu_row_, XU_TRAJ_SIZE, XU_STATE_SIZE + CONTROL_SIZE, hold);
+                gpuErrchk(cudaPeekAtLastError());
+                gpuErrchk(cudaDeviceSynchronize());
         }
 
         // everything solve() returns besides the trajectory itself
@@ -656,6 +807,9 @@ class PyBSQP {
         // for sim_forward
         T *            d_xkp1_batch_, *d_xk_, *d_uk_;
         std::vector<T> h_xkp1_batch_;
+        // resident warm start: one plan row (shift source) and the pred_err scalar
+        T*             d_xu_row_;
+        T*             d_scalar_;
 };
 
 
@@ -679,6 +833,13 @@ class PyBSQP {
                           const Type, const Type, const Type>())                                                                                                                                    \
             .def("solve", &PyBSQP<Type>::solve)                                                                                                                                                    \
             .def("solve_device", &PyBSQP<Type>::solve_device, py::arg("xu_ptr"), py::arg("timestep"), py::arg("x_ptr"), py::arg("ref_ptr"))                                                      \
+            .def("solve_resident", &PyBSQP<Type>::solve_resident, py::arg("x_ptr"), py::arg("x_batched"), py::arg("ref_ptr"), py::arg("ref_batched"), py::arg("timestep"))                     \
+            .def("resident_set_device", &PyBSQP<Type>::resident_set_device, py::arg("xu_ptr"), py::arg("batched"))                                                                             \
+            .def("resident_set_host", &PyBSQP<Type>::resident_set_host, py::arg("xu"))                                                                                                         \
+            .def("resident_get_host", &PyBSQP<Type>::resident_get_host)                                                                                                                        \
+            .def("resident_hold", &PyBSQP<Type>::resident_hold, py::arg("x_ptr"), py::arg("batched"))                                                                                          \
+            .def("resident_pred_err", &PyBSQP<Type>::resident_pred_err, py::arg("x_ptr"))                                                                                                      \
+            .def("resident_shift", &PyBSQP<Type>::resident_shift, py::arg("best"), py::arg("hold"))                                                                                            \
             .def("reset_dual", &PyBSQP<Type>::reset_dual)                                                                                                                                          \
             .def("set_f_ext_batch", &PyBSQP<Type>::set_f_ext_batch)                                                                                                                                \
             .def("set_f_ext_knot_batch", &PyBSQP<Type>::set_f_ext_knot_batch)                                                                                                                      \

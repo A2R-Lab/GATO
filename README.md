@@ -36,7 +36,7 @@ pip install gato-mpc        # the import name is gato
 ```python
 import numpy as np, gato
 
-# the vendored robots (indy7, iiwa14, go2) need no registration; your own URDF does:
+# the vendored robots (indy7, iiwa14, fr3, gen3, ur5e, go2) need no registration; your own URDF does:
 # gato.register_robot("myarm", "myarm.urdf", N=[32], ee_frame="EE")      # codegen, seconds
 solver = gato.BSQP(gato.robot_urdf("indy7"), batch_size=8, N=32, dt=0.01, plant_type="indy7")
 ```
@@ -198,7 +198,10 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `05_build_your_robot.py` (`gato.register_robot` / `gato.build` on your URDF), `06_constraints.py`,
 `07_go2_floating.py` (quadruped, floating base), `08_linsys_and_autotune.py`,
 `09_mpc_with_limits.py` (joint limits enforced in closed loop),
-`10_torch_jax_arrays.py` (the solver as a batched tensor op).
+`10_torch_jax_arrays.py` (the solver and the controller on torch / JAX device tensors),
+`11_deadline_step.py` (the step budget), `12_constraint_mechanisms.py` (the four limit
+mechanisms on one task), `13_more_arms.py` (the FR3, Gen3 and UR5e on figure-8s sized
+from their own limits).
 See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).
 
 ### C++/CUDA interface (power users)

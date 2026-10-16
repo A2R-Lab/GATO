@@ -4,6 +4,38 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Device-resident controller: `MPCController.step()` on CUDA inputs (torch on
+  a CUDA device or JAX on a GPU, both the state and the reference, no
+  hypothesis batch) keeps the warm start in the solver's resident device
+  buffer, reads the inputs in place and returns `u`, `xu_best` and
+  `solve.xu` on the device: no host round trip per tick, the same plan as the
+  host path bit for bit (the `pred_err` scalar is reduced on the device). Host
+  and device calls may alternate; the warm start follows. `BSQP` exposes the
+  buffer: `set_warm` / `get_warm` / `hold_warm` / `pred_err_warm` /
+  `solve_warm(x, ref, budget_s=)` / `shift_warm(best_id, hold=)` (C++
+  `resident_*` / `solve_resident`). `reset()` and `warmup()` accept device
+  tensors (staged through the host once). Example 10 runs the controller on
+  CUDA tensors.
+- Three more arms, vendored with provenance: the Franka FR3 (7 dof, hand fixed
+  closed, `fr3`), the Kinova Gen3 (7 dof, `gen3`; the infinite-turn joints
+  carry a plus or minus 2 pi position box in the vendored copy) and the
+  Universal Robots UR5e (6 dof, `ur5e`), each as `examples/<robot>_description`
+  (URDF, collision meshes, README with source commit, sha and edits), generated
+  dynamics under `gato/dynamics/<robot>`, an N64 module in the receipt
+  profile, start poses in `gato.config`, task tables in `gato.tasks`
+  (`ee_frame_of(plant)` reads the registered end-effector frame), rows in the
+  dynamics fingerprint, and the smoke, codegen and fingerprint gates. Example
+  13 runs the controller defaults on each.
+- Codegen refuses a URDF whose `<inertial><origin>` carries a rotation: the
+  pinned GRiD parser mis-rotates such a tensor (the UR5e's generated dynamics
+  came out 10 % off pinocchio's until its three rotated inertials were
+  rewritten). `gato.builder.canonicalize_inertials(urdf, out)` writes the
+  exact link-frame equivalent (I_link = R I R^T, centre of mass unchanged;
+  pinocchio's dynamics are identical) to register instead;
+  `rotated_inertial_origins(urdf)` lists the affected links. None of the
+  previously vendored robots is affected (no rotated inertial origins), so no
+  generated header changes.
+
 - Joint limits on by default in the controller: `MPCController(limits=...)`
   (and `MPC_GATO(limits=, limits_kw=)`) installs the URDF position, velocity
   and torque boxes as constraint rows. The default on a fixed-base arm whose

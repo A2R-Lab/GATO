@@ -5,7 +5,7 @@ Thin CLI over gato.build.codegen (the single codegen path — gato.build() uses
 the same code). Writes gato/dynamics/<robot>/{grid.cuh, limits.cuh} and updates
 python/gato/_registry.json. Run from the GATO repo root:
 
-    python tools/regen_grid.py              # all vendored robots (indy7, iiwa14, go2)
+    python tools/regen_grid.py              # all vendored robots (indy7, iiwa14, go2, fr3, gen3, ur5e)
     python tools/regen_grid.py --robot indy7
     python tools/regen_grid.py --all-algos  # GRiD profile="all" instead of gato.builder.GATO_ALGORITHMS
 
@@ -29,6 +29,14 @@ ROBOTS = {
                    ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
     "indy7": dict(urdf=REPO_ROOT / "examples" / "indy7_description" / "indy7.urdf",
                   ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
+    # the three arms added in 0.2.0 (examples/<robot>_description/README.md records
+    # the source and the edits to each vendored copy); EE = the tool frame fixed joint
+    "fr3": dict(urdf=REPO_ROOT / "examples" / "fr3_description" / "fr3.urdf",
+                ee_frame="fr3_hand_tcp_joint", collision_res=0.15, contact_frames=["fr3_hand_tcp_joint"]),
+    "gen3": dict(urdf=REPO_ROOT / "examples" / "gen3_description" / "gen3.urdf",
+                 ee_frame="tool_frame_joint", collision_res=0.15, contact_frames=["tool_frame_joint"]),
+    "ur5e": dict(urdf=REPO_ROOT / "examples" / "ur5e_description" / "ur5e.urdf",
+                 ee_frame="tool0_joint", collision_res=0.15, contact_frames=["tool0_joint"]),
     # floating base (CL-3): EE = the trunk imu (base-position cost target),
     # contact frames = the four feet (fc-on-feet wave); floating_base=True is
     # REQUIRED (codegen does NOT auto-detect the free-flyer — a fixed-base

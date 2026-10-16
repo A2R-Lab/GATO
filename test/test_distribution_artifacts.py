@@ -58,8 +58,11 @@ def test_wheel_is_pure_python_without_native_modules(artifacts):
     for src in ("gato/_native/CMakeLists.txt", "gato/_native/python/bindings.cu",
                 "gato/_native/tools/native_identity.py", "gato/_native/gato/bsqp/bsqp.cuh",
                 "gato/_native/gato/dynamics/plant.cuh", "gato/_native/gato/dynamics/indy7/grid.cuh",
-                "gato/_native/gato/dynamics/go2/grid.cuh",
+                "gato/_native/gato/dynamics/go2/grid.cuh", "gato/_native/gato/dynamics/fr3/grid.cuh",
+                "gato/_native/gato/dynamics/gen3/limits.cuh", "gato/_native/gato/dynamics/ur5e/grid.cuh",
                 "gato/_native/examples/indy7_description/indy7.urdf", "gato/_native/examples/iiwa_description/iiwa14.urdf",
+                "gato/_native/examples/fr3_description/fr3.urdf", "gato/_native/examples/gen3_description/gen3.urdf",
+                "gato/_native/examples/ur5e_description/ur5e.urdf",
                 "gato/_native/examples/go2_description/go2.urdf", "gato/_native/examples/iiwa_description/iiwa_link_1.stl"):
         assert any(n.endswith(src) for n in names), f"wheel must ship {src}"
     assert not any("/meshes/visual/" in n for n in names), "visual-only meshes stay out of the wheel"
@@ -72,7 +75,9 @@ def test_sdist_contains_owned_build_sources(artifacts):
     required = ["CMakeLists.txt", "python/bindings.cu", "tools/build.sh", "tools/regen_grid.py", "tools/native_identity.py",
                 "gato/settings.h", "gato/bsqp/bsqp.cuh", "gato/dynamics/plant.cuh",
                 "gato/dynamics/indy7/grid.cuh", "gato/dynamics/iiwa14/grid.cuh", "gato/dynamics/go2/grid.cuh",
-                "examples/indy7_description/indy7.urdf", "test/receipt_modules.txt",
+                "gato/dynamics/fr3/grid.cuh", "gato/dynamics/gen3/grid.cuh", "gato/dynamics/ur5e/grid.cuh",
+                "examples/indy7_description/indy7.urdf", "examples/ur5e_description/ur5e.urdf",
+                "examples/fr3_description/meshes/collision/link0.stl", "test/receipt_modules.txt",
                 "examples/cpp/batched_solve.cu", "examples/cpp/CMakeLists.txt", "_build_resources.py", "setup.py"]
     missing = [r for r in required if r not in names]
     assert not missing, f"sdist is missing owned build sources: {missing}"

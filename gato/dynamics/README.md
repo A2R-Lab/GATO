@@ -6,6 +6,9 @@
   generator from the pinned `grid-rbd` wheel (`tools/regen_grid.py` or `gato.build`).
 - `<robot>/limits.cuh` — joint/velocity/effort limit tables generated from the URDF
   `<limit>` tags alongside `grid.cuh`.
+- Vendored robots: `indy7`, `iiwa14`, `go2`, `fr3`, `gen3`, `ur5e`, each generated from
+  `examples/<robot>_description` by `tools/regen_grid.py` (the README there records the
+  source and the edits to the vendored URDF).
 
 Each `(plant, N)` module compiles `plant.cuh` with the robot's directory on the
 include path, so adding a robot is purely generative — no C++ edits.

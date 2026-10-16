@@ -572,6 +572,70 @@ class BSQP:
             xu = np.array(raw["XU"], dtype=np.float32, copy=True)
             if in_kind != "numpy":
                 xu = _arrays.like(xu, in_kind, device=getattr(xcur_B, "device", None))
+        return self._result(raw, xu)
+
+    # ---- device-resident warm start: MPCController's device path ----------------
+    # The solver's trajectory buffer doubles as a warm-start buffer that stays on
+    # the device between calls: set_warm / hold_warm seed it, solve_warm solves
+    # from it (knot-0 states := x) and leaves the solution in it, shift_warm
+    # advances it one knot for the next tick. x and the reference are CUDA
+    # tensors (torch or JAX) the solver only reads; ``xu`` comes back on the
+    # device. solve() never touches this buffer's contents between calls: it
+    # overwrites them with its own warm start.
+    def set_warm(self, xu):
+        """Seed the resident warm start: (xu_size,) broadcast to the batch or
+        (B, xu_size); numpy (uploaded once) or a CUDA tensor (device copy)."""
+        from . import _arrays
+        if _arrays.is_cuda(xu):
+            ptr, _keep, batched = _arrays.device_rows(xu, self.xu_size, self.batch_size, "xu")
+            self.solver.resident_set_device(int(ptr), batched)
+            return
+        a = _arrays.to_numpy(xu)
+        if a.shape not in ((self.xu_size,), (self.batch_size, self.xu_size)):
+            raise ValueError(f"xu must have shape ({self.xu_size},) or ({self.batch_size}, {self.xu_size}), got {a.shape}")
+        self.solver.resident_set_host(a)
+
+    def get_warm(self):
+        """The resident warm start as a fresh (B, xu_size) numpy array."""
+        return np.array(self.solver.resident_get_host(), dtype=np.float32, copy=True)
+
+    def hold_warm(self, x):
+        """Seed the resident warm start with hold-at-x (every knot's state = x,
+        zero controls): x a CUDA tensor, (nx,) broadcast or (B, nx)."""
+        from . import _arrays
+        ptr, _keep, batched = _arrays.device_rows(x, self.nx, self.batch_size, "x")
+        self.solver.resident_hold(int(ptr), batched)
+
+    def pred_err_warm(self, x):
+        """‖x − knot 0 of the resident row 0‖ for a CUDA state x (nx,) (the
+        controller's warm-startedness signal; floating base with a unit base
+        quaternion: the tangent norm). Returns a Python float."""
+        from . import _arrays
+        ptr, _keep, _batched = _arrays.device_rows(x, self.nx, self.batch_size, "x")
+        return float(self.solver.resident_pred_err(int(ptr)))
+
+    def solve_warm(self, x, ref, *, budget_s=None):
+        """Solve from the resident warm start (its knot-0 states replaced by x).
+        x: CUDA (nx,) broadcast or (B, nx); ref: CUDA (6N,) broadcast or (B, 6N);
+        ``budget_s`` as in solve(). The solution stays resident and comes back
+        as ``SolveResult.xu`` on the device in the caller's kind."""
+        from . import _arrays
+        if not (_arrays.is_cuda(x) and _arrays.is_cuda(ref)):
+            raise TypeError("solve_warm needs CUDA tensors for x and ref (torch on a CUDA device or JAX on a GPU)")
+        self._apply_budget(budget_s)
+        ref_size = int(getattr(self.lib, "REFERENCE_TRAJ_SIZE", 6 * self.N))
+        x_ptr, _kx, xb = _arrays.device_rows(x, self.nx, self.batch_size, "x")
+        r_ptr, _kr, rb = _arrays.device_rows(ref, ref_size, self.batch_size, "ref")
+        raw = self.solver.solve_resident(int(x_ptr), xb, int(r_ptr), rb, self.dt)
+        return self._result(raw, _arrays.from_device(raw["XU"], _arrays.kind(x)))
+
+    def shift_warm(self, best_id=0, hold=False):
+        """Next tick's warm start from resident row ``best_id`` into every row:
+        the plan advanced one knot with the last knot repeated (``hold=False``,
+        the controller's "shift") or the plan as solved (``hold=True``)."""
+        self.solver.resident_shift(int(best_id), bool(hold))
+
+    def _result(self, raw, xu):
         B = self.batch_size
         stats = SolverStats(
             solve_time_us=int(raw["sqp_time_us"]),

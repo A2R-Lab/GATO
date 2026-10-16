@@ -40,10 +40,26 @@ def test_fingerprint_table_wellformed_and_urdfs_pinned():
             assert np.isfinite(np.asarray(p["qdd"])).all()
 
 
+def _receipt_arms():
+    """(plant, smallest N) per fixed-base arm of the receipt profile (collection
+    must not depend on which binaries exist on the host)."""
+    from conftest import URDFS
+    rows = open(os.path.join(REPO, "test", "receipt_modules.txt")).read().splitlines()
+    best = {}
+    for line in rows:
+        parts = line.split()
+        if not parts or parts[0].startswith("#") or len(parts) > 2 or parts[0] not in URDFS:
+            continue
+        best[parts[0]] = min(best.get(parts[0], 10 ** 9), int(parts[1]))
+    return sorted(best.items())
+
+
 @pytest.mark.gpu
-def test_device_dynamics_match_fingerprint(make_solver, smallest_module):
+@pytest.mark.parametrize("plant,N", _receipt_arms(), ids=lambda v: str(v))
+def test_device_dynamics_match_fingerprint(make_solver, plant, N):
+    """Every arm in the receipt profile: the attested device dynamics replay the
+    pinned probes (the 0.2.0 arms included)."""
     from gato import fingerprint
-    plant, N = smallest_module
     s = make_solver(plant, N, batch_size=1)
     res = fingerprint.check_solver(s, rtol=1e-4)
     assert res["ok"], fingerprint.report(res)

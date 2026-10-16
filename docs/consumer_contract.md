@@ -99,9 +99,14 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   host path. A device `xu_warm` must live on the same device and is used as
   given (knot-0 states replaced by `xcur_B`; no floating-base quaternion
   healing). CPU tensors take the host path. Inputs must be complete on the
-  device: synchronize side streams before calling. The controller runs the
-  host path (its warm-start buffer is host memory) and returns `u` in the
-  caller's kind.
+  device: synchronize side streams before calling. `MPCController.step()` on
+  CUDA inputs (state and reference both, no hypothesis batch) takes the device
+  path too: the warm start lives in the solver's resident buffer
+  (`BSQP.set_warm` / `get_warm` / `hold_warm` / `solve_warm` / `shift_warm`),
+  the inputs are read in place and `u`, `xu_best` and `solve.xu` come back on
+  the device, the same plan as the host path bit for bit; host and device
+  calls may alternate. Otherwise the controller runs the host path and
+  returns `u` in the caller's kind.
 - `solve(xcur_B, eepos_goals_B, xu_warm=None)` — ALL batch-dim arrays; xu layout
   is `[x_0, u_0, x_1, u_1, ..., x_{N-1}]`, row length `N*(nx+nu) − nu`.
   **Stateless in the trajectory**: `xu_warm=None` seeds a hold at `xcur_B`
@@ -209,6 +214,11 @@ runtime/compile performance. Check which test exercises the feature you use.
 - Load `variant="fc"` or `variant="eh"` explicitly; never swap `.so` files.
 - Apply `StepResult.u` / `SolveResult.u0()`, not the contact-wrench tail.
 - Install canonical limit groups before appended groups; the reverse order raises.
+- A URDF handed to `gato.register_robot` / `gato.build` gives its inertia tensors in the
+  link frame (`<inertial><origin rpy>` zero): the pinned GRiD parser mis-rotates a rotated
+  one, so codegen refuses it; `gato.builder.canonicalize_inertials(urdf, out)` rewrites the
+  tensors exactly (pinocchio's dynamics are unchanged). Fixed-joint names must be C
+  identifiers (no hyphens): the end-effector frame's name is emitted into the header.
 - Check your simulator with the dynamics fingerprint before retuning a controller.
 - `gato.build` reconfigures its selected build directory. Supply `build_dir=`
   for an isolated custom build, or restore the receipt profile afterwards.

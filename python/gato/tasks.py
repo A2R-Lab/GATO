@@ -16,7 +16,8 @@ functions); no solver, no GPU.
 import numpy as np
 
 from .common import figure8
-from .config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
+from .config import (FIG8_DEFAULT_PARAMS, FR3_START_CONFIGS, GEN3_START_CONFIGS,
+                     INDY7_START_CONFIGS, UR5E_START_CONFIGS)
 
 # Start poses: the Indy7 'ready' pose of the paper; for the iiwa14 the bent
 # start of the fair three-way figure-8 harness (examples/benchmarks/
@@ -24,20 +25,40 @@ from .config import FIG8_DEFAULT_PARAMS, INDY7_START_CONFIGS
 # stays clear of the wrist singularity that the config 'ready' pose's
 # neighbourhood runs into.
 READY = {"indy7": np.asarray(INDY7_START_CONFIGS["ready"], dtype=float),
-         "iiwa14": np.array([0.0, 0.30, 0.0, -1.60, 0.0, 1.20, 0.0])}
+         "iiwa14": np.array([0.0, 0.30, 0.0, -1.60, 0.0, 1.20, 0.0]),
+         "fr3": np.asarray(FR3_START_CONFIGS["ready"], dtype=float),
+         "gen3": np.asarray(GEN3_START_CONFIGS["ready"], dtype=float),
+         "ur5e": np.asarray(UR5E_START_CONFIGS["ready"], dtype=float)}
 # Figure-8 centre of record per plant: the paper's Indy7 centre, and the
 # iiwa14 harness centre (the end-effector position at its start pose).
 FIG8_CENTER = {"indy7": np.asarray(FIG8_DEFAULT_PARAMS["offset"], dtype=float),
-               "iiwa14": np.array([0.5077, 0.0, 0.511])}
+               "iiwa14": np.array([0.5077, 0.0, 0.511]),
+               # the 0.2.0 arms: the end-effector position at the 'ready' pose
+               "fr3": np.array([0.307, 0.0, 0.487]),
+               "gen3": np.array([0.457, 0.002, 0.434]),
+               "ur5e": np.array([0.492, 0.133, 0.488])}
 # Figure-8 amplitude range (m) drawn by fig8_scenarios: the Indy7 around the
 # paper's 0.4 m, the iiwa14 around the fair harness's smaller loop at its
 # shorter reach.
-FIG8_AMPLITUDE = {"indy7": (0.2, 0.4), "iiwa14": (0.10, 0.20)}
+FIG8_AMPLITUDE = {"indy7": (0.2, 0.4), "iiwa14": (0.10, 0.20),
+                  "fr3": (0.10, 0.20), "gen3": (0.10, 0.20), "ur5e": (0.10, 0.20)}
 # Pick-and-place goal boxes (xyz lo, hi): the iiwa14 box is the paper's
 # (PICKPLACE_DEFAULT_GOALS lie inside it), the Indy7 box sits around its
 # figure-8 centre at comparable reach.
 PICKPLACE_BOX = {"indy7": (np.array([-0.35, 0.30, 0.30]), np.array([0.35, 0.65, 0.90])),
-                 "iiwa14": (np.array([0.0, -0.5, 0.2]), np.array([0.6, 0.5, 0.8]))}
+                 "iiwa14": (np.array([0.0, -0.5, 0.2]), np.array([0.6, 0.5, 0.8])),
+                 # the 0.2.0 arms: a box in front of the base around the ready pose's EE
+                 # (unreachable or limit-violating goals are rejected by the generator)
+                 "fr3": (np.array([0.25, -0.30, 0.20]), np.array([0.60, 0.30, 0.70])),
+                 "gen3": (np.array([0.25, -0.30, 0.20]), np.array([0.60, 0.30, 0.70])),
+                 "ur5e": (np.array([0.30, -0.20, 0.20]), np.array([0.65, 0.40, 0.70]))}
+
+
+def ee_frame_of(plant):
+    """The plant's registered end-effector frame (the fixed joint the device FK
+    targets): 'EE' on the paper's arms, the tool frame on the 0.2.0 arms."""
+    from .interface import robot_info
+    return robot_info(plant).get("ee_frame", "EE")
 
 
 def urdf_limits(model):
@@ -138,7 +159,7 @@ def feasible_fig8(model, ee_frame, q0, dt, *, ratio=0.8, cycles=1, **fig8_params
     return dict(params=p, ratio_est=float(r1), ik_err_max=float(err), within_q_limits=inside)
 
 
-def fig8_scenarios(model, plant, n, *, seed, dt=0.01, ratio_range=(0.6, 1.6), ee_frame="EE",
+def fig8_scenarios(model, plant, n, *, seed, dt=0.01, ratio_range=(0.6, 1.6), ee_frame=None,
                    ik_err_max=0.005):
     """``n`` seeded figure-8 scenarios for ``plant``: amplitude in
     FIG8_AMPLITUDE[plant], centre within 0.1 m of the plant's centre of record, rotation 0 to 90
@@ -153,6 +174,7 @@ def fig8_scenarios(model, plant, n, *, seed, dt=0.01, ratio_range=(0.6, 1.6), ee
     drawn ratio by more than 15 % (the IK path jumped between
     configurations), are redrawn. Returns a list of dicts
     (id, plant, q0, params, ratio, ratio_est)."""
+    ee_frame = ee_frame or ee_frame_of(plant)
     rng = np.random.default_rng(seed)
     out, tries = [], 0
     while len(out) < n:
@@ -174,7 +196,7 @@ def fig8_scenarios(model, plant, n, *, seed, dt=0.01, ratio_range=(0.6, 1.6), ee
     return out
 
 
-def pickplace_scenarios(model, plant, n, *, seed, n_goals=3, ramps=(0.0, 0.6, 1.2), ee_frame="EE",
+def pickplace_scenarios(model, plant, n, *, seed, n_goals=3, ramps=(0.0, 0.6, 1.2), ee_frame=None,
                         ik_err_max=0.005):
     """``n`` seeded pick-and-place scenarios: ``n_goals`` goals drawn in the
     plant's goal box (each reachable by IK from the ready pose within
@@ -183,6 +205,7 @@ def pickplace_scenarios(model, plant, n, *, seed, n_goals=3, ramps=(0.0, 0.6, 1.
     ``goal_ramp``) drawn from ``ramps``: 0 is the paper's step reference, which
     asks for maximal acceleration and makes the torque box bind. Returns a
     list of dicts (id, plant, q0, goals, ramp)."""
+    ee_frame = ee_frame or ee_frame_of(plant)
     rng = np.random.default_rng(seed)
     lo, hi = PICKPLACE_BOX[plant]
     out, tries = [], 0

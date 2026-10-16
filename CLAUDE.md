@@ -95,7 +95,8 @@ migrated to `glass::`.
   `grid::` constants, dynamics + tracking-cost wrappers over `grid_plant::`), `integrator.cuh`,
   `grid_plant_step.cuh` (floating-base step/linearization via the emitted arena carves),
   `manifold.cuh` (SE(3) retract/difference) + per-robot `<name>/{grid.cuh, limits.cuh}` (both
-  generated; `indy7`, `iiwa14`, `go2`). CMake injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"`
+  generated; `indy7`, `iiwa14`, `go2`, and since 0.2.0 `fr3`, `gen3`, `ur5e` from
+  `examples/<robot>_description`, whose README records the source and the edits). CMake injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"`
   and puts the robot dir on the include path. Regen emits only the consumed GRiD families
   (`gato.builder.GATO_ALGORITHMS`).
 - `gato/utils/` — `linalg.cuh` (batch-layout accessors), `cuda.cuh` (error macros).
@@ -162,7 +163,9 @@ New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_
 contact_frames=None, contact_forces=False, exact_hessian=False)` runs codegen (grid.cuh +
 limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
 call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
-fixed joint). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your
+fixed joint whose name is a C identifier; inertia tensors in the link frame, since the pinned GRiD
+parser mis-rotates a rotated `<inertial><origin>`: codegen refuses one and
+`gato.builder.canonicalize_inertials(urdf, out)` rewrites it exactly). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your
 usual configure (`./tools/build.sh --profile receipt`) afterwards.
 
 Constraint-layer rulings/provenance (moved out of the docstrings): [`docs/constraints.md`](docs/constraints.md).

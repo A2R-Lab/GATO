@@ -42,22 +42,29 @@ import numpy as np
 import gato
 from gato.interface import BSQP
 from gato.config import (INDY7_START_CONFIGS, IIWA14_START_CONFIGS,
-                         GO2_START_CONFIGS)
+                         GO2_START_CONFIGS, FR3_START_CONFIGS, GEN3_START_CONFIGS,
+                         UR5E_START_CONFIGS)
 from gato import fingerprint as fp
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # URDFs from the registry (repo-relative paths written by tools/regen_grid.py)
-URDFS = {p: os.path.join(REPO, gato.robot_info(p)["urdf"]) for p in ("indy7", "iiwa14", "go2")}
-MODULE_N = {"indy7": 8, "iiwa14": 8, "go2": 16}  # smallest built module per plant
+PLANTS = ("indy7", "iiwa14", "go2", "fr3", "gen3", "ur5e")
+URDFS = {p: os.path.join(REPO, gato.robot_info(p)["urdf"]) for p in PLANTS}
+# smallest receipt module per plant (the 0.2.0 arms carry N64 only)
+MODULE_N = {"indy7": 8, "iiwa14": 8, "go2": 16, "fr3": 64, "gen3": 64, "ur5e": 64}
 REST = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"],
-        "go2": GO2_START_CONFIGS["standing"]}
+        "go2": GO2_START_CONFIGS["standing"], "fr3": FR3_START_CONFIGS["ready"],
+        "gen3": GEN3_START_CONFIGS["ready"], "ur5e": UR5E_START_CONFIGS["ready"]}
 # bent posture for the coriolis probe: the PDDP t2 operating posture (iiwa14),
-# a generic elbow-bent indy7, and a crouch-asymmetric go2 (base pose = REST's);
-# fixed qd pattern, no RNG anywhere.
+# a generic elbow-bent indy7, a crouch-asymmetric go2 (base pose = REST's) and
+# an off-axis elbow-bent pose on each 0.2.0 arm; fixed qd pattern, no RNG anywhere.
 BENT = {
     "indy7": [0.4, 0.6, -1.1, 0.3, -0.9, 0.2],
     "iiwa14": [-0.2028, 0.5336, -0.0110, -1.6286, 1.7575, -1.9313, 0.4153],
     "go2": [0.15, 1.2, -1.5, -0.15, 1.1, -1.6, 0.15, 0.7, -2.0, -0.15, 0.8, -2.1],
+    "fr3": [0.4, 0.3, -0.3, -1.8, 0.5, 2.0, 0.3],
+    "gen3": [0.3, 0.6, 2.8, -1.9, 0.4, 1.3, 1.2],
+    "ur5e": [0.3, -1.2, 1.4, -1.8, -1.3, 0.4],
 }
 TORQUE = 10.0
 

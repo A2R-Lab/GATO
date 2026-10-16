@@ -60,12 +60,71 @@ def _update_registry(name, meta):
         f.write("\n")
 
 
+def _rpy_matrix(r, p, y):
+    """URDF fixed-axis roll-pitch-yaw to a rotation matrix: R = Rz(y) Ry(p) Rx(r)."""
+    cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
+    return [[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr]]
+
+
+def rotated_inertial_origins(urdf_path):
+    """Names of the links whose ``<inertial><origin>`` carries a rotation (rpy != 0)."""
+    import xml.etree.ElementTree as ET
+    out = []
+    for link in ET.parse(str(urdf_path)).getroot().findall("link"):
+        origin = link.find("inertial/origin")
+        if origin is not None and any(abs(float(v)) > 1e-12 for v in (origin.get("rpy") or "0 0 0").split()):
+            out.append(link.get("name"))
+    return out
+
+
+def canonicalize_inertials(urdf_path, out_path):
+    """Write a copy of the URDF whose inertia tensors are expressed in the link
+    frame: every ``<inertial><origin rpy>`` becomes zero and its tensor is
+    rotated exactly (I_link = R I R^T; the centre of mass ``xyz`` is unchanged).
+    The rigid-body model is identical (pinocchio's dynamics agree to machine
+    precision); the copy is what the pinned GRiD parser needs, since it
+    mis-rotates a tensor given with a rotated inertial origin (ask filed with
+    GRiD, October 2026). Returns the rewritten link names."""
+    import xml.etree.ElementTree as ET
+    tree = ET.parse(str(urdf_path))
+    done = []
+    for link in tree.getroot().findall("link"):
+        origin, inertia = link.find("inertial/origin"), link.find("inertial/inertia")
+        if origin is None or inertia is None:
+            continue
+        rpy = [float(v) for v in (origin.get("rpy") or "0 0 0").split()]
+        if not any(abs(v) > 1e-12 for v in rpy):
+            continue
+        R = _rpy_matrix(*rpy)
+        g = {k: float(inertia.get(k)) for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")}
+        I = [[g["ixx"], g["ixy"], g["ixz"]], [g["ixy"], g["iyy"], g["iyz"]], [g["ixz"], g["iyz"], g["izz"]]]
+        RI = [[sum(R[i][k] * I[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+        Iw = [[sum(RI[i][k] * R[j][k] for k in range(3)) for j in range(3)] for i in range(3)]
+        for key, (i, j) in dict(ixx=(0, 0), ixy=(0, 1), ixz=(0, 2), iyy=(1, 1), iyz=(1, 2), izz=(2, 2)).items():
+            inertia.set(key, repr(float(Iw[i][j])))
+        origin.set("rpy", "0 0 0")
+        done.append(link.get("name"))
+    tree.write(str(out_path), encoding="unicode", xml_declaration=True)
+    return done
+
+
 def _parse_urdf(urdf_path, ee_frame, floating_base=False):
     """Parse with GRiD's URDFParser (same parse codegen uses); validate ee_frame."""
     # URDFParser ships inside the pinned grid-rbd wheel (gato._grid checks the pin).
     _grid.require()
     from URDFParser import URDFParser
 
+    rotated = rotated_inertial_origins(urdf_path)
+    if rotated:
+        raise ValueError(
+            f"{Path(urdf_path).name}: links {rotated} give their inertia tensor in a rotated inertial "
+            f"frame (<inertial><origin rpy> != 0), which the pinned GRiD parser mis-rotates (the generated "
+            f"dynamics would differ from pinocchio's by the rotation's effect, 10 % on the UR5e). Write the "
+            f"tensors in the link frame first, an exact transformation: "
+            f"gato.builder.canonicalize_inertials({str(urdf_path)!r}, 'robot_canonical.urdf') and register that copy."
+        )
     robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
     if robot is None:
         raise ValueError(f"URDFParser could not parse {urdf_path}")

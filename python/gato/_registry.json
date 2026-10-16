@@ -1,4 +1,32 @@
 {
+  "fr3": {
+    "collision": {
+      "n_spheres": 43,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "fr3_hand_tcp_joint"
+    ],
+    "ee_frame": "fr3_hand_tcp_joint",
+    "floating_base": false,
+    "nq": 7,
+    "nv": 7,
+    "urdf": "examples/fr3_description/fr3.urdf"
+  },
+  "gen3": {
+    "collision": {
+      "n_spheres": 14,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "tool_frame_joint"
+    ],
+    "ee_frame": "tool_frame_joint",
+    "floating_base": false,
+    "nq": 7,
+    "nv": 7,
+    "urdf": "examples/gen3_description/gen3.urdf"
+  },
   "go2": {
     "collision": {
       "n_spheres": 50,
@@ -43,5 +71,19 @@
     "nq": 6,
     "nv": 6,
     "urdf": "examples/indy7_description/indy7.urdf"
+  },
+  "ur5e": {
+    "collision": {
+      "n_spheres": 17,
+      "res": 0.15
+    },
+    "contact_frames": [
+      "tool0_joint"
+    ],
+    "ee_frame": "tool0_joint",
+    "floating_base": false,
+    "nq": 6,
+    "nv": 6,
+    "urdf": "examples/ur5e_description/ur5e.urdf"
   }
 }

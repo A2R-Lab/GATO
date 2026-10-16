@@ -23,6 +23,10 @@ iiwa14 32
 iiwa14 46
 iiwa14 64
 iiwa14 128
+# the 0.2.0 arms (FR3, Gen3, UR5e): N64 only in the receipt; other horizons build on demand
+fr3 64
+gen3 64
+ur5e 64
 go2 16
 go2 16 fc
 indy7 16 fc

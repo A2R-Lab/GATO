@@ -173,6 +173,7 @@ class MPCController:
         self._x_prev = None
         self._u_prev = None
         self._prev_capout = False
+        self._xu_where = "host"      # which copy of the warm start is current: "host" (_XU) | "device" (the solver's resident buffer)
 
     def _install_limits(self, limits, limits_kw):
         """Install the limit rows per the ``limits`` argument; return the
@@ -199,16 +200,19 @@ class MPCController:
         ``xu_warm`` has shape (xu_size,) (broadcast) or (B, xu_size); its
         first state is replaced by x0. This permits reproducible non-default
         initial guesses without reaching into controller internals. Inputs
-        are copied. Floating guesses must have unit base quaternions.
+        are copied (numpy, torch or JAX, any device: reset stages through the
+        host; the first device-path step() uploads the seed once).
+        Floating guesses must have unit base quaternions.
         """
-        x0 = np.asarray(x0, dtype=np.float32).reshape(self.nx)
+        from . import _arrays
+        x0 = _arrays.to_numpy(x0).reshape(self.nx)
         if not np.isfinite(x0).all():
             raise ValueError("reset x0 must be finite")
         check_floating_state(x0, self.nq, self.nv, "reset x0")
         if xu_warm is None:
             seed = initialize_warm_start(x0, self.N, self.nx, self.nu)
         else:
-            seed = np.asarray(xu_warm, dtype=np.float32)
+            seed = _arrays.to_numpy(xu_warm)
             if seed.shape not in ((self._XU.shape[1],), self._XU.shape):
                 raise ValueError("xu_warm must have shape (xu_size,) or (B, xu_size)")
             if not np.isfinite(seed).all():
@@ -223,11 +227,24 @@ class MPCController:
         self.solver.reset_rho()
         self._XU[:, :] = seed
         self._XU[:, :self.nx] = x0
+        self._xu_where = "host"
         if self.hypotheses is not None:
             self.hypotheses.reset()
         self._x_prev = None
         self._u_prev = None
         self._prev_capout = False
+
+    def _warm_to_host(self):
+        """The host path is about to run: pull the warm start back from the device if it moved."""
+        if self._xu_where == "device":
+            self._XU[:, :] = self.solver.get_warm()
+            self._xu_where = "host"
+
+    def _warm_to_device(self):
+        """The device path is about to run: push the host warm start once."""
+        if self._xu_where == "host":
+            self.solver.set_warm(self._XU)
+            self._xu_where = "device"
 
     def warmup(self, x_measured, reference):
         """Warm-up solve: seed the warm start with each batch entry's own solution.
@@ -236,8 +253,10 @@ class MPCController:
         keeps its own solved trajectory (each hypothesis' solution warm-starts
         itself on the next step). Returns the SolveResult.
         """
-        x = np.asarray(x_measured, dtype=np.float32).reshape(self.nx)
-        ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+        from . import _arrays
+        self._warm_to_host()
+        x = _arrays.to_numpy(x_measured).reshape(self.nx)
+        ref = _arrays.to_numpy(reference).reshape(-1)
         check_floating_state(x, self.nq, self.nv, "x_measured")
         if self.hypotheses is not None:
             self.hypotheses.apply(self.solver, x)
@@ -269,14 +288,25 @@ class MPCController:
                 unchanged by this option. ``StepResult.iterations``,
                 ``budget_hit`` and ``wall_s`` report what happened.
 
-        ``x_measured`` / ``reference`` may be numpy, torch or JAX arrays on any
-        device; the controller runs the solver's host path (its warm-start
-        buffer is host memory) and returns ``u`` in the caller's kind.
+        ``x_measured`` / ``reference`` may be numpy, torch or JAX arrays. When
+        both are CUDA tensors (torch on a CUDA device, JAX on a GPU) and the
+        controller runs no hypothesis batch, the step takes the device path:
+        the warm start lives in the solver's resident buffer, the inputs are
+        read in place, and ``u``, ``xu_best`` and ``solve.xu`` come back on the
+        device with no host round trip (bit-identical plan to the host path;
+        the ``pred_err`` scalar is reduced on the device and agrees to float
+        rounding; the host path's floating-base quaternion check is not
+        applied). Otherwise the host path runs (CPU tensors are copied in;
+        a hypothesis batch scores on the host) and ``u`` comes back in the
+        caller's kind. The two paths may alternate; the warm start follows.
         """
         t0 = perf_counter()
         if budget_s is not None and not float(budget_s) > 0.0:
             raise ValueError(f"budget_s must be positive (None = no budget), got {budget_s!r}")
         from . import _arrays
+        if self.hypotheses is None and _arrays.is_cuda(x_measured) and _arrays.is_cuda(reference):
+            return self._step_device(x_measured, reference, budget_s, t0)
+        self._warm_to_host()
         in_kind = _arrays.kind(x_measured)
         in_device = getattr(x_measured, "device", None) if in_kind == "torch" else None
         x = _arrays.to_numpy(x_measured).reshape(self.nx)
@@ -360,6 +390,53 @@ class MPCController:
         return StepResult(
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
+            pred_err=pred_err, reseeded=reseeded,
+            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
+            wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
+            limits=self.limits, row_viol=row_viol,
+        )
+
+    def _step_device(self, x, ref, budget_s, t0):
+        """step() on CUDA inputs with no hypothesis batch: the host path's
+        decisions on device-side data (see step()). x is read as (nx,), ref as
+        (6N,) (or (N, 6)); both are only read."""
+        solver = self.solver
+        self._warm_to_device()
+        pred_err = solver.pred_err_warm(x)          # knot 0 of the resident plan vs the measured state
+        reseeded = (self.reseed_threshold is not None
+                    and pred_err > self.reseed_threshold)
+        if reseeded:
+            solver.hold_warm(x)
+            solver.reset_dual()
+        if self.linsys == "auto":
+            cold = pred_err > self.bdsv_threshold or self._prev_capout or reseeded
+            solver.set_linsys("bdsv_first" if cold else "pcg")
+        admm_linsys = ""
+        if getattr(solver, "admm_active", False):
+            if self.admm_linsys == "auto":
+                cold = pred_err > self.admm_threshold or self._prev_capout or reseeded
+                solver.set_admm_linsys("bdsv_factor" if cold else "pcg")
+            admm_linsys = solver.admm_linsys
+        if self.reset_rho_each_step:
+            solver.reset_rho()
+        remaining = None if budget_s is None else max(float(budget_s) - (perf_counter() - t0), 1e-9)
+        res = solver.solve_warm(x, ref, budget_s=remaining)     # knot-0 := x inside; the solution stays resident
+        best_id = 0
+        solver.shift_warm(best_id, hold=self.warm_start == "hold")
+        xu_best = res.xu[best_id]
+        u_full = xu_best[self.nx : self.nx + self.nu]
+        u = u_full[: self.n_actuated]
+        fc = u_full[self.n_actuated :]
+        self._x_prev = x
+        self._u_prev = u_full
+        self._prev_capout = bool(
+            res.stats.pcg_iters.size
+            and int(res.stats.pcg_iters.max()) >= solver.max_pcg_iters)
+        viol = res.stats.row_max_violation
+        row_viol = (None if viol is None or not np.size(viol) else
+                    np.asarray(viol, dtype=np.float32).reshape(-1, self.batch_size)[:, best_id].copy())
+        return StepResult(
+            u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res, hypo_stats=None,
             pred_err=pred_err, reseeded=reseeded,
             iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,

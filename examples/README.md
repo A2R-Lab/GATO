@@ -5,12 +5,13 @@ the benchmark / timing harnesses. Every script imports the installed `gato` pack
 (`./tools/install.sh` does `pip install -e .`) and runs from any cwd.
 
 ## Intro demos — "how to use GATO"
-Minimal, self-contained scripts that show the core API. 01–04, 06, 08, 09 and 10
-use the Indy7 at N64: in a checkout build it once (`MODULES="indy7:64" JOBS=2
-./tools/build.sh`), or let the first run compile it into the per-host cache
-(a few minutes, logged). 05 registers and compiles the requested robot itself;
-07 needs go2 N16 (the `_fc` variant for standing). `JOBS=2 ./tools/build.sh
---profile receipt` covers the shipped variants. Install `--test` for pinocchio, MuJoCo and gymnasium; `--examples`
+Minimal, self-contained scripts that show the core API. 01–04, 06, 08, 09, 10
+and 11 use the Indy7 at N64: in a checkout build it once (`MODULES="indy7:64"
+JOBS=2 ./tools/build.sh`), or let the first run compile it into the per-host
+cache (a few minutes, logged). 05 registers and compiles the requested robot
+itself; 07 needs go2 N16 (the `_fc` variant for standing); 12 needs the Indy7 at
+N16, N32 and N64; 13 needs the FR3, Gen3 and UR5e at N64. `JOBS=2
+./tools/build.sh --profile receipt` covers all of them. Install `--test` for pinocchio, MuJoCo and gymnasium; `--examples`
 adds plotting/notebook dependencies. These are correctness demos, not benchmarks.
 They demonstrate API use and simulated behavior, not guaranteed joint-limit
 feasibility or real-time deadlines (a step budget bounds the solver's
@@ -28,9 +29,10 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`07_go2_floating.py`](07_go2_floating.py) | A floating-base robot (go2) in closed loop on a MuJoCo ground (or the device integrator): standing keyframe anchor, imu goal, the floating controller defaults. |
 | [`08_linsys_and_autotune.py`](08_linsys_and_autotune.py) | The `pcg` / `bdsv` / `bdsv_first` linear-system paths, cold vs warm-started, and where `tools/autotune_linsys.py` fits in. |
 | [`09_mpc_with_limits.py`](09_mpc_with_limits.py) | Joint limits in closed loop through `MPCController(limits=...)`: telemetry only, ADMM with a fixed inner budget, and the controller default (ADMM with the residual exit and the inner linear solver by horizon) hold a velocity cap the figure-8 cannot meet; the simulated plant, not the planner, is graded; inner iterations spent per tick. |
-| [`10_torch_jax_arrays.py`](10_torch_jax_arrays.py) | The solver as a batched tensor op: torch / JAX CUDA arrays in, the same kind out through DLPack, bit-identical to the numpy path; warm starts stay on the device. |
+| [`10_torch_jax_arrays.py`](10_torch_jax_arrays.py) | The solver as a batched tensor op: torch / JAX CUDA arrays in, the same kind out through DLPack, bit-identical to the numpy path; warm starts stay on the device. The controller on CUDA tensors: the warm start resident on the device, `u` back as a device tensor, the same plan as the numpy controller. |
 | [`11_deadline_step.py`](11_deadline_step.py) | The deadline-aware step: `step(x, ref, budget_s=...)` runs SQP iterations while the next one still fits and returns the best plan so far; iterations, budget hits and wall time per tick. |
 | [`12_constraint_mechanisms.py`](12_constraint_mechanisms.py) | The four limit mechanisms (`limits="telemetry"`, `"barrier"`, `"al"`, `"admm"`) on one pick-and-place task with a step reference, at N16/32/64, on shared axes: the simulated plant's peak velocity and torque against the URDF limits, the planner's own violation, goals reached, task time; `--plot` saves the figure. |
+| [`13_more_arms.py`](13_more_arms.py) | The arms added in 0.2.0 (FR3, Gen3, UR5e) under the controller defaults on figure-8s sized from their own URDF limits (`gato.tasks`): a feasible reference and one that asks for more than the velocity limit, with the telemetry-only run for contrast; the simulated plant's peak velocity and torque against the limits, the planner's violation, ADMM inner iterations. |
 
 ```bash
 python examples/01_single_solve.py
@@ -45,6 +47,7 @@ python examples/09_mpc_with_limits.py
 python examples/10_torch_jax_arrays.py
 python examples/11_deadline_step.py
 python examples/12_constraint_mechanisms.py
+python examples/13_more_arms.py             # needs bsqpN64_{fr3,gen3,ur5e} (the receipt profile)
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

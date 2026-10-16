@@ -71,6 +71,21 @@ def device_f32(x, numel: int, name: str):
     raise TypeError(f"{name}: device path needs a torch CUDA tensor or a JAX CUDA array, got {type(x).__name__}")
 
 
+def device_rows(x, row: int, batch: int, name: str):
+    """Validate a CUDA array holding one row of ``row`` elements (broadcast to the
+    batch) or exactly ``batch`` rows; return (device_pointer, keepalive, batched)."""
+    k = kind(x)
+    n = int(x.numel()) if k == "torch" else int(x.size)
+    if n == row:
+        batched = False
+    elif n == row * batch:
+        batched = True
+    else:
+        raise ValueError(f"{name}: expected {row} elements (one row) or {row * batch} (batch_size {batch} rows), got {n}")
+    ptr, keep = device_f32(x, n, name)
+    return ptr, keep, batched
+
+
 def from_device(device_array, like_kind: str):
     """Wrap a solver DeviceArray (DLPack exporter) in the caller's framework, zero-copy."""
     if like_kind == "torch":

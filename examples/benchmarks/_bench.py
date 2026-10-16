@@ -180,6 +180,9 @@ def fig8_task(plant, N, dt):
     raise ValueError(f"no fig8 task wired for plant {plant!r} (known: {FIG8_PLANTS})")
 
 
+QD_CAP_DEFAULT = 1.0   # rad/s: the matrix's velocity cap, also on the "default" ADMM cell
+
+
 def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
                    kick_every=25, seed=7, admm=None):
     """One fixed-pacing fig8 MPC run under linsys policy `mode` with a seeded,
@@ -193,6 +196,8 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     (solve_ms / pred_err / pcg_iters per solve + tracking summary).
 
     `admm` (W2a ADMM speed study): None = no row groups (the paper setting);
+    "default" = the controller default (limits=None: per-box rho ADMM, residual
+    exit, inner solver by horizon) with the velocity cap below tightened on it;
     a dict {"rho", "iters", "eps_abs", "eps_rel", "check_every", "linsys", "tau",
     "qd_cap"} binds the URDF limit boxes to the ADMM mechanism with the residual
     exit (solver.set_admm_exit; `check_every` = its host break period, default 1)
@@ -216,22 +221,30 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     kw = {"linsys": mode, "limits": "off"}
     if mode == "auto":
         kw["bdsv_threshold"] = tau
-    if admm is not None:
+    # admm == "default": the controller as constructed (limits=None installs the
+    # measured per-box ADMM default with the residual exit and the inner solver by
+    # horizon); the qd cap is tightened on the installed rows below, as for the
+    # explicit cells, so the velocity box binds on the same reference
+    default_cell = admm == "default"
+    if default_cell:
+        kw.pop("limits")
+        admm = dict(qd_cap=QD_CAP_DEFAULT)
+    elif admm is not None:
         mpc.solver.enable_limit_admm(rho=admm.get("rho", 0.01), iters=admm.get("iters", 10),
                                      eps_abs=admm.get("eps_abs"), eps_rel=admm.get("eps_rel"),
                                      check_every=admm.get("check_every", 1))
         kw["admm_linsys"] = admm.get("linsys", "pcg")
         if kw["admm_linsys"] == "auto":
             kw["admm_threshold"] = admm.get("tau", tau)
-        if admm.get("qd_cap"):
-            from gato.rowkinds import KIND_BOX_QD
-            groups = mpc.solver.get_row_groups()
-            g = next(i for i, grp in enumerate(groups) if grp["kind"] == KIND_BOX_QD)
-            n = groups[g]["n_rows"]
-            cap = float(admm["qd_cap"])
-            mpc.solver.set_row_group_bounds(g, -cap * np.ones(n), cap * np.ones(n))
     mpc.controller = MPCController(mpc.solver, hypotheses=mpc.controller.hypotheses,
                                    warm_start="shift", reset_rho_each_step=True, **kw)
+    if admm is not None and admm.get("qd_cap"):
+        from gato.rowkinds import KIND_BOX_QD
+        groups = mpc.solver.get_row_groups()
+        g = next(i for i, grp in enumerate(groups) if grp["kind"] == KIND_BOX_QD)
+        n = groups[g]["n_rows"]
+        cap = float(admm["qd_cap"])
+        mpc.solver.set_row_group_bounds(g, -cap * np.ones(n), cap * np.ones(n))
 
     pred_errs, iters, colds, sqp_iters = [], [], [], []
     admm_iters, admm_lin, admm_arm, viol = [], [], [], []

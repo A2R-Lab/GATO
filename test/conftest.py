@@ -32,7 +32,11 @@ HAVE_MODULES = bool(gato.available())
 INDY7_URDF = REPO / "examples" / "indy7_description" / "indy7.urdf"
 IIWA14_URDF = REPO / "examples" / "iiwa_description" / "iiwa14.urdf"
 GO2_URDF = REPO / "examples" / "go2_description" / "go2.urdf"
-URDFS = {"indy7": INDY7_URDF, "iiwa14": IIWA14_URDF}
+# the 0.2.0 arms (N64 receipt modules; examples/<robot>_description/README.md)
+FR3_URDF = REPO / "examples" / "fr3_description" / "fr3.urdf"
+GEN3_URDF = REPO / "examples" / "gen3_description" / "gen3.urdf"
+UR5E_URDF = REPO / "examples" / "ur5e_description" / "ur5e.urdf"
+URDFS = {"indy7": INDY7_URDF, "iiwa14": IIWA14_URDF, "fr3": FR3_URDF, "gen3": GEN3_URDF, "ur5e": UR5E_URDF}
 
 # ---- go2 (floating base, N16-only module) shared helpers ----
 GO2_N, GO2_DT = 16, 0.01
@@ -96,8 +100,10 @@ def mujoco_world(urdf, **kw):
 from gato.rowkinds import KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U, KIND_EE_POS, KIND_LIN_U, KIND_COLLISION, KIND_CONTACT_POS, BLOCK_X, BLOCK_U  # noqa: E402,F401
 
 # ---- the arm reach problem every constraint gate solves ----
-from gato.config import INDY7_START_CONFIGS, IIWA14_START_CONFIGS  # noqa: E402
-ARM_START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"]}
+from gato.config import (INDY7_START_CONFIGS, IIWA14_START_CONFIGS, FR3_START_CONFIGS,  # noqa: E402
+                         GEN3_START_CONFIGS, UR5E_START_CONFIGS)
+ARM_START = {"indy7": INDY7_START_CONFIGS["ready"], "iiwa14": IIWA14_START_CONFIGS["home"],
+             "fr3": FR3_START_CONFIGS["ready"], "gen3": GEN3_START_CONFIGS["ready"], "ur5e": UR5E_START_CONFIGS["ready"]}
 ARM_GOAL = (0.35, 0.25, 0.5)          # a reach goal well outside the horizon: the tracking pull is strong
 JOINT_LIMIT_MARGIN = -0.1             # gato/dynamics/plant.cuh JOINT_LIMIT_MARGIN: limits TIGHTENED by |margin|
 GO2_TAU_MAX = 23.7                    # go2.urdf effort limit (the closed-loop gates clip the applied torque)

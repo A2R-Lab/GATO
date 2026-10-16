@@ -6,8 +6,8 @@ research software, not a certified robot controller.
 
 | Capability | Evidence / supported scope | Boundary |
 |---|---|---|
-| Batched fixed-base SQP, PCG/BDSV, explicit warm starts | Indy7 and iiwa14 receipt modules, numerical goldens, KKT and solve tests | New robots, horizons and tuning need their own validation |
-| Python solver/controller/policy APIs | Shape, controller, hypothesis and policy tests; introductory examples | Raw solves retain dual/rho state but do not implicitly retain the trajectory |
+| Batched fixed-base SQP, PCG/BDSV, explicit warm starts | Indy7 and iiwa14 receipt modules at every paper horizon, FR3, Gen3 and UR5e at N64; numerical goldens (Indy7, iiwa14), KKT and solve tests; the dynamics fingerprint gate on every arm | New robots, horizons and tuning need their own validation; the three 0.2.0 arms carry the smoke, fingerprint, codegen and example gates, not the goldens or the holdout |
+| Python solver/controller/policy APIs | Shape, controller, hypothesis and policy tests; introductory examples; the controller's device path (CUDA torch / JAX inputs, resident warm start) gated bit-identical to the host path over a closed loop | Raw solves retain dual/rho state but do not implicitly retain the trajectory; a hypothesis batch scores on the host |
 | URDF code generation and native builds | Codegen freshness and custom-robot build test | NVIDIA CUDA required; native modules are not shipped in a universal wheel |
 | Boxes, EE rows, linear/conic control rows, collision and contact-position rows | Finite-difference, residual, mask and mechanism gates; closed-loop ADMM velocity-box gate on the simulated plant (`test_limits_closed_loop.py`, example 09) | Finite-budget AL/ADMM solves need not be feasible; inspect violations. Enforcement needs a horizon that can brake (N ≥ 32 on the figure-8) |
 | Contact-force (`fc`) and exact-Hessian (`eh`) variants | Named N16 arm variants in the receipt | Separate variants, not an arbitrary combined fc+eh configuration; exact Hessian is workload-dependent |
