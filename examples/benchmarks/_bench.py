@@ -175,12 +175,14 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     (solve_ms / pred_err / pcg_iters per solve + tracking summary).
 
     `admm` (W2a ADMM speed study): None = no row groups (the paper setting);
-    a dict {"rho", "iters", "eps_abs", "eps_rel", "linsys", "tau"} binds the
-    URDF limit boxes to the ADMM mechanism with the residual exit
+    a dict {"rho", "iters", "eps_abs", "eps_rel", "linsys", "tau", "qd_cap"}
+    binds the URDF limit boxes to the ADMM mechanism with the residual exit
     (solver.set_admm_exit) and the inner linsys policy `linsys` in
-    {"pcg", "bdsv_factor", "auto"} (auto at threshold `tau`); the trace then
-    also carries admm_iters / admm_linsys_iters / admm_linsys per solve and the
-    max row violation per solve.
+    {"pcg", "bdsv_factor", "auto"} (auto at threshold `tau`); `qd_cap` (rad/s)
+    tightens the velocity box to a cap the figure-8 cannot meet (example 09's
+    setting, so the rows bind). The trace then also carries admm_iters /
+    admm_linsys_iters / admm_linsys per solve and the max row violation per
+    solve. `kick_every=0` disables the kicks (the rng still burns its draws).
     """
     from gato.mpc_gato import MPC_GATO
     from gato.controller import MPCController
@@ -199,10 +201,17 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         kw["admm_linsys"] = admm.get("linsys", "pcg")
         if kw["admm_linsys"] == "auto":
             kw["admm_threshold"] = admm.get("tau", tau)
+        if admm.get("qd_cap"):
+            from gato.rowkinds import KIND_BOX_QD
+            groups = mpc.solver.get_row_groups()
+            g = next(i for i, grp in enumerate(groups) if grp["kind"] == KIND_BOX_QD)
+            n = groups[g]["n_rows"]
+            cap = float(admm["qd_cap"])
+            mpc.solver.set_row_group_bounds(g, -cap * np.ones(n), cap * np.ones(n))
     mpc.controller = MPCController(mpc.solver, hypotheses=mpc.controller.hypotheses,
                                    warm_start="shift", reset_rho_each_step=True, **kw)
 
-    pred_errs, iters, colds = [], [], []
+    pred_errs, iters, colds, sqp_iters = [], [], [], []
     admm_iters, admm_lin, admm_arm, viol = [], [], [], []
     rng = np.random.default_rng(seed)
     orig_step = mpc.controller.step
@@ -211,7 +220,7 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
 
     def step(x, g, **skw):
         k[0] += 1
-        if k[0] % kick_every == 0:
+        if kick_every > 0 and k[0] % kick_every == 0:
             x = x.copy()
             c = (k[0] // kick_every) % 3
             if c == 0:
@@ -226,6 +235,7 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         r = orig_step(x, g, **skw)
         pred_errs.append(r.pred_err)
         iters.append(int(np.asarray(r.solve.stats.pcg_iters).reshape(-1).max()))
+        sqp_iters.append(int(r.solve.stats.sqp_iters.max()))
         if mode == "auto":
             colds.append(bool(r.pred_err > tau))
         if admm is not None:
@@ -249,6 +259,7 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         "solve_ms": st[:n].tolist(),
         "pred_err": pred_errs[:n],
         "pcg_iters": iters[:n],
+        "sqp_iters": sqp_iters[:n],
         "cold": colds[:n] if mode == "auto" else None,
         "track_mean": float(gd.mean()), "track_max": float(gd.max()),
     }
