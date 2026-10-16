@@ -7,7 +7,7 @@ quiet windows only.
 import numpy as np
 import pytest
 
-from gato.linsys_autotune import (decide_policy, fit_tau, load_tuning, lookup, resolve_admm_linsys,
+from gato.linsys_autotune import (ADMM_FACTOR_MIN_N, decide_policy, fit_tau, load_tuning, lookup, resolve_admm_linsys,
                                   resolve_linsys, save_tuning)
 
 RNG = np.random.default_rng(3)
@@ -122,13 +122,21 @@ def test_resolve_admm_linsys_precedence(tmp_path):
     assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="kicky", path=p) == ("auto", 0.07)
     # explicit threshold beats the tuned tau
     assert resolve_admm_linsys(None, 0.5, plant="indy7", N=64, task_tag="kicky", path=p) == ("auto", 0.5)
-    # an entry without an ADMM verdict, or an unknown tag, falls through to auto @ the fallback
-    assert resolve_admm_linsys(None, None, fallback_tau=0.3, plant="indy7", N=64, task_tag="sqponly", path=p) == ("auto", 0.3)
-    assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="nope", path=p) == ("auto", 0.1)
+    # an entry without an ADMM verdict, or an unknown tag, falls through to the horizon default
+    assert resolve_admm_linsys(None, None, fallback_tau=0.3, plant="indy7", N=64, task_tag="sqponly", path=p) == ("bdsv_factor", None)
+    assert resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="nope", path=p) == ("bdsv_factor", None)
+    assert resolve_admm_linsys(None, None, plant="indy7", N=32, task_tag="nope", path=p) == ("pcg", None)
+    # explicit auto takes the fallback threshold
+    assert resolve_admm_linsys("auto", None, fallback_tau=0.3, plant="indy7", N=64, task_tag="nope", path=p) == ("auto", 0.3)
 
 
 def test_resolve_admm_linsys_defaults():
-    assert resolve_admm_linsys() == ("auto", 0.1)
-    assert resolve_admm_linsys(fallback_tau=0.25) == ("auto", 0.25)
+    # wired default by horizon (ADMM_FACTOR_MIN_N = 64): pcg below, the reused factor from there
+    assert resolve_admm_linsys() == ("pcg", None)
+    assert resolve_admm_linsys(N=32) == ("pcg", None)
+    assert resolve_admm_linsys(N=ADMM_FACTOR_MIN_N) == ("bdsv_factor", None)
+    assert resolve_admm_linsys(N=128) == ("bdsv_factor", None)
+    assert resolve_admm_linsys("auto") == ("auto", 0.1)
+    assert resolve_admm_linsys("auto", fallback_tau=0.25) == ("auto", 0.25)
     assert resolve_admm_linsys("auto", 0.05) == ("auto", 0.05)
     assert resolve_admm_linsys("bdsv_factor") == ("bdsv_factor", None)

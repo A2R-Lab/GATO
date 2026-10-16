@@ -409,3 +409,8 @@ test/test_admm_exit.py::test_controller_admm_linsys_pinned_and_off
 test/test_linsys_autotune.py::test_resolve_admm_linsys_precedence
 test/test_linsys_autotune.py::test_resolve_admm_linsys_defaults
 test/test_limits_closed_loop.py::test_admm_residual_exit_holds_in_closed_loop
+test/test_controller_limits.py::test_batch_reports_the_winner
+test/test_controller_limits.py::test_caller_configuration_stands
+test/test_controller_limits.py::test_default_installs_admm_limit_rows
+test/test_controller_limits.py::test_explicit_mechanisms_and_overrides
+test/test_controller_limits.py::test_off_installs_nothing

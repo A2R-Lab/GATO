@@ -29,8 +29,9 @@ def build_mpc(arm, scenario, depth):
                    dt=W.DT, batch_size=1, world=world,
                    variant="fc" if arm == "fc" else None,   # the fc arm runs the fc module variant
                    # pin pcg: the n=24 pool of record + quiet quotes were
-                   # measured under it (controller default is "auto" since 08-12)
-                   linsys="pcg")
+                   # measured under it (controller default is "auto" since 08-12);
+                   # the cell installs its own rows below (controller limits off)
+                   linsys="pcg", limits="off")
     s = mpc.solver
 
     if arm == "fc":

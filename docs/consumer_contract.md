@@ -162,7 +162,20 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   happened. `StepResult.u` is the ACTUATED control only (what you apply;
   `StepResult.fc` carries the contact-wrench slots on fc variants);
   `StepResult.solve.stats` carries the iteration counts and, once a row group
-  exists, the true violation of the returned plan (`row_max_violation`).
+  exists, the true violation of the returned plan (`row_max_violation`;
+  `StepResult.row_viol` is the winner's, per row group). **Limits**: on a
+  fixed-base arm whose solver has no row groups, the controller installs the
+  URDF position, velocity and torque boxes under the ADMM mechanism with the
+  measured defaults (rho 0.01, cap 10, residual exit at eps_rel 1e-2, inner
+  linear solver by horizon) and `StepResult.limits` reads "admm"; a solver
+  the caller configured is left as configured, floating-base solvers get
+  nothing, `limits="off"` is the unconstrained step of 0.1.1 bit for bit, and
+  `"admm"` / `"barrier"` / `"al"` / `"telemetry"` (with `limits_kw`) pick a
+  mechanism. The plan then respects the limits to within the reported
+  residual (measured: 3e-2 rad/s on a 1 rad/s velocity box at N64), in
+  closed loop on the tasks of `docs/constraints.md`; it is a bounded,
+  measured property, not a certificate, and the executed torque is what the
+  caller applies (clamp it; the integrator's own safety layer stays).
   Solves are bit-deterministic run-to-run; batch entries are independent. A
   budgeted solve is deterministic in its result given the iteration count it
   reached, but that count depends on the clock.

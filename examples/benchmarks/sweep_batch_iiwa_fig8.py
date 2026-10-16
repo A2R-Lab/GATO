@@ -110,7 +110,7 @@ def main():
         solver = BSQP(rob.urdf, batch_size=B, N=N, dt=DT, params=PARAMS, plant_type=rob.name)
         nx, stride = solver.nx, solver.nx + solver.nu
         ctrl = MPCController(solver, warm_start="shift", linsys="pcg",
-                             reset_rho_each_step=False)
+                             reset_rho_each_step=False, limits="off")
         # The pre-migration raw sweep seeded ONLY knot zero. Holding every
         # state at x0 changes the optimization path even after ten warmups.
         seed = np.zeros(solver.xu_size, dtype=np.float32) if args.initial_guess == "zero-tail" else None

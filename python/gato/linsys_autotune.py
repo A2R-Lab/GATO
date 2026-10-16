@@ -149,10 +149,23 @@ def lookup(plant, N, task_tag, path=None):
     return load_tuning(path).get(_key(plant, N, task_tag))
 
 
+# Horizon from which the ADMM inner loop's default linear solver is the reused
+# factorization rather than warm PCG. Measured October 16, 2026 (quiet RTX 5090,
+# Indy7 and iiwa14 figure-8 under the velocity box, residual exit at 1e-2): at
+# N32 warm PCG is the faster arm on quiet and kicked ticks (0.43 against 0.78 ms
+# per solve); at N64 PCG needs 50 to 80 steps per inner iteration and caps out
+# on a tenth of the ticks, and the factor arm wins on every statistic (1.6 ms
+# against 2.1 to 8.2 ms mean, 3.3 against 12.7 to 33 ms worst case). The arm
+# follows the horizon more than the tick, so this is the wired default; a tuned
+# entry (tools/autotune_linsys.py --admm) or an explicit argument overrides it.
+ADMM_FACTOR_MIN_N = 64
+
+
 def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=None,
                         plant=None, N=None, task_tag=None, path=None):
     """Controller-side resolution of the ADMM inner-loop linsys policy:
-    explicit > tuned entry (``admm_policy`` / ``admm_tau``) > "auto".
+    explicit > tuned entry (``admm_policy`` / ``admm_tau``) > wired default by
+    horizon ("pcg" below ADMM_FACTOR_MIN_N knots, "bdsv_factor" from there).
 
     Returns (admm_linsys, admm_threshold) with admm_linsys in
     {"pcg", "bdsv_factor", "auto"} and admm_threshold set iff auto. Under auto
@@ -167,7 +180,7 @@ def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=N
             if admm_linsys == "auto" and admm_threshold is None:
                 admm_threshold = entry.get("admm_tau")
     if admm_linsys is None:
-        admm_linsys = "auto"
+        admm_linsys = "bdsv_factor" if (N is not None and N >= ADMM_FACTOR_MIN_N) else "pcg"
     if admm_linsys != "auto":
         return admm_linsys, None
     if admm_threshold is None:

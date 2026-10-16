@@ -20,13 +20,17 @@ MIN_N = 32     # measured: N <= 16 (<= 160 ms lookahead) cannot brake the figure
 
 
 def _run(plant, N, urdf, enforce, eps_rel=None):
+    """enforce=False: telemetry rows; enforce=True: ADMM rows with a fixed budget
+    (eps_rel None) or the residual exit, through the controller's limits API."""
     pin = pytest.importorskip("pinocchio")
     from gato.mpc_gato import MPC_GATO
     mpc = MPC_GATO(pin.buildModelFromUrdf(urdf), urdf, N=N, dt=DT, batch_size=1, plant_type=plant,
                    params=dict(max_sqp_iters=5, rho=1e-3), linsys="pcg",
-                   admm_linsys="auto" if eps_rel else "pcg")
+                   admm_linsys="auto" if eps_rel else "pcg",
+                   limits="admm" if enforce else "telemetry",
+                   limits_kw=dict(eps_rel=eps_rel) if enforce else None)
     s = mpc.solver
-    (s.enable_limit_admm(rho=0.01, iters=10, eps_rel=eps_rel) if enforce else s.enable_limit_telemetry())
+    assert mpc.controller.limits == ("admm" if enforce else "telemetry")
     groups = s.get_row_groups()
     g = next(i for i, grp in enumerate(groups) if grp["kind"] == KIND_BOX_QD)
     n = groups[g]["n_rows"]

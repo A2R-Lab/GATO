@@ -2,18 +2,21 @@
 
 The paper's figure-8 run (03_mpc_loop.py) plans with soft limit costs only; the
 arm is free to exceed the URDF velocity limits when the reference demands it.
-This example binds the limit row groups (URDF position / velocity / torque
-boxes) to the ADMM-projection mechanism, tightens the velocity box to a cap the
-figure-8 cannot satisfy at full speed, and runs the same MPC loop twice:
+Since October 16 the controller installs the limit row groups (URDF position /
+velocity / torque boxes) under the ADMM-projection mechanism by default on
+fixed-base arms (``MPCController(limits=...)``; ``limits="off"`` keeps the paper
+setting). This example tightens the velocity box to a cap the figure-8 cannot
+satisfy at full speed and runs the same MPC loop three ways:
 
   * telemetry only  — the boxes are reported, not enforced (the paper setting);
-  * ADMM            — the planner keeps every knot inside the boxes, a fixed
+  * ADMM, fixed     — the planner keeps every knot inside the boxes, a fixed
                       budget of inner iterations per SQP iteration;
-  * ADMM, exit      — the same with the residual early exit (set_admm_exit)
-                      and the controller's warm-startedness-driven inner linear
-                      solver (admm_linsys="auto"): the loop stops once the
-                      iterate's residuals are below tolerance, so a warm tick
-                      spends a fraction of the budget.
+  * ADMM, default   — the controller default: the residual early exit
+                      (set_admm_exit, eps_rel 1e-2) with the inner linear
+                      solver chosen by horizon (the reused factorization at
+                      N64): the loop stops once the iterate's residuals are
+                      below tolerance, so a warm tick spends a fraction of
+                      the budget.
 
 It then reports the SIMULATED joint velocities against the cap (the plant is
 integrated by pinocchio from the applied torques, so this is not the planner
@@ -41,17 +44,11 @@ QD_CAP = 1.0          # rad/s, every joint — well below what the figure-8 asks
 PARAMS = dict(max_sqp_iters=5, rho=1e-3)
 
 
-def run(enforce, exit_tol=None):
+def run(limits, limits_kw=None):
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type="indy7",
-                   params=PARAMS, linsys="pcg", admm_linsys="auto" if exit_tol else "pcg")
+                   params=PARAMS, linsys="pcg", limits=limits, limits_kw=limits_kw)
     solver = mpc.solver
-    if enforce and exit_tol:
-        solver.enable_limit_admm(rho=0.01, iters=10, eps_rel=exit_tol)
-    elif enforce:
-        solver.enable_limit_admm(rho=0.01, iters=10)
-    else:
-        solver.enable_limit_telemetry()
     # the three canonical limit groups are installed in BOX_Q, BOX_QD, BOX_U order
     groups = solver.get_row_groups()
     qd_group = next(i for i, g in enumerate(groups) if g["kind"] == KIND_BOX_QD)
@@ -70,9 +67,10 @@ def run(enforce, exit_tol=None):
                 inner_per_step=inner.mean() if inner.size else None)
 
 
-for label, enforce, tol in (("telemetry only", False, None), ("ADMM boxes", True, None),
-                            ("ADMM boxes, residual exit", True, 1e-2)):
-    r = run(enforce, tol)
+for label, limits, kw in (("telemetry only", "telemetry", None),
+                          ("ADMM boxes, fixed budget", "admm", dict(eps_rel=None)),
+                          ("ADMM boxes, controller default (residual exit)", None, None)):
+    r = run(limits, kw)
     print(f"\n{label} (Indy7, N={N}, {SIM_TIME} s, velocity box ±{QD_CAP} rad/s, {r['steps']} steps):")
     print(f"  simulated max |qd| : {r['qd_max']:.2f} rad/s   steps over the cap: {100 * r['qd_over']:.0f}%")
     print(f"  mean tracking err  : {r['err']:.4f} m")

@@ -49,7 +49,7 @@ def main():
         previous = None
         for repeat in range(args.repeats):
             mpc = MPC_GATO(model, urdf, N=16, dt=0.01, batch_size=args.batch,
-                           params=PICKPLACE_SOLVER_PARAMS, linsys='pcg',
+                           params=PICKPLACE_SOLVER_PARAMS, linsys='pcg', limits='off',
                            pendulum_config=scenarios[scenario - 1], track_full_stats=True,
                            estimator=args.estimator)
             # The legacy driver prints durations even in fixed-pacing mode;

@@ -33,8 +33,12 @@ research software, not a certified robot controller.
   are not actuator commands. Apply `StepResult.u` or `SolveResult.u0()` only.
   Torque limits are not enforced by default; explicitly choose limits and a
   hardware-side safety layer before driving a robot.
-- **Constraints:** select a mechanism explicitly, follow row-group ordering,
-  and check feasibility telemetry. A report-only row is not an enforced bound.
+- **Constraints:** the controller installs the URDF limit boxes under ADMM
+  by default on fixed-base arms (`MPCController(limits=...)`; the raw solver
+  installs nothing); follow row-group ordering and check feasibility
+  telemetry (`StepResult.row_viol`). A report-only row is not an enforced
+  bound, and a finite-budget ADMM plan is feasible to within its reported
+  residual, not exactly.
 - **Integration:** default-stream execution is the supported path; do not
   assume concurrent solves on a shared solver instance are supported.
 - **Timing:** internal solve time and `MPCController.step` wall time have

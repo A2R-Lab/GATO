@@ -148,7 +148,8 @@ def leg_deadline(args, quotable, out):
 
     def run(plant, budget_s):
         mpc = MPC_GATO(pin_model(plant), model_path=urdf_path(plant), N=N, dt=DT, batch_size=1,
-                       plant_type=plant, params=dict(max_sqp_iters=ITERS_SQP), linsys="pcg")
+                       plant_type=plant, params=dict(max_sqp_iters=ITERS_SQP), linsys="pcg",
+                       limits="off")   # H1's table is the unconstrained step
         walls, iters, hits = [], [], []
         orig = mpc.controller.step
 

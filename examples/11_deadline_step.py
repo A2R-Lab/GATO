@@ -35,7 +35,8 @@ ITERS = 8   # enough SQP iterations per tick that a time budget has something to
 def run(budget_s):
     model = pin.buildModelFromUrdf(URDF)
     mpc = MPC_GATO(model, model_path=URDF, N=N, dt=DT, batch_size=1, plant_type="indy7",
-                   params=dict(max_sqp_iters=ITERS), linsys="pcg")
+                   params=dict(max_sqp_iters=ITERS), linsys="pcg",
+                   limits="off")   # the unconstrained step (the controller default adds ADMM limit rows)
     ctrl, world, solver = mpc.controller, mpc.world, mpc.solver
     ref = TrajectoryReference(figure8(DT, **FIG8_DEFAULT_PARAMS), DT, N)
 

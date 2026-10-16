@@ -70,7 +70,7 @@ def test_explicit_seed_matches_raw_rti_loop(make_solver, smallest_module, hold):
     plant, N = smallest_module
     s = make_solver(plant, N, batch_size=2, max_sqp_iters=1)
     raw = make_solver(plant, N, batch_size=2, max_sqp_iters=1)
-    ctrl = MPCController(s, linsys="pcg", reset_rho_each_step=False)
+    ctrl = MPCController(s, linsys="pcg", reset_rho_each_step=False, limits="off")   # the raw loop has no rows
     x = np.full(s.nx, 0.1, dtype=np.float32)
     ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
     seed = (initialize_warm_start(x, N, s.nx, s.nu).astype(np.float32)

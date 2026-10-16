@@ -44,6 +44,8 @@ class MPC_GATO:
         reseed_threshold=None,
         admm_linsys=None,
         admm_threshold=None,
+        limits=None,
+        limits_kw=None,
         fe_seed=0,
         fc_config=None,
         wrench_id=None,
@@ -72,8 +74,12 @@ class MPC_GATO:
                 default) — also pins the solver's static path. See MPCController.
             reseed_threshold: MPCController stale-warm-start re-seed (None = off).
             admm_linsys / admm_threshold: the controller's ADMM inner-loop
-                linear-solver policy ("pcg"/"bdsv_factor"/"auto"; None = auto),
-                read only while a row group runs ADMM. See MPCController.
+                linear-solver policy ("pcg"/"bdsv_factor"/"auto"; None = the
+                wired default by horizon), read only while a row group runs
+                ADMM. See MPCController.
+            limits / limits_kw: the controller's limit rows (None = the ADMM
+                default on fixed-base arms; "off" = none; "admm" / "barrier" /
+                "al" / "telemetry" with keyword overrides). See MPCController.
             fe_seed: seed for the force-estimator hypothesis sampling
             fc_config: GATO_CONTACT_FORCES modules only — program the solver's
                 contact-wrench slots so the SOLVER explains an unmodeled wrench
@@ -197,7 +203,8 @@ class MPC_GATO:
                                         warm_start="shift", reset_rho_each_step=True,
                                         linsys=linsys, bdsv_threshold=bdsv_threshold,
                                         reseed_threshold=reseed_threshold,
-                                        admm_linsys=admm_linsys, admm_threshold=admm_threshold)
+                                        admm_linsys=admm_linsys, admm_threshold=admm_threshold,
+                                        limits=limits, limits_kw=limits_kw)
 
         if world is None:
             self.world = PinocchioWorld(self)

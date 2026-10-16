@@ -183,8 +183,9 @@ class ExperimentRunner:
                         pendulum_config=pendulum_config,
                         # paper numbers were measured under the pcg path
                         # (controller default is "auto" since 08-12); an
-                        # explicit caller linsys still wins
-                        params=solver_params, linsys="pcg",
+                        # explicit caller linsys still wins; no limit rows
+                        # (controller default is limits="admm" since 10-16)
+                        params=solver_params, linsys="pcg", limits="off",
                         track_full_stats=True,
                         variant="fc" if fc_config else None,
                         fc_config=fc_config,

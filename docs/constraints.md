@@ -180,6 +180,15 @@ comparison. Telemetry (stats.row_*_violation) stays on.
 
 ## `enable_limit_admm(rho, iters)`
 
+Controller default since October 16, 2026: `MPCController(limits=...)` installs
+these rows itself on a fixed-base arm whose solver has none (`limits=None`),
+with rho 0.01, cap 10, the residual exit at eps_rel 1e-2 and the inner linear
+solver by horizon (`gato.linsys_autotune.ADMM_FACTOR_MIN_N` = 64: warm PCG
+below, the reused factorization from there; see `set_admm_linsys`). A solver
+the caller configured stands, `limits="off"` installs nothing, and the raw
+`BSQP` never installs rows on its own. Example 09 runs the default against
+the fixed budget and telemetry.
+
 Bind the limit row-groups to the ADMM-projection mechanism: an
 OSQP-style inner loop per SQP iteration (warm PCG by default;
 optionally a reused direct BDSV factorization) — the constraint layer's

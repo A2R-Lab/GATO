@@ -4,6 +4,23 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Joint limits on by default in the controller: `MPCController(limits=...)`
+  (and `MPC_GATO(limits=, limits_kw=)`) installs the URDF position, velocity
+  and torque boxes as constraint rows. The default on a fixed-base arm whose
+  solver has no row groups is the ADMM-projection mechanism with the measured
+  settings (rho 0.01, cap 10 inner iterations, residual exit at eps_rel 1e-2,
+  inner linear solver by horizon: warm PCG below 64 knots, the reused
+  factorization from 64); a solver the caller configured is left as
+  configured, floating-base solvers get nothing, `limits="off"` installs
+  nothing, and `"admm"` / `"barrier"` / `"al"` / `"telemetry"` pick a
+  mechanism (`limits_kw` overrides its arguments). `StepResult.limits` names
+  the mechanism in force and `StepResult.row_viol` carries the winning plan's
+  violation per row group; `BSQP.row_mech`, `admm_eps_abs`, `admm_eps_rel`
+  and `admm_check_every` read the installed state. The raw solver is
+  unchanged. The paper harness and the benchmarks pin `limits="off"`, so no
+  recorded figure moves. This is a controller default change: 0.1.x code
+  that relied on an unconstrained `MPCController` on an arm must pass
+  `limits="off"`.
 - ADMM inner-loop residual early exit: `BSQP.set_admm_exit(eps_abs, eps_rel,
   check_every)` (also `enable_limit_admm(..., eps_rel=...)`) stops the inner
   loop, per batch entry and per row group, once the iterate's primal and dual

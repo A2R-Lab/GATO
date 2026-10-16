@@ -33,6 +33,8 @@ class StepResult:
     budget_hit: bool = False # the solve stopped on step(budget_s=...) rather than on max_sqp_iters/convergence
     wall_s: float = 0.0      # wall time of this step() call, entry to return (host staging + solve + shift)
     admm_linsys: str = ""    # ADMM inner linsys this step ran ("pcg" | "bdsv_factor"; "" when ADMM is off)
+    limits: str = ""         # limit mechanism in force ("admm" | "barrier" | "al" | "telemetry"; "" = no limit rows)
+    row_viol: np.ndarray = None  # (n_groups,) max violation of the winner's plan per row group, get_row_groups() order
 
 
 class MPCController:
@@ -92,18 +94,40 @@ class MPCController:
         admm_threshold: pred_err threshold for admm_linsys="auto"; defaults
             to bdsv_threshold (one signal, two switches) until a fitted value
             exists (tools/autotune_linsys.py --admm).
+        limits: the URDF joint limits (position, velocity, torque boxes) as
+            constraint rows on the solver, installed by the controller.
+            None (default): a fixed-base arm whose solver has no row groups
+            yet gets the ADMM-projection mechanism with the measured defaults
+            (rho 0.01, cap 10 inner iterations, residual exit at eps_rel 1e-2;
+            see docs/constraints.md); a solver the caller already configured
+            (any row group installed) is left as configured, as are
+            floating-base solvers. "off": install nothing. "admm" / "barrier"
+            / "al" / "telemetry": install that mechanism (re-installing the
+            canonical limit groups; appended groups must come after). The
+            mechanism in force is ``self.limits`` and ``StepResult.limits``;
+            each step reports the winning plan's violation per row group in
+            ``StepResult.row_viol``. The raw solver stays explicit: only the
+            controller carries this default.
+        limits_kw: keyword overrides for the enable call behind ``limits``
+            (e.g. dict(rho=0.02, eps_rel=1e-3) for "admm", dict(mu=...) for
+            "barrier").
     """
+
+    LIMIT_DEFAULTS = {"admm": dict(rho=0.01, iters=10, eps_rel=1e-2),
+                      "barrier": {}, "al": {}, "telemetry": {}}
 
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
                  reset_rho_each_step=True, linsys=None, bdsv_threshold=None,
                  task_tag=None, reseed_threshold=None, admm_linsys=None,
-                 admm_threshold=None):
+                 admm_threshold=None, limits=None, limits_kw=None):
         if warm_start not in ("shift", "hold"):
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
             raise ValueError(f"linsys must be None, 'pcg', 'bdsv', 'bdsv_first' or 'auto', got {linsys!r}")
         if admm_linsys not in (None, "pcg", "bdsv_factor", "auto"):
             raise ValueError(f"admm_linsys must be None, 'pcg', 'bdsv_factor' or 'auto', got {admm_linsys!r}")
+        if limits not in (None, "off", "telemetry", "barrier", "admm", "al"):
+            raise ValueError(f"limits must be None, 'off', 'telemetry', 'barrier', 'admm' or 'al', got {limits!r}")
         if hypotheses is not None and hypotheses.batch_size != solver.batch_size:
             raise ValueError(
                 f"hypotheses.batch_size ({hypotheses.batch_size}) != "
@@ -123,6 +147,7 @@ class MPCController:
         self.reseed_threshold = reseed_threshold
         if linsys != "auto":
             solver.set_linsys(linsys)
+        self.limits = self._install_limits(limits, limits_kw)
         admm_linsys, admm_threshold = resolve_admm_linsys(
             admm_linsys, admm_threshold, fallback_tau=bdsv_threshold,
             plant=getattr(solver, "plant_type", None), N=solver.N, task_tag=task_tag)
@@ -139,6 +164,24 @@ class MPCController:
         self._x_prev = None
         self._u_prev = None
         self._prev_capout = False
+
+    def _install_limits(self, limits, limits_kw):
+        """Install the limit rows per the ``limits`` argument; return the
+        mechanism in force ("" when the solver carries no limit rows)."""
+        solver = self.solver
+        groups_fn = getattr(solver, "get_row_groups", None)
+        installed = bool(groups_fn()) if callable(groups_fn) else False
+        in_force = getattr(solver, "row_mech", None) or ""
+        if limits is None:
+            if installed or self.floating_base or not hasattr(solver, "enable_limit_admm"):
+                return in_force              # the caller's configuration stands
+            limits = "admm"
+        if limits == "off":
+            return in_force
+        kw = dict(self.LIMIT_DEFAULTS[limits])
+        kw.update(limits_kw or {})
+        getattr(solver, f"enable_limit_{limits}")(**kw)
+        return limits
 
     def reset(self, x0, *, xu_warm=None):
         """Reset solver state and seed the trajectory.
@@ -302,10 +345,14 @@ class MPCController:
             and int(res.stats.pcg_iters.max()) >= self.solver.max_pcg_iters)
         if in_kind != "numpy":
             u = _arrays.like(u, in_kind, device=in_device)
+        viol = res.stats.row_max_violation
+        row_viol = (None if viol is None or not np.size(viol) else
+                    np.asarray(viol, dtype=np.float32).reshape(-1, self.batch_size)[:, best_id].copy())
         return StepResult(
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
             pred_err=pred_err, reseeded=reseeded,
             iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
+            limits=self.limits, row_viol=row_viol,
         )

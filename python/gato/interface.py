@@ -363,6 +363,7 @@ class BSQP:
         self.exact_hessian = False  # the C++ default
         self._time_budget_us = 0.0  # solve(budget_s=...) state mirrored in the C++ solver
         self._admm_linsys = "pcg"   # set_admm_linsys; the C++ default
+        self._admm_exit = (0.0, 0.0, 1)   # set_admm_exit (eps_abs, eps_rel, check_every); the C++ default
         if params.exact_hessian:
             self.set_exact_hessian(True)
 
@@ -417,6 +418,22 @@ class BSQP:
             raise ValueError(f"set_admm_exit: eps_abs, eps_rel and check_every must be >= 0, "
                              f"got {eps_abs!r}, {eps_rel!r}, {check_every!r}")
         self.solver.set_admm_exit(float(eps_abs), float(eps_rel), int(check_every))
+        self._admm_exit = (float(eps_abs), float(eps_rel), int(check_every))
+
+    @property
+    def admm_eps_abs(self):
+        """Absolute tolerance of the ADMM residual exit (0 with the exit off)."""
+        return self._admm_exit[0]
+
+    @property
+    def admm_eps_rel(self):
+        """Relative tolerance of the ADMM residual exit (0 with the exit off)."""
+        return self._admm_exit[1]
+
+    @property
+    def admm_check_every(self):
+        """Host break period of the ADMM residual exit, in inner iterations."""
+        return self._admm_exit[2]
 
     def _apply_budget(self, budget_s):
         """Mirror solve(budget_s=...) into the C++ solver (a host-side switch; only
@@ -610,6 +627,12 @@ class BSQP:
     def _bcast(v, n):
         """scalar -> (n,) float32, or an array reshaped to (n,)"""
         return np.ascontiguousarray((np.full(n, v) if np.ndim(v) == 0 else np.asarray(v)).astype(np.float32).reshape(n))
+
+    @property
+    def row_mech(self):
+        """The active enable_limit_* mechanism ("telemetry" | "barrier" | "admm" |
+        "al"), or None when no limit mechanism is installed."""
+        return self._row_mech
 
     def enable_limit_telemetry(self):
         """Install the canonical limit row-groups (URDF position/velocity/torque boxes)
