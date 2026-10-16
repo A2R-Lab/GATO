@@ -179,10 +179,13 @@ def test_controller_admm_linsys_pinned_and_off(make_solver, smallest_module):
     solver = make_solver(plant, N, batch_size=1)
     ctrl = MPCController(solver, admm_linsys="bdsv_factor")
     assert ctrl.admm_threshold is None and solver.admm_linsys == "bdsv_factor"
-    # the default policy is auto with the SQP threshold as the fallback
-    ctrl2 = MPCController(make_solver(plant, N), linsys="auto", bdsv_threshold=0.3)
+    # the default policy follows the horizon (ADMM_FACTOR_MIN_N); explicit auto takes the SQP threshold
+    from gato.linsys_autotune import ADMM_FACTOR_MIN_N
+    dflt = MPCController(make_solver(plant, N), linsys="auto", bdsv_threshold=0.3)
+    assert dflt.admm_linsys == ("bdsv_factor" if N >= ADMM_FACTOR_MIN_N else "pcg") and dflt.admm_threshold is None
+    ctrl2 = MPCController(make_solver(plant, N), linsys="auto", bdsv_threshold=0.3, admm_linsys="auto", limits="off")
     assert ctrl2.admm_linsys == "auto" and ctrl2.admm_threshold == 0.3
-    # no ADMM group: the policy is inert and StepResult says so
+    # no ADMM group (limits off): the policy is inert and StepResult says so
     x0 = np.zeros(solver.nx, dtype=np.float32)
     ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
     ctrl2.reset(x0)
