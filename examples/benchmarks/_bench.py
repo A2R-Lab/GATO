@@ -94,16 +94,33 @@ def gpu_info():
     return _smi("--query-gpu=name,clocks.sm,temperature.gpu,driver_version")
 
 
-def require_quiet_gpu(allow_busy=False, util_max=5):
+def require_quiet_gpu(allow_busy=False, util_max=5, settle_s=1.5):
     """The timing guard: refuse to run while other compute processes hold the
     GPU (or utilization > util_max %). Returns True when quiet.
+
+    The compute-process list is the primary signal. Utilization is nvidia-smi's
+    trailing-window counter (up to one second), so with no process on the GPU
+    the guard waits `settle_s` and takes the median of three samples half a
+    second apart: a caller that starts the instant its predecessor exits
+    (the legs of run_timing_w2a.sh, the per-cell subprocesses of the fit) would
+    otherwise read its predecessor's load and refuse an idle box (October 16,
+    2026: two overnight attempts lost that way).
 
     allow_busy=True downgrades the refusal to a printed warning — for plumbing
     smoke tests only; numbers measured under contention are never kept.
     Correctness-class harnesses (fixed pacing, bit-deterministic) call it with
     allow_busy=True just to flag that their recorded wall times are not quotable.
     """
-    pids, util = gpu_busy(), gpu_util()
+    import time
+    pids = gpu_busy()
+    util = gpu_util()
+    if not pids:
+        time.sleep(settle_s)
+        samples = []
+        for _ in range(3):
+            samples.append(gpu_util())
+            time.sleep(0.5)
+        util = int(np.median(samples))
     if not pids and util <= util_max:
         return True
     msg = f"GPU busy (compute pids: {pids or 'none'}, util {util}%)"
@@ -115,8 +132,9 @@ def require_quiet_gpu(allow_busy=False, util_max=5):
 
 
 def git_provenance():
-    """{'sha', 'short', 'dirty', 'date'} of the GATO checkout (submodule
-    untracked content ignored)."""
+    """{'sha', 'short', 'dirty', 'date'} of the GATO checkout. `dirty` means a
+    tracked path is modified; untracked files (the results file a run is
+    writing, a log dir) do not count, nor does submodule untracked content."""
     def git(*args):
         return subprocess.run(["git", "-C", str(REPO), *args],
                               capture_output=True, text=True).stdout.strip()
@@ -124,7 +142,7 @@ def git_provenance():
     return {
         "sha": sha,
         "short": sha[:7],
-        "dirty": bool(git("status", "--porcelain", "--ignore-submodules=untracked")),
+        "dirty": bool(git("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=untracked")),
         "date": datetime.datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -175,9 +193,10 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     (solve_ms / pred_err / pcg_iters per solve + tracking summary).
 
     `admm` (W2a ADMM speed study): None = no row groups (the paper setting);
-    a dict {"rho", "iters", "eps_abs", "eps_rel", "linsys", "tau", "qd_cap"}
-    binds the URDF limit boxes to the ADMM mechanism with the residual exit
-    (solver.set_admm_exit) and the inner linsys policy `linsys` in
+    a dict {"rho", "iters", "eps_abs", "eps_rel", "check_every", "linsys", "tau",
+    "qd_cap"} binds the URDF limit boxes to the ADMM mechanism with the residual
+    exit (solver.set_admm_exit; `check_every` = its host break period, default 1)
+    and the inner linsys policy `linsys` in
     {"pcg", "bdsv_factor", "auto"} (auto at threshold `tau`); `qd_cap` (rad/s)
     tightens the velocity box to a cap the figure-8 cannot meet (example 09's
     setting, so the rows bind). The trace then also carries admm_iters /
@@ -197,7 +216,8 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
         kw["bdsv_threshold"] = tau
     if admm is not None:
         mpc.solver.enable_limit_admm(rho=admm.get("rho", 0.01), iters=admm.get("iters", 10),
-                                     eps_abs=admm.get("eps_abs"), eps_rel=admm.get("eps_rel"))
+                                     eps_abs=admm.get("eps_abs"), eps_rel=admm.get("eps_rel"),
+                                     check_every=admm.get("check_every", 1))
         kw["admm_linsys"] = admm.get("linsys", "pcg")
         if kw["admm_linsys"] == "auto":
             kw["admm_threshold"] = admm.get("tau", tau)

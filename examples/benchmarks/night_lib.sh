@@ -52,9 +52,25 @@ night_settle() {  # wait up to $1 seconds for the GPU to clear (queue stragglers
   return 0
 }
 
+night_quiesce() {  # wait (up to $1 s, default 60) for OUR previous leg's load to drain from the utilization counter
+  # nvidia-smi's utilization is a trailing window (up to 1 s); a leg launched the
+  # instant its predecessor exits reads the predecessor's load and a guard like
+  # _bench.require_quiet_gpu refuses an idle box (two attempts on October 16, 2026).
+  # Quiet = two consecutive samples a second apart at <= 5 % with no compute app.
+  local limit=${1:-60} waited=0 ok=0 apps util
+  while (( waited < limit )); do
+    apps=$(night_gpu_apps); util=$(night_gpu_util)
+    if (( apps == 0 && util <= 5 )); then ok=$((ok + 1)); (( ok >= 2 )) && break; else ok=0; fi
+    sleep 1; waited=$((waited + 1))
+  done
+  (( waited > 1 )) && echo "  (quiesced ${waited}s before this leg)" | tee -a "${SUMMARY:-/dev/null}"
+  return 0
+}
+
 stage() {  # stage <name> <log> <cmd...> — run one leg with an explicit log path
   local name=$1 log=$2; shift 2
   local t0=$SECONDS rc=0
+  night_quiesce 60
   echo "==== [$name] $(date -u +%H:%M:%S) $*" | tee -a "$SUMMARY"
   if "$@" >"$log" 2>&1; then
     echo "[$name] PASS  ($(( (SECONDS-t0)/60 )) min)  log=$log" | tee -a "$SUMMARY"

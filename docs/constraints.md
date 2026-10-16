@@ -43,9 +43,17 @@ auto at the SQP `bdsv_threshold`. Counts behind the crossover (Indy7 N32
 figure-8 with kicks, residual exit at eps_rel 1e-2): warm ticks cost 2.3
 inner iterations of 13 PCG steps each per SQP iteration, kicked ticks 7.7 of
 37; the factor arm costs one factorization plus 2.5 (warm) to 8.5 (kicked)
-back-solves. Where the wall-time crossover lies is the window's question; the
-tool fits it from the pcg arm's cost-vs-pred_err curve against the factor
-arm's flat cost, exactly as the SQP policy was fitted.
+back-solves. Measured on a quiet box (October 16, 2026; the table under
+`set_admm_exit`): at N32 the PCG arm is the faster inner solver on quiet and
+kicked ticks alike (0.43 against 0.78 ms per solve on the Indy7, quiet ticks)
+and the fitted threshold is 0.027 (factor arm on 10 % of ticks); at N64 the
+factor arm wins on every statistic (1.6 to 2.3 ms mean against 2.1 to 8.2 ms,
+3.3 ms worst case against 12.7 to 33 ms) and the fit returns the factor arm for
+every tick. The arm follows the horizon more than the tick: auto at the SQP
+threshold 0.1 ran the factor arm on 0.2 % of quiet ticks and 6 % of kicked
+ticks and timed as the PCG arm. The tool fits the threshold from the pcg arm's
+cost-vs-pred_err curve against the factor arm's flat cost, exactly as the SQP
+policy was fitted; W2b sets the controller default from these numbers.
 
 ## `set_admm_exit(eps_abs, eps_rel, check_every)`
 
@@ -102,8 +110,39 @@ after 1-1.6 inner iterations per SQP iteration at 1e-2 with zero violation.
 The inner loop's fixed point is approached only to ~1e-2 relative within 10
 iterations at these cost scales (rho 0.01 against a 1e-6 control weight is a
 proximal step, not a Newton step): tighter tolerances buy budget-length loops,
-not better enforcement. Wall-time effects are a quiet-window item
-(`tools/autotune_linsys.py --admm`).
+not better enforcement.
+
+Wall time (October 16, 2026, 02:28 local, RTX 5090, quiet box, commit 880a2d7,
+`examples/benchmarks/run_timing_w2a.sh`, rows in
+`examples/benchmarks/data/admm_time_matrix/results.jsonl`): closed-loop
+figure-8 with the velocity box tightened to ±1 rad/s, rho 0.01, cap 10, one
+SQP iteration per tick (the MPC default), fixed pacing; "kicked" adds a
+measured-state kick every 25 ticks. Per-solve wall p50 / mean / max in ms:
+
+| case (figure-8, 600 ticks) | free | fixed 10, pcg | fixed 10, factor | exit 1e-2, pcg | exit 1e-2, factor |
+|---|---|---|---|---|---|
+| Indy7 N32 | 0.17 / 0.17 / 0.26 | 0.59 / 0.72 / 2.6 | 1.72 / 1.72 / 1.7 | 0.43 / 0.52 / 2.7 | 0.78 / 0.79 / 1.8 |
+| Indy7 N32, kicked | 0.17 / 0.18 / 0.30 | 0.95 / 1.11 / 4.3 | 1.72 / 1.72 / 1.8 | 0.57 / 0.89 / 4.5 | 0.78 / 1.00 / 1.8 |
+| Indy7 N64 | 0.31 / 0.31 / 0.80 | 3.21 / 3.81 / 12.7 | 3.19 / 3.19 / 3.4 | 0.97 / 2.08 / 12.7 | 1.66 / 1.57 / 3.3 |
+| Indy7 N64, kicked | 0.32 / 0.36 / 0.91 | 5.53 / 6.59 / 23.0 | 3.20 / 3.20 / 3.2 | 4.26 / 5.53 / 23.1 | 1.93 / 2.00 / 3.3 |
+| iiwa14 N32 | 0.17 / 0.18 / 0.28 | 0.65 / 0.77 / 5.3 | 1.96 / 1.96 / 2.1 | 0.33 / 0.47 / 5.4 | 0.89 / 0.88 / 2.1 |
+| iiwa14 N32, kicked | 0.18 / 0.20 / 0.41 | 1.04 / 1.37 / 6.1 | 1.96 / 1.96 / 2.3 | 0.70 / 1.12 / 6.2 | 1.07 / 1.28 / 2.1 |
+| iiwa14 N64 | 0.32 / 0.33 / 0.72 | 4.82 / 6.11 / 30.1 | 3.74 / 3.74 / 3.9 | 1.40 / 3.43 / 30.3 | 1.94 / 1.91 / 3.9 |
+| iiwa14 N64, kicked | 0.34 / 0.40 / 1.29 | 9.46 / 9.84 / 34.2 | 3.74 / 3.74 / 3.9 | 7.23 / 8.18 / 33.3 | 1.94 / 2.32 / 3.9 |
+
+The exit runs 2.6 to 3.1 inner iterations per tick on quiet ticks and 4.5 to
+5.7 on kicked ticks on both arms, 1.4 to 2.4 times faster than the fixed budget
+on the same arm, at unchanged row violation and a tracking cost (Indy7 N64:
+0.028 m fixed against 0.037 to 0.040 m with the exit; N32: 0.027 against 0.030).
+The arm choice follows the horizon. At N32 the PCG arm costs 2.5 times the
+unconstrained step (median) with 15 to 22 PCG steps per inner iteration; at N64
+PCG needs 52 to 80 steps per inner iteration and caps out on a tenth of the
+ticks, so the factor arm wins on mean and worst case (5 to 6 times the
+unconstrained step, 3.3 ms worst case against 12.7 ms). The factor arm's inner
+iteration costs 0.15 ms at N32 and 0.29 to 0.34 ms at N64 regardless of kicks:
+the block-Cholesky back-solve sweeps the horizon serially, so one inner
+iteration costs as much as the whole unconstrained step. The 16 ms figure of
+October 12 was this fixed budget over five SQP iterations per tick.
 
 ## `set_exact_hessian(on)`
 
@@ -169,12 +208,14 @@ peaks at 1.03–1.04 rad/s, versus 1.6–2.0 rad/s with telemetry only; tracking
 error rises from 0.024 to 0.030 m (N64). rho 0.1 tightens the plan (0.015) but
 costs tracking (0.045 m); horizons of 16 knots or fewer (≤160 ms lookahead)
 cannot brake in time (1.10 rad/s at N16, 1.19 at N8), so the closed-loop gate
-runs on N ≥ 32. The ADMM tick is ~16 ms at N64 on the shared box (bdsv factor
-per inner iteration) against 0.6 ms unconstrained; that figure is the fixed
-budget of 10 inner iterations with the factor arm. The residual exit
-(`set_admm_exit`) cuts the inner work to about two iterations per SQP iteration
-on warm ticks at unchanged enforcement (counts in that section); its wall-time
-effect is measured in a quiet window.
+runs on N ≥ 32. On a quiet box (October 16, 2026, RTX 5090, one SQP iteration
+per tick) the fixed-budget ADMM tick at N64 is 3.2 ms on the factor arm and
+3.2 to 6.6 ms mean on the PCG arm (12 to 23 ms worst case) against 0.31 ms
+unconstrained; the residual exit (`set_admm_exit`) brings the factor arm to
+1.6 to 2.0 ms (3.3 ms worst case), five to six times the unconstrained step,
+and costs about 0.01 m of tracking (table and reading in that section). The
+16 ms of October 12 was the fixed budget over five SQP iterations per tick on
+a shared box.
 
 ## `enable_limit_al(rho)`
 

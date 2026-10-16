@@ -46,7 +46,7 @@ for m in bsqpN32_indy7 bsqpN64_indy7 bsqpN32_iiwa14 bsqpN64_iiwa14; do
 done
 
 HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DIRTY=$(git status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c . || true)
+DIRTY=$(git status --porcelain --untracked-files=no --ignore-submodules=untracked 2>/dev/null | grep -c . || true)
 cat <<EOT
 =========================================================================
 GATO W2a timing (ADMM inner loop + deadline step)

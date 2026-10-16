@@ -82,6 +82,10 @@ def main():
     ap.add_argument("--admm-iters", type=int, default=10)
     ap.add_argument("--admm-eps-abs", type=float, default=1e-4)
     ap.add_argument("--admm-eps-rel", type=float, default=1e-3)
+    ap.add_argument("--admm-qd-cap", type=float, default=None,
+                    help="--admm: tighten the velocity box to +-CAP rad/s so the rows bind "
+                         "on the figure-8 (example 09 / the time matrix use 1.0; default: the "
+                         "URDF limits, which the Indy7 figure-8 never reaches)")
     args = ap.parse_args()
 
     bench = _load_bench()
@@ -150,6 +154,8 @@ def _autotune_admm(args, bench, probe_kw, quiet, fit_tau, decide_policy, lookup,
     sqp_tau = entry.get("tau") or 0.1
     base = dict(rho=args.admm_rho, iters=args.admm_iters,
                 eps_abs=args.admm_eps_abs, eps_rel=args.admm_eps_rel)
+    if args.admm_qd_cap is not None:
+        base["qd_cap"] = args.admm_qd_cap
 
     def probe(inner, tau=None):
         cfg = dict(base, linsys=inner)

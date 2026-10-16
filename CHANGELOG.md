@@ -14,8 +14,13 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   admm_threshold=...)` picks the inner linear solver per tick from the
   warm-startedness signal (`StepResult.admm_linsys`; `MPC_GATO` passes both
   through), with a tuned `admm_policy` / `admm_tau` from
-  `tools/autotune_linsys.py --admm`. Example 09 gains the residual-exit run.
-  Measured counts in `docs/constraints.md` (`set_admm_exit`); C++:
+  `tools/autotune_linsys.py --admm` (`--admm-qd-cap` binds the velocity box as
+  the time matrix does). Example 09 gains the residual-exit run. Measured
+  counts and quiet-box wall times in `docs/constraints.md` (`set_admm_exit`:
+  the exit runs about three inner iterations per tick; the factor arm is the
+  inner solver at N64, PCG at N32). `examples/benchmarks/run_timing_w2a.sh` is
+  the timing driver (the quiet-GPU guard now settles before sampling
+  utilization, so a leg no longer refuses on its predecessor's load); C++:
   `set_admm_exit`, `SQPStats::admm_iters`, `admm_linsys_iters`.
 
 - Deadline-aware step: `MPCController.step(x, ref, budget_s=...)` and

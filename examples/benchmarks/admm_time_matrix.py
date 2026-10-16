@@ -17,10 +17,14 @@ Legs (--leg, default all):
              exit-pcg      residual exit, warm PCG
              exit-fac      residual exit, factor once + back-solves
              exit-auto     residual exit, inner arm chosen per tick from pred_err
+             exit-fac-ce0  exit-fac with the host break off (device gating only)
+             exit-fac-ce2  exit-fac with the host break every 2nd iteration
+             exit3-fac     factor arm at eps_rel 1e-3
            Per cell: per-solve wall (ms) percentiles, inner iterations and inner
            linsys iterations per SQP iteration, max row violation, tracking.
            Fixed pacing (one solve per 10 ms control period, pinocchio plant).
-  fit      tools/autotune_linsys.py --admm per (plant, N): fits the pred_err
+  fit      tools/autotune_linsys.py --admm per (plant, N) in the matrix's cell
+           configuration (same cap, rho, tolerance): fits the pred_err
            threshold where the PCG arm's cost crosses the factor arm's and
            PERSISTS admm_policy/admm_tau into python/gato/linsys_tuning.json
            (gitignored; MPCController(task_tag="fig8") resolves it).
@@ -57,6 +61,12 @@ ADMM_CELLS = {
     "exit-pcg": dict(linsys="pcg", eps_rel=EPS_REL),
     "exit-fac": dict(linsys="bdsv_factor", eps_rel=EPS_REL),
     "exit-auto": dict(linsys="auto", eps_rel=EPS_REL, tau=TAU),
+    # added October 16 after the first window: the host-sync cost of the exit
+    # check (check_every 0 = device gating only, 2 = every other iteration) and
+    # the tighter tolerance on the arm that can reach it
+    "exit-fac-ce0": dict(linsys="bdsv_factor", eps_rel=EPS_REL, check_every=0),
+    "exit-fac-ce2": dict(linsys="bdsv_factor", eps_rel=EPS_REL, check_every=2),
+    "exit3-fac": dict(linsys="bdsv_factor", eps_rel=1e-3),
 }
 
 
@@ -112,7 +122,8 @@ def leg_fit(args, quotable, out):
         for N in args.Ns:
             cmd = [sys.executable, str(REPO / "tools" / "autotune_linsys.py"), "--plant", plant, "--N", str(N),
                    "--task-tag", "fig8", "--admm", "--linsys", "pcg", "--sim-time", str(args.sim_time),
-                   "--admm-eps-rel", str(EPS_REL)]
+                   "--admm-rho", str(RHO), "--admm-iters", str(ITERS), "--admm-eps-abs", "0",
+                   "--admm-eps-rel", str(EPS_REL), "--admm-qd-cap", str(QD_CAP)]   # the matrix's cell config
             if not quotable:
                 cmd += ["--allow-busy", "--dry-run"]
             print("$ " + " ".join(cmd), flush=True)
