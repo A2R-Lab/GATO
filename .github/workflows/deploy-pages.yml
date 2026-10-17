@@ -1,8 +1,7 @@
-# GitHub Pages deployment workflow
-# Deploys the static project page to GitHub Pages.
-#
-# Trigger: push to gh-pages branch. Can also be run manually.
-
+# Twin of .github/workflows/docs.yml for the gh-pages BRANCH (replace that
+# branch's .github/workflows/deploy-pages.yml with this file): a project-page
+# edit republishes the same assembly, the landing from gh-pages plus the
+# documentation tier built from main under /docs/.
 name: Deploy to GitHub Pages
 
 on:
@@ -23,18 +22,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Project page (this branch)
         uses: actions/checkout@v4
-
+      - name: Documentation sources (main)
+        uses: actions/checkout@v4
+        with:
+          ref: w3-device-arms   # until W3+W4 merge; then main
+          path: _main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the documentation tier from main
+        run: |
+          pip install -e "_main[docs]"
+          python _main/docs/site/build.py --out _site/docs
       - name: Assemble site
         run: |
-          mkdir -p _site
           cp index.html _site/
-          cp -r static _site/ 2>/dev/null || true
+          cp -r static _site/
           cp .nojekyll _site/
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
@@ -45,6 +52,5 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
