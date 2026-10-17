@@ -58,7 +58,7 @@ def _receipt_arms():
 @pytest.mark.parametrize("plant,N", _receipt_arms(), ids=lambda v: str(v))
 def test_device_dynamics_match_fingerprint(make_solver, plant, N):
     """Every arm in the receipt profile: the attested device dynamics replay the
-    pinned probes (the 0.2.0 arms included)."""
+    pinned probes (the 0.1.2 arms included)."""
     from gato import fingerprint
     s = make_solver(plant, N, batch_size=1)
     res = fingerprint.check_solver(s, rtol=1e-4)

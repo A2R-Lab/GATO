@@ -32,7 +32,7 @@ HAVE_MODULES = bool(gato.available())
 INDY7_URDF = REPO / "examples" / "indy7_description" / "indy7.urdf"
 IIWA14_URDF = REPO / "examples" / "iiwa_description" / "iiwa14.urdf"
 GO2_URDF = REPO / "examples" / "go2_description" / "go2.urdf"
-# the 0.2.0 arms (N64 receipt modules; examples/<robot>_description/README.md)
+# the 0.1.2 arms (N64 receipt modules; examples/<robot>_description/README.md)
 FR3_URDF = REPO / "examples" / "fr3_description" / "fr3.urdf"
 GEN3_URDF = REPO / "examples" / "gen3_description" / "gen3.urdf"
 UR5E_URDF = REPO / "examples" / "ur5e_description" / "ur5e.urdf"

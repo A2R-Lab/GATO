@@ -33,7 +33,7 @@ READY = {"indy7": np.asarray(INDY7_START_CONFIGS["ready"], dtype=float),
 # iiwa14 harness centre (the end-effector position at its start pose).
 FIG8_CENTER = {"indy7": np.asarray(FIG8_DEFAULT_PARAMS["offset"], dtype=float),
                "iiwa14": np.array([0.5077, 0.0, 0.511]),
-               # the 0.2.0 arms: the end-effector position at the 'ready' pose
+               # the 0.1.2 arms: the end-effector position at the 'ready' pose
                "fr3": np.array([0.307, 0.0, 0.487]),
                "gen3": np.array([0.457, 0.002, 0.434]),
                "ur5e": np.array([0.492, 0.133, 0.488])}
@@ -47,7 +47,7 @@ FIG8_AMPLITUDE = {"indy7": (0.2, 0.4), "iiwa14": (0.10, 0.20),
 # figure-8 centre at comparable reach.
 PICKPLACE_BOX = {"indy7": (np.array([-0.35, 0.30, 0.30]), np.array([0.35, 0.65, 0.90])),
                  "iiwa14": (np.array([0.0, -0.5, 0.2]), np.array([0.6, 0.5, 0.8])),
-                 # the 0.2.0 arms: a box in front of the base around the ready pose's EE
+                 # the 0.1.2 arms: a box in front of the base around the ready pose's EE
                  # (unreachable or limit-violating goals are rejected by the generator)
                  "fr3": (np.array([0.25, -0.30, 0.20]), np.array([0.60, 0.30, 0.70])),
                  "gen3": (np.array([0.25, -0.30, 0.20]), np.array([0.60, 0.30, 0.70])),
@@ -56,7 +56,7 @@ PICKPLACE_BOX = {"indy7": (np.array([-0.35, 0.30, 0.30]), np.array([0.35, 0.65, 
 
 def ee_frame_of(plant):
     """The plant's registered end-effector frame (the fixed joint the device FK
-    targets): 'EE' on the paper's arms, the tool frame on the 0.2.0 arms."""
+    targets): 'EE' on the paper's arms, the tool frame on the 0.1.2 arms."""
     from .interface import robot_info
     return robot_info(plant).get("ee_frame", "EE")
 

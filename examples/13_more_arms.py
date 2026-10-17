@@ -1,6 +1,6 @@
-"""Intro example 13: the controller defaults on the 0.2.0 arms (FR3, Gen3, UR5e).
+"""Intro example 13: the controller defaults on the 0.1.2 arms (FR3, Gen3, UR5e).
 
-The three arms added in 0.2.0 ship as vendored descriptions
+The three arms added in 0.1.2 ship as vendored descriptions
 (examples/<robot>_description, provenance and edits in each README), generated
 dynamics (gato/dynamics/<robot>) and N64 receipt modules. This example runs
 each of them in closed loop on a figure-8 sized from its own URDF limits

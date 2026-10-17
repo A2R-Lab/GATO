@@ -29,7 +29,7 @@ ROBOTS = {
                    ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
     "indy7": dict(urdf=REPO_ROOT / "examples" / "indy7_description" / "indy7.urdf",
                   ee_frame="EE", collision_res=0.15, contact_frames=["EE"]),
-    # the three arms added in 0.2.0 (examples/<robot>_description/README.md records
+    # the three arms added in 0.1.2 (examples/<robot>_description/README.md records
     # the source and the edits to each vendored copy); EE = the tool frame fixed joint
     "fr3": dict(urdf=REPO_ROOT / "examples" / "fr3_description" / "fr3.urdf",
                 ee_frame="fr3_hand_tcp_joint", collision_res=0.15, contact_frames=["fr3_hand_tcp_joint"]),

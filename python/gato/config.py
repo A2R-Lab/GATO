@@ -47,7 +47,7 @@ IIWA14_START_CONFIGS = {
     'ready': np.array([0.0, np.pi/6, np.pi/8, -np.pi/3, 0.0, np.pi/3, 0.0]),
 }
 
-# Starting configurations for the arms added in 0.2.0 (examples/<robot>_description).
+# Starting configurations for the arms added in 0.1.2 (examples/<robot>_description).
 # 'ready' is a mid-workspace elbow-bent pose with the end effector in front of the
 # base, inside the joint limits by at least 0.3 rad, well conditioned (cond(J) ~ 2):
 #   fr3  : the Franka "ready" pose; EE (tool centre point) at [0.307, 0, 0.487]
