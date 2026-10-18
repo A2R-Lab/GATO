@@ -112,7 +112,7 @@ def test_stress_streak_is_per_joint_and_peak_keeps_producing_plan(experiment):
                             velocityLimit=np.array([1., 2.]),
                             lowerPositionLimit=np.array([-1., -1.]), upperPositionLimit=np.array([1., 1.]))
     solve = SimpleNamespace(xu=np.zeros((1, 10)), stats=SimpleNamespace(
-        row_max_violation=np.zeros((1, 3)), admm_iters=np.array([1])))
+        row_max_violation=np.array([[.1], [.2], [.3]]), admm_iters=np.array([1])))
     mpc = SimpleNamespace(nx=4, nu=2, nq_robot=2, N=2,
                           world=SimpleNamespace(step=lambda q, dq, u, dt: (q, dq)),
                           controller=SimpleNamespace(warmup=lambda *a: solve, step=lambda *a, **kw: None),
@@ -125,6 +125,7 @@ def test_stress_streak_is_per_joint_and_peak_keeps_producing_plan(experiment):
     np.testing.assert_allclose(audit.longest, [.002, .001])
     event = audit.metrics()["peak_velocity_event"]
     assert event["plan"]["phase"] == "warmup" and event["time_s"] == .001
+    assert event["plan"]["row_viol"] == [.1, .2, .3]
     mpc.controller.warmup(np.ones(4), None)
     assert event["plan"]["measured_qd"] == [0., 0.]
     assert audit.first_over == event
@@ -146,6 +147,13 @@ def test_stress_diagnostics_preserve_unclipped_development_tail(experiment):
     assert audit.peak_event["qd_ratio"] > 1
     assert audit.endpoint_event is not None and audit.endpoint_error >= 0
     assert audit.peak_event["plan"]["time_s"] < audit.peak_event["time_s"]
+    parts = stress.decompose_endpoint(model, audit.endpoint_event)
+    np.testing.assert_allclose(np.array(parts["planned_dynamics_gap"]) + parts["initial_state_gap"]
+                               + np.array(parts["integration_and_actuation_gap"]),
+                               parts["actual_minus_plan"], atol=1e-12)
+    event = dict(audit.endpoint_event, time_s=audit.endpoint_event["time_s"] + .001)
+    with pytest.raises(ValueError, match="complete control interval"):
+        stress.decompose_endpoint(model, event)
 
 
 @pytest.mark.parametrize("seed,digest", [
