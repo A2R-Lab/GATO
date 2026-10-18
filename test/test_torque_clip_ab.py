@@ -156,6 +156,55 @@ def test_stress_diagnostics_preserve_unclipped_development_tail(experiment):
         stress.decompose_endpoint(model, event)
 
 
+@pytest.mark.gpu
+@pytest.mark.parametrize("case", ["dev-15-None", "holdout-94-replay"])
+def test_stress_velocity_gap_matches_native_discrete_dynamics(experiment, repo_root, case):
+    """The traced discrepancy is not a Pinocchio-only forward-dynamics artifact."""
+    import gato
+    import pinocchio as pin
+    stress = importlib.import_module("torque_stress")
+    rows = [json.loads(line) for line in (repo_root /
+        "examples/benchmarks/data/limits_holdout/gen3_torque_stress_20261018.jsonl").read_text().splitlines()]
+    row, = [r for r in rows if r["case"] == case]
+    model = experiment.pin_model("gen3")
+    from _bench import urdf_path
+    solver = gato.BSQP(urdf_path("gen3"), batch_size=1, N=64, dt=stress.DT, plant_type="gen3")
+    for key in ("peak_velocity_event", "worst_endpoint_event"):
+        event = row["audit"][key]
+        plan = event["plan"]
+        for prefix in ("planned", "measured"):
+            q = np.array(plan["planned_q0" if prefix == "planned" else "measured_q"])
+            v = np.array(plan["planned_qd0" if prefix == "planned" else "measured_qd"])
+            u = np.array(event["commanded_u"])
+            expected_v = v + stress.DT * pin.aba(model, model.createData(), q, v, u)
+            native = solver.sim_forward(np.r_[q, v], u, stress.DT)[0, model.nq:]
+            np.testing.assert_allclose(native, expected_v, atol=5e-4, rtol=0)
+
+
+def test_stress_data_preserves_failures_and_frozen_protocol(experiment, repo_root):
+    stress = importlib.import_module("torque_stress")
+    path = repo_root / "examples/benchmarks/data/limits_holdout/gen3_torque_stress_20261018.jsonl"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == "6db5897fbd8b6d169d87d77bee6a3cadc4c640f674ea32571764c9071ad3149d"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    stress.validate(rows)
+    assert sum(r["status"] == "ok" for r in rows) == 23
+    assert sum(r["status"] == "error" for r in rows) == 11
+    for row in rows:
+        assert row["source"]["sha"] == "539126066448b6cd622f64b4ee8e1fdc85f4f5cc"
+        assert not row["source"]["dirty"]
+        for p in (stress.DEV, stress.HOLDOUT):
+            assert row["protocol"]["inputs"][p.name] == hashlib.sha256(p.read_bytes()).hexdigest()
+        if row["status"] == "error":
+            assert "stress escape guard" in row["error"]
+            assert row["audit"]["qd_ratio"] > 5 or row["audit"]["q_out_rad"] > 1
+        else:
+            assert row["result"]["reached"] == 3
+            assert "wall_s" not in row["result"] and "solve_ms" not in row["result"]
+        if row["scale"] is not None:
+            assert row["audit"]["applied_u_ratio"] <= row["scale"]
+        assert len(row["audit"]["peak_velocity_event"]["plan"]["row_viol"]) == 3
+
+
 @pytest.mark.parametrize("seed,digest", [
     (1, "6afcb5bd3e95b7af104fe605a8c987b335def27f7d7d970403c2742e39ac37d2"),
     (2, "5b2f104a2e14ee6b3d6c870856148fef10a1e26d7d9c506282d57111ea16c8df"),

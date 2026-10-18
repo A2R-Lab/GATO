@@ -531,6 +531,80 @@ python examples/benchmarks/torque_clip_ab.py --seed 2 --out clip-seed2.jsonl
 python examples/benchmarks/torque_clip_ab.py --report clip-seed1.jsonl
 ```
 
+### Sustained Gen3 actuator derating
+
+Persistent torque clipping does not preserve joint feasibility. A fixed
+development stress matrix on source `5391260` replays Gen3 seed-1 pickplace
+scenarios 0, 1, 2, 3, 4 and 15 with unchanged N64 ADMM settings. The simulated
+actuator is capped below its nominal URDF effort limit while the planner
+continues to assume nominal torque authority. This deliberately mismatched
+plant tests actuator derating, not nominal-limit robustness. All thirty
+outcomes are retained, including aborts; durations below are simulated time.
+
+| Actuator cap | Three goals reached | Episodes with clipping | Longest continuous clipping of one joint | Peak velocity / nominal limit |
+|---|---|---|---|---|
+| Unclipped | 6/6 | 0/6 | 0 s | 1.019 |
+| 100% nominal | 6/6 | 0/6 | 0 s | 1.019 |
+| 50% nominal | 6/6 | 3/6 | 0.190 s | 4.019 |
+| 25% nominal | 1/6 | 6/6 | 2.279 s | 5.216 before abort |
+| 10% nominal | 0/6 | 6/6 | 0.454 s | 5.035 before abort |
+
+Five quarter-torque cases and all six tenth-torque cases abort at the
+numerical escape guard: velocity above five times its limit or position
+excursion above one radian. Their recorded maxima stop at that guard.
+At tenth torque, none of the six initial poses can be statically supported:
+the initial gravity torque requires 1.96 to 2.30 times the available cap.
+Quarter torque can support the initial poses, but this does not establish
+feasibility along the requested motions. Even the successful half-torque
+cases include a fourfold velocity excursion. Goal completion and torque
+clipping must not be presented as a safety or joint-feasibility guarantee.
+
+### Velocity prediction diagnosis
+
+The same collection includes three solver-budget comparisons on development
+scenario 15 and one unchanged diagnostic replay of holdout scenario 94.
+It does not add observations to the holdout or retune its defaults.
+
+On development scenario 15, the peak velocity ratio is 1.0191 with the
+default, 1.0167 with ADMM early exit disabled, 0.9385 with three SQP
+iterations per tick, and 1.5942 with telemetry-only constraints. All four
+reach three goals. Additional SQP work helps this case; it is not a
+validated default or a measured runtime tradeoff.
+
+Two effects separate a box-feasible plan from its simulated execution:
+
+- In the worst holdout replay, joint 4 reaches 1.97951 rad/s at 0.020 s,
+  versus the plan's next velocity of 1.29513 rad/s. The entire planned
+  horizon stays within nominal velocity limits (maximum ratio 0.93373).
+  Evaluating the plan's own discrete dynamics accounts for 0.66627 rad/s
+  of the 0.68438 rad/s discrepancy; integration contributes another
+  0.01811 rad/s. The finite-iteration trajectory has a substantial
+  dynamics-consistency error despite its small velocity-row violation.
+- At development scenario 15's velocity peak, joint 1 reaches
+  -1.42297 rad/s versus the planned -1.29560. Of the -0.12737 rad/s gap,
+  -0.12665 comes from integrating the held command with 1 ms RK4 rather
+  than the planner's 10 ms frozen-acceleration velocity update. The
+  initial-state correction is about 0.000012 rad/s. More solver iterations
+  alone do not make those integration schemes identical.
+
+The decomposition uses Pinocchio at the recorded states and commands.
+Regression tests compare those predictions against GATO's native device
+integrator within 0.0005 rad/s at the selected events. This separates
+finite-solve dynamics consistency from integration mismatch in these cases;
+it does not certify every trajectory. Further work should assess both,
+then validate any changed policy on a fresh holdout. Production defaults
+and simulator behavior remain unchanged.
+
+[Raw stress and diagnosis rows](../examples/benchmarks/data/limits_holdout/gen3_torque_stress_20261018.jsonl)
+contain all 34 cases: 23 complete finite episodes and 11 guarded aborts.
+The launcher returns nonzero when any case aborts, after saving every case.
+Use a fresh output path; there is no automatic resume:
+
+```bash
+python examples/benchmarks/torque_stress.py --out gen3-stress.jsonl
+python examples/benchmarks/torque_stress.py --report gen3-stress.jsonl
+```
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

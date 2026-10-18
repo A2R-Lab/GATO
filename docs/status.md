@@ -37,6 +37,9 @@ research software, not a certified robot controller.
   An [experiment-only clipping comparison](constraints.md#torque-saturation-development-comparison)
   preserved goal completion under brief FR3 and UR5e saturation; Gen3 did
   not saturate in that development sample. Clipping is not enabled by default.
+  A [persistent Gen3 derating study](constraints.md#sustained-gen3-actuator-derating)
+  reaches goals at half nominal torque but includes a fourfold velocity
+  excursion; stronger derating triggers numerical escape guards.
 - **Constraints:** the controller installs the URDF limit boxes under ADMM
   by default on fixed-base arms (`MPCController(limits=...)`; the raw solver
   installs nothing); follow row-group ordering and check feasibility
@@ -49,6 +52,9 @@ research software, not a certified robot controller.
   peaks at 1.31 times its limit and Gen3 sampled velocity at 1.42 times its
   limit. Position and velocity are sampled at control ticks; these aggregates
   do not bound violations between samples or their duration.
+  [Substep diagnostics](constraints.md#velocity-prediction-diagnosis) identify
+  both finite-solve dynamics inconsistency and planner/simulator integration
+  mismatch. Small box-row violations do not bound either error.
 - **Integration:** default-stream execution is the supported path; do not
   assume concurrent solves on a shared solver instance are supported.
 - **Timing:** internal solve time and `MPCController.step` wall time have
