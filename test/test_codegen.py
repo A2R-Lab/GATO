@@ -77,39 +77,58 @@ ROTATED_URDF = """<robot name="rot">
     <inertia ixx="0.03" iyy="0.01" izz="0.02" ixy="0.001" ixz="0.002" iyz="0.003"/></inertial></link>
   <link name="l3"><inertial><mass value="1"/>
     <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
-  <joint name="j0" type="fixed"><parent link="world"/><child link="l1"/></joint>
+  <joint name="j0" type="revolute"><parent link="world"/><child link="l1"/>
+    <axis xyz="1 0 0"/><limit lower="-3" upper="3" effort="10" velocity="1"/></joint>
   <joint name="j1" type="revolute"><parent link="l1"/><child link="l2"/>
     <axis xyz="0 0 1"/><limit lower="-3" upper="3" effort="10" velocity="1"/></joint>
   <joint name="EE" type="fixed"><parent link="l2"/><child link="l3"/></joint>
 </robot>"""
 
 
-def test_rotated_inertial_origin_refused_and_canonicalized(tmp_path):
-    """A rotated <inertial><origin> is refused by codegen (the pinned GRiD parser
-    mis-rotates the tensor; the UR5e came out 10 % off pinocchio) and
-    canonicalize_inertials writes the exact link-frame equivalent, which parses
-    and leaves pinocchio's dynamics unchanged."""
+def test_rotated_inertial_origin_matches_canonicalized(tmp_path):
+    """Raw and normalized inertia tensors parse to the same model; the optional
+    canonicalizer also leaves pinocchio's dynamics unchanged."""
     import numpy as np
     from gato.builder import canonicalize_inertials, rotated_inertial_origins
     pin = pytest.importorskip("pinocchio")
     urdf = tmp_path / "rot.urdf"
     urdf.write_text(ROTATED_URDF)
     assert rotated_inertial_origins(urdf) == ["l2"]
-    with pytest.raises(ValueError, match="rotated inertial frame"):
-        codegen(urdf, "rot", ee_frame="EE", out_dir=tmp_path / "out", register=False)
+    codegen(urdf, "rot", ee_frame="EE", out_dir=tmp_path / "out", register=False,
+            collision_res=None)
     canon = tmp_path / "rot_canonical.urdf"
     assert canonicalize_inertials(urdf, canon) == ["l2"]
     assert rotated_inertial_origins(canon) == []
     m_a, m_b = pin.buildModelFromUrdf(str(urdf)), pin.buildModelFromUrdf(str(canon))
     rng = np.random.default_rng(0)
     for _ in range(20):
-        q, v, tau = rng.uniform(-2, 2, 1), rng.normal(size=1), rng.normal(size=1)
+        q, v, tau = rng.uniform(-2, 2, 2), rng.normal(size=2), rng.normal(size=2)
         np.testing.assert_allclose(pin.aba(m_a, m_a.createData(), q, v, tau),
                                    pin.aba(m_b, m_b.createData(), q, v, tau), rtol=1e-12, atol=1e-12)
-    # the canonical copy passes the parse (the limits emitter runs before the heavy codegen)
     from gato.builder import _parse_urdf
-    robot = _parse_urdf(canon, "EE")
-    assert robot.get_num_pos() == 1
+    raw, normalized = _parse_urdf(urdf, "EE"), _parse_urdf(canon, "EE")
+    assert raw.get_num_pos() == normalized.get_num_pos() == 2
+    np.testing.assert_allclose(
+        np.asarray(raw.get_Imats_ordered_by_id(), dtype=float),
+        np.asarray(normalized.get_Imats_ordered_by_id(), dtype=float),
+        rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.gpu
+def test_hyphenated_frame_header_compiles(tmp_path):
+    """Use the original URDF frame name for lookup and valid emitted C++ symbols."""
+    urdf = tmp_path / "hyphen.urdf"
+    urdf.write_text(ROTATED_URDF.replace('name="EE"', 'name="flange-tool0"'))
+    out = tmp_path / "generated"
+    meta = codegen(urdf, "hyphen", ee_frame="flange-tool0", out_dir=out, register=False,
+                   collision_res=None)
+    assert meta["ee_frame"] == "flange-tool0"
+    assert meta["contact_frames"] == ["flange-tool0"]
+    result = subprocess.run(
+        ["nvcc", "-std=c++17", "-DNDEBUG", "-x", "cu", "-c", str(out / "grid.cuh"),
+         "-I", str(_grid.collision_dir()), "-o", str(tmp_path / "hyphen.o")],
+        capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, urdfs, tmp_path):

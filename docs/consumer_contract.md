@@ -214,11 +214,11 @@ runtime/compile performance. Check which test exercises the feature you use.
 - Load `variant="fc"` or `variant="eh"` explicitly; never swap `.so` files.
 - Apply `StepResult.u` / `SolveResult.u0()`, not the contact-wrench tail.
 - Install canonical limit groups before appended groups; the reverse order raises.
-- A URDF handed to `gato.register_robot` / `gato.build` gives its inertia tensors in the
-  link frame (`<inertial><origin rpy>` zero): the pinned GRiD parser mis-rotates a rotated
-  one, so codegen refuses it; `gato.builder.canonicalize_inertials(urdf, out)` rewrites the
-  tensors exactly (pinocchio's dynamics are unchanged). Fixed-joint names must be C
-  identifiers (no hyphens): the end-effector frame's name is emitted into the header.
+- A URDF handed to `gato.register_robot` / `gato.build` may have rotated inertial
+  origins. The pinned GRiD parser rotates each tensor into the link frame.
+  `gato.builder.canonicalize_inertials(urdf, out)` is an optional exact normalization
+  of the same model. Pass the original fixed-joint name as `ee_frame`, including
+  hyphens; GRiD sanitizes generated C++ symbols without changing the lookup name.
 - Check your simulator with the dynamics fingerprint before retuning a controller.
 - `gato.build` reconfigures its selected build directory. Supply `build_dir=`
   for an isolated custom build, or restore the receipt profile afterwards.
@@ -278,4 +278,3 @@ without a migration note):
   and swing targets (closed-loop weight shift and lift are in development).
 - `gato.linsys_autotune` (the pcg/bdsv policy fitter) and `gato.certificate`.
 - `ArmTrackEnv` (the gymnasium wrapper) and the `contact-task` study scripts.
-

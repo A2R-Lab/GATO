@@ -463,7 +463,7 @@ namespace grid {
     
     // ─── A1b baked launch config (single source of truth) ───────────────
     // Autotuned per-algo {resource tier, threads-per-block} for THIS robot
-    // + base, baked from config/launch_configs/KUKAiiwa14/rtx5090_sm120.json (fixed, profile=host).
+    // + base, baked from grid_assets/launch_configs/KUKAiiwa14/rtx5090_sm120.json (fixed, profile=host).
     // GRiD kernels are single-block + thread-count-invariant, so (tier,threads)
     // is a pure PERFORMANCE choice; HOST launchers / python-jax-torch bindings
     // default their launch config from grid::launch_cfg<GRID_ALGO_*>. An algo
@@ -738,7 +738,7 @@ namespace grid {
     struct grid_device_pool_t;  // defined with the allocator below
     template <typename T, gridDataKind KIND = GRID_DATA_ALL>
     struct gridData {
-        grid_device_pool_t *pool;  // the allocator this arena was carved from (W04-B B1/K1); the default pool unless init_gridData_checked was given one
+        grid_device_pool_t *pool;  // the allocator this arena was carved from; the default pool unless init_gridData_checked was given one
         // GPU INPUTS
         T *d_q_qd_u;
         T *d_q_qd;
@@ -11497,7 +11497,7 @@ namespace grid {
         return p;
     }
     __host__ __device__ constexpr size_t grid_pool_align(size_t b) { return (b + 255) & ~(size_t)255; }
-    // W04-B B1 (K1): the allocator takes its pool EXPLICITLY so several arenas (runtime
+    // The allocator takes its pool EXPLICITLY so several arenas (runtime
     // contexts) on one .so never share a cursor; the pool-less overloads below keep the
     // historical one-liners (HJCD/GATO consumers) on the default pool — same caller API.
     __host__ inline cudaError_t grid_device_alloc(grid_device_pool_t *pool, void **p, size_t bytes) {
@@ -11680,7 +11680,7 @@ namespace grid {
         // workspace arena LAST: auto-fit slots to remaining device memory (see struct field).
             if (needs_dynamics || (needs_kinematics && (GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP || GRID_END_EFFECTOR_POSE_GRADIENT_USES_WORKSPACE_TEMP || GRID_DCCRBA_USES_WORKSPACE_TEMP || GRID_OSC_INERTIA_USES_WORKSPACE))) {
                 grid_cleanup_device_free(hd_data->pool, hd_data->d_workspace, "grid_device_free(d_workspace)", &first, cleanup_op); hd_data->d_workspace = nullptr;
-                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
+                // L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
             }
@@ -11855,7 +11855,7 @@ namespace grid {
                 }
                 hd_data->workspace_timestep_slots = _ws_slots;
                 { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_workspace)", _e); } }
-                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
+                // L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
                 { cudaError_t _e = GRID_CUDA_CALL(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_begin_l2_persisting(d_workspace)", _e); } }
@@ -12025,7 +12025,7 @@ namespace grid {
                 }
                 hd_data->workspace_timestep_slots = _ws_slots;
                 { cudaError_t _e = GRID_CUDA_CALL(grid_device_alloc(_pool, (void**)&hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_device_alloc(d_workspace)", _e); } }
-                // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
+                // L2-pin d_workspace for its lifetime. Spilled buffers
                 // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
                 // recursion-hot — L2 pinning narrows the smem→HBM gap to smem→L2.
                 { cudaError_t _e = GRID_CUDA_CALL(grid_begin_l2_persisting(0, hd_data->d_workspace, _ws_per_ts*(size_t)_ws_slots)); if (_e != cudaSuccess) { release_gridData_members<T, KIND>(hd_data); free(hd_data); return grid_fail(failed_op, "grid_begin_l2_persisting(d_workspace)", _e); } }
@@ -18349,7 +18349,7 @@ namespace grid {
     
     // ---- contact-frame positions + tangent Jacobians (GATO ask 2026-09-20): the baked contact ORIGINS
     //      (the points f_ext_body takes the wrench about) as a suffixed multi-target batch; registration order.
-    // W1b batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS_CONTACT_FRAMES = 1
+    // batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS_CONTACT_FRAMES = 1
     const int NUM_MULTI_TARGETS_CONTACT_FRAMES = 1;
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(288, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(144, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(144); }
@@ -18551,7 +18551,7 @@ namespace grid {
         multi_target_position_contact_frames_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
-    // W2a batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
+    // batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(333, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(144, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(189); }
     /**
@@ -18825,7 +18825,7 @@ namespace grid {
     __device__ inline void contact_frame_positions_gradient_device(T *s_dpos, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
         multi_target_position_gradient_contact_frames_device<T, RESOURCE_TIER>(s_dpos, s_q, d_robotModel, d_workspace);
     }
-    // W1b batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS = 44
+    // batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS = 44
     const int NUM_MULTI_TARGETS = 44;
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(288, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(144, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(144); }
@@ -19027,7 +19027,7 @@ namespace grid {
         multi_target_position_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
-    // W2a batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
+    // batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(714, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(144, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(570); }
     /**
@@ -20603,6 +20603,7 @@ namespace grid {
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+            T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
             // load to shared mem
             const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -20615,7 +20616,7 @@ namespace grid {
             __syncthreads();
             // compute
             load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_f_ext, gravity);
+            inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_f_ext_k, gravity);
             __syncthreads();
             // save down to global
             T *d_c_k = &d_c[k*7];
@@ -20771,6 +20772,7 @@ namespace grid {
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+            T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
             // load to shared mem
             const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -20779,7 +20781,7 @@ namespace grid {
             __syncthreads();
             // compute
             load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-            inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, d_f_ext, gravity);
+            inverse_dynamics_inner<T>(s_c, s_vaf, s_q, s_qd, s_XImats, s_topology_helpers, s_temp, d_f_ext_k, gravity);
             __syncthreads();
             // save down to global
             T *d_c_k = &d_c[k*7];
@@ -22227,6 +22229,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -22236,7 +22239,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                forward_dynamics_inner<T, true>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
+                forward_dynamics_inner<T, true>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_qdd_k = &d_qdd[k*7];
@@ -22280,6 +22283,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -22289,7 +22293,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                forward_dynamics_inner<T, true>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext, gravity);
+                forward_dynamics_inner<T, true>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, nullptr, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_qdd_k = &d_qdd[k*7];
@@ -22333,6 +22337,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -22342,7 +22347,7 @@ namespace grid {
                 T *fd_d_workspace = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_MINV_F_WORKSPACE_OFFSET_BYTES<T>()]);
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                forward_dynamics_inner<T, false>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, fd_d_workspace, d_f_ext, gravity);
+                forward_dynamics_inner<T, false>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, fd_d_workspace, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_qdd_k = &d_qdd[k*7];
@@ -23243,6 +23248,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23254,7 +23260,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device_qdd<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device_qdd<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -23307,6 +23313,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23318,7 +23325,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device_qdd<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device_qdd<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -23368,6 +23375,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23379,7 +23387,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device_qdd<T, false, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device_qdd<T, false, false>(s_dc_du, s_q, s_qd, s_vaf, s_qdd, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -23687,6 +23695,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23694,7 +23703,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -23743,6 +23752,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23750,7 +23760,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device<T, true, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -23796,6 +23806,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -23803,7 +23814,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                inverse_dynamics_gradient_device<T, false, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext, gravity);
+                inverse_dynamics_gradient_device<T, false, false>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity);
                 __syncthreads();
                 // save down to global
                 T *d_dc_du_k = &d_dc_du[k*98];
@@ -24348,6 +24359,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -24363,7 +24375,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device_qdd<T, true, false>(s_temp, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device_qdd<T, true, false>(s_temp, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 // save down to global
                 T *d_df_du_k = &d_df_du[k*98];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
@@ -24419,6 +24431,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -24434,7 +24447,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device_qdd<T, true, false>(s_temp, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device_qdd<T, true, false>(s_temp, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 // save down to global
                 T *d_df_du_k = &d_df_du[k*98];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
@@ -24480,6 +24493,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd; T *s_qd = &s_q_qd[7];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_k = &d_q_qd[k*stride_q_qd];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 14; ind += blockDim.x*blockDim.y){
@@ -24497,7 +24511,7 @@ namespace grid {
                 T *d_df_du_k = &d_df_du[k*98];
                 s_dc_du = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]); s_Minv = &s_dc_du[98];
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device_qdd<T, false, false>(d_df_du_k, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device_qdd<T, false, false>(d_df_du_k, s_q, s_qd, s_qdd, s_Minv, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity);
             }
         }
     }
@@ -24784,6 +24798,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -24791,7 +24806,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device<T, true, false>(s_temp, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device<T, true, false>(s_temp, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 // save down to global
                 T *d_df_du_k = &d_df_du[k*98];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
@@ -24847,6 +24862,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -24854,7 +24870,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device<T, true, false>(s_temp, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device<T, true, false>(s_temp, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity);
                 // save down to global
                 T *d_df_du_k = &d_df_du[k*98];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 98; ind += blockDim.x*blockDim.y){
@@ -24900,6 +24916,7 @@ namespace grid {
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -24909,7 +24926,7 @@ namespace grid {
                 T *d_df_du_k = &d_df_du[k*98];
                 s_dc_du = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]); s_Minv = &s_dc_du[98];
                 // compute — the orchestration inner owns its s_temp pool placement
-                forward_dynamics_gradient_device<T, false, false>(d_df_du_k, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext, gravity);
+                forward_dynamics_gradient_device<T, false, false>(d_df_du_k, s_q, s_qd, s_u, s_vaf, s_dc_du, s_qdd, s_Minv, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity);
             }
         }
     }
@@ -27059,6 +27076,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -27068,7 +27086,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                integrator_inner<T, IT, true>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, nullptr, d_f_ext, gravity, dt);
+                integrator_inner<T, IT, true>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, nullptr, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
@@ -27124,6 +27142,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -27133,7 +27152,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                integrator_inner<T, IT, true>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, nullptr, d_f_ext, gravity, dt);
+                integrator_inner<T, IT, true>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, nullptr, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
@@ -27189,6 +27208,7 @@ namespace grid {
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -27198,7 +27218,7 @@ namespace grid {
                 T *int_d_workspace = reinterpret_cast<T *>(&d_workspace[grid_workspace_slot()*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_MINV_F_WORKSPACE_OFFSET_BYTES<T>()]);
                 // compute
                 load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
-                integrator_inner<T, IT, false>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, int_d_workspace, d_f_ext, gravity, dt);
+                integrator_inner<T, IT, false>(s_x_kp1, s_q, s_qd, s_u, s_qdd, s_stage_qdd, s_stage_point, s_XImats, s_topology_helpers, d_robotModel, s_temp, int_d_workspace, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_x_kp1_k = &d_x_kp1[k*14];
@@ -28748,6 +28768,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -28755,7 +28776,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
-                integrator_gradient_device<T, IT, true, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_gradient_device<T, IT, true, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -28844,6 +28865,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -28851,7 +28873,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
-                integrator_gradient_device<T, IT, true, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_gradient_device<T, IT, true, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -28929,6 +28951,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -28938,7 +28961,7 @@ namespace grid {
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
                 T *s_D_qdd_stage = reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]);
                 T *s_dAB = reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_DAB_OFFSET_BYTES<T>()]);
-                integrator_gradient_device<T, IT, false, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES<T>()]), nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_gradient_device<T, IT, false, false>(s_dAB, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -29524,6 +29547,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -29531,7 +29555,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
-                integrator_with_gradient_device<T, IT, true, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_with_gradient_device<T, IT, true, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -29629,6 +29653,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -29636,7 +29661,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
-                integrator_with_gradient_device<T, IT, true, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_with_gradient_device<T, IT, true, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, nullptr, nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -29723,6 +29748,7 @@ namespace grid {
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[7]; T *s_u = &s_q_qd_u[14];
             T *d_temp_spill = nullptr; (void)d_temp_spill;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                T *d_f_ext_k = d_f_ext ? d_f_ext + static_cast<size_t>(k) * 6 * NUM_BODIES : nullptr;
                 // load to shared mem
                 const T *d_q_qd_u_k = &d_q_qd_u[k*stride_q_qd_u];
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 21; ind += blockDim.x*blockDim.y){
@@ -29732,7 +29758,7 @@ namespace grid {
                 // compute — the orchestration inner owns its FD-grad s_temp pool placement
                 T *s_D_qdd_stage = reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()]);
                 T *s_dAB = reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_DAB_OFFSET_BYTES<T>()]);
-                integrator_with_gradient_device<T, IT, false, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES<T>()]), nullptr, d_robotModel, d_f_ext, gravity, dt);
+                integrator_with_gradient_device<T, IT, false, false>(s_dAB, s_x_kp1, s_q, s_qd, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd, s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage, s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, s_topology_helpers, s_temp, reinterpret_cast<T *>(&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES<T>()]), nullptr, d_robotModel, d_f_ext_k, gravity, dt);
                 __syncthreads();
                 // save down to global
                 T *d_dAB_k = &d_dAB[k*294];
@@ -35163,7 +35189,7 @@ namespace grid {
         #define GRID_PLANT_HAS_TRACKING_COST 1
     }
     
-    #include "grid_collision_geometry.cuh"  // W3 Component E: SDF primitives (grid_collision::)
+    #include "grid_collision_geometry.cuh"  // SDF primitives (grid_collision::)
     /**
      * Collision namespace: baked sphere data + config_free composed over grid::multi_target_position + the static SDF geometry header
      *

@@ -163,9 +163,9 @@ New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_
 contact_frames=None, contact_forces=False, exact_hessian=False)` runs codegen (grid.cuh +
 limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
 call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
-fixed joint whose name is a C identifier; inertia tensors in the link frame, since the pinned GRiD
-parser mis-rotates a rotated `<inertial><origin>`: codegen refuses one and
-`gato.builder.canonicalize_inertials(urdf, out)` rewrites it exactly). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your
+fixed joint, addressed by its original URDF name, including hyphens; rotated inertial origins
+are supported by the pinned GRiD parser. `gato.builder.canonicalize_inertials(urdf, out)`
+optionally expresses tensors in the link frame without changing the model). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your
 usual configure (`./tools/build.sh --profile receipt`) afterwards.
 
 Constraint-layer rulings/provenance (moved out of the docstrings): [`docs/constraints.md`](docs/constraints.md).

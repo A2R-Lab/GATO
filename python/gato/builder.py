@@ -69,7 +69,7 @@ def _rpy_matrix(r, p, y):
 
 
 def rotated_inertial_origins(urdf_path):
-    """Names of the links whose ``<inertial><origin>`` carries a rotation (rpy != 0)."""
+    """List links with rotated inertial origins, which codegen accepts directly."""
     import xml.etree.ElementTree as ET
     out = []
     for link in ET.parse(str(urdf_path)).getroot().findall("link"):
@@ -84,9 +84,8 @@ def canonicalize_inertials(urdf_path, out_path):
     frame: every ``<inertial><origin rpy>`` becomes zero and its tensor is
     rotated exactly (I_link = R I R^T; the centre of mass ``xyz`` is unchanged).
     The rigid-body model is identical (pinocchio's dynamics agree to machine
-    precision); the copy is what the pinned GRiD parser needs, since it
-    mis-rotates a tensor given with a rotated inertial origin (ask filed with
-    GRiD, October 2026). Returns the rewritten link names."""
+    precision). This optional normalization is not required by codegen.
+    Returns the rewritten link names."""
     import xml.etree.ElementTree as ET
     tree = ET.parse(str(urdf_path))
     done = []
@@ -116,15 +115,6 @@ def _parse_urdf(urdf_path, ee_frame, floating_base=False):
     _grid.require()
     from URDFParser import URDFParser
 
-    rotated = rotated_inertial_origins(urdf_path)
-    if rotated:
-        raise ValueError(
-            f"{Path(urdf_path).name}: links {rotated} give their inertia tensor in a rotated inertial "
-            f"frame (<inertial><origin rpy> != 0), which the pinned GRiD parser mis-rotates (the generated "
-            f"dynamics would differ from pinocchio's by the rotation's effect, 10 % on the UR5e). Write the "
-            f"tensors in the link frame first, an exact transformation: "
-            f"gato.builder.canonicalize_inertials({str(urdf_path)!r}, 'robot_canonical.urdf') and register that copy."
-        )
     robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
     if robot is None:
         raise ValueError(f"URDFParser could not parse {urdf_path}")

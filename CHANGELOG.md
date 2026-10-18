@@ -39,15 +39,13 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   (`ee_frame_of(plant)` reads the registered end-effector frame), rows in the
   dynamics fingerprint, and the smoke, codegen and fingerprint gates. Example
   13 runs the controller defaults on each.
-- Codegen refuses a URDF whose `<inertial><origin>` carries a rotation: the
-  pinned GRiD parser mis-rotates such a tensor (the UR5e's generated dynamics
-  came out 10 % off pinocchio's until its three rotated inertials were
-  rewritten). `gato.builder.canonicalize_inertials(urdf, out)` writes the
-  exact link-frame equivalent (I_link = R I R^T, centre of mass unchanged;
-  pinocchio's dynamics are identical) to register instead;
-  `rotated_inertial_origins(urdf)` lists the affected links. None of the
-  previously vendored robots is affected (no rotated inertial origins), so no
-  generated header changes.
+- Pin `grid-rbd==0.5.3`, with the same bundled GLASS commit. Codegen accepts
+  rotated inertial origins and hyphenated fixed-joint names using GRiD's
+  corrected parser and symbol generation. The release also corrects per-sample
+  external-force indexing in GRiD's batched kernels.
+  `gato.builder.canonicalize_inertials(urdf, out)` remains an optional exact
+  link-frame normalization (I_link = R I R^T, centre of mass unchanged);
+  `rotated_inertial_origins(urdf)` lists the links it would rewrite.
 
 - Joint limits on by default in the controller: `MPCController(limits=...)`
   (and `MPC_GATO(limits=, limits_kw=)`) installs the URDF position, velocity

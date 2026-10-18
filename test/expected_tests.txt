@@ -38,6 +38,7 @@ test/test_bindings_shapes.py::test_wrong_reference_width_raises
 test/test_bindings_shapes.py::test_wrong_state_width_raises
 test/test_bindings_shapes.py::test_wrong_traj_width_raises
 test/test_build.py::test_build_end_to_end
+test/test_codegen.py::test_hyphenated_frame_header_compiles
 test/test_codegen.py::test_missing_voxel_dependency_cannot_change_collision_geometry
 test/test_codegen.py::test_regen_matches_vendored[fr3]
 test/test_codegen.py::test_regen_matches_vendored[gen3]
@@ -45,7 +46,7 @@ test/test_codegen.py::test_regen_matches_vendored[go2]
 test/test_codegen.py::test_regen_matches_vendored[iiwa14]
 test/test_codegen.py::test_regen_matches_vendored[indy7]
 test/test_codegen.py::test_regen_matches_vendored[ur5e]
-test/test_codegen.py::test_rotated_inertial_origin_refused_and_canonicalized
+test/test_codegen.py::test_rotated_inertial_origin_matches_canonicalized
 test/test_codegen.py::test_unbounded_joint_rejected
 test/test_common.py::test_figure8_rotation_is_pure_z
 test/test_common.py::test_figure8_shape_and_tiling

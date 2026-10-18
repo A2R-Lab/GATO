@@ -11,7 +11,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-GRID_RBD_PIN = "0.5.1"
+GRID_RBD_PIN = "0.5.3"
 GLASS_PIN = "9e57178ca146fa1cecae7e27c22260603b993aa6"
 INSTALL_HINT = f'pip install "grid-rbd=={GRID_RBD_PIN}"  (or ./tools/install.sh)'
 
