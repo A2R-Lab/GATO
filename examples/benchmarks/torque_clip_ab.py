@@ -29,7 +29,7 @@ TASKS = ("fig8", "pickplace")
 
 class ActuationAudit:
     """Experiment-only fixed-base actuator wrapper; never modifies a plan in place."""
-    def __init__(self, model, clip):
+    def __init__(self, model, clip, *, effort_scale=1.0):
         from gato.tasks import urdf_limits
         if model.nq != model.nv:
             raise ValueError("this audit requires a fixed-base arm")
@@ -38,6 +38,9 @@ class ActuationAudit:
                for k in ("u", "qd")):
             raise ValueError("finite positive effort and velocity limits required")
         self.clip = bool(clip)
+        if not np.isfinite(effort_scale) or not 0 < effort_scale <= 1:
+            raise ValueError("effort_scale must be in (0, 1]")
+        self.actuator_limit = self.limits["u"] * effort_scale
         self.samples = self.clipped = self.velocity_over = 0
         self.command_peak = self.applied_peak = self.velocity_peak = self.position_out = 0.0
         self.sim_time = 0.0
@@ -62,7 +65,7 @@ class ActuationAudit:
                 raise FloatingPointError("nonfinite command")
             if not self.samples:
                 self._state(q, dq)  # include the initial condition
-            applied = np.clip(u, -self.limits["u"], self.limits["u"]) if self.clip else u
+            applied = np.clip(u, -self.actuator_limit, self.actuator_limit) if self.clip else u
             self.last_applied = np.asarray(applied).copy()
             self.command_peak = max(self.command_peak, float(np.max(np.abs(u) / self.limits["u"])))
             self.applied_peak = max(self.applied_peak, float(np.max(np.abs(applied) / self.limits["u"])))

@@ -74,6 +74,80 @@ def test_clip_collection_refuses_existing_output(experiment, tmp_path, monkeypat
     assert out.read_text() == "keep existing results\n"
 
 
+def test_actuator_derating_validates_scale_and_preserves_nominal_limits(experiment):
+    model = SimpleNamespace(nq=1, nv=1, effortLimit=np.array([4.]),
+                            velocityLimit=np.array([1.]),
+                            lowerPositionLimit=np.array([-1.]), upperPositionLimit=np.array([1.]))
+    for scale in (0, -1, 1.1, float("nan")):
+        with pytest.raises(ValueError, match="effort_scale"):
+            experiment.ActuationAudit(model, True, effort_scale=scale)
+    audit = experiment.ActuationAudit(model, True, effort_scale=.25)
+    mpc = SimpleNamespace(world=SimpleNamespace(step=lambda q, dq, u, dt: (q, dq)),
+                          _observe_substep=lambda *a: None)
+    audit.attach(mpc)
+    mpc.world.step(np.zeros(1), np.zeros(1), np.array([3.]), .001)
+    np.testing.assert_array_equal(audit.last_applied, [1.])
+    assert audit.metrics()["applied_u_ratio"] == .25
+    assert audit.metrics()["commanded_u_ratio"] == .75
+    np.testing.assert_array_equal(model.effortLimit, [4.])
+
+
+def test_stress_inventory_is_fixed_and_rejects_missing_cases(experiment):
+    stress = importlib.import_module("torque_stress")
+    cases = stress.cases()
+    assert len(cases) == 34
+    assert len({c["case"] for c in cases}) == 34
+    rows = [dict(**c, source="frozen", protocol={}, quotable_times=False, status="ok") for c in cases]
+    stress.validate(rows)
+    with pytest.raises(ValueError, match="inventory"):
+        stress.validate(rows[:-1])
+    rows[-1]["scale"] = .5
+    with pytest.raises(ValueError, match="changed stress case"):
+        stress.validate(rows)
+
+
+def test_stress_streak_is_per_joint_and_peak_keeps_producing_plan(experiment):
+    stress = importlib.import_module("torque_stress")
+    model = SimpleNamespace(nq=2, nv=2, effortLimit=np.array([2., 4.]),
+                            velocityLimit=np.array([1., 2.]),
+                            lowerPositionLimit=np.array([-1., -1.]), upperPositionLimit=np.array([1., 1.]))
+    solve = SimpleNamespace(xu=np.zeros((1, 10)), stats=SimpleNamespace(
+        row_max_violation=np.zeros((1, 3)), admm_iters=np.array([1])))
+    mpc = SimpleNamespace(nx=4, nu=2, nq_robot=2, N=2,
+                          world=SimpleNamespace(step=lambda q, dq, u, dt: (q, dq)),
+                          controller=SimpleNamespace(warmup=lambda *a: solve, step=lambda *a, **kw: None),
+                          _observe_substep=lambda *a: None)
+    audit = stress.StressAudit(model, .5)
+    audit.attach(mpc)
+    mpc.controller.warmup(np.zeros(4), None)
+    for u in ([2., 0.], [2., 0.], [0., 4.]):
+        mpc.world.step(np.zeros(2), np.array([1.1, 0.]), np.array(u), .001)
+    np.testing.assert_allclose(audit.longest, [.002, .001])
+    event = audit.metrics()["peak_velocity_event"]
+    assert event["plan"]["phase"] == "warmup" and event["time_s"] == .001
+    mpc.controller.warmup(np.ones(4), None)
+    assert event["plan"]["measured_qd"] == [0., 0.]
+    assert audit.first_over == event
+    with pytest.raises(FloatingPointError, match="escape guard"):
+        mpc.world.step(np.zeros(2), np.array([6., 0.]), np.zeros(2), .001)
+
+
+@pytest.mark.gpu
+def test_stress_diagnostics_preserve_unclipped_development_tail(experiment):
+    stress = importlib.import_module("torque_stress")
+    model = experiment.pin_model("gen3")
+    sc = next(c["scenario"] for c in stress.cases() if c["case"] == "dev-15-None")
+    baseline = experiment.run_episode(model, "gen3", 64, sc, "admm")
+    audit = stress.StressAudit(model, None)
+    traced = experiment.run_episode(model, "gen3", 64, sc, "admm", audit=audit)
+    for key, value in baseline.items():
+        if key not in ("wall_s", "solve_ms"):
+            assert traced[key] == value, key
+    assert audit.peak_event["qd_ratio"] > 1
+    assert audit.endpoint_event is not None and audit.endpoint_error >= 0
+    assert audit.peak_event["plan"]["time_s"] < audit.peak_event["time_s"]
+
+
 @pytest.mark.parametrize("seed,digest", [
     (1, "6afcb5bd3e95b7af104fe605a8c987b335def27f7d7d970403c2742e39ac37d2"),
     (2, "5b2f104a2e14ee6b3d6c870856148fef10a1e26d7d9c506282d57111ea16c8df"),
