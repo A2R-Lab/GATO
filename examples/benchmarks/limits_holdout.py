@@ -105,7 +105,7 @@ def scenarios(model, plant, task, n, seed):
     return tasks.pickplace_scenarios(model, plant, n, seed=seed)
 
 
-def run_episode(model, plant, N, sc, mech):
+def run_episode(model, plant, N, sc, mech, *, audit=None):
     """One closed-loop episode; returns the metrics dict."""
     from gato import tasks
     from gato.mpc_gato import MPC_GATO
@@ -114,6 +114,8 @@ def run_episode(model, plant, N, sc, mech):
     params = cfg.pop("params", None)
     mpc = MPC_GATO(model, model_path=urdf_path(plant), N=N, dt=DT, batch_size=1, plant_type=plant,
                    linsys="pcg", params=params, **cfg)
+    if audit is not None:
+        audit.attach(mpc)
     rec = dict(u=[], viol=[], inner=[], solve_us=[])
     orig = mpc.controller.step
 
@@ -155,6 +157,10 @@ def run_episode(model, plant, N, sc, mech):
                plan_viol=viol.max(axis=0).tolist(), plan_viol_mean=viol.mean(axis=0).tolist(),
                inner_mean=float(np.mean(rec["inner"])) if rec["inner"] else None,
                solve_ms=pct(np.asarray(rec["solve_us"], dtype=float) / 1e3))
+    if audit is not None:
+        out["substeps"] = audit.metrics()
+        if sc["task"] == "pickplace":
+            out["goal_events"] = st["goal_events"]
     return out
 
 
