@@ -14,6 +14,26 @@ Mechanisms: `telemetry` (report only) · `barrier` (relaxed log barrier, soft)
 approximately hard) · `al` (PHR augmented Lagrangian, outer loop = warm-started
 repeat solves — pass `xu_warm` explicitly).
 
+## Mechanism comparison example
+
+![Constraint mechanisms on one Indy7 pick-and-place scenario](assets/constraint-mechanisms.png)
+
+Example 12 runs one development scenario (Indy7, seed 1, scenario 0, step
+reference) under all four mechanisms at N16, N32 and N64. All twelve runs
+reach three goals. ADMM reduces the sampled peak velocity to 1.01 to 1.02
+times its limit, versus 1.97 to 2.20 without enforcement. This is one scenario,
+not a population result or a safety certificate. Torque is the recorded
+controller command; velocity is sampled at control ticks. The planner panel
+uses a symmetric log scale with a linear region below 1e-3 rad/s.
+
+[Figure data](data/constraint-mechanisms-2026-10-18.json) were collected on
+source `cf605df`, with fixed simulation pacing. The figure and JSON omit solve
+timings; task completion times in the JSON are simulated durations.
+
+```bash
+python examples/12_constraint_mechanisms.py --plot mechanisms.png --json mechanisms.json
+```
+
 ## `set_admm_linsys(mode)`
 
 ADMM inner-loop linear solver: "pcg" (default) | "bdsv_factor".
@@ -342,7 +362,7 @@ the iiwa14 (1.00 to 1.01) but not the Indy7 (1.44 to 1.50) and loses goals on
 the iiwa14 (2.56 to 2.78 of 3); AL sits between (1.23 to 1.84). The worst
 single scenario under the default peaks at 1.43 to 1.44 on the Indy7 (one of
 100; the plan itself violates by at most 7e-2 rad/s, so the excess is the
-plant overshooting a feasible plan within one control period) and at 1.00 to
+sampled plant exceeding the plan's velocity bound) and at 1.00 to
 1.08 on the iiwa14. Goals reached and task time match the unconstrained
 controller on the Indy7 (3 of 3, 1.91 against 1.93 to 2.00 s) and come within
 0.2 to 0.3 s on the iiwa14, whose unconstrained runs reach goals by running at
@@ -350,12 +370,10 @@ up to four times its velocity limit. The applied torque stays inside the
 limit under the default (0.96 to 0.99 of the limit at the peak) where the
 unconstrained controller exceeds it (1.00 to 1.16), and no default run leaves
 the position box (the unconstrained controller leaves it by up to 0.24 rad).
-The exit spends 3.7 inner iterations per tick on average. The claim this
-supports: inside the URDF position, velocity and torque limits to within the
-reported residual on these tasks, in closed loop on the simulated plant, with
-the per-tick overshoot above bounded by one control period of plant motion;
-a bounded, measured property, not a certificate (hard per-solve guarantees are
-research, column 2 of the plan).
+The exit spends 3.7 inner iterations per tick on average. These are sampled
+closed-loop results, with velocity overshoot that can exceed the planner's
+reported residual. The aggregates do not bound the duration of an overshoot
+or establish continuous-time feasibility.
 iters=10 BOUND by R2: 2/5 park the feasible
 cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
 inner cost).
@@ -381,6 +399,70 @@ unconstrained; the residual exit (`set_admm_exit`) brings the factor arm to
 and costs about 0.01 m of tracking (table and reading in that section). The
 16 ms of October 12 was the fixed budget over five SQP iterations per tick on
 a shared box.
+
+### New arm holdout on October 18
+
+FR3, Gen3 and UR5e at N64, source `cf605df`, `grid-rbd==0.5.3`:
+100 fresh scenarios per task and arm, seed 20261018, all four mechanisms at
+unchanged defaults. All 2400 episodes completed with finite recorded metrics.
+The [raw rows](../examples/benchmarks/data/limits_holdout/new_arms_20261018.jsonl)
+include every scenario and outcome. No settings were retuned on this holdout.
+
+The plant uses Pinocchio RK4 with 1 ms integration steps and a fixed 10 ms
+control period. Position and velocity maxima are sampled at control ticks;
+the torque metric is the recorded `StepResult.u` command, not a measurement
+at every actuator substep. The initial warmup command and final goal-event
+state are not included in these maxima. The raw runtime fields are diagnostics
+only (`quotable_times: false`), collected on a shared GPU.
+
+| Arm and task | Mechanism | Sampled peak qd / limit p50 / p90 / max | Commanded peak u / limit max | Position excursion max (rad) | Tracking p50 / p90 (m), or three-goal arrivals |
+|---|---|---|---|---|---|
+| fr3 fig8 | none | 0.27 / 0.41 / 0.43 | 0.85 | 0.000 | 0.0752 / 0.0950 |
+| fr3 fig8 | barrier | 0.27 / 0.40 / 0.50 | 0.98 | 0.000 | 0.0775 / 0.0971 |
+| fr3 fig8 | al | 0.27 / 0.42 / 0.55 | 0.98 | 0.000 | 0.0748 / 0.0947 |
+| fr3 fig8 | admm | 0.27 / 0.41 / 0.43 | 0.84 | 0.000 | 0.0748 / 0.0948 |
+| fr3 pickplace | none | 0.42 / 0.88 / 1.37 | 2.02 | 0.000 | 100/100 |
+| fr3 pickplace | barrier | 0.40 / 0.79 / 0.93 | 1.06 | 0.000 | 100/100 |
+| fr3 pickplace | al | 0.42 / 0.90 / 1.05 | 1.27 | 0.000 | 100/100 |
+| fr3 pickplace | admm | 0.42 / 0.90 / 0.97 | 1.31 | 0.000 | 100/100 |
+| gen3 fig8 | none | 1.04 / 2.62 / 4.15 | 0.78 | 0.000 | 0.0293 / 0.0449 |
+| gen3 fig8 | barrier | 0.69 / 0.80 / 0.89 | 0.44 | 0.000 | 0.0376 / 0.0553 |
+| gen3 fig8 | al | 0.82 / 1.00 / 1.20 | 0.45 | 0.000 | 0.0311 / 0.0468 |
+| gen3 fig8 | admm | 0.81 / 0.93 / 0.94 | 0.44 | 0.000 | 0.0313 / 0.0471 |
+| gen3 pickplace | none | 1.01 / 1.90 / 3.24 | 2.12 | 0.000 | 100/100 |
+| gen3 pickplace | barrier | 0.68 / 1.11 / 1.34 | 1.07 | 0.000 | 100/100 |
+| gen3 pickplace | al | 0.77 / 1.55 / 1.93 | 1.16 | 0.000 | 100/100 |
+| gen3 pickplace | admm | 0.77 / 0.96 / 1.42 | 1.05 | 0.000 | 100/100 |
+| ur5e fig8 | none | 0.28 / 0.37 / 0.48 | 0.39 | 0.000 | 0.0684 / 0.0873 |
+| ur5e fig8 | barrier | 0.26 / 0.35 / 0.39 | 0.38 | 0.000 | 0.0694 / 0.0892 |
+| ur5e fig8 | al | 0.27 / 0.36 / 0.40 | 0.39 | 0.000 | 0.0683 / 0.0871 |
+| ur5e fig8 | admm | 0.26 / 0.36 / 0.40 | 0.39 | 0.000 | 0.0684 / 0.0873 |
+| ur5e pickplace | none | 0.43 / 1.17 / 1.49 | 1.18 | 0.000 | 100/100 |
+| ur5e pickplace | barrier | 0.42 / 0.92 / 1.09 | 1.06 | 0.000 | 100/100 |
+| ur5e pickplace | al | 0.44 / 1.04 / 1.11 | 1.04 | 0.000 | 100/100 |
+| ur5e pickplace | admm | 0.44 / 0.97 / 0.97 | 1.01 | 0.000 | 100/100 |
+
+All 1200 pick-and-place episodes reach all three goals, and every recorded
+position remains inside the URDF box. Default ADMM keeps the sampled figure-8
+velocity below its limit on all three arms. On pick-and-place, however, FR3
+commands exceed a torque limit in 14 of 100 default episodes (maximum 1.306);
+Gen3 exceeds a velocity limit in four (maximum 1.418) and a torque limit in ten
+(maximum 1.055); UR5e exceeds a torque limit in six (maximum 1.009).
+FR3's worst default planner torque-row violation is 3.774 Nm, so that excess
+is visible in solver telemetry as well as in the command.
+
+These results support reduced limit violations, not joint-feasible operation
+in every episode. The next enforcement study needs a separate development
+set and a new frozen holdout; this set must not become a tuning target.
+Control-tick samples do not certify substep extrema, violation duration or
+hardware safety.
+
+Reproduce the protocol in a fresh output file without changing its settings:
+
+```bash
+python examples/benchmarks/limits_holdout.py --set holdout --seed 20261018 \
+  --plants fr3,gen3,ur5e --Ns 64 --workers 1 --out new-arm-holdout.jsonl
+```
 
 ## `enable_limit_al(rho)`
 

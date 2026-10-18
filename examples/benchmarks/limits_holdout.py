@@ -22,11 +22,16 @@ never quotable. Graded on the SIMULATED plant against the URDF limits (the
 planner's own telemetry is recorded beside it):
 
     sim_qd_ratio   max over ticks and joints of |qd| / qd_limit  (1 = at the limit)
-    sim_u_ratio    the same for the applied torque
+    sim_u_ratio    peak recorded StepResult.u command / torque limit
     sim_q_out      max position excursion beyond [q_lo, q_hi], rad
     plan_viol      the planner's max violation per row group (q, qd, u rows)
     track_mean     figure-8 mean end-effector error (m, knot-0 convention)
     reached / time_to_all   pick-and-place goals reached of 3, task time (s)
+
+Position and velocity are sampled at control ticks, not every integration
+substep. The initial warmup command and final goal-event state are not in
+these maxima. Completion is not a joint-feasibility or hardware safety gate.
+Additional registered arms can be selected with --plants and --Ns.
 
 Protocol (Fig-7 holdout discipline): the DEV set (seed 1, 20 scenarios per
 task and plant) compares the mechanisms and settles the controller defaults;

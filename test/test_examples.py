@@ -1,6 +1,7 @@
 """Check the introductory entry points without importing or running GPU code."""
 import ast
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -15,6 +16,30 @@ EXAMPLES = sorted((Path(__file__).resolve().parents[1] / "examples").glob("[0-9]
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda path: path.name)
 def test_intro_example_syntax(path):
     ast.parse(path.read_text(), filename=str(path))
+
+
+def test_constraint_example_exports_correctness_without_timings(repo_root, tmp_path, monkeypatch):
+    import numpy as np
+    path = repo_root / "examples/12_constraint_mechanisms.py"
+    spec = importlib.util.spec_from_file_location("constraint_example", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "run", lambda *args: dict(
+        qd=np.float64(1.1), qd_over=0.01, u=0.8, plan_viol=0.02,
+        reached=2, t_all=None, solve_ms=12345.0))
+    out = tmp_path / "results.json"
+    monkeypatch.setattr(sys, "argv", [str(path), "--json", str(out)])
+    mod.main()
+    data = json.loads(out.read_text())
+    assert data["quotable_times"] is False and data["seed"] == 1
+    assert data["task_settings"]["pace_by_solve_time"] is False
+    assert len(data["scenario"]["goals"]) == 3
+    assert {(r["N"], r["mechanism"]) for r in data["results"]} == {
+        (N, mech) for N in mod.HORIZONS for mech in mod.MECHS}
+    assert len(data["results"]) == 12
+    for row in data["results"]:
+        assert "solve_ms" not in row and row["t_all"] is None
+        assert row["qd"] == 1.1 and row["reached"] == 2
 
 
 def test_merge_checkpoint_dry_run(repo_root, tmp_path):

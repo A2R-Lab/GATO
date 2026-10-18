@@ -2,6 +2,11 @@
 end-effector frame resolves, the figure-8 generator lands its speed ratio from
 the URDF velocity limits, and the pick-and-place generator draws reachable
 goals inside the position limits."""
+import hashlib
+import itertools
+import json
+import math
+
 import numpy as np
 import pytest
 
@@ -10,6 +15,38 @@ from gato import tasks
 
 pin = pytest.importorskip("pinocchio")
 ARMS = ("indy7", "iiwa14", "fr3", "gen3", "ur5e")
+
+
+def test_new_arm_holdout_inventory_and_provenance(repo_root):
+    """Dataset integrity, not a rerun or a claim that every episode is feasible."""
+    path = repo_root / "examples/benchmarks/data/limits_holdout/new_arms_20261018.jsonl"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "12995516eb1f81507cbbec312b899fedb269870042d3a5dfaaba89aea6279e3e")
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    expected = set(itertools.product(("fr3", "gen3", "ur5e"), ("fig8", "pickplace"),
+                                     range(100), ("none", "barrier", "al", "admm")))
+    keys = [(r["plant"], r["task"], r["scenario"], r["mech"]) for r in rows]
+    assert len(rows) == len(set(keys)) == 2400 and set(keys) == expected
+
+    def finite(value):
+        if isinstance(value, dict):
+            return all(finite(v) for v in value.values())
+        if isinstance(value, list):
+            return all(finite(v) for v in value)
+        return math.isfinite(value) if isinstance(value, (int, float)) else True
+
+    scenarios = {}
+    for row in rows:
+        assert finite(row) and row["steps"] > 0
+        assert row["sha"] == "cf605df" and row["seed"] == 20261018
+        assert row["N"] == 64 and row["set"] == "holdout"
+        assert row["quotable_times"] is False
+        assert row["config"] == {"limits": "telemetry" if row["mech"] == "none" else row["mech"]}
+        key = row["plant"], row["task"], row["scenario"]
+        assert scenarios.setdefault(key, row["scenario_def"]) == row["scenario_def"]
+        if row["task"] == "pickplace":
+            assert 0 <= row["reached"] <= 3
+            assert (row["time_to_all"] is not None) == (row["reached"] == 3)
 
 
 @pytest.mark.parametrize("plant", ARMS)

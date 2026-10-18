@@ -4,6 +4,14 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Frozen N64 limit-mechanism holdout on FR3, Gen3 and UR5e: 2400 episodes
+  with raw data and tables in `docs/constraints.md`. All pick-and-place goals
+  were reached, but default ADMM still exceeded torque limits on some episodes
+  and velocity limits on Gen3. The documented scope distinguishes sampled
+  motion, controller commands and planner residuals.
+- Example 12 saves correctness-only figures and JSON (`--plot`, `--json`).
+  The documentation site bundles local images and includes its mechanism
+  comparison figure; host tests check asset delivery and result provenance.
 - Documentation site: the reference tier at <https://a2r-lab.org/GATO/docs/>, built from the
   repository's own markdown by `docs/site/build.py` (links rewritten and checked), with a
   receipt page generated from `gpu-proof.json` and an API reference from the docstrings;

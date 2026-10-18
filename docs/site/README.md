@@ -8,7 +8,8 @@ examples, paper-figures and dynamics READMEs, the CHANGELOG), a receipt page gen
 `gpu-proof.json`, and the API reference rendered from the docstrings.
 
 - `build.py` assembles the pages into `_src/` with every link rewritten (page to page, or to
-  the file on GitHub; a dangling link fails the build), writes `receipt.md`, and runs Sphinx
+  the file on GitHub; a dangling link fails the build). Local Markdown images are copied
+  into the site and served with its pages, not linked to GitHub's file viewer. It writes `receipt.md` and runs Sphinx
   with warnings as errors into `_build/html`. `python docs/site/build.py` builds locally with
   the `[docs]` extra installed; `test/test_docs_site.py` runs the same build in the host tier.
 - `conf.py`, `index.md` and `api.md` are the site's own sources. Everything else is edited in

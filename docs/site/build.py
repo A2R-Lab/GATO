@@ -47,7 +47,7 @@ PAGES = {
 LINK = re.compile(r"(!?)\[([^\]]*)\]\(([^)\s]+)(\s+\"[^\"]*\")?\)")
 
 
-def rewrite_links(text, source_rel):
+def rewrite_links(text, source_rel, assets=None):
     """Rewrite the markdown links of one source file; raise on a dangling target."""
     base = (REPO / source_rel).parent
 
@@ -66,6 +66,12 @@ def rewrite_links(text, source_rel):
             return f"{bang}[{label}]({PAGES[rel]}.md{'#' + anchor if anchor else ''}{title})"
         if not resolved.exists():
             raise SystemExit(f"{source_rel}: link {target!r} -> {rel} does not exist")
+        if bang:
+            if not resolved.is_file():
+                raise SystemExit(f"{source_rel}: image {target!r} is not a file")
+            if assets is not None:
+                assets[rel] = resolved
+            return f"![{label}](_assets/{rel}{'#' + anchor if anchor else ''}{title})"
         url = (GITHUB_TREE if resolved.is_dir() else GITHUB) + rel + ("#" + anchor if anchor else "")
         return f"{bang}[{label}]({url}{title})"
 
@@ -155,9 +161,14 @@ def assemble():
     if SRC.exists():
         shutil.rmtree(SRC)
     SRC.mkdir()
+    assets = {}
     for rel, page in PAGES.items():
         text = (REPO / rel).read_text()
-        (SRC / f"{page}.md").write_text(rewrite_links(text, rel))
+        (SRC / f"{page}.md").write_text(rewrite_links(text, rel, assets))
+    for rel, source in assets.items():
+        target = SRC / "_assets" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
     (SRC / "receipt.md").write_text(receipt_page())
     for name in ("conf.py", "index.md", "api.md"):
         shutil.copyfile(HERE / name, SRC / name)

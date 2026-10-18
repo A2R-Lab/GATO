@@ -242,7 +242,7 @@ partial-suite receipts and stale-module recording. See docs/development.md.
 Regenerate the receipt before an authorized push. The workflow's
 `cpu-lane` job runs `-m "not gpu and not slow"` directly in CI.
 
-`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 42 goldens (pcg + bdsv
+`test/test_parity_golden.py` is THE bit-parity gate for kernel changes: 48 goldens (pcg + bdsv
 per receipt module, an arm ADMM/EE-row case, arm collision AL/ADMM, the fc/eh variants, masked
 contact AL/ADMM).
 Bitwise parity protects those cases, not all correctness or performance. A change to an

@@ -208,7 +208,8 @@ Neither task tests placing or releasing the payload onto a surface.
 ## Controller call boundaries on October 6
 
 Source `813c6e3`, GRiD `8dccbfa`, GLASS `9e57178`, RTX 5090, in an assigned
-exclusive window directly after the MPCGPU legs. These are the release pins;
+exclusive window directly after the MPCGPU legs. These pins identify that collection,
+not the current `grid-rbd==0.5.3` dependency or the later controller defaults;
 the October 5 collection on the previous pins (`1777568`, GRiD `0a14c0f`,
 GLASS `8ce68a2`; `handoff_qspP1dhc`) agrees within 1% at every cell. They pair
 internal solver duration with `MPCController.step` wall time: N64, one SQP

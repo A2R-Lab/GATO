@@ -103,6 +103,7 @@ test/test_exact_hessian.py::test_contraction_matches_pinocchio_fd
 test/test_exact_hessian.py::test_projection_matches_numpy_lambda_zero
 test/test_examples.py::test_call_boundary_check_only_has_no_timing_output
 test/test_examples.py::test_call_boundary_refuses_unassigned_window
+test/test_examples.py::test_constraint_example_exports_correctness_without_timings
 test/test_examples.py::test_cpu_baseline_uses_selected_interpreter
 test/test_examples.py::test_intro_example_syntax[01_single_solve.py]
 test/test_examples.py::test_intro_example_syntax[02_batched_solve.py]
@@ -442,6 +443,7 @@ test/test_tasks.py::test_generators_on_every_arm[gen3]
 test/test_tasks.py::test_generators_on_every_arm[iiwa14]
 test/test_tasks.py::test_generators_on_every_arm[indy7]
 test/test_tasks.py::test_generators_on_every_arm[ur5e]
+test/test_tasks.py::test_new_arm_holdout_inventory_and_provenance
 test/test_worlds.py::test_custom_world_rejects_pendulum_and_fext
 test/test_worlds.py::test_default_world_fixed_pacing_deterministic
 test/test_worlds.py::test_fig8_with_pendulum_keeps_augmented_state_out_of_solver

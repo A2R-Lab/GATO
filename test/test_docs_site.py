@@ -33,6 +33,15 @@ def test_links_are_rewritten_and_checked(tmp_path):
     assert "(https://x.y/z)" in out and "(#anchor)" in out
     with pytest.raises(SystemExit, match="does not exist"):
         mod.rewrite_links("[x](../nope/missing.md)", "docs/status.md")
+    assets = {}
+    out = mod.rewrite_links('![limits](assets/constraint-mechanisms.png "Comparison")',
+                            "docs/constraints.md", assets)
+    assert out == '![limits](_assets/docs/assets/constraint-mechanisms.png "Comparison")'
+    assert assets == {"docs/assets/constraint-mechanisms.png": REPO / "docs/assets/constraint-mechanisms.png"}
+    with pytest.raises(SystemExit, match="leaves the repository"):
+        mod.rewrite_links("![x](../../outside.png)", "docs/status.md", assets)
+    with pytest.raises(SystemExit, match="is not a file"):
+        mod.rewrite_links("![x](assets/)", "docs/status.md", assets)
     for rel in mod.PAGES:
         assert (REPO / rel).is_file(), rel
 
@@ -58,3 +67,6 @@ def test_site_builds_without_warnings(tmp_path):
     api = (out / "api.html").read_text()
     for name in ("BSQP", "MPCController", "MPCPolicy", "SolverParams", "register_robot", "canonicalize_inertials"):
         assert name in api, name
+    asset = "constraint-mechanisms.png"
+    assert (out / "_images" / asset).read_bytes() == (REPO / "docs/assets" / asset).read_bytes()
+    assert f'_images/{asset}' in (out / "constraints.html").read_text()
