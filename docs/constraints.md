@@ -464,6 +464,73 @@ python examples/benchmarks/limits_holdout.py --set holdout --seed 20261018 \
   --plants fr3,gen3,ur5e --Ns 64 --workers 1 --out new-arm-holdout.jsonl
 ```
 
+### Torque saturation development comparison
+
+An experiment-only actuator clamp preserves goal completion in the tested
+development scenarios. The controller and default simulator remain unchanged.
+At source `1c92dcb`, FR3, Gen3 and UR5e run N64 default ADMM with the same
+tasks and settings as above: 20 scenarios per task and arm, paired with
+clipping off and on, first at development seed 1 and then seed 2. The second
+batch was added because seed 1 did not saturate Gen3 or UR5e. These are
+exploratory development results, not a new confirmatory holdout.
+
+The clamp applies `clip(u, -effort_limit, effort_limit)` before every 1 ms
+Pinocchio RK4 step. The planner does not model saturation explicitly;
+subsequent solves use the resulting measured state. Initial state, warmup
+motion and final goal transitions are included in the substep audit.
+Maxima cover integration endpoints, not extrema within an integration step.
+
+All 480 episodes completed with finite results. Every pick-and-place episode
+reached all three goals: 120/120 with clipping and 120/120 without it. The
+arrival gate requires distance below 0.05 m and joint-velocity norm below
+1 rad/s for 0.1 s; this does not test indefinite holding after arrival.
+
+In the table, torque and velocity entries are unclipped / clipped maxima,
+normalized by URDF limits. The final column is the paired change in mean
+tracking error (figure-8, metres) or completion time (pickplace, simulated
+seconds), clipped minus unclipped. Runtime measurements are not reported.
+
+| Seed | Arm and task | Episodes with clipping | Applied torque max off / on | Velocity max off / on | Paired change min / median / max |
+|---|---|---|---|---|---|
+| 1 | fr3 fig8 | 1/20 | 1.0583 / 1.0000 | 0.3813 / 0.3814 | 0.000000 / 0.000000 / 0.000026 |
+| 1 | fr3 pickplace | 6/20 | 1.1782 / 1.0000 | 0.9665 / 0.9666 | 0.000000 / 0.000000 / 0.020000 |
+| 1 | gen3 fig8 | 0/20 | 0.6754 / 0.6754 | 0.9339 / 0.9339 | 0.000000 / 0.000000 / 0.000000 |
+| 1 | gen3 pickplace | 0/20 | 0.9998 / 0.9998 | 1.0191 / 1.0191 | 0.000000 / 0.000000 / 0.000000 |
+| 1 | ur5e fig8 | 0/20 | 0.3808 / 0.3808 | 0.3624 / 0.3624 | 0.000000 / 0.000000 / 0.000000 |
+| 1 | ur5e pickplace | 0/20 | 0.5334 / 0.5334 | 0.7267 / 0.7267 | 0.000000 / 0.000000 / 0.000000 |
+| 2 | fr3 fig8 | 1/20 | 1.0686 / 1.0000 | 0.4632 / 0.4632 | 0.000000 / 0.000000 / 0.000031 |
+| 2 | fr3 pickplace | 4/20 | 1.1297 / 1.0000 | 0.9662 / 0.9662 | 0.000000 / 0.000000 / 0.000000 |
+| 2 | gen3 fig8 | 0/20 | 0.6863 / 0.6863 | 0.9337 / 0.9337 | 0.000000 / 0.000000 / 0.000000 |
+| 2 | gen3 pickplace | 0/20 | 0.9896 / 0.9896 | 0.9997 / 0.9997 | 0.000000 / 0.000000 / 0.000000 |
+| 2 | ur5e fig8 | 0/20 | 0.4372 / 0.4372 | 0.4075 / 0.4075 | 0.000000 / 0.000000 / 0.000000 |
+| 2 | ur5e pickplace | 1/20 | 1.0132 / 1.0000 | 0.9724 / 0.9724 | 0.000000 / 0.000000 / 0.000000 |
+
+Clipping activates in 12 FR3 scenarios and one UR5e scenario across both
+batches. The largest pick-and-place completion delay is 0.02 simulated
+seconds, with zero median paired change in every cell. Figure-8 mean tracking
+error increases by at most 0.000031 m. FR3 clipping affects 10 substeps in each
+figure-8 batch, 90 substeps in seed-1 pickplace and 60 in seed-2 pickplace;
+UR5e clipping affects ten substeps in seed-2 pickplace. This is evidence for
+brief saturation, not prolonged actuator limitation.
+
+Applied torque stays within the cap whenever clipping is enabled. No
+integration endpoint leaves the position box. Gen3 never saturates in these
+development batches, so its identical pairs do not establish robustness to
+saturation. Its seed-1 pickplace velocity still peaks at 1.0191 times the
+limit: torque clipping does not enforce velocity limits. Every inactive pair
+has exactly equal saved correctness metrics.
+
+Raw results: [seed 1](../examples/benchmarks/data/limits_holdout/torque_clip_dev_seed1_20261018.jsonl)
+and [seed 2](../examples/benchmarks/data/limits_holdout/torque_clip_dev_seed2_20261018.jsonl).
+The earlier frozen holdout is unchanged. Reproduce with fresh output paths
+from a clean committed checkout; `--report` reads results without GPU work:
+
+```bash
+python examples/benchmarks/torque_clip_ab.py --seed 1 --out clip-seed1.jsonl
+python examples/benchmarks/torque_clip_ab.py --seed 2 --out clip-seed2.jsonl
+python examples/benchmarks/torque_clip_ab.py --report clip-seed1.jsonl
+```
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

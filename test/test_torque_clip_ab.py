@@ -1,5 +1,7 @@
 """Actuator saturation experiment plumbing; production defaults stay unchanged."""
 import importlib
+import hashlib
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -70,6 +72,29 @@ def test_clip_collection_refuses_existing_output(experiment, tmp_path, monkeypat
     with pytest.raises(FileExistsError):
         experiment.main()
     assert out.read_text() == "keep existing results\n"
+
+
+@pytest.mark.parametrize("seed,digest", [
+    (1, "6afcb5bd3e95b7af104fe605a8c987b335def27f7d7d970403c2742e39ac37d2"),
+    (2, "5b2f104a2e14ee6b3d6c870856148fef10a1e26d7d9c506282d57111ea16c8df"),
+], ids=["seed1", "seed2"])
+def test_clip_development_data_integrity(experiment, repo_root, seed, digest):
+    path = repo_root / f"examples/benchmarks/data/limits_holdout/torque_clip_dev_seed{seed}_20261018.jsonl"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    protocol = experiment.validate(rows)
+    assert len(rows) == 240 and protocol["seed"] == seed and protocol["n"] == 20
+    for row in rows:
+        assert row["status"] == "ok" and not row["source"]["dirty"]
+        assert row["source"]["sha"] == "1c92dcbb7108037d196425353176070cf3ba9f5f"
+        result = row["result"]
+        assert "wall_s" not in result and "solve_ms" not in result
+        sub = result["substeps"]
+        assert sub["samples"] > 0
+        if row["clip"]:
+            assert sub["applied_u_ratio"] <= 1
+        else:
+            assert sub["commanded_u_ratio"] == sub["applied_u_ratio"]
 
 
 @pytest.mark.gpu

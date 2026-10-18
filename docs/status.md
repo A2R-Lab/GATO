@@ -34,6 +34,9 @@ research software, not a certified robot controller.
   The raw solver installs no limit rows. The fixed-base controller installs
   ADMM boxes by default when its solver has no row groups, but this is not a
   torque clamp or a hardware-side safety layer.
+  An [experiment-only clipping comparison](constraints.md#torque-saturation-development-comparison)
+  preserved goal completion under brief FR3 and UR5e saturation; Gen3 did
+  not saturate in that development sample. Clipping is not enabled by default.
 - **Constraints:** the controller installs the URDF limit boxes under ADMM
   by default on fixed-base arms (`MPCController(limits=...)`; the raw solver
   installs nothing); follow row-group ordering and check feasibility

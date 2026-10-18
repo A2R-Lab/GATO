@@ -90,6 +90,13 @@ a wheel or a checkout (`cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7
 defines). The in-tree `build/bsqp` target compiles the same file.
 
 ## Benchmarks / timing — `benchmarks/`, `contact-task/`
+
+The [torque clipping A/B](benchmarks/torque_clip_ab.py) is a fixed-pacing
+correctness experiment, not a timing benchmark. It pairs identical development
+tasks with simulator torque clipping off/on and measures every integration
+endpoint, including warmup and the final transition. It does not change
+controller defaults. See the [protocol and results](../docs/constraints.md#torque-saturation-development-comparison).
+
 The timing harnesses (fig3-fair sweeps, the linsys CDF study, the constraint-eval
 matrix, the go2 linsys sweep) share [`benchmarks/_bench.py`](benchmarks/_bench.py)
 (URDF/model lookup, the quiet-GPU guard, provenance, the kicked-arm MPC probe) and

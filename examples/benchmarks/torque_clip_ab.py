@@ -124,6 +124,17 @@ def report(rows):
               sum(r.get("reached") == 3 for r in good) if task == "pickplace" else "-",
               *(f"{v:.6f}" for v in peaks), sum(r["substeps"]["clipped_samples"] > 0 for r in good),
               f"{np.median(values):.6f}" if values else "-")
+    print("Paired changes (clipped minus unclipped): figure-8 mean error in m; completion in simulated s.")
+    for plant, task in itertools.product(protocol["plants"], protocol["tasks"]):
+        group = [r for r in rows if (r["plant"], r["task"]) == (plant, task) and r["status"] == "ok"]
+        a = {r["scenario"]: r["result"] for r in group if not r["clip"]}
+        b = {r["scenario"]: r["result"] for r in group if r["clip"]}
+        metric = "track_mean" if task == "fig8" else "time_to_all"
+        deltas = [b[i][metric] - a[i][metric] for i in a.keys() & b.keys()
+                  if a[i][metric] is not None and b[i][metric] is not None]
+        print(plant, task, f"{len(deltas)}/{protocol['n']} pairs with both metrics",
+              f"min/median/max {min(deltas):.6f} / {np.median(deltas):.6f} / {max(deltas):.6f}"
+              if deltas else "no paired metric")
 
 
 def main():

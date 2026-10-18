@@ -4,6 +4,10 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Experiment-only torque saturation A/B with substep measurements, paired
+  development data and results in `docs/constraints.md`. Brief FR3 and UR5e
+  clipping preserves goal completion in the tested cases; Gen3 saturation
+  is not exercised by this sample. Controller and simulator defaults are unchanged.
 - Frozen N64 limit-mechanism holdout on FR3, Gen3 and UR5e: 2400 episodes
   with raw data and tables in `docs/constraints.md`. All pick-and-place goals
   were reached, but default ADMM still exceeded torque limits on some episodes
