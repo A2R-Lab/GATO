@@ -99,6 +99,8 @@ def leg_matrix(args, quotable, out):
                     name = f"{plant}-N{N}-{'kick' if kick_every else 'quiet'}-{cell}"
                     extra = f"  track {tr['track_mean']:.4f}"
                     row = dict(plant=plant, N=N, kick_every=kick_every, cell=cell, steps=tr["steps"],
+                               effective_limits=tr["effective_limits"],
+                               effective_admm_exit=tr["effective_admm_exit"],
                                solve_ms=pct(tr["solve_ms"]), track_mean=tr["track_mean"],
                                track_max=tr["track_max"], config=admm)
                     if admm is not None:

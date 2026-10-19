@@ -213,7 +213,10 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
 
     urdf = urdf_path(plant)
     mpc = MPC_GATO(pin_model(plant), model_path=urdf, N=N, dt=dt, batch_size=1,
-                   plant_type=plant)
+                   plant_type=plant, limits="off", linsys=mode)
+    # Start with no rows or residual-exit policy. Replacing the controller
+    # below does not undo a previous controller's default ADMM installation;
+    # limits="off" preserves existing solver state rather than clearing it.
     # always pass linsys explicitly: since 08-12 the controller DEFAULT is auto
     # (fixed-base), so an omitted arg would not give the pure-pcg arm; limits
     # "off" since 10-16 (the controller default installs ADMM rows): the free arm
@@ -291,6 +294,8 @@ def run_kicked_arm(mode, tau=0.0, *, plant="indy7", N=64, dt=0.01, sim_time=6.0,
     n = min(len(st), len(pred_errs))
     out = {
         "mode": mode, "tau": tau, "steps": n,
+        "effective_limits": mpc.controller.limits,
+        "effective_admm_exit": list(mpc.solver._admm_exit),
         "solve_ms": st[:n].tolist(),
         "pred_err": pred_errs[:n],
         "pcg_iters": iters[:n],

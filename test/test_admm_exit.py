@@ -18,6 +18,28 @@ RHO, ITERS = 10.0, 10          # the box test's binding configuration (test_rowg
 EPS_ABS, EPS_REL = 0.0, 1e-2
 
 
+@pytest.mark.parametrize("cell", ["free", "fixed-pcg", "fixed-factor", "default"])
+def test_timing_probe_does_not_inherit_controller_limits(repo_root, monkeypatch, cell):
+    """Correctness-only setup gate: benchmark names must match installed state."""
+    import importlib
+    monkeypatch.syspath_prepend(str(repo_root / "examples/benchmarks"))
+    bench = importlib.import_module("_bench")
+    cfg = None if cell == "free" else "default"
+    if cell.startswith("fixed"):
+        cfg = dict(rho=.01, iters=10, qd_cap=1.,
+                   linsys="pcg" if cell == "fixed-pcg" else "bdsv_factor")
+    tr = bench.run_kicked_arm("pcg", .1, plant="indy7", N=32, sim_time=.05,
+                              kick_every=0, admm=cfg)
+    assert tr["steps"] > 0
+    assert tr["effective_limits"] == ("" if cell == "free" else "admm")
+    if cell == "default":
+        assert tr["effective_admm_exit"] == [0., .01, 1]
+    else:
+        assert tr["effective_admm_exit"] == [0., 0., 1]
+    if cell.startswith("fixed"):
+        np.testing.assert_array_equal(tr["admm_iters"], 10 * np.array(tr["sqp_iters"]))
+
+
 def _inputs(plant, N, B):
     return arm_problem(plant, N, B, jitter=0.01)
 
