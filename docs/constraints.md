@@ -164,6 +164,63 @@ the block-Cholesky back-solve sweeps the horizon serially, so one inner
 iteration costs as much as the whole unconstrained step. The 16 ms figure of
 October 12 was this fixed budget over five SQP iterations per tick.
 
+### Current default timing on October 19
+
+Quiet RTX 5090, source `34a4d30`, grid-rbd 0.5.3, batch size 1, one SQP
+iteration per tick, 600 fixed-pacing ticks per cell. The matrix tightens
+the velocity box to 1 rad/s on a figure-8; disturbed cases inject a measured
+state kick every 25 ticks. The default uses per-box penalties and the
+horizon-based inner solver. Times below are native solve milliseconds,
+not Python controller-call latency or end-to-end robot-cycle time.
+
+| Arm | N | Disturbed | Unconstrained p50 | Default p50 / mean / max |
+|---|---|---|---|---|
+| Indy7 | 32 | No | 0.172 | 0.311 / 0.326 / 1.131 |
+| Indy7 | 32 | Yes | 0.174 | 0.335 / 0.404 / 1.738 |
+| Indy7 | 64 | No | 0.306 | 1.112 / 1.137 / 3.019 |
+| Indy7 | 64 | Yes | 0.319 | 1.114 / 1.346 / 3.297 |
+| iiwa14 | 32 | No | 0.169 | 0.249 / 0.272 / 0.581 |
+| iiwa14 | 32 | Yes | 0.182 | 0.280 / 0.389 / 1.979 |
+| iiwa14 | 64 | No | 0.317 | 0.981 / 1.123 / 1.622 |
+| iiwa14 | 64 | Yes | 0.331 | 1.297 / 1.399 / 3.848 |
+
+At N64 under disturbances, the uniform-penalty exit-PCG arm has mean/max
+times of 5.525/23.081 ms on Indy7 and 8.273/33.672 ms on iiwa14. The
+corresponding factor arm measures 2.008/3.307 and 2.320/3.858 ms. This
+supports the N64 factor default for these workloads, not a claim that every
+factorized solve beats PCG or preserves identical tracking.
+
+The exit-check variants use uniform rho 0.01, not the per-box default.
+Undisturbed median native solve times:
+
+| Arm and N | Check every iteration | Device gating only | Check every two iterations | Tighter eps_rel 1e-3 |
+|---|---|---|---|---|
+| Indy7 N32 | 0.767 | 0.802 | 0.767 | 1.796 |
+| Indy7 N64 | 1.647 | 1.665 | 1.635 | 3.279 |
+| iiwa14 N32 | 0.888 | 0.919 | 0.878 | 2.081 |
+| iiwa14 N64 | 1.936 | 1.948 | 1.917 | 3.842 |
+
+The host-check variants retain identical recorded tracking, iteration counts
+and row violations within each task. Their small timing differences in this
+single collection do not justify a default change. The tighter tolerance
+spends about 9 to 10 inner iterations rather than about 3 to 4 and has no
+consistent reduction in the recorded maximum row violation.
+
+Calibration of the uniform-penalty disturbed workload recommends auto
+thresholds 0.04734 for Indy7 N32 and 0.04185 for iiwa14 N32, and always-factor
+at N64 for both arms. These are saved as
+[proposals](../examples/benchmarks/data/admm_time_matrix/tuning_20261019.json),
+not installed; they do not tune the per-box default configuration.
+
+The [92 raw rows](../examples/benchmarks/data/admm_time_matrix/20261019.jsonl)
+contain 80 matrix cells, four fits and eight separate
+[controller-call measurements](consumer_contract.md#controller-call-timing-on-october-19).
+The benchmark now records effective limit/exit settings and tests that free
+means no rows and fixed10 means ten inner iterations per SQP iteration.
+An earlier October 19 partial collection inherited controller defaults and
+was rejected, not included. This is one sequential collection, not a repeated
+confidence-interval study. Device-resident and new-arm timings remain open.
+
 ## `set_exact_hessian(on)`
 
 Toggle the SO-SQP stage-Hessian PSD projection for subsequent solves.

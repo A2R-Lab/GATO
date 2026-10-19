@@ -64,6 +64,11 @@ research software, not a certified robot controller.
   measured on the host); it is not a real-time guarantee for the loop around it. The dated October 6 results
   describe their recorded source and dependency revisions, not the current
   dependency pin, default constraints or device-resident controller path.
+  The [October 19 matrix](constraints.md#current-default-timing-on-october-19)
+  measures current-default native solve time on Indy7/iiwa14 N32/N64.
+  Separate [N64 call-budget measurements](consumer_contract.md#controller-call-timing-on-october-19)
+  show that iteration-boundary budgets can still overrun. Device-resident
+  and new-arm performance remain unmeasured by that batch.
 - **Dependencies:** MuJoCo remains pinned below 3.14 pending verification of a
   version fixing the observed URDF-compilation crash. Do not bypass that pin
   based solely on a newer version number.

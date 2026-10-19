@@ -4,6 +4,14 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Correct timing-probe initialization so free cases have no limit rows and
+  fixed-iteration ADMM cases do not inherit the controller's residual exit.
+  Regression gates and effective settings accompany the October 19 timing
+  matrix, calibration proposals and controller-call budget measurements.
+- Gen3 persistent actuator-derating study and velocity-error decomposition:
+  sustained clipping can preserve arrival while violating velocity limits.
+  Native dynamics checks distinguish finite-solve trajectory inconsistency
+  from planner/simulator integration error. Defaults remain unchanged.
 - Experiment-only torque saturation A/B with substep measurements, paired
   development data and results in `docs/constraints.md`. Brief FR3 and UR5e
   clipping preserves goal completion in the tested cases; Gen3 saturation

@@ -174,7 +174,9 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   measured defaults (per-box rho 0.1 / 0.03 / 1e-5, cap 10, residual exit at
   eps_rel 1e-2, inner linear solver by horizon) and `StepResult.limits` reads "admm"; a solver
   the caller configured is left as configured, floating-base solvers get
-  nothing, `limits="off"` is the unconstrained step of 0.1.1 bit for bit, and
+  nothing. `limits="off"` prevents automatic installation; it does not clear
+  rows already installed on a supplied solver. It is the unconstrained step
+  only when that solver has no rows. The values
   `"admm"` / `"barrier"` / `"al"` / `"telemetry"` (with `limits_kw`) pick a
   mechanism. The plan then respects the limits to within the reported
   residual (measured on the October 16, 2026 dev set: the simulated peak
@@ -183,12 +185,40 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   unconstrained controller's tracking error and task time where no limit
   binds; holdout numbers in `docs/constraints.md`); it is a bounded,
   measured property, not a certificate, and the executed torque is what the
-  caller applies (clamp it; the integrator's own safety layer stays).
+  caller applies. Default simulators do not automatically clamp torque;
+  actuator limits and a hardware safety layer remain the caller's responsibility.
   Solves are bit-deterministic run-to-run; batch entries are independent. A
   budgeted solve is deterministic in its result given the iteration count it
   reached, but that count depends on the clock.
 - The measured state enters as a hard initial-state constraint (x_0 is data;
   don't put state limits at knot 0 — they'd be unsatisfiable under violation).
+
+### Controller call timing on October 19
+
+Quiet RTX 5090, source `34a4d30`, N64, batch size 1, PCG, no constraint
+rows, up to eight SQP iterations, 600 fixed-pacing figure-8 ticks per case.
+These are `StepResult.wall_s` measurements, not native solver time or a
+complete robot-cycle deadline. Budgets are fractions of each arm's
+unbudgeted median. All durations are milliseconds.
+
+| Arm | Budget | Call p50 / p90 / max | Calls over budget | Largest overrun |
+|---|---|---|---|---|
+| Indy7 | None | 0.592 / 0.934 / 2.598 | Not applicable | Not applicable |
+| Indy7 | 0.592 (100%) | 0.394 / 0.570 / 0.861 | 6.0% | 0.269 |
+| Indy7 | 0.474 (80%) | 0.382 / 0.465 / 0.643 | 8.8% | 0.170 |
+| Indy7 | 0.355 (60%) | 0.381 / 0.441 / 0.673 | 64.0% | 0.317 |
+| iiwa14 | None | 0.634 / 0.928 / 1.922 | Not applicable | Not applicable |
+| iiwa14 | 0.634 (100%) | 0.401 / 0.641 / 0.777 | 10.8% | 0.143 |
+| iiwa14 | 0.507 (80%) | 0.397 / 0.607 / 0.791 | 21.2% | 0.283 |
+| iiwa14 | 0.381 (60%) | 0.399 / 0.606 / 0.767 | 56.5% | 0.386 |
+
+The budgets reduce work but do not enforce hard deadlines. At 60%, both
+arms average approximately one SQP iteration per call, yet more than half
+the calls exceed the requested budget. These unconstrained results do not
+measure the default ADMM controller or the device-resident path.
+[Raw measurements](../examples/benchmarks/data/admm_time_matrix/20261019.jsonl)
+also include the separate native-solve constraint matrix described in
+[constraints](constraints.md#current-default-timing-on-october-19).
 
 ## 5. What the gpu-proof receipt does and does not attest
 

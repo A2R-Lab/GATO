@@ -21,9 +21,10 @@ Legs (--leg, default all):
              exit-fac-ce2  exit-fac with the host break every 2nd iteration
              exit3-fac     factor arm at eps_rel 1e-3
              default       the shipped controller default (per-box rho, exit, solver by horizon)
-           Per cell: per-solve wall (ms) percentiles, inner iterations and inner
+           Per cell: native solve time (ms) percentiles, inner iterations and inner
            linsys iterations per SQP iteration, max row violation, tracking.
            Fixed pacing (one solve per 10 ms control period, pinocchio plant).
+           This is not MPCController.step wall time; the deadline leg measures that.
   fit      tools/autotune_linsys.py --admm per (plant, N) in the matrix's cell
            configuration (same cap, rho, tolerance): fits the pred_err
            threshold where the PCG arm's cost crosses the factor arm's and
