@@ -4,6 +4,8 @@
 // recompute matches formSchur's own gamma on the same data.
 //
 // Gates (real headers via plant_shim.cuh, batch of B synthetic KKT systems):
+//   0. Zero-lambda state recovery satisfies
+//      (Q + rho_partial) * dz_state + q = 0.
 //   1. knots 1..K-1: BITWISE equal to formSchur's gamma (same glass ops in
 //      the same order).
 //   2. knot 0: 1e-6 rel (formSchur's last block re-inverts Q_0 fresh with the
@@ -11,9 +13,10 @@
 //      in block 0 — same matrix, different interleaving, near-ulp diff).
 //   3. thread-count sweep {32, 64, 128}: bitwise invariant.
 //
-// Build-on-demand (not part of pytest):
+// Run by test_kernel_gates.py. N128 gives enough knot blocks to expose the old
+// in-place-Q overwrite on a GTX 1070.
 //
-//   nvcc -std=c++17 -O2 -DNDEBUG -arch=native -DKNOT_POINTS=16 \
+//   nvcc -std=c++17 -O2 -DNDEBUG -arch=native -DKNOT_POINTS=128 \
 //        -DGATO_PLANT_HEADER='"plant_shim.cuh"' \
 //        -I gato -I external/GLASS -I test/cuda \
 //        test/cuda/gamma_parity.cu -o build/gamma_parity && ./build/gamma_parity
@@ -83,6 +86,8 @@ int main()
     int32_t*           d_conv;
     CHECK_CUDA(cudaMalloc(&kkt.d_Q_batch, nQ * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&kkt.d_R_batch, nR * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&kkt.d_Q_inv_batch, nQ * sizeof(float)));
+    CHECK_CUDA(cudaMemset(kkt.d_Q_inv_batch, 0, nQ * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&kkt.d_q_batch, nq * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&kkt.d_r_batch, nr * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&kkt.d_A_batch, nA * sizeof(float)));
@@ -108,7 +113,8 @@ int main()
     CHECK_CUDA(cudaMemset(schur.d_P_inv_batch, 0, (size_t)B * gato::constants::B3D_MATRIX_SIZE_PADDED * sizeof(float)));
     CHECK_CUDA(cudaMemset(schur.d_gamma_batch, 0, (size_t)B * NPAD * sizeof(float)));
 
-    // reference: formSchur (also leaves Q^-1/R^-1 in kkt.d_Q/d_R)
+    // Neighboring knot blocks share Q inputs. Assembly must not overwrite
+    // them with inverses while another block may still be loading them.
     form_schur_system_batched<float>(B, schur, kkt, d_rho, d_conv);
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
@@ -116,11 +122,43 @@ int main()
     CHECK_CUDA(cudaMemcpy(gamma_ref.data(), schur.d_gamma_batch, gamma_ref.size() * sizeof(float), cudaMemcpyDeviceToHost));
 
     int fails = 0;
+    // With lambda=0, state recovery gives dz_state = -(Q + rho_partial)^-1 * q.
+    // Multiplying by (Q + rho_partial) gives (Q + rho_partial) * dz_state + q = 0.
+    // This checks the production primal wrapper's inverse-buffer routing,
+    // including the terminal state, without another inverse implementation.
+    float *d_lambda, *d_dz;
+    CHECK_CUDA(cudaMalloc(&d_lambda, (size_t)B * NPAD * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&d_dz, (size_t)B * gato::constants::TRAJ_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMemset(d_lambda, 0, (size_t)B * NPAD * sizeof(float)));
+    compute_dz_batched<float>(B, d_dz, d_lambda, kkt, d_conv);
+    CHECK_CUDA(cudaDeviceSynchronize());
+    std::vector<float> dz((size_t)B * gato::constants::TRAJ_SIZE);
+    CHECK_CUDA(cudaMemcpy(dz.data(), d_dz, dz.size() * sizeof(float), cudaMemcpyDeviceToHost));
+    bool dz_ok = true;
+    for (int b = 0; b < B; ++b)
+        for (int k = 0; k < K; ++k) {
+            const size_t block = (size_t)b * K + k;
+            const size_t offset = (size_t)b * gato::constants::TRAJ_SIZE + k * (D + C);
+            const float* Q = hQ.data() + block * D * D;
+            const float* q = hq.data() + block * D;
+            const float* dx = dz.data() + offset;
+            const double rho = hrho[b];
+            for (int i = 0; i < D; ++i) {
+                double residual = q[i];
+                for (int j = 0; j < D; ++j)
+                    residual += double(Q[j * D + i]) * dx[j];
+                if (i < D / 2)
+                    residual += rho * dx[i];
+                dz_ok &= std::abs(residual) < 2e-5;
+            }
+        }
+    printf("Zero-lambda state residual: %s\n", dz_ok ? "PASS" : "FAIL");
+    fails += !dz_ok;
     std::vector<float> got((size_t)B * NPAD), ref_bits;
     for (uint32_t threads : {32u, 64u, 128u}) {
         CHECK_CUDA(cudaMemset(schur.d_gamma_batch, 0, (size_t)B * NPAD * sizeof(float)));
         compute_gamma_batched_kernel<float><<<dim3(K, B), threads, get_compute_gamma_batched_smem_size<float>()>>>(
-            schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch,
+            schur.d_gamma_batch, kkt.d_Q_inv_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch,
             kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_conv);
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
