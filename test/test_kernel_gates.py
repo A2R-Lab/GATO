@@ -23,7 +23,7 @@ COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-arch=native", "-I", str(_grid.glass
 HARNESSES = {
     "pcg_vs_cpu": [],
     "bdsv_vs_pcg": [],
-    "gamma_parity": ["-DKNOT_POINTS=16", "-DGATO_PLANT_HEADER=\"plant_shim.cuh\"",
+    "gamma_parity": ["-DKNOT_POINTS=128", "-DGATO_PLANT_HEADER=\"plant_shim.cuh\"",
                      "-I", str(REPO / "gato"), "-I", str(HERE / "cuda")],
     "bdsv_factor_solve": ["-DKNOT_POINTS=64", "-DGATO_PLANT_HEADER=\"plant_shim.cuh\"",
                           "-I", str(REPO / "gato"), "-I", str(HERE / "cuda")],

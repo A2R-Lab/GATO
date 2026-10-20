@@ -70,7 +70,8 @@ struct SQPStats {
 template<typename T>
 struct KKTSystem {
         T* d_Q_batch;
-        T* d_R_batch;
+        T* d_R_batch;      // overwritten with R^-1 by Schur assembly (one owner per knot)
+        T* d_Q_inv_batch;  // separate output: adjacent Schur blocks share Q inputs
         T* d_q_batch;
         T* d_r_batch;
         T* d_A_batch;

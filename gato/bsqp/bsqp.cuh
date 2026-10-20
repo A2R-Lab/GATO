@@ -852,8 +852,8 @@ class BSQP {
         // Debug/test surface: run ONLY the KKT setup (linearize + cost blocks +
         // row-group folds + exact-Hessian projection when enabled) on the given
         // trajectory with the CURRENT lagged multipliers, then read the blocks
-        // via copy_kkt_blocks_to_host BEFORE formSchur overwrites Q/R with the
-        // rho-damped inverses. Oracle gate for the exact-Hessian path.
+        // via copy_kkt_blocks_to_host BEFORE formSchur overwrites R with its
+        // inverse (Q stays intact). Oracle gate for the exact-Hessian path.
         void debug_setup_kkt(T* d_xu_traj_batch, ProblemInputs<T> inputs)
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
@@ -1247,6 +1247,7 @@ class BSQP {
                 // Allocate KKT system memory
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_Q_batch, STATE_SQ_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_R_batch, CONTROL_SQ_P_KNOTS * BT));
+                gpuErrchk(cudaMalloc(&kkt_system_batch_.d_Q_inv_batch, STATE_SQ_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_q_batch, STATE_P_KNOTS * BT));
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_r_batch, CONTROL_P_KNOTS * BT));
                 // zero once: setup_kkt never writes the terminal knot's r slot
@@ -1355,6 +1356,7 @@ class BSQP {
 
                 gpuErrchk(cudaFree(kkt_system_batch_.d_Q_batch));
                 gpuErrchk(cudaFree(kkt_system_batch_.d_R_batch));
+                gpuErrchk(cudaFree(kkt_system_batch_.d_Q_inv_batch));
                 gpuErrchk(cudaFree(kkt_system_batch_.d_q_batch));
                 gpuErrchk(cudaFree(kkt_system_batch_.d_r_batch));
                 gpuErrchk(cudaFree(kkt_system_batch_.d_A_batch));

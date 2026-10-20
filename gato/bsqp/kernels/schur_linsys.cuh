@@ -118,8 +118,9 @@ template<typename T>
 __global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kernel1(T* __restrict__       d_S_batch,
                                                                               T* __restrict__       d_P_inv_batch,
                                                                               T* __restrict__       d_gamma_batch,
-                                                                              T* __restrict__       d_Q_batch,
+                                                                              const T* __restrict__ d_Q_batch,
                                                                               T* __restrict__       d_R_batch,
+                                                                              T* __restrict__       d_Q_inv_batch,
                                                                               const T* __restrict__ d_q_batch,
                                                                               const T* __restrict__ d_r_batch,
                                                                               const T* __restrict__ d_A_batch,
@@ -157,11 +158,11 @@ __global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kerne
 
                 // ----- Populate shared memory -----
 
-                T* d_Q_k = get_offset_state_sq<T>(d_Q_batch, solve_idx, knot_idx);
-                T* d_Q_kp1 = get_offset_state_sq<T>(d_Q_batch, solve_idx, knot_idx + 1);
+                const T* d_Q_k = get_offset_state_sq<T>(d_Q_batch, solve_idx, knot_idx);
+                const T* d_Q_kp1 = get_offset_state_sq<T>(d_Q_batch, solve_idx, knot_idx + 1);
                 T* d_R_k = get_offset_control_sq<T>(d_R_batch, solve_idx, knot_idx);
-                glass::copy<T, STATE_SIZE_SQ>(d_Q_k, s_Q_k);
-                glass::copy<T, STATE_SIZE_SQ>(d_Q_kp1, s_Q_kp1);
+                glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_Q_k), s_Q_k);
+                glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_Q_kp1), s_Q_kp1);
                 glass::copy<T, CONTROL_SIZE_SQ>(d_R_k, s_R_k);
                 glass::set_identity<T, STATE_SIZE>(s_Q_k_inv);    // augmented [A|I] right-half for glass::inv
                 glass::set_identity<T, STATE_SIZE>(s_Q_kp1_inv);
@@ -198,11 +199,13 @@ __global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kerne
                 glass::inv<T>(STATE_SIZE, STATE_SIZE, CONTROL_SIZE, STATE_SIZE, s_Q_k, s_Q_kp1, s_R_k, s_scratch);  // fused 3-matrix invert (glass::, P4.3)
                 __syncthreads();
 
-                // save Q_k_inv and R_k_inv into d_Q_batch and d_R_batch for computing dz
-                glass::copy<T, STATE_SIZE_SQ>(s_Q_k_inv, d_Q_k);
+                // Adjacent blocks still read Q_k/Q_kp1. Store inverses separately
+                // so a late reader cannot invert a neighbor's already-inverted Q.
+                glass::copy<T, STATE_SIZE_SQ>(s_Q_k_inv, get_offset_state_sq<T>(d_Q_inv_batch, solve_idx, knot_idx));
+                // R_k has only this block as a reader, so its inverse can stay in place.
                 glass::copy<T, CONTROL_SIZE_SQ>(s_R_k_inv, d_R_k);
                 if (knot_idx == KNOT_POINTS - 2) {  // last knot doesn't compute Q_k_inv, so use second last knot's Q_kp1_inv
-                        glass::copy<T, STATE_SIZE_SQ>(s_Q_kp1_inv, d_Q_kp1);
+                        glass::copy<T, STATE_SIZE_SQ>(s_Q_kp1_inv, get_offset_state_sq<T>(d_Q_inv_batch, solve_idx, knot_idx + 1));
                 }
 
                 // copy Q_kp1_inv into theta_k to save a sum operation
@@ -255,10 +258,10 @@ __global__ __launch_bounds__(SCHUR_THREADS) void form_schur_system_batched_kerne
 
         } else {  // last knot deals with Q_0 computations
 
-                T*       d_Q_0 = get_offset_state_sq<T>(d_Q_batch, solve_idx, 0);
+                const T* d_Q_0 = get_offset_state_sq<T>(d_Q_batch, solve_idx, 0);
                 const T* d_q_0 = get_offset_state<T>(d_q_batch, solve_idx, 0);
                 const T* d_c_0 = get_offset_state<T>(d_c_batch, solve_idx, 0);
-                glass::copy<T, STATE_SIZE_SQ>(d_Q_0, s_Q_k);
+                glass::copy<T, STATE_SIZE_SQ>(const_cast<T*>(d_Q_0), s_Q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_q_0), s_q_k);
                 glass::copy<T, STATE_SIZE>(const_cast<T*>(d_c_0), s_gamma_k);
                 glass::set_identity<T, STATE_SIZE>(s_Q_k_inv);  // augmented [A|I] right-half for glass::inv
@@ -345,7 +348,7 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
         opt_in_dynamic_smem(form_schur_system_batched_kernel2<T>, s_mem_size2, attr2);
 
         form_schur_system_batched_kernel1<T><<<grid1, thread_block, s_mem_size1>>>(
-            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
+            schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_Q_inv_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_rho_penalty_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 
         form_schur_system_batched_kernel2<T><<<grid2, thread_block, s_mem_size2>>>(schur.d_S_batch, schur.d_P_inv_batch, d_kkt_converged_batch);
@@ -357,7 +360,7 @@ __host__ void form_schur_system_batched(uint32_t batch_size, SchurSystem<T> schu
 // re-solves the SAME factored Schur system with a new RHS each iteration —
 // only q/r change (dual/projection terms), so S, Pinv, and the stored
 // Q^-1/R^-1 blocks are all still valid. This kernel rebuilds ONLY gamma from
-// the inverses form_schur_system_batched_kernel1 left in d_Q_batch/d_R_batch,
+// the inverses form_schur_system_batched_kernel1 left in d_Q_inv_batch/d_R_batch,
 // mirroring its gamma op sequence exactly (same glass calls, same order) so
 // the parity gate is BITWISE (test/cuda/gamma_parity.cu). knot 0's gamma uses
 // the STORED (Q_0 + rho)^-1 — formSchur's last-knot block re-inverts fresh via
@@ -452,7 +455,7 @@ __host__ void compute_gamma_batched(uint32_t batch_size, SchurSystem<T> schur, K
         static size_t attr_bytes = 0;
         opt_in_dynamic_smem(compute_gamma_batched_kernel<T>, s_mem_size, attr_bytes);
         compute_gamma_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(
-            schur.d_gamma_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_kkt_converged_batch);
+            schur.d_gamma_batch, kkt.d_Q_inv_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, kkt.d_c_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 
@@ -575,6 +578,6 @@ __host__ void compute_dz_batched(uint32_t batch_size, T* d_dz_batch, T* d_lambda
         static size_t  attr_bytes = 0;
         opt_in_dynamic_smem(compute_dz_batched_kernel<T>, s_mem_size, attr_bytes);
 
-        compute_dz_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
+        compute_dz_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_dz_batch, d_lambda_batch, kkt.d_Q_inv_batch, kkt.d_R_batch, kkt.d_q_batch, kkt.d_r_batch, kkt.d_A_batch, kkt.d_B_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
