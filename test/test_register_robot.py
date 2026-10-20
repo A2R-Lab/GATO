@@ -108,3 +108,57 @@ def test_vendored_robot_compiles_from_bundled_headers(cache, urdfs, caplog):
     goals = np.zeros((1, N * 6), np.float32)
     goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
     assert np.isfinite(s.solve(x, goals).xu).all()
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_registered_signed_and_mixed_axes_match_pinocchio(cache, tmp_path):
+    """Signed, mixed-axis dynamics and linearization match Pinocchio in Release."""
+    import pinocchio as pin
+
+    urdf = tmp_path / "mixed_axes.urdf"
+    links, joints = [], []
+    # Cardinal axes use GRiD's helper-index/sign path rather than its skew-axis path.
+    for i, axis in enumerate(("0 0 1", "0 0 -1", "1 0 0"), 1):
+        links.append(f'''<link name="l{i}"><inertial>
+          <origin xyz=".12 .03 .02"/><mass value="1"/>
+          <inertia ixx=".02" iyy=".03" izz=".04" ixy="0" ixz="0" iyz="0"/>
+        </inertial><collision><geometry><sphere radius=".04"/></geometry></collision></link>''')
+        parent = "base" if i == 1 else f"l{i-1}"
+        joints.append(f'''<joint name="j{i}" type="revolute">
+          <parent link="{parent}"/><child link="l{i}"/>
+          <origin xyz=".25 .02 .04"/><axis xyz="{axis}"/>
+          <limit lower="-2" upper="2" effort="20" velocity="3"/></joint>''')
+    urdf.write_text('<robot name="mixed_axes"><link name="base"/>'
+                    + ''.join(links + joints)
+                    + '<link name="tool"/><joint name="EE" type="fixed">'
+                      '<parent link="l3"/><child link="tool"/>'
+                      '<origin xyz=".2 0 0"/></joint></robot>')
+    name, N, dt = "cachebot_mixed_axes", 8, .01
+    gato.register_robot(name, urdf, N=[N])
+    s = gato.BSQP(str(urdf), batch_size=1, N=N, dt=dt, plant_type=name)
+    model = pin.buildModelFromUrdf(str(urdf))
+    data = model.createData()
+    q = np.array([.3, -.4, .2])
+    v = np.array([.2, -.1, .15])
+    u = np.array([.7, -.3, .5])
+    x = np.r_[q, v]
+    got = np.asarray(s.sim_forward(x[None], u[None], dt))[0]
+    acceleration = pin.aba(model, data, q, v, u)
+    expected = np.r_[q + dt * v + .5 * dt**2 * acceleration, v + dt * acceleration]
+    np.testing.assert_allclose(got, expected, atol=2e-5, rtol=1e-4)
+
+    # Compare the discrete-step A/B matrices with Pinocchio derivatives.
+    xu = np.tile(np.r_[x, u], N)[:-3]
+    # KKT setup requires a reference; its values do not affect A/B.
+    goals = np.zeros((1, N * 6), dtype=np.float32)
+    kkt = s.debug_setup_kkt(xu[None], x[None], goals)
+    aq, av, au = pin.computeABADerivatives(model, data, q, v, u)
+    eye = np.eye(3)
+    expected_A = np.block([[eye + .5 * dt**2 * aq, dt * eye + .5 * dt**2 * av],
+                           [dt * aq, eye + dt * av]])
+    expected_B = np.vstack([.5 * dt**2 * au, dt * au])
+    A = np.asarray(kkt["A"])[0].reshape(N, 6, 6)[0].T
+    B = np.asarray(kkt["B"])[0].reshape(N, 3, 6)[0].T
+    np.testing.assert_allclose(A, expected_A, atol=2e-5, rtol=1e-4)
+    np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)

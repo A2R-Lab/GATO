@@ -50,6 +50,21 @@ namespace plant {
         inline constexpr int XIMATS_COUNT = grid::DYNAMICS_XI_T_COUNT;  // X + I (6x6 each) per body
         inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES;      // v, a, f (6 each) per body
 
+        // A serial chain can still need integer helpers when motion subspaces
+        // differ (negative or oblique axes). Append them after the T arena;
+        // rounding preserves the caller's T-element scratch accounting.
+        template<typename T>
+        __host__ __device__ constexpr unsigned topology_helpers_smem_ct()
+        {
+                return (grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T);
+        }
+
+        template<typename T>
+        __device__ __forceinline__ int* topology_helpers_at(T* tail)
+        {
+                return grid::TOPOLOGY_HELPERS_COUNT > 0 ? reinterpret_cast<int*>(tail) : nullptr;
+        }
+
 #if GATO_CONTACT_FORCES
     #if USE_EXACT_HESSIAN
         #error "GATO_CONTACT_FORCES x USE_EXACT_HESSIAN unsupported (fdsva_so is not fc-aware; W2+ item)"
@@ -165,10 +180,9 @@ namespace plant {
         // strictly-ordered inner calls, same pattern as contact_debug.cuh).
         template<typename T>
         __device__ void build_contact_fext(T* s_fext, const T* s_fc, const T* s_q,
-                                         T* s_XmatsHom, T* s_temp,
+                                         T* s_XmatsHom, T* s_temp, int* s_topology_helpers,
                                          grid::robotModel<T>* d_robotModel, const T* d_f_ext_band)
         {
-                int* s_topology_helpers = nullptr;
                 grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 __syncthreads();
                 grid::f_ext_body_inner<T>(s_fext, s_fc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
@@ -227,9 +241,8 @@ namespace plant {
         template<typename T>
         __device__ void forward_dynamics(T* s_qdd, T* s_q, T* s_qd, T* s_u, T* s_XITemp, void* d_dynMem_const, T* d_f_ext = nullptr)
         {
-                // TOPOLOGY_HELPERS_COUNT == 0 for fixed serial chains; the inners never
-                // dereference a zero-count helper buffer, so a null pointer is safe.
-                int* s_topology_helpers = nullptr;
+                int* s_topology_helpers = topology_helpers_at(
+                    s_XITemp + grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT);
                 T* s_XImats = s_XITemp;
                 T* s_temp = &s_XITemp[XIMATS_COUNT];
 #if GATO_CONTACT_FORCES
@@ -238,7 +251,7 @@ namespace plant {
                 // FC_PERSIST_COUNT below).
                 T* s_XmatsHom = &s_XITemp[grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT];
                 T* s_fext = s_XmatsHom + grid::XHOM_T_COUNT;
-                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp,
+                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, s_topology_helpers,
                                     (grid::robotModel<T>*)d_dynMem_const, d_f_ext);
                 d_f_ext = s_fext;
 #endif
@@ -251,9 +264,10 @@ namespace plant {
                 grid::forward_dynamics_inner<T>(s_qdd, s_q, s_qd, s_u, s_XImats, s_topology_helpers, s_temp, /*d_workspace*/nullptr, d_f_ext, gato::plant::GRAVITY<T>());
         }
 
+        template<typename T>
         __host__ __device__ constexpr unsigned forward_dynamics_smem_ct()
         {
-                return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
+                return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT + topology_helpers_smem_ct<T>();
         }
 
         template<typename T, bool INCLUDE_DU = true>
@@ -262,7 +276,8 @@ namespace plant {
                 T*                   s_XITemp = s_temp_in;
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
 
-                int* s_topology_helpers = nullptr;   // TOPOLOGY_HELPERS_COUNT == 0 (fixed chain)
+                int* s_topology_helpers = topology_helpers_at(
+                    s_XITemp + grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT);
                 T* s_XImats = s_XITemp;
                 T* s_vaf = &s_XITemp[XIMATS_COUNT];
                 T* s_dc_du = &s_vaf[VAF_COUNT];
@@ -279,7 +294,7 @@ namespace plant {
                 T* s_dtau_dfc   = s_dfext_dfc + FEXT_COUNT * FC;  // NQ x FC,  [k + NQ*c]
                 T* s_dfext_dq   = s_dtau_dfc + NQ * FC;           // 6NB x NQ, [row + 6NB*v]
                 T* s_dtau_dq    = s_dfext_dq + FEXT_COUNT * NQ;   // NQ x NQ,  [v*NQ + k]
-                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, d_robotModel, d_f_ext);
+                build_contact_fext<T>(s_fext, &s_u[NU], s_q, s_XmatsHom, s_temp, s_topology_helpers, d_robotModel, d_f_ext);
                 d_f_ext = s_fext;
 #endif
                 grid::load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -352,9 +367,10 @@ namespace plant {
 #endif
         }
 
+        template<typename T>
         __host__ __device__ constexpr unsigned forward_dynamics_gradient_smem_ct()
         {
-                return grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT;
+                return grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT + topology_helpers_smem_ct<T>();
         }
 
 #if USE_EXACT_HESSIAN
@@ -370,7 +386,7 @@ namespace plant {
         __host__ __device__ inline unsigned exact_hessian_so_smem_ct()
         {
                 return NQ + NQ + NQ * NQ + 2 * NQ * NQ + 2 * grid::SECOND_ORDER_TENSOR_SIZE + XIMATS_COUNT
-                       + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T));
+                       + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T)) + topology_helpers_smem_ct<T>();
         }
 
         // Adds E = sum_i w_i * d2a_i/dz2 (z = [q; qd; u], column-major (NX+NU)^2)
@@ -413,6 +429,8 @@ namespace plant {
                 T*            s_idsva_so = s_df2 + grid::SECOND_ORDER_TENSOR_SIZE;
                 T*            s_XImats = s_idsva_so + grid::SECOND_ORDER_TENSOR_SIZE;
                 T*            s_sotemp = s_XImats + XIMATS_COUNT;
+                int* s_topology_helpers = topology_helpers_at(
+                    s_so + exact_hessian_so_smem_ct<T>() - topology_helpers_smem_ct<T>());
 
                 for (int i = threadIdx.x; i < NQ; i += blockDim.x) {
                         const T cq = (INTEGRATOR_TYPE == 0) ? static_cast<T>(0) : (INTEGRATOR_TYPE == 1 ? dt * dt : static_cast<T>(0.5) * dt * dt);
@@ -420,7 +438,7 @@ namespace plant {
                 }
                 // no barrier needed: s_w is disjoint from the fdsva arena, and the
                 // contraction reads below are ordered by fdsva's internal barriers
-                grid::fdsva_so_device<T, true, false, true>(s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_xux, s_xux + NQ, s_xux + NX, s_XImats, /*s_topology_helpers*/nullptr, s_sotemp,
+                grid::fdsva_so_device<T, true, false, true>(s_df2, s_idsva_so, s_Minv, s_df_du, s_qdd, s_xux, s_xux + NQ, s_xux + NX, s_XImats, s_topology_helpers, s_sotemp,
                                                             /*d_workspace*/nullptr, /*d_fd_grad_spill*/nullptr, /*s_fdsva_temp*/nullptr, (const grid::robotModel<T>*)d_dynMem_const, GRAVITY<T>());
                 __syncthreads();  // fdsva tensor writes -> contraction reads
 
