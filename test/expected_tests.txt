@@ -36,6 +36,7 @@ test/test_arrays.py::test_jax_pointer_waits_for_producer
 test/test_arrays.py::test_kind_and_host_conversions
 test/test_arrays.py::test_resident_warm_start_api
 test/test_benchmark_data.py::test_oct19_timing_inventory_and_effective_configuration
+test/test_benchmark_data.py::test_oct20_controller_replay_evidence
 test/test_benchmark_data.py::test_timing_launcher_isolates_results_and_calibration
 test/test_bindings_shapes.py::test_broadcast_reference_and_f64_state_match_contiguous
 test/test_bindings_shapes.py::test_fortran_order_f_ext_matches_c_order

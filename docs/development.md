@@ -85,8 +85,12 @@ completion and native solve duration have separate raw samples. Input creation,
 upload, controller construction/reset and output parity downloads are excluded;
 this is not the sensor-to-actuator latency or an asynchronous-throughputput test.
 
-Reserve 20 minutes for the first collection on the lab box; this is an estimate,
-not a measured runtime. A `STOP` file in the announced run directory stops at
+The October 20 correctness fence plus replay took about 70 seconds per
+collection on the lab RTX 5090. Reserve ten minutes for two
+collections and preflight on that box; other hardware may take longer.
+[Results and boundaries](consumer_contract.md#host-and-device-replay-on-october-20)
+include host tails and do not establish a device-path speedup.
+A `STOP` file in the announced run directory stops at
 the next three-path group. Partial results remain diagnostic; restart into a
 fresh directory and retain the old one. Do not combine repeats across revisions
 or report an incomplete inventory as a completed batch. Never kill another

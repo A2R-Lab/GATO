@@ -100,6 +100,8 @@ The [assigned-window launcher](benchmarks/run_controller_replay.sh) records
 three rotated-order repeats, external call-through-device-completion latency
 and native solve time separately. This kinematic replay measures controller
 overhead, not closed-loop task quality or a complete robot-cycle deadline.
+The [October 20 measurements](../docs/consumer_contract.md#host-and-device-replay-on-october-20)
+retain two full collections: device inputs do not reduce latency in this replay.
 
 The [torque clipping A/B](benchmarks/torque_clip_ab.py) is a fixed-pacing
 correctness experiment, not a timing benchmark. It pairs identical development

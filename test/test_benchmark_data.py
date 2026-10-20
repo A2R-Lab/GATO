@@ -5,6 +5,8 @@ import json
 import math
 import subprocess
 
+import numpy as np
+
 
 def test_timing_launcher_isolates_results_and_calibration(repo_root):
     launcher = repo_root / "examples/benchmarks/run_timing_w2a.sh"
@@ -15,6 +17,57 @@ def test_timing_launcher_isolates_results_and_calibration(repo_root):
     assert 'fatal "commit tracked changes before timing"' in text
     assert 'fence-identity' in text and 'fence-gpu' in text
     assert '|| exit 1' in text
+
+
+def test_oct20_controller_replay_evidence(repo_root):
+    root = repo_root / "examples/benchmarks/data/controller_replay"
+    hashes = (
+        "cc10c0ad6cece668d79cda2ab2561cc0eb20aec82bd711fa8d9eb29b3578896a",
+        "cef4ef58747af39b473603b06942fd7640c37b2712b810ac0b348616cf2a18a0",
+    )
+    plants = ("indy7", "iiwa14", "fr3", "gen3", "ur5e")
+    kinds = ("numpy", "torch", "jax")
+    expected = set(itertools.product(plants, (1, 8), ("off", "admm"), range(3), kinds))
+    plans, inputs, identities = {}, {}, {}
+    for run, digest in enumerate(hashes, 1):
+        raw = root / f"20261020_run{run}.jsonl"
+        assert hashlib.sha256(raw.read_bytes()).hexdigest() == digest
+        rows = [json.loads(line) for line in raw.read_text().splitlines()]
+        assert len(rows) == len(expected) == 180
+        assert {(r["plant"], r["batch"], r["limits"], r["repeat"], r["kind"])
+                for r in rows} == expected
+        for r in rows:
+            assert r["mode"] == "timing" and r["quotable"] and r["parity"] == "PASS"
+            assert r["provenance"]["sha"] == "519c57a2b1a9f819ed06d89198b966c479d2075a"
+            assert not r["provenance"]["dirty"]
+            assert r["N"] == 64 and r["dt"] == .01
+            assert r["samples"] == 200 and r["warmup"] == 20
+            assert r["versions"] == dict(torch="2.14.1", jax="0.11.2",
+                                         numpy="2.4.6", **{"grid-rbd": "0.5.3"})
+            order = r["repeat"]
+            assert r["order"] == list(kinds[order:] + kinds[:order])
+            assert r["effective_limits"] == ("" if r["limits"] == "off" else "admm")
+            assert r["admm_exit"] == [0, 0 if r["limits"] == "off" else .01, 1]
+            assert r["linsys"] == "auto" and r["bdsv_threshold"] == .1
+            assert r["admm_linsys"] == "bdsv_factor"
+            assert r["iterations"] == [1] * 220
+            assert len(r["pred_err"]) == 220 and np.isfinite(r["pred_err"]).all()
+            assert math.isfinite(r["row_violation_max"])
+            for fence in (r["box_before"], r["box_after"]):
+                assert not fence["foreign_pids"] and fence["load1"] < 1
+                assert "RTX 5090" in fence["gpu"] and "615.71.09" in fence["gpu"]
+            cell = r["plant"], r["batch"], r["limits"]
+            assert plans.setdefault(cell, r["plan_telemetry_sha256"]) == r["plan_telemetry_sha256"]
+            assert inputs.setdefault(r["plant"], r["input_sha256"]) == r["input_sha256"]
+            assert identities.setdefault(r["plant"], r["native_source_id"]) == r["native_source_id"]
+            for boundary in ("call_complete", "native_solve"):
+                samples = np.asarray(r[f"{boundary}_samples_ms"])
+                assert samples.shape == (200,) and np.isfinite(samples).all()
+                assert (samples >= 0).all()
+                stats = r[f"{boundary}_ms"]
+                values = [*np.percentile(samples, [50, 90, 99]), samples.max(), samples.mean()]
+                np.testing.assert_allclose([stats[k] for k in ("p50", "p90", "p99", "max", "mean")],
+                                           values, rtol=1e-12, atol=1e-12)
 
 
 def test_oct19_timing_inventory_and_effective_configuration(repo_root):

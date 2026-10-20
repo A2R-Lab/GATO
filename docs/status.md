@@ -70,8 +70,11 @@ research software, not a certified robot controller.
   The [October 19 matrix](constraints.md#current-default-timing-on-october-19)
   measures current-default native solve time on Indy7/iiwa14 N32/N64.
   Separate [N64 call-budget measurements](consumer_contract.md#controller-call-timing-on-october-19)
-  show that iteration-boundary budgets can still overrun. Device-resident
-  and new-arm performance remain unmeasured by that batch.
+  show that iteration-boundary budgets can still overrun. The
+  [October 20 replay](consumer_contract.md#host-and-device-replay-on-october-20)
+  measures all five arms at N64, batches 1/8 and limits off/default ADMM:
+  NumPy calls are faster than PyTorch/JAX in this protocol. Host latency
+  spikes remain visible; neither residency nor small medians guarantee deadlines.
 - **Dependencies:** MuJoCo remains pinned below 3.14 pending verification of a
   version fixing the observed URDF-compilation crash. Do not bypass that pin
   based solely on a newer version number.

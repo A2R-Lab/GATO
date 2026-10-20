@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gato-mpc"           # import name: gato (PyPI's "gato" is an unrelated 2021 graph toolbox)
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     { name="Alexander Du" },
     { name="Emre Adabag" },

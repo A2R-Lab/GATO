@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## Unreleased
+## Unreleased — 0.1.2 candidate
 
 - Await JAX input producers before handing their CUDA pointers to native
   default-stream calls; asynchronously produced slices could otherwise corrupt
@@ -10,7 +10,10 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   all five arms at N64, with and without default limit rows, at batches 1 and 8.
 - Add a correctness-first controller replay and guarded timing launcher with
   isolated results, matched inputs, rotated path order and separate native and
-  call-through-completion boundaries. Timing results remain pending.
+  call-through-completion boundaries. Two October 20 collections retain all
+  360 rows / 72,000 sampled calls. NumPy calls beat PyTorch/JAX in this
+  bounded replay; native durations stay close and host tails remain visible.
+  See the consumer contract for measured scope and limitations.
 - Verify the signed GPU receipt in the package-publishing workflow before
   building release artifacts. Example 14 adds a correctness-only mode without
   clock-dependent iteration budgets or duration reporting.

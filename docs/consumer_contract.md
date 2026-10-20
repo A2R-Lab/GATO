@@ -222,6 +222,65 @@ measure the default ADMM controller or the device-resident path.
 also include the separate native-solve constraint matrix described in
 [constraints](constraints.md#current-default-timing-on-october-19).
 
+### Host and device replay on October 20
+
+Two independent collections on the quiet RTX 5090 at `519c57a` compare
+NumPy, CUDA PyTorch and CUDA JAX at N64 and batches 1 and 8, with limits
+off or default ADMM. Each collection has three array-order-rotated repeats,
+20 warmup calls and 200 sampled calls per cell: 360 rows and 72,000 sampled
+calls in total. All plans and telemetry pass cross-path parity. Each call
+performs one SQP iteration, with no time budget or hypothesis batch.
+
+The input is a prescribed small sinusoidal joint-motion replay with future
+FK references, **not a physical closed-loop task**. Batch 8 repeats the same
+problem; it is not a hypothesis-throughputput experiment. Call time is an
+external host clock through device completion. Input preparation/upload,
+reset and output parity downloads are outside that boundary. Native time is
+reported separately. Per-call parity downloads between samples are part of
+this replay protocol, not an asynchronous production pipeline.
+
+Default-ADMM call durations below are milliseconds: median [minimum–maximum]
+of six repeat medians across the two collections. These are repeat ranges,
+not confidence intervals. The last column is the corresponding NumPy-path
+native-solve median.
+
+| Arm | Batch | NumPy call | PyTorch call | JAX call | Native |
+|---|---:|---:|---:|---:|---:|
+| Indy7 | 1 | 0.933 [0.932–0.935] | 0.967 [0.962–0.969] | 1.366 [1.295–1.437] | 0.840 |
+| Indy7 | 8 | 1.105 [1.104–1.109] | 1.130 [1.125–1.131] | 1.664 [1.547–2.063] | 0.998 |
+| iiwa14 | 1 | 1.072 [1.071–1.073] | 1.107 [1.104–1.110] | 1.456 [1.448–1.766] | 0.978 |
+| iiwa14 | 8 | 1.284 [1.283–1.284] | 1.307 [1.303–1.310] | 1.733 [1.724–2.105] | 1.176 |
+| FR3 | 1 | 1.070 [1.068–1.071] | 1.104 [1.102–1.105] | 1.472 [1.441–1.819] | 0.976 |
+| FR3 | 8 | 1.260 [1.259–1.260] | 1.283 [1.281–1.290] | 1.854 [1.723–2.022] | 1.152 |
+| Gen3 | 1 | 1.065 [1.064–1.069] | 1.103 [1.099–1.110] | 1.562 [1.492–1.671] | 0.971 |
+| Gen3 | 8 | 1.284 [1.281–1.292] | 1.307 [1.304–1.314] | 2.077 [1.898–2.271] | 1.176 |
+| UR5e | 1 | 0.926 [0.925–0.932] | 0.961 [0.959–0.964] | 1.460 [1.344–1.720] | 0.832 |
+| UR5e | 8 | 1.091 [1.085–1.097] | 1.116 [1.111–1.122] | 1.634 [1.552–1.915] | 0.984 |
+
+**Device residency is not a latency speedup in this replay.** Across all
+20 arm/batch/limit cells, PyTorch call medians are 1.018–1.396× NumPy and
+JAX medians are 1.350–3.531× NumPy. Native durations remain close; residency
+provides interoperability and avoids trajectory host copies, but framework
+and wrapper work still costs time. Larger batches and overlapping pipelines
+need separate measurements. Versions: NumPy 2.4.6, PyTorch 2.14.1, JAX 0.11.2,
+grid-rbd 0.5.3; driver 615.71.09, performance CPU governors, no foreign
+compute processes recorded. Installed calibration was unchanged.
+
+Tails are retained. Default-ADMM maxima are 1.837 / 1.564 / 3.378 ms for
+NumPy / PyTorch / JAX. With limits off, Indy7 batch 8 has a 42.702 ms and
+43.237 ms NumPy call in the two collections, each with only 0.122 ms native
+solve time. A separately instrumented diagnostic observed a generation-2
+Python GC pause of 42.687 ms inside a different call; this identifies a
+possible host-pause mechanism, not the exact cause of the original samples.
+No samples were trimmed and GC was not disabled. Neither these medians nor
+the default-ADMM maxima establish hard deadlines or physical feasibility.
+
+Raw samples, configurations and provenance: [collection 1](../examples/benchmarks/data/controller_replay/20261020_run1.jsonl)
+and [collection 2](../examples/benchmarks/data/controller_replay/20261020_run2.jsonl).
+The [launcher protocol](development.md#controller-replay-before-release)
+and inventory regression preserve all cells, including limits-off results.
+These measurements do not replace the paper figures or earlier dated results.
+
 ## 5. What the gpu-proof receipt does and does not attest
 
 The signed receipt (`gpu-proof.json`, verified in CI) attests the recorded tests

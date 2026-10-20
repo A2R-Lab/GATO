@@ -125,7 +125,7 @@ migrated to `glass::`.
   - `builder.py` — `gato.build(urdf, ..., floating_base=, contact_frames=, contact_forces=,
     exact_hessian=)` codegen+compile; `_registry.json` (tracked) holds robot metadata.
   - `common.py` — figure8 / rk4 / manifold helpers.
-- `examples/` — intro demos `01..08` + `explore.ipynb` + robot URDFs; `paper-figures/`
+- `examples/` — intro demos `01..14` + `explore.ipynb` + robot URDFs; `paper-figures/`
   (`reproduce_fig*.py`, `_common.py`, `_pickplace_runner.py`); `benchmarks/` (`_bench.py` shared
   helpers, `iiwa_fig8_shared.py`, `constraint_eval.py`, `_linsys_probe.py`/`linsys_auto_cdf.py`,
   `run_timing_night.sh`, `baselines/` incl. the opt-in `sqpcpu` submodule); `contact-task/`
