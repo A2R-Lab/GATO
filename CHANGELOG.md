@@ -2,8 +2,15 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## Unreleased — 0.1.2 candidate
+## 0.1.2 — 2026-10-20: three more arms, device-resident control, documentation site
 
+- Schur assembly no longer overwrites the Q Hessians with their inverses in
+  place. Adjacent knot blocks read the same Q, so a late block could invert an
+  already inverted neighbour and assemble the wrong system; the inverses now
+  live in a separate solver-lifetime buffer that gamma rebuilding and primal
+  recovery read. The gamma parity harness runs at N128, where the hazard
+  reproduced on a GTX 1070, and checks zero-multiplier state recovery.
+  Contributed by Felix Mueh (PR #18).
 - Await JAX input producers before handing their CUDA pointers to native
   default-stream calls; asynchronously produced slices could otherwise corrupt
   the controller's warm-start error signal. Host/device replay gates cover
