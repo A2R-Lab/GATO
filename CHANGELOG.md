@@ -4,6 +4,16 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Await JAX input producers before handing their CUDA pointers to native
+  default-stream calls; asynchronously produced slices could otherwise corrupt
+  the controller's warm-start error signal. Host/device replay gates cover
+  all five arms at N64, with and without default limit rows, at batches 1 and 8.
+- Add a correctness-first controller replay and guarded timing launcher with
+  isolated results, matched inputs, rotated path order and separate native and
+  call-through-completion boundaries. Timing results remain pending.
+- Verify the signed GPU receipt in the package-publishing workflow before
+  building release artifacts. Example 14 adds a correctness-only mode without
+  clock-dependent iteration budgets or duration reporting.
 - Correct timing-probe initialization so free cases have no limit rows and
   fixed-iteration ADMM cases do not inherit the controller's residual exit.
   Regression gates and effective settings accompany the October 19 timing

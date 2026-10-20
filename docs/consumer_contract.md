@@ -98,8 +98,10 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   back on the device through DLPack — no host round trip, bit-identical to the
   host path. A device `xu_warm` must live on the same device and is used as
   given (knot-0 states replaced by `xcur_B`; no floating-base quaternion
-  healing). CPU tensors take the host path. Inputs must be complete on the
-  device: synchronize side streams before calling. `MPCController.step()` on
+  healing). CPU tensors take the host path. Native calls use the default CUDA
+  stream: synchronize PyTorch side-stream producers before calling. The JAX
+  boundary awaits each input's producer before reading its pointer; this also
+  covers asynchronous slices and dtype conversions. `MPCController.step()` on
   CUDA inputs (state and reference both, no hypothesis batch) takes the device
   path too: the warm start lives in the solver's resident buffer
   (`BSQP.set_warm` / `get_warm` / `hold_warm` / `solve_warm` / `shift_warm`),

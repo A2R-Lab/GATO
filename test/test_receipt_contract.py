@@ -28,6 +28,11 @@ def test_receipt_scope_and_fail_closed_ci():
     assert policy['required_test_manifest'] == 'test/expected_tests.txt'
     workflow = (ROOT/'.github/workflows/verify-gpu-proof.yml').read_text()
     assert "steps.receipt.outputs.present" not in workflow
+    publish = (ROOT/'.github/workflows/publish.yml').read_text()
+    assert 'fetch-depth: 0' in publish
+    assert 'gpu-proof verify --receipt gpu-proof.json --repo .' in publish
+    assert '--expected-skips test/expected_skips.txt --require-gpu' in publish
+    assert publish.index('Verify the release receipt') < publish.index('Build sdist and wheel')
 
 
 @pytest.mark.parametrize('args,addopts', [(['-k', 'smoke'], ''), ([], '-k smoke')])

@@ -1,7 +1,8 @@
 # Feature status and limitations
 
 Scope: the source revision containing this document. “Covered” means specific committed tests exercise a capability; it is not a guarantee for every problem,
-hardware configuration or combination of features. This remains source-installed
+hardware configuration or combination of features. CUDA modules build locally
+from either a wheel or a checkout. This remains
 research software, not a certified robot controller.
 
 | Capability | Evidence / supported scope | Boundary |
@@ -56,7 +57,9 @@ research software, not a certified robot controller.
   both finite-solve dynamics inconsistency and planner/simulator integration
   mismatch. Small box-row violations do not bound either error.
 - **Integration:** default-stream execution is the supported path; do not
-  assume concurrent solves on a shared solver instance are supported.
+  assume concurrent solves on a shared solver instance are supported. JAX
+  input producers are awaited before native pointer access. PyTorch inputs
+  produced on a non-default stream need caller-side synchronization.
 - **Timing:** internal solve time and `MPCController.step` wall time have
   different boundaries. Neither includes the entire robot cycle; small median
   durations do not establish deadline compliance. `step(..., budget_s=...)`

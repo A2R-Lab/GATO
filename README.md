@@ -13,8 +13,9 @@ standing and contact-row examples are available; closed-loop walking is still
 in development. See the feature-status page for the tested scope.
 Constraint mechanisms and simulated goal arrival do not by themselves establish
 joint-limit feasibility. Check solver residuals and the physical trajectory;
-the payload holdout and timing-boundary results are described in the
-[dated experiment report](docs/figure-refresh-2026-10-01.md).
+the current-default arm holdouts and timing results are described in
+[constraints](docs/constraints.md). The [dated experiment report](docs/figure-refresh-2026-10-01.md)
+covers the paper-comparison and payload studies at their recorded revisions.
 
 ## Quick start
 
@@ -28,6 +29,10 @@ Prerequisites (Linux):
 - Python ≥ 3.10
 
 ### pip install
+
+The commands below install the published version. Features listed under
+`Unreleased` in [CHANGELOG.md](CHANGELOG.md) require the corresponding source
+revision until the next package release.
 
 ```sh
 pip install gato-mpc        # the import name is gato
@@ -107,11 +112,12 @@ toolkit, CMake, Python — that drops you into a shell with the repo mounted; yo
 then run the same `tools/install.sh` + `tools/build.sh` inside it. It does not
 build GATO for you.
 
-**Distribution:** the supported native build path is a Git checkout plus the
-pinned `grid-rbd` wheel (the install script does this). The pure-python wheel
-contains no solver modules; these are GPU-arch/CUDA/ABI-specific CMake products.
-The sdist contains GATO's own build sources; the GRiD code generator and the
-GLASS/collision headers it compiles against come from `grid-rbd` at build time.
+**Distribution:** both the wheel and a Git checkout support local CUDA builds.
+The universal wheel carries Python, GATO's native sources and bundled robot
+descriptions, but no compiled solver modules; these are GPU-arch/CUDA/ABI-specific
+CMake products built locally. The sdist also contains the build sources.
+Both paths obtain the GRiD code generator and GLASS/collision headers from the
+pinned `grid-rbd` wheel.
 
 ### Build Options
 
@@ -124,7 +130,7 @@ cmake -S . -B build -DGATO_RECEIPT_PROFILE=ON                     # exactly test
 cmake --build build --parallel 2                                # RAM-bound: roughly 1-7 GB per job
 ```
 
-- `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `go2`).
+- `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `fr3`, `gen3`, `ur5e`, `go2`).
 - `KNOTS`: semicolon-separated horizon lengths — crossed with EVERY plant, so
   use `MODULES` when plants differ (go2 is **N16-only**; longer floating-base
   horizons are compile blowups).
@@ -197,11 +203,11 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `03_mpc_loop.py`, `04_gym_mpc.py` (MPC-as-policy + force-hypothesis batch),
 `05_build_your_robot.py` (`gato.register_robot` / `gato.build` on your URDF), `06_constraints.py`,
 `07_go2_floating.py` (quadruped, floating base), `08_linsys_and_autotune.py`,
-`09_mpc_with_limits.py` (joint limits enforced in closed loop),
+`09_mpc_with_limits.py` (limit mechanisms and simulated closed-loop violations),
 `10_torch_jax_arrays.py` (the solver and the controller on torch / JAX device tensors),
 `11_deadline_step.py` (the step budget), `12_constraint_mechanisms.py` (the four limit
 mechanisms on one task), `13_more_arms.py` (the FR3, Gen3 and UR5e on figure-8s sized
-from their own limits).
+from their own limits), `14_mujoco_closed_loop.py` (an independent MuJoCo loop).
 See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).
 
 ### C++/CUDA interface (power users)
@@ -234,7 +240,7 @@ from a wheel or a checkout. Plant, horizon and variant are compile-time
 |---|---|---|
 | `gato.SolverParams` | THE solver configuration (frozen dataclass, `.replace()`) | every knob: SQP/PCG budgets, `mu`, `rho`, cost weights, `linsys`, `exact_hessian` |
 | `gato.BSQP` | one compiled module + its device buffers; **stateless in the trajectory**, stateful in duals / adapted rho | `solve(x, ref, xu_warm=None)`, the `set_*` cost/constraint surface, `ee_pos`, `sim_forward` |
-| `gato.MPCController` | the warm-start buffer (shift/hold), the per-step linsys policy, hypothesis batches, re-seeding, the URDF limit rows (`limits="admm"` by default on arms; `"off"` for the unconstrained step) | `reset(x0)`, `warmup`, `step(x, ref, budget_s=None) -> StepResult` (`u` = ACTUATED control to apply; `limits` / `row_viol` = the mechanism in force and the plan's violation per row group; a budget caps the SQP iterations at the measured per-iteration cost) |
+| `gato.MPCController` | the warm-start buffer (shift/hold), the per-step linsys policy, hypothesis batches, re-seeding, the URDF limit rows (ADMM by default on arms without existing rows; `limits="off"` adds no rows and preserves existing ones) | `reset(x0)`, `warmup`, `step(x, ref, budget_s=None) -> StepResult` (`u` = ACTUATED control to apply; `limits` / `row_viol` = the mechanism in force and the plan's violation per row group; a budget limits SQP work at iteration boundaries but can overrun) |
 | `gato.MPCPolicy` + `TrajectoryReference` / `GoalReference` | the clock and reference window | `policy(obs) -> action` in any gym-style loop |
 | `gato.MPC_GATO` | the paper's closed-loop SIMULATION driver (pinocchio-RK4 / MuJoCo world, pacing, task loops) | `run_mpc_fig8`, `run_mpc_goals` — not a controller |
 | `gato.worlds.{PinocchioWorld, MuJoCoWorld}` | an independent simulator to close the loop against | contact / disturbance experiments |

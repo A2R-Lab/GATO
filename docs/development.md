@@ -46,13 +46,52 @@ reviewer approves by hand. One-time set-up, by a maintainer:
 Per release: the signed receipt must be valid at the release commit; bump
 `version` in `pyproject.toml` and `python/gato/__init__.py`, date the CHANGELOG
 entry, merge to `main`. Rehearse with `workflow_dispatch` (approve `testpypi`),
-then on a GPU box: `pip install -i https://test.pypi.org/simple/
---extra-index-url https://pypi.org/simple gato-mpc` into a clean venv and run
+then on a GPU box, download the exact candidate with
+`python -m pip download --no-deps --index-url https://test.pypi.org/simple/ "gato-mpc==<version>"`.
+Install that downloaded wheel into a clean venv using the normal PyPI index
+for its dependencies, then run
 `python -I tools/check_installed_package.py --work /tmp/gato-smoke --gpu`.
+Do not use an unpinned multi-index install for this check: it can select a
+different release instead of the candidate just uploaded.
 Release: push the tag `v<version>` (the workflow refuses a tag that does not
 match `pyproject.toml`), approve `testpypi`, re-check, approve `pypi`; write
 the GitHub release from `CHANGELOG.md` and attach `SHA256SUMS.txt` from the
 build artifact. Wheels never contain compiled solver modules.
+
+### Controller replay before release
+
+`examples/benchmarks/controller_replay.py` defaults to correctness-only mode:
+all five arms at N64, batches 1 and 8, limits off/default ADMM, NumPy/CUDA
+PyTorch/CUDA JAX. The inputs are a small sinusoidal joint-motion replay with
+future FK references, not a simulated plant. Full plans, iteration counts and
+row telemetry must match across array paths; the warm-start error scalar is
+compared within floating-point reduction tolerance. No task-success or
+physical-feasibility claim follows from replay parity.
+
+```bash
+.venv/bin/python examples/benchmarks/controller_replay.py --mode correctness \
+  --out examples/benchmarks/night_logs/replay-check/results.jsonl
+bash examples/benchmarks/run_controller_replay.sh --dry-run
+# Only during an explicitly assigned quiet CPU/GPU window:
+GATO_QUIET_WINDOW=1 bash examples/benchmarks/run_controller_replay.sh
+```
+
+The timing launcher verifies the signed receipt and native identities, takes
+the cooperative `/tmp/a2rlab-timing.lock`, and writes into a unique run directory.
+It never builds modules, installs calibration or edits tracked results. Each
+of three repeats rotates the array-path order, discards 20 warmup calls and
+samples 200 calls per cell (180 rows total). External host wall through device
+completion and native solve duration have separate raw samples. Input creation,
+upload, controller construction/reset and output parity downloads are excluded;
+this is not the sensor-to-actuator latency or an asynchronous-throughputput test.
+
+Reserve 20 minutes for the first collection on the lab box; this is an estimate,
+not a measured runtime. A `STOP` file in the announced run directory stops at
+the next three-path group. Partial results remain diagnostic; restart into a
+fresh directory and retain the old one. Do not combine repeats across revisions
+or report an incomplete inventory as a completed batch. Never kill another
+agent's process. Publication requires reviewing the completed inventory,
+matching input/source hashes, parity, raw samples and recorded box state.
 
 GRiD and GLASS are developed in their own repositories; GATO consumes both through
 the released `grid-rbd` wheel, pinned to an exact version in `pyproject.toml` and

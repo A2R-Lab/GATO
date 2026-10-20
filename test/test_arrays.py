@@ -29,6 +29,28 @@ def test_kind_and_host_conversions():
     assert _arrays.like(a, "numpy") is a
 
 
+def test_jax_pointer_waits_for_producer():
+    """Pointer-only native calls cannot consume JAX's asynchronous CAI stream."""
+    class PendingArray:
+        __module__ = "jax"
+        dtype = jnp.float32
+        size = 12
+        ready = False
+
+        def block_until_ready(self):
+            self.ready = True
+            return self
+
+        @property
+        def __cuda_array_interface__(self):
+            assert self.ready, "producer must complete before native pointer access"
+            return {"data": (1234, False)}
+
+    pending = PendingArray()
+    ptr, keep = _arrays.device_f32(pending, 12, "x")
+    assert ptr == 1234 and keep is pending and pending.ready
+
+
 def _problem(B, N):
     x0 = np.tile(np.hstack((INDY7_START_CONFIGS["ready"], np.zeros(6))).astype(np.float32), (B, 1))
     x0[1, 0] += 0.1
@@ -81,6 +103,19 @@ def test_device_path_jax(indy7_N):
     res = _indy7_solver(N).solve(jnp.asarray(x0), jnp.asarray(ref))
     assert _arrays.kind(res.xu) == "jax" and _arrays.is_cuda(res.xu)
     np.testing.assert_array_equal(np.asarray(res.xu), host.xu)
+
+
+@pytest.mark.gpu
+def test_jax_pending_slice_pred_err(indy7_N):
+    """Read a newly produced JAX slice without caller-side synchronization."""
+    solver = _indy7_solver(indy7_N)
+    solver.set_warm(np.zeros((2, solver.xu_size), np.float32))
+    for offset in range(12):
+        pending = jnp.sin(jnp.arange(4096 * solver.nx, dtype=jnp.float32) + offset)
+        state = pending.reshape(4096, solver.nx)[-1]
+        got = solver.pred_err_warm(state)  # wrapper must wait before the native read
+        expected = float(np.linalg.norm(np.asarray(state)))
+        assert got == pytest.approx(expected, rel=1e-5, abs=1e-6)
 
 
 @pytest.mark.gpu

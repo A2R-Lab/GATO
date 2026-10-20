@@ -22,9 +22,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the signed receipt must be an ancestor of this release
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify the release receipt
+        run: |
+          pip install "pytest-gpu-proof==0.4.1" pyyaml
+          gpu-proof verify --receipt gpu-proof.json --repo . \
+            --policy test/gpu-proof-policy.yaml \
+            --expected-skips test/expected_skips.txt --require-gpu
       - name: Check the tag matches pyproject.toml
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

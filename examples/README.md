@@ -50,6 +50,7 @@ python examples/11_deadline_step.py
 python examples/12_constraint_mechanisms.py
 python examples/13_more_arms.py             # needs bsqpN64_{fr3,gen3,ur5e} (the receipt profile)
 python examples/14_mujoco_closed_loop.py    # needs bsqpN64_iiwa14 and mujoco
+python examples/14_mujoco_closed_loop.py --correctness-only --periods 1  # no clock-dependent budget or timing report
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or
@@ -90,6 +91,15 @@ a wheel or a checkout (`cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7
 defines). The in-tree `build/bsqp` target compiles the same file.
 
 ## Benchmarks / timing — `benchmarks/`, `contact-task/`
+
+The [controller replay](benchmarks/controller_replay.py) compares NumPy,
+CUDA PyTorch and CUDA JAX on identical moving-state inputs for all five arms
+at N64, batches 1 and 8, with limits off and default ADMM. Its default mode
+checks full-plan and telemetry parity without collecting durations.
+The [assigned-window launcher](benchmarks/run_controller_replay.sh) records
+three rotated-order repeats, external call-through-device-completion latency
+and native solve time separately. This kinematic replay measures controller
+overhead, not closed-loop task quality or a complete robot-cycle deadline.
 
 The [torque clipping A/B](benchmarks/torque_clip_ab.py) is a fixed-pacing
 correctness experiment, not a timing benchmark. It pairs identical development

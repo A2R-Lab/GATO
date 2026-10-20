@@ -66,6 +66,11 @@ def device_f32(x, numel: int, name: str):
         a = x if x.dtype == jnp.float32 else x.astype(jnp.float32)
         if a.size != numel:
             raise ValueError(f"{name}: expected {numel} elements, got {a.size} (shape {tuple(a.shape)})")
+        # JAX dispatches producers (including slices/casts) asynchronously on
+        # its own stream. Our pointer-only native entry points run on the CUDA
+        # default stream and do not consume the CAI producer-stream field.
+        # Wait for this input, not the whole device, before handing it off.
+        a.block_until_ready()
         cai = a.__cuda_array_interface__
         return cai["data"][0], a
     raise TypeError(f"{name}: device path needs a torch CUDA tensor or a JAX CUDA array, got {type(x).__name__}")

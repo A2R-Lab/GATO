@@ -19,9 +19,9 @@ exit, the inner linear solver by horizon. Four runs per arm:
                                (SolverParams); the error drops by an order of
                                magnitude and the arm uses its speed
   * tracking weights, 1.3      the reference asks for more than the velocity
-                               limit: a feasible plan must lag it, and the
-                               simulated plant should stay at the limit rather
-                               than follow the reference over it
+                               limit: compare tracking and measured violations;
+                               finite-budget limit rows do not guarantee the
+                               simulated plant stays inside its bounds
   * telemetry, 1.3             the same run with ``limits="telemetry"``: what
                                the unconstrained controller does instead
 
@@ -103,8 +103,9 @@ def main():
     print("\nratio = the demanded peak joint speed over the URDF velocity limit (differential IK along the path);"
           " the simulated plant is graded against\nthe URDF limits (1.0 = at the limit). The paper's weights are"
           " the solver defaults on every arm; a tracking task raises q_cost, lowers\nqd_cost and spends more SQP"
-          " iterations. Under the controller's limit rows the plan stays inside the velocity box to within its"
-          " residual and the\nplant's peak follows it; telemetry rows report the excursion and leave it.")
+          " iterations. Planner row residuals and simulated velocity peaks are separate measurements;"
+          " neither goal arrival nor a small box\nresidual establishes physical feasibility. Telemetry rows"
+          " report violations without changing the solve.")
 
 
 if __name__ == "__main__":

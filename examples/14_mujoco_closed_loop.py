@@ -23,6 +23,10 @@ clock); the per-tick wall time is a diagnostic, not a benchmark.
 
 Needs the bsqpN64_iiwa14 module and a python with mujoco and pinocchio:
     python examples/14_mujoco_closed_loop.py [--periods 2] [--budget-ms 5.0]
+    python examples/14_mujoco_closed_loop.py --correctness-only --periods 1
+
+Correctness-only mode disables the wall-clock budget and duration reporting;
+the configured SQP iteration count is independent of shared-box load.
 """
 import argparse
 import os
@@ -58,7 +62,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--periods", type=int, default=2)
     ap.add_argument("--budget-ms", type=float, default=5.0, help="step budget per control period")
+    ap.add_argument("--correctness-only", action="store_true",
+                    help="disable wall-clock budget and all duration reporting")
     args = ap.parse_args()
+    if args.periods < 1 or (not args.correctness_only and args.budget_ms <= 0):
+        ap.error("periods and budget-ms must be positive")
+    budget_s = None if args.correctness_only else args.budget_ms * 1e-3
     urdf = str(gato.robot_urdf(PLANT))
     model = mujoco_model(urdf)
     data = mujoco.MjData(model)
@@ -86,7 +95,7 @@ def main():
     solver = BSQP(urdf, batch_size=1, N=N, dt=DT, params=TRACKING, plant_type=PLANT)
     ctrl = MPCController(solver)
     print(f"controller: limits={ctrl.limits!r} linsys={ctrl.linsys} admm_linsys={ctrl.admm_linsys} "
-          f"N={N} dt={DT} budget {args.budget_ms} ms")
+          f"N={N} dt={DT} budget_s={budget_s}")
     data.qpos[:] = sc["q0"]
     data.qvel[:] = 0.0
     x = np.concatenate([data.qpos, data.qvel]).astype(np.float32)
@@ -101,15 +110,18 @@ def main():
         if ref.shape[0] < 6 * N:
             break
         x = np.concatenate([data.qpos, data.qvel]).astype(np.float32)
-        r = ctrl.step(x, ref, budget_s=args.budget_ms * 1e-3)
+        r = ctrl.step(x, ref, budget_s=budget_s)
         u = np.asarray(r.u, dtype=np.float64)
         its.append(r.iterations)
         hits += r.budget_hit
-        wall.append(r.wall_s)
+        if not args.correctness_only:
+            wall.append(r.wall_s)
         for _ in range(substeps):
             data.ctrl[:] = 0.0
             data.qfrc_applied[:] = u            # joint torques, zero-order hold over the control period
             mujoco.mj_step(model, data)
+        if not np.isfinite(data.qpos).all() or not np.isfinite(data.qvel).all():
+            raise RuntimeError(f"nonfinite simulated state at tick {k}")
         pin.forwardKinematics(pin_model, pin_data, data.qpos.copy())
         pin.updateFramePlacements(pin_model, pin_data)
         err.append(np.linalg.norm(pin_data.oMf[ee_id].translation - ref[:3]))
@@ -120,7 +132,8 @@ def main():
     print(f"  end-effector error   mean {err.mean():.4f} m   max {err.max():.4f} m")
     print(f"  simulated peak |qd| / limit {max(qd_peak):.2f}   peak |u| / limit {max(u_peak):.2f}")
     print(f"  SQP iterations per tick {np.mean(its):.2f} (max {max(its)}); budget cut {100 * hits / len(its):.0f}% of ticks")
-    print(f"  step wall time per tick: p50 {np.percentile(wall, 50):.2f} ms  max {wall.max():.2f} ms  (diagnostic, shared machine)")
+    if not args.correctness_only:
+        print(f"  step wall time per tick: p50 {np.percentile(wall, 50):.2f} ms  max {wall.max():.2f} ms  (diagnostic, shared machine)")
     print("\nThe plant is MuJoCo's integrator from the applied torques; the planner never grades itself. The same loop "
           "takes a CUDA state\nand reference (example 10) when the simulator lives on the GPU.")
 

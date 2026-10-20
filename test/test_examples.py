@@ -114,3 +114,13 @@ def test_call_boundary_check_only_has_no_timing_output(repo_root, tmp_path):
     assert 'bitwise raw/controller trajectory and PCG parity' in result.stdout
     assert 'median_ms' not in result.stdout
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.gpu
+def test_mujoco_example_correctness_only(repo_root):
+    result = subprocess.run([sys.executable, str(repo_root / "examples/14_mujoco_closed_loop.py"),
+                             "--correctness-only", "--periods", "1"],
+                            capture_output=True, text=True, check=True)
+    assert "budget_s=None" in result.stdout
+    assert "step wall time" not in result.stdout
+    assert "end-effector error" in result.stdout

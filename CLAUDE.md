@@ -108,7 +108,8 @@ migrated to `glass::`.
   - `controller.py` — task-agnostic `MPCController` (owns the warm start; shift/hold, linsys
     "auto", admm_linsys (the ADMM inner loop's pcg/bdsv_factor arm: by horizon by default,
     "auto" on the pred_err signal), `limits=` (URDF limit rows, ADMM by default on fixed-base
-    arms, "off" = the unconstrained step; the paper harness pins "off"), reseed, hypothesis
+    arms without existing rows, "off" adds no rows and preserves existing ones;
+    the paper harness starts with "off" on a fresh solver), reseed, hypothesis
     hooks, `step(..., budget_s=)` = the iteration-boundary time budget, host-side in
     `bsqp.cuh::solve`); `StepResult.u` is the ACTUATED control, `.limits`/`.row_viol` the
     mechanism in force and the plan's violation per row group.
