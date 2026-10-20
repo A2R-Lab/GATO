@@ -27,7 +27,7 @@ jobs:
       - name: Documentation sources (main)
         uses: actions/checkout@v4
         with:
-          ref: w3-device-arms   # until W3+W4 merge; then main
+          ref: main
           path: _main
       - uses: actions/setup-python@v5
         with:

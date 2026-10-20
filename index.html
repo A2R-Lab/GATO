@@ -656,6 +656,10 @@
 
     <p class="code-note">An October 6 check on source <code>813c6e3</code> measured controller-call overhead of approximately 42–209 µs across the two arms and batches 1–128. The call excludes sensing, reference preparation and actuator I/O; it is not a whole robot-cycle deadline measurement. <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/figure-refresh-2026-10-01.md#controller-call-boundaries-on-october-6">Timing boundaries and source details</a>.</p>
 
+    <h3>Current defaults and device-array calls</h3>
+    <p>October 19–20 measurements cover the current constraint defaults and all five fixed-base arms. At N64 with default ADMM limits, one-iteration NumPy controller-call medians span 0.926–1.284 ms for batches 1 and 8. PyTorch and JAX device inputs preserve the plans but do not reduce call latency in this replay. Host pauses remain visible, including a 43 ms call with limits off; iteration budgets are not hard deadlines. These prescribed-input replays do not establish closed-loop feasibility or replace the paper comparisons. <a href="docs/consumer_contract.html#host-and-device-replay-on-october-20">Protocol, all-arm results and raw samples</a>.</p>
+    <p>URDF limit rows are enabled by default for fixed-base controllers without existing rows. They are soft numerical constraints, not actuator clipping or a hardware safety layer. New-arm holdouts and sustained-saturation studies still show effort or velocity excursions. <a href="docs/constraints.html">Constraint behavior and measured limitations</a>.</p>
+
     <h3>Indy7: the paper’s robot, a matched current harness</h3>
     <p class="systems-intro">On the same figure-eight problem at N = 64, GATO is 5.2–10.6× faster than the CPU baseline across batches 1–128. Selected October 3 cells are below; all values are internal solver medians in milliseconds. Single-run CPU variability limits the precision of these ratios.</p>
     <div class="table-card" style="overflow-x:auto">
@@ -679,7 +683,7 @@
       <img src="static/demos/current/fig7_exploratory.png" alt="Exploratory success versus batch size: stop FE 15, 100, 99, 98 percent; pass-through FE 6, 62, 84, 82 and identified-weight 26, 83, 97, 95 percent" loading="lazy">
       </picture>
     </div>
-    <p class="result-caption">Batching improves arm-arrival success in both tested settings. The stop task uses a 1.5 s reference ramp and 100 ms dwell; pass-through uses step references and an instantaneous gate. Both require EE error below 5 cm and joint-velocity norm below 1 rad/s, with a simulated 15 kg swinging payload. These seed-0 scenarios were reused during tuning; the stop artifact records a dirty source tree. Neither task enforces actuator limits or tests payload placement. Clean-source, held-out feasibility validation is a separate experiment, not implied by these curves. <a href="tools/current_evidence.py">Re-render from the bundled evidence</a>.</p>
+    <p class="result-caption">Batching improves arm-arrival success in both tested settings. The stop task uses a 1.5 s reference ramp and 100 ms dwell; pass-through uses step references and an instantaneous gate. Both require EE error below 5 cm and joint-velocity norm below 1 rad/s, with a simulated 15 kg swinging payload. These seed-0 scenarios were reused during tuning; the stop artifact records a dirty source tree. Neither task enforces actuator limits or tests payload placement. Clean-source, held-out feasibility validation is a separate experiment, not implied by these curves. <a href="https://github.com/A2R-Lab/GATO/blob/gh-pages/tools/current_evidence.py">Re-render from the bundled evidence</a>.</p>
 
     <p class="result-caption" id="heldout-feasibility"><strong>Held-out feasibility check, October 4:</strong> a separate frozen pool completed 1,200 episodes. Both stop variants, including applied-torque clamping, reached all five goals in 100/100 scenarios at batches 8, 32 and 128. However, zero episodes satisfied all measured effort, velocity and position limits. Torque clamping alone did not make the trajectories feasible. These are simulated arm-arrival results, not evidence of hardware-safe payload handling. <a href="static/demos/current/fig7-heldout-2026-10-04.json">Complete held-out summary</a>.</p>
 
@@ -703,7 +707,7 @@
     <div class="section-label">Supported Systems</div>
     <h2>Supported Robot Systems</h2>
     <p class="systems-intro">
-      GATO ships with the two arm models used in the paper and experimental Go2 floating-base examples.
+      GATO ships with five fixed-base arm models and experimental Go2 floating-base examples.
       Register your own URDF with <code>gato.register_robot(...)</code>; its solver compiles once on first use. See the
       <a href="https://github.com/A2R-Lab/GATO/blob/main/docs/status.md">feature-status page</a>
       for tested configurations: Go2 standing is demonstrated; closed-loop walking remains in development.
@@ -716,11 +720,18 @@
         <tbody>
           <tr><td>KUKA iiwa14</td><td>7</td><td>Industrial manipulator; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
           <tr><td>Neuromeka Indy7</td><td>6</td><td>Collaborative robot; grid dynamics pre-generated via <a href="https://github.com/A2R-Lab/GRiD" target="_blank">GRiD</a></td></tr>
+          <tr><td>Franka Research 3</td><td>7</td><td>Pre-generated dynamics; N64 correctness and replay coverage</td></tr>
+          <tr><td>Kinova Gen3</td><td>7</td><td>Pre-generated dynamics; N64 correctness and replay coverage</td></tr>
+          <tr><td>Universal Robots UR5e</td><td>6</td><td>Pre-generated dynamics; N64 correctness and replay coverage</td></tr>
+          <tr><td>Unitree Go2</td><td>12 + floating base</td><td>N16 experimental standing and contact-force variants; walking remains in development</td></tr>
         </tbody>
       </table>
     </div>
     <p class="systems-note">
-      Any horizon length: solver modules are compiled per (robot, knot points) and cached per machine.
+      Solver modules are compiled per (robot, knot points, variant) and cached per machine.
+      The signed receipt covers the listed module set, not every buildable horizon or variant combination.
+      Indy7 and iiwa14 have broader horizon coverage; the new arms are tested at N64 and Go2 at N16.
+      See the <a href="docs/consumer_contract.html#what-the-gpu-proof-receipt-does-and-does-not-attest">receipt scope</a>.
     </p>
   </section>
 
@@ -728,6 +739,7 @@
   <section>
     <div class="section-label">Get Started</div>
     <h2>Quick Start</h2>
+    <p class="code-note">The pip command installs the published package. Features listed as unreleased in the <a href="docs/changelog.html">changelog</a> require the corresponding source checkout.</p>
 
     <div class="code-step">
       <h4>Install (Linux + NVIDIA CUDA toolkit)</h4>
@@ -739,11 +751,17 @@
     <div class="code-step">
       <h4>Solve a batch — numpy, torch or JAX arrays in, the same kind out</h4>
       <div class="code-block">
-<pre>import gato, torch
-gato.register_robot("myarm", "myarm.urdf", N=[32])     # your URDF (vendored robots need none)
-solver = gato.BSQP("myarm.urdf", batch_size=8, N=32, dt=0.01, plant_type="myarm")  # compiles once
-res = solver.solve(x0_cuda, goals_cuda)                 # CUDA tensors stay on the device
-res = solver.solve(x0_cuda, goals_cuda, xu_warm=res.xu) # warm start</pre>
+<pre>import numpy as np
+import gato
+
+solver = gato.BSQP(gato.robot_urdf("indy7"), batch_size=8,
+                   N=32, dt=0.01, plant_type="indy7")  # compiles once
+x0 = np.zeros((8, solver.nx), dtype=np.float32)
+goals = np.zeros((8, 32 * 6), dtype=np.float32)
+goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
+res = solver.solve(x0, goals)
+res = solver.solve(x0, goals, xu_warm=res.xu)  # explicit warm start
+print(res.u0(0))</pre>
       </div>
     </div>
 
@@ -753,7 +771,8 @@ res = solver.solve(x0_cuda, goals_cuda, xu_warm=res.xu) # warm start</pre>
 <pre>git clone https://github.com/A2R-Lab/GATO.git && cd GATO
 ./tools/install.sh --test
 MODULES="indy7:64" JOBS=2 ./tools/build.sh
-python examples/01_single_solve.py        # ... through 10_torch_jax_arrays.py</pre>
+source .venv/bin/activate
+python examples/01_single_solve.py        # numbered examples 01 through 14</pre>
       </div>
     </div>
 
@@ -761,7 +780,7 @@ python examples/01_single_solve.py        # ... through 10_torch_jax_arrays.py</
       <h4>C++/CUDA (power users) — the same solver, no wrapper in the loop</h4>
       <div class="code-block">
 <pre>cmake -S examples/cpp -B build-cpp -DGATO_ROBOT=indy7 -DGATO_N=32   # includes + defines via gato.paths
-cmake --build build-cpp && ./build-cpp/batched_solve                  # BSQP&lt;T&gt;::solve on your device buffers</pre>
+cmake --build build-cpp --parallel 2 && ./build-cpp/batched_solve      # BSQP&lt;T&gt;::solve on your device buffers</pre>
       </div>
     </div>
 
@@ -773,6 +792,8 @@ cmake --build build-cpp && ./build-cpp/batched_solve                  # BSQP&lt;
       <a href="docs/">documentation</a>, and
       <a href="https://github.com/A2R-Lab/GATO/blob/main/examples/README.md">numbered examples</a>.
       Printed demo durations on a shared GPU are not performance measurements.
+      The checkout command builds only Indy7 N64; other example modules compile on first use.
+      Optional examples require their documented dependencies. Use the receipt build profile to prepare the full test module set.
     </p>
 
     <h4 style="font-family: var(--serif); font-size: 1rem; font-weight: 600; color: var(--heading); margin: 1.5rem 0 0.4rem;">Related Projects</h4>
