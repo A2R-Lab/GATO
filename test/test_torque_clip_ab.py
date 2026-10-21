@@ -311,3 +311,30 @@ def test_defect_policy_datasets_are_frozen(repo_root):
             assert r["reached"] == 3
         else:
             assert r["track_mean"] > 0
+
+
+def test_derated_planner_datasets_are_frozen(repo_root):
+    """The October 21 derated-planner studies: the clipped development set (u_scale
+    0.9 and 0.8, 120 episodes) and the clipped fresh holdout (seed 20261021,
+    baseline and u_scale 0.8, both tasks, 1200 episodes): digests, inventories,
+    zero errors, one clean source, every pick-and-place goal reached."""
+    data = repo_root / "examples/benchmarks/data/limits_holdout"
+    dev = data / "derated_dev_20261021.jsonl"
+    assert hashlib.sha256(dev.read_bytes()).hexdigest() == "4f00af4589fd6ab34be6f293acc633d6a6a95bcc48c71c2873dd087d5d4b16d8"
+    rows = [json.loads(line) for line in dev.read_text().splitlines()]
+    assert len(rows) == 120 and {r["mech"] for r in rows} == {"admm-u0.9", "admm-u0.8"}
+    for r in rows:
+        assert r["status"] == "ok" and r["sha"] == "ce0945c" and r["clip"] and r["result"]["reached"] == 3
+
+    hold = data / "derated_holdout_clipped_20261021.jsonl"
+    assert hashlib.sha256(hold.read_bytes()).hexdigest() == "45194dad5234adf76e11636a4a2521ecb82e92de37371246d6d01a33b8bcc461"
+    rows = [json.loads(line) for line in hold.read_text().splitlines()]
+    assert len(rows) == 1200 and {r["seed"] for r in rows} == {20261021}
+    keys = {(r["plant"], r["task"], r["mech"], r["scenario"]) for r in rows}
+    assert len(keys) == 1200 and {k[2] for k in keys} == {"admm-defect-tele", "admm-u0.8"}
+    assert {k[1] for k in keys} == {"fig8", "pickplace"}
+    for r in rows:
+        assert r["status"] == "ok" and r["sha"] == "ce0945c" and r["clip"] and r["quotable_times"] is False
+        assert r["result"]["substeps"]["applied_u_ratio"] <= 1
+        if r["task"] == "pickplace":
+            assert r["result"]["reached"] == 3

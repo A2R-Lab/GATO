@@ -40,6 +40,14 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   torque excess but puts more episodes at the torque limit and worsens Gen3's
   worst sampled velocity, so no MPC default moves; the mechanism ships as an
   option with that evidence in docs/constraints.md.
+- `MPCController(..., limits_kw={"u_scale": s})` derates the planner's torque
+  box to `s` times the URDF effort limits, a planning margin against actuator
+  saturation. On the clipped fresh holdout (seed 20261021, three arms, both
+  tasks, 1200 episodes) `u_scale` 0.8 cuts FR3's clipping episodes from 17 to
+  6 and its worst command from 1.446 to 1.205 of the limit, removes Gen3's
+  post-clip velocity excursion (1.668 to 1.046), and leaves tracking and
+  completion unchanged. The default stays 1; the numbers are in
+  docs/constraints.md.
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
   URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
   `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are

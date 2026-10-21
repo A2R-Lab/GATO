@@ -705,6 +705,39 @@ torque and velocity rows, which the next study addresses. The raw rows are
 and [the holdout](../examples/benchmarks/data/limits_holdout/defect_holdout_20261021.jsonl);
 the study script is `examples/benchmarks/defect_policy_dev.py`.
 
+### Derated planner torque box on October 21
+
+`MPCController(..., limits_kw={"u_scale": s})` scales the planner's torque
+box to `s` times the URDF effort limits after the mechanism install; the
+actuator model and every other setting are unchanged. It is a planning
+margin, not enforcement: on the clipped development set (the defect study's
+protocol) the FR3 command still overshoots its own box by about a third, so
+the soft ADMM rows bind no tighter, but the excess over the nominal limit
+shrinks with the box.
+
+Clipped fresh holdout (seed 20261021, 100 scenarios per task and arm, source
+`ce0945c`, torque clipped to the URDF limit at every 1 ms substep, 1200
+episodes, every pick-and-place episode reaching all three goals), the default
+versus `u_scale` 0.8:
+
+| cell | episodes with clipping | worst commanded torque | episodes over the velocity limit, worst ratio | task metric |
+|---|---|---|---|---|
+| FR3 figure-8 | 16 vs 9 | 1.125 vs 1.083 | 0, 0.478 vs 0, 0.474 | tracking p50 0.0757 vs 0.0757 m |
+| FR3 pick-and-place | 17 vs 6 | 1.446 vs 1.205 | 0, 0.966 vs 0, 0.967 | all goals, 1.93 vs 1.93 s |
+| Gen3 figure-8 | 0 vs 0 | 0.693 vs 0.693 | 0, 0.936 vs 0, 0.936 | 0.0335 vs 0.0335 m |
+| Gen3 pick-and-place | 13 vs 1 | 1.090 vs 1.021 | 8, 1.668 vs 7, 1.046 | all goals, 1.93 vs 1.93 s |
+| UR5e figure-8 | 0 vs 0 | 0.470 vs 0.470 | 0, 0.448 vs 0, 0.448 | 0.0716 vs 0.0716 m |
+| UR5e pick-and-place | 3 vs 0 | 1.009 vs 0.808 | 0, 0.972 vs 0, 0.993 | all goals, 1.89 vs 1.89 s |
+
+The margin removes most saturation events and, on Gen3, the velocity
+excursion that follows a clipped command (worst 1.668 to 1.046 of the
+limit), with tracking and completion unchanged; UR5e's velocity peak rises
+to 0.993 of the limit and stays under it. The default stays `u_scale` 1
+because the margin trades planner authority for it, which is a choice for
+the deployment; `u_scale` 0.8 is the setting these arms were measured at.
+Raw rows: [the development set](../examples/benchmarks/data/limits_holdout/derated_dev_20261021.jsonl)
+and [the clipped holdout](../examples/benchmarks/data/limits_holdout/derated_holdout_clipped_20261021.jsonl).
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

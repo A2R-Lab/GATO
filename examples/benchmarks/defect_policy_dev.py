@@ -69,14 +69,15 @@ def report(paths):
     rows = [json.loads(ln) for p in paths for ln in Path(p).read_text().splitlines() if ln.strip()]
     print("Correctness only. Per (plant, task, actuator) and policy: episodes, goals reached (mean of 3), "
           "time to all goals p50 (simulated s), SQP iterations per tick mean / max, defect p50 / p90 / max, "
-          "substep qd/limit max, applied u/limit max, commanded u/limit max, episodes with clipping.")
+          "substep qd/limit max, applied u/limit max, commanded u/limit max, episodes with clipping, "
+          "figure-8 mean tracking error p50 / max (m; pick-and-place: -).")
     keys = sorted({(r["plant"], r["task"], r["clip"]) for r in rows}, key=str)
     for key in keys:
         sub = [r for r in rows if (r["plant"], r["task"], r["clip"]) == key and r["status"] == "ok"]
         errs = [r for r in rows if (r["plant"], r["task"], r["clip"]) == key and r["status"] != "ok"]
         print(f"\n### {key[0]} {key[1]} {'clipped' if key[2] else 'unclipped'}  ({len(errs)} errors)\n")
-        print("| policy | n | reached | t_all p50 | iters mean / max | defect p50 / p90 / max | qd max | u applied max | u cmd max | clipped eps |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+        print("| policy | n | reached | t_all p50 | iters mean / max | defect p50 / p90 / max | qd max | u applied max | u cmd max | clipped eps | track p50 / max |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|")
         for mech in [m for m in MECHS if any(r["mech"] == m for r in sub)]:
             g = [r["result"] for r in sub if r["mech"] == mech]
             defs = [r["defect"] for r in g if r.get("defect")]
@@ -92,6 +93,8 @@ def report(paths):
             ss = [r["substeps"] for r in g]
             line += (f"| {max(s['qd_ratio'] for s in ss):.3f} | {max(s['applied_u_ratio'] for s in ss):.3f} "
                      f"| {max(s['commanded_u_ratio'] for s in ss):.3f} | {sum(s['clipped_samples'] > 0 for s in ss)} |")
+            track = [r["track_mean"] for r in g if r.get("track_mean") is not None]
+            line += f" {np.median(track):.4f} / {max(r['track_max'] for r in g if r.get('track_max') is not None):.4f} |" if track else " - |"
             print(line)
 
 
