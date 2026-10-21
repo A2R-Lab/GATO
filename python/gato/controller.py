@@ -116,7 +116,10 @@ class MPCController:
             each step reports the winning plan's violation per row group in
             ``StepResult.row_viol``. The raw solver stays explicit: only the
             controller carries this default.
-        limits_kw: keyword overrides for the enable call behind ``limits``
+        limits_kw: keyword overrides for the enable call behind ``limits``;
+            the extra key ``u_scale`` (0 < s <= 1) derates the planner's torque
+            box to ``s`` times the URDF effort limits after the install (the
+            actuator model is unchanged; a planning margin for saturation)
             (e.g. dict(rho=0.02, eps_rel=1e-3) for "admm", dict(mu=...) for
             "barrier").
     """
@@ -197,7 +200,17 @@ class MPCController:
             return in_force
         kw = dict(self.LIMIT_DEFAULTS[limits])
         kw.update(limits_kw or {})
+        u_scale = kw.pop("u_scale", None)
         getattr(solver, f"enable_limit_{limits}")(**kw)
+        if u_scale is not None:
+            s = float(u_scale)
+            if not 0.0 < s <= 1.0:
+                raise ValueError(f"u_scale must be in (0, 1], got {u_scale!r}")
+            from .rowkinds import KIND_BOX_U
+            for g, grp in enumerate(solver.get_row_groups()):
+                if int(grp["kind"]) == KIND_BOX_U:
+                    solver.set_row_group_bounds(g, np.asarray(grp["lo"], dtype=np.float32) * s,
+                                                np.asarray(grp["hi"], dtype=np.float32) * s)
         return limits
 
     def reset(self, x0, *, xu_warm=None):

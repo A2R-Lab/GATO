@@ -662,6 +662,49 @@ python examples/benchmarks/torque_stress.py --out gen3-stress.jsonl
 python examples/benchmarks/torque_stress.py --report gen3-stress.jsonl
 ```
 
+### Dynamics-defect policy on October 21
+
+`SolverParams.defect_telemetry` reports the dynamics defect of the plan a
+solve returns, the merit's constraint term alone: the L1 integrator error
+summed over the knots plus the initial-state gap, in state units.
+`defect_exit` stops the SQP loop once every solve's accepted plan is within
+the tolerance, so `max_sqp_iters` becomes a cap paid only while the plan is
+dynamically inconsistent. Both leave the plan bit-identical when off.
+
+The October 18 velocity diagnosis attributed most of the one-tick velocity
+gap to this defect, so the policy was evaluated as a candidate MPC default.
+Development set (seed 1, 20 pick-and-place scenarios per arm on FR3, Gen3 and
+UR5e at N64, default ADMM, torque clipped to the URDF effort limit at every
+1 ms substep): one iteration per tick leaves defect tails of 14.9 (FR3), 21
+(Gen3) and 2.2 (UR5e) at the worst tick; a cap of four with exit 1e-2 removes
+them for 1.19 and 1.07 iterations per tick on FR3 and UR5e, while Gen3's
+defect sits an order of magnitude higher and runs the cap on every tick,
+which removes its velocity excursion there (1.019 to 0.961 of the limit).
+
+Fresh holdout (seed 20261021, 100 scenarios per task and arm, source
+`34bdcaf`, unclipped, 1200 episodes, every pick-and-place episode reaching
+all three goals under both configurations), default versus the candidate:
+
+| cell | episodes over the velocity limit, worst ratio | episodes over the torque limit, worst ratio | iterations per tick |
+|---|---|---|---|
+| FR3 figure-8 | 0, 0.478 vs 0, 0.471 | 0, 0.917 vs 0, 0.589 | 1.00 vs 1.69 |
+| FR3 pick-and-place | 0, 0.967 vs 0, 0.971 | 13, 1.446 vs 21, 1.042 | 1.00 vs 1.21 |
+| Gen3 figure-8 | 0, 0.936 vs 0, 0.933 | 0, 0.461 vs 0, 0.457 | 1.00 vs 4.00 |
+| Gen3 pick-and-place | 5, 1.048 vs 5, 1.184 | 13, 1.047 vs 9, 1.008 | 1.00 vs 4.00 |
+| UR5e figure-8 | 0, 0.448 vs 0, 0.446 | 0, 0.387 vs 0, 0.386 | 1.00 vs 2.20 |
+| UR5e pick-and-place | 0, 0.972 vs 0, 0.982 | 3, 1.007 vs 7, 1.009 | 1.00 vs 1.17 |
+
+The candidate trims the worst torque excess on FR3 and Gen3 but puts more
+episodes at the torque limit on FR3 and UR5e and worsens Gen3's worst sampled
+velocity, with tracking and completion unchanged. A better-converged plan
+sits closer to the soft ADMM boxes, so the defect was hiding some of the limit
+pressure rather than causing it. No MPC default moves; the mechanism ships as
+an option. The remaining feasibility gap on these arms is enforcement on the
+torque and velocity rows, which the next study addresses. The raw rows are
+[the development set](../examples/benchmarks/data/limits_holdout/defect_policy_dev_20261021.jsonl)
+and [the holdout](../examples/benchmarks/data/limits_holdout/defect_holdout_20261021.jsonl);
+the study script is `examples/benchmarks/defect_policy_dev.py`.
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

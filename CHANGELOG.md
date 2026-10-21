@@ -35,8 +35,11 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   is within the tolerance, so `max_sqp_iters` becomes a cap that a controller
   pays only while the plan is dynamically inconsistent; a time budget still
   wins. The October 18 saturation study traced most of the one-tick velocity
-  gap to this defect, and the policy is evaluated on the development set
-  before any default moves.
+  gap to this defect. On the fresh October 21 holdout (seed 20261021, three
+  arms, 1200 episodes) a cap of four with exit 1e-2 trims the worst commanded
+  torque excess but puts more episodes at the torque limit and worsens Gen3's
+  worst sampled velocity, so no MPC default moves; the mechanism ships as an
+  option with that evidence in docs/constraints.md.
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
   URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
   `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are

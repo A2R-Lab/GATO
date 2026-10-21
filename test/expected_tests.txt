@@ -89,6 +89,7 @@ test/test_controller.py::test_reseed_triggers_hold_seed_and_forces_cold
 test/test_controller.py::test_shift_warm_start_math
 test/test_controller.py::test_step_result_wiring
 test/test_controller.py::test_warm_start_mode_validated
+test/test_controller.py::test_u_scale_derates_only_the_torque_box
 test/test_controller_replay.py::test_replay_host_torch_jax_parity_without_timings[admm-1-fr3]
 test/test_controller_replay.py::test_replay_host_torch_jax_parity_without_timings[admm-1-gen3]
 test/test_controller_replay.py::test_replay_host_torch_jax_parity_without_timings[admm-1-iiwa14]
@@ -494,6 +495,7 @@ test/test_torque_clip_ab.py::test_clip_collection_refuses_existing_output
 test/test_torque_clip_ab.py::test_clip_development_data_integrity[seed1]
 test/test_torque_clip_ab.py::test_clip_development_data_integrity[seed2]
 test/test_torque_clip_ab.py::test_clip_report_rejects_missing_duplicate_and_mismatched_pairs
+test/test_torque_clip_ab.py::test_defect_policy_datasets_are_frozen
 test/test_torque_clip_ab.py::test_defect_policy_report_renders_and_rejects_unknown_policy
 test/test_torque_clip_ab.py::test_stress_data_preserves_failures_and_frozen_protocol
 test/test_torque_clip_ab.py::test_stress_diagnostics_preserve_unclipped_development_tail

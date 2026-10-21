@@ -99,6 +99,9 @@ MECHS = {
     "admm-sqp4-defect1e-2": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-2)),
     "admm-sqp4-defect1e-3": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-3)),
     "admm-sqp4-defect1e-4": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-4)),
+    # derated planner torque box (the actuator model is unchanged): a planning margin
+    "admm-u0.9": dict(limits="admm", limits_kw=dict(u_scale=0.9), params=dict(defect_telemetry=True)),
+    "admm-u0.8": dict(limits="admm", limits_kw=dict(u_scale=0.8), params=dict(defect_telemetry=True)),
 }
 SETS = {"dev": dict(seed=1, n=20, mechs=list(MECHS)),
         "holdout": dict(seed=20261016, n=100, mechs=["none", "barrier", "al", "admm"])}

@@ -279,3 +279,35 @@ def test_defect_policy_report_renders_and_rejects_unknown_policy(experiment, rep
                            n=1, seed=1, N=64, clip="0", scenarios=None)
     with pytest.raises(SystemExit, match="unknown mechanism"):
         study.collect(args)
+
+
+def test_defect_policy_datasets_are_frozen(repo_root):
+    """The October 21 defect-policy development set (clipped, 240 episodes) and the
+    fresh holdout (unclipped, seed 20261021, 1200 episodes): digests, complete
+    inventories, zero errors, one clean source, every goal reached."""
+    data = repo_root / "examples/benchmarks/data/limits_holdout"
+    dev = data / "defect_policy_dev_20261021.jsonl"
+    assert hashlib.sha256(dev.read_bytes()).hexdigest() == "a849c6aca0e957a58a99debbecf7e6c6e99e958dc517d4db8e7647a0b7c537d6"
+    rows = [json.loads(line) for line in dev.read_text().splitlines()]
+    assert len(rows) == 240
+    assert {(r["plant"], r["task"], r["mech"], r["clip"]) for r in rows} == {
+        (p, "pickplace", m, True) for p in ("fr3", "gen3", "ur5e")
+        for m in ("admm-defect-tele", "admm-sqp4", "admm-sqp4-defect1e-2", "admm-sqp4-defect1e-3")}
+    for r in rows:
+        assert r["status"] == "ok" and r["sha"] == "34bdcaf" and r["quotable_times"] is False
+        assert r["result"]["reached"] == 3 and r["result"]["substeps"]["applied_u_ratio"] <= 1
+        assert "wall_s" not in r["result"] and "solve_ms" not in r["result"]
+
+    hold = data / "defect_holdout_20261021.jsonl"
+    assert hashlib.sha256(hold.read_bytes()).hexdigest() == "ef9ac9bbc75a94091c3968a45ae659a87b63b148487fdf753ed13138389ea7f4"
+    rows = [json.loads(line) for line in hold.read_text().splitlines()]
+    assert len(rows) == 1200
+    keys = {(r["plant"], r["task"], r["mech"], r["scenario"]) for r in rows}
+    assert len(keys) == 1200 and {r["seed"] for r in rows} == {20261021} and {r["set"] for r in rows} == {"holdout"}
+    assert {r["mech"] for r in rows} == {"admm", "admm-sqp4-defect1e-2"}
+    for r in rows:
+        assert r["sha"] == "34bdcaf" and r["quotable_times"] is False and r["N"] == 64
+        if r["task"] == "pickplace":
+            assert r["reached"] == 3
+        else:
+            assert r["track_mean"] > 0

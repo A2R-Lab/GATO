@@ -313,6 +313,25 @@ def test_defect_telemetry_and_exit(make_solver, smallest_module):
         run(defect_exit=-1.0)
 
 
+def test_u_scale_derates_only_the_torque_box(make_solver, smallest_module):
+    """limits_kw={"u_scale": s} scales the planner's BOX_U bounds by s after the
+    mechanism install, leaves the position and velocity boxes alone, is rejected
+    outside (0, 1], and changes the plan (a tighter box binds somewhere)."""
+    from gato.rowkinds import KIND_BOX_U
+    plant, N = smallest_module
+    base = MPCController(make_solver(plant, N), linsys="pcg", limits="admm")
+    derated = MPCController(make_solver(plant, N), linsys="pcg", limits="admm", limits_kw={"u_scale": 0.5})
+    for g0, g1 in zip(base.solver.get_row_groups(), derated.solver.get_row_groups()):
+        assert int(g0["kind"]) == int(g1["kind"])
+        scale = 0.5 if int(g0["kind"]) == KIND_BOX_U else 1.0
+        np.testing.assert_allclose(np.asarray(g1["lo"]), scale * np.asarray(g0["lo"]), rtol=1e-6)
+        np.testing.assert_allclose(np.asarray(g1["hi"]), scale * np.asarray(g0["hi"]), rtol=1e-6)
+    assert any(int(g["kind"]) == KIND_BOX_U for g in base.solver.get_row_groups())
+    for bad in (0.0, 1.5, -0.2):
+        with pytest.raises(ValueError, match="u_scale"):
+            MPCController(make_solver(plant, N), linsys="pcg", limits="admm", limits_kw={"u_scale": bad})
+
+
 def test_deadline_budget(make_solver, smallest_module):
     """step(budget_s=...) is the iteration-level cutoff: a budget no iteration
     fits runs exactly one (bit-identical to a max_sqp_iters=1 solver) and
