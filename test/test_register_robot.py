@@ -52,7 +52,7 @@ def test_unregistered_robot_raises_with_register_hint(cache, urdfs):
         gato.BSQP(str(urdfs["indy7"]), batch_size=1, N=8, dt=0.01, plant_type="nobody_registered_this")
 
 
-def test_module_key_tracks_inputs(cache, urdfs):
+def test_module_key_tracks_inputs(cache, urdfs, monkeypatch):
     gato.register_robot(NAME, urdfs["indy7"], N=[8])
     entry = _cache.robot_entry(NAME)
     root = cache / "robots" / entry["codegen_key"]
@@ -64,6 +64,12 @@ def test_module_key_tracks_inputs(cache, urdfs):
     assert _cache.module_key(entry, 8, "default", root, "89")[0] != k1       # GPU architecture
     other = dict(entry, codegen_key="0" * 16)
     assert _cache.module_key(other, 8, "default", root, "120")[0] != k1      # URDF / options / generator
+    monkeypatch.setenv("GATO_MERIT_THREADS", "64")
+    k64, inputs64 = _cache.module_key(entry, 8, "default", root, "120")
+    assert k64 != k1 and inputs64["merit_threads"] == 64                    # merit block size (issue #19)
+    monkeypatch.setenv("GATO_MERIT_THREADS", "48")
+    with pytest.raises(ValueError, match="multiple of 32"):
+        _cache.module_key(entry, 8, "default", root, "120")
 
 
 @pytest.mark.gpu
@@ -162,3 +168,127 @@ def test_registered_signed_and_mixed_axes_match_pinocchio(cache, tmp_path):
     B = np.asarray(kkt["B"])[0].reshape(N, 3, 6)[0].T
     np.testing.assert_allclose(A, expected_A, atol=2e-5, rtol=1e-4)
     np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_merit_threads_knob_is_bit_identical(cache, urdfs, tmp_path):
+    """GATO_MERIT_THREADS (issue #19): a smaller merit block compiles into its own
+    cache entry and solves bit-identically to the default block size."""
+    import os
+    import subprocess
+    import sys
+
+    urdf = str(urdfs["indy7"])
+    gato.register_robot(NAME, urdf, N=[8])
+    x = np.zeros((2, 12), np.float32)
+    x[0, :6] = [0.3, -0.4, 0.2, 0.1, -0.2, 0.15]
+    x[1, 6:] = 0.2
+    goals = np.zeros((2, 8 * 6), np.float32)
+    goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
+    np.save(tmp_path / "x.npy", x)
+    np.save(tmp_path / "goals.npy", goals)
+    script = (
+        "import sys, numpy as np, gato\n"
+        "urdf, name, out = sys.argv[1:4]\n"
+        "x, goals = np.load(sys.argv[4]), np.load(sys.argv[5])\n"
+        "s = gato.BSQP(urdf, batch_size=2, N=8, dt=0.01, plant_type=name)\n"
+        "np.save(out, np.stack([np.asarray(s.solve(x, goals).xu).copy() for _ in range(4)]))\n")
+    outs = {}
+    for threads in (None, 64):   # separate processes: one module name per process
+        env = dict(os.environ)
+        env.pop("GATO_MERIT_THREADS", None)
+        if threads:
+            env["GATO_MERIT_THREADS"] = str(threads)
+        out = tmp_path / f"xu_{threads}.npy"
+        subprocess.run([sys.executable, "-c", script, urdf, NAME, str(out),
+                        str(tmp_path / "x.npy"), str(tmp_path / "goals.npy")], check=True, env=env)
+        outs[threads] = np.load(out)
+    assert np.isfinite(outs[None]).all()
+    assert np.array_equal(outs[64], outs[None])
+    metas = sorted(str(json.loads(m.read_text())["inputs"].get("merit_threads"))
+                   for m in (cache / "modules" / NAME).glob("*/meta.json"))
+    assert metas == ["64", "None"]
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
+    """joint_dynamics=True (issue #20): the URDF's <dynamics damping> enters the
+    step and its linearization; checked against Pinocchio with the damping torque
+    applied to the input."""
+    import pinocchio as pin
+
+    damping = (0.5, 0.2, 0.8)
+    urdf = tmp_path / "damped.urdf"
+    links, joints = [], []
+    for i, b in enumerate(damping, 1):
+        links.append(f'''<link name="l{i}"><inertial>
+          <origin xyz=".12 .03 .02"/><mass value="1"/>
+          <inertia ixx=".02" iyy=".03" izz=".04" ixy="0" ixz="0" iyz="0"/>
+        </inertial><collision><geometry><sphere radius=".04"/></geometry></collision></link>''')
+        parent = "base" if i == 1 else f"l{i-1}"
+        joints.append(f'''<joint name="j{i}" type="revolute">
+          <parent link="{parent}"/><child link="l{i}"/>
+          <origin xyz=".25 .02 .04"/><axis xyz="0 0 1"/><dynamics damping="{b}"/>
+          <limit lower="-2" upper="2" effort="20" velocity="3"/></joint>''')
+    urdf.write_text('<robot name="damped"><link name="base"/>'
+                    + ''.join(links + joints)
+                    + '<link name="tool"/><joint name="EE" type="fixed">'
+                      '<parent link="l3"/><child link="tool"/>'
+                      '<origin xyz=".2 0 0"/></joint></robot>')
+    name, N, dt = "cachebot_damped", 8, .01
+    gato.register_robot(name, urdf, N=[N], joint_dynamics=True)
+    entry = _cache.robot_entry(name)
+    assert entry["options"]["joint_dynamics"] is True and entry["meta"]["joint_dynamics"] is True
+    s = gato.BSQP(str(urdf), batch_size=1, N=N, dt=dt, plant_type=name)
+    model = pin.buildModelFromUrdf(str(urdf))
+    data = model.createData()
+    D = np.diag(damping)
+    q = np.array([.3, -.4, .2])
+    v = np.array([.2, -.1, .15])
+    u = np.array([.7, -.3, .5])
+    x = np.r_[q, v]
+    got = np.asarray(s.sim_forward(x[None], u[None], dt))[0]
+    tau = u - D @ v
+    acceleration = pin.aba(model, data, q, v, tau)
+    expected = np.r_[q + dt * v + .5 * dt**2 * acceleration, v + dt * acceleration]
+    np.testing.assert_allclose(got, expected, atol=2e-5, rtol=1e-4)
+    undamped = pin.aba(model, data, q, v, u)
+    assert not np.allclose(got, np.r_[q + dt * v + .5 * dt**2 * undamped, v + dt * undamped], atol=2e-5)
+
+    xu = np.tile(np.r_[x, u], N)[:-3]
+    goals = np.zeros((1, N * 6), dtype=np.float32)
+    kkt = s.debug_setup_kkt(xu[None], x[None], goals)
+    aq, av, au = pin.computeABADerivatives(model, data, q, v, tau)
+    av = av - au @ D          # d(tau - D qd)/d qd through the inverse mass matrix
+    eye = np.eye(3)
+    expected_A = np.block([[eye + .5 * dt**2 * aq, dt * eye + .5 * dt**2 * av],
+                           [dt * aq, eye + dt * av]])
+    expected_B = np.vstack([.5 * dt**2 * au, dt * au])
+    A = np.asarray(kkt["A"])[0].reshape(N, 6, 6)[0].T
+    B = np.asarray(kkt["B"])[0].reshape(N, 3, 6)[0].T
+    np.testing.assert_allclose(A, expected_A, atol=2e-5, rtol=1e-4)
+    np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)
+
+
+def test_joint_dynamics_refuses_coulomb_friction(cache, tmp_path):
+    """The pinned GRiD's friction model has a zero derivative (issue #20): refuse it
+    with the reason rather than let the SQP stall."""
+    from gato.builder import _codegen_key
+
+    urdf = tmp_path / "fric.urdf"
+    urdf.write_text('<robot name="fric"><link name="base"/>'
+                    '<link name="l1"><inertial><origin xyz=".1 0 0"/><mass value="1"/>'
+                    '<inertia ixx=".02" iyy=".03" izz=".04" ixy="0" ixz="0" iyz="0"/></inertial>'
+                    '<collision><geometry><sphere radius=".04"/></geometry></collision></link>'
+                    '<joint name="j1" type="revolute"><parent link="base"/><child link="l1"/>'
+                    '<axis xyz="0 0 1"/><dynamics damping="0.5" friction="0.3"/>'
+                    '<limit lower="-2" upper="2" effort="20" velocity="3"/></joint>'
+                    '<link name="tool"/><joint name="EE" type="fixed"><parent link="l1"/>'
+                    '<child link="tool"/><origin xyz=".2 0 0"/></joint></robot>')
+    with pytest.raises(ValueError, match="friction"):
+        gato.register_robot("cachebot_fric", urdf, N=[8], joint_dynamics=True)
+    # the flag is part of the codegen key, and only when on
+    assert _codegen_key(urdf, "EE", 0.15, None, False) == _codegen_key(urdf, "EE", 0.15, None, False, False)
+    assert _codegen_key(urdf, "EE", 0.15, None, False) != _codegen_key(urdf, "EE", 0.15, None, False, True)

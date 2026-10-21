@@ -10,7 +10,8 @@ header root, the robot's generated directory (grid.cuh + limits.cuh — from the
 checkout's gato/dynamics, the wheel's bundled copy, or the per-host cache for
 robots registered with gato.register_robot), the GLASS and collision headers
 from the pinned grid-rbd wheel, and three defines selecting the horizon, the
-plant and the plant adapter. Variants add one define each.
+plant and the plant adapter. Variants add one define each, and
+GATO_MERIT_THREADS in the environment adds the merit block-size define.
 """
 from __future__ import annotations
 
@@ -40,7 +41,8 @@ def settings(robot: str, N: int, variant: str = "default") -> dict:
         "robot": robot, "N": int(N), "variant": variant,
         "include_dirs": [str(root / "gato"), str(plant_dir), str(_grid.glass_dir()), str(_grid.collision_dir())],
         "defines": [f"KNOT_POINTS={int(N)}", f"GATO_PLANT_NAME={robot}", 'GATO_PLANT_HEADER="dynamics/plant.cuh"',
-                    *VARIANT_DEFINES[variant]],
+                    *VARIANT_DEFINES[variant],
+                    *([f"GATO_MERIT_THREADS={mt}"] if (mt := _cache.merit_threads()) is not None else [])],
         "cuda_flags": list(CUDA_FLAGS),
         "example": str(root / "examples" / "cpp"),
         "gato_root": str(root),

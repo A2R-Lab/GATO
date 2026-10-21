@@ -136,6 +136,10 @@ cmake --build build --parallel 2                                # RAM-bound: rou
   horizons are compile blowups).
 - `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
   attests (`test/receipt_modules.txt`).
+- `GATO_MERIT_THREADS` (a CMake cache variable, or the environment variable for
+  `register_robot` and first-use compiles): the merit kernel's block size, a
+  multiple of 32, for GPUs with few SMs. Results are bit-identical to the
+  default, the generated per-robot maximum.
 - `tools/build.sh` defaults to four jobs; use `JOBS=1` on the shared lab box or a RAM-limited
   machine. CMake caches `MODULES`: an old explicit list overrides `PLANT`/`KNOTS`.
   Clear it with `-DMODULES=""` when returning to the cross-product. The receipt
@@ -384,7 +388,10 @@ solver = gato.BSQP("path/to/robot.urdf", N=32, plant_type="myrobot", ...)   # co
 
 `ee_frame` must be a **fixed joint** in the URDF (the EE target frame the cost
 tracks; on a floating base, the base-pose target frame); every actuated joint
-needs bounded `<limit>` tags (the barrier cost uses them). Scope: serial chains,
+needs bounded `<limit>` tags (the barrier cost uses them). `joint_dynamics=True`
+bakes the URDF's `<dynamics damping>` into the dynamics and its derivatives;
+Coulomb friction is refused until the next grid-rbd release (see the
+changelog). Scope: serial chains,
 fixed or floating base (quaternion free-flyer). Codegen is skipped when nothing
 that feeds it changed (URDF, the grid-rbd release, algorithm set, options). The same path is
 exposed as a CLI for the vendored robots: `python tools/regen_grid.py`. Built

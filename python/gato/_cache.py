@@ -53,6 +53,24 @@ def cache_dir() -> Path:
     return Path(platformdirs.user_cache_dir("gato"))
 
 
+def validate_merit_threads(value) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"GATO_MERIT_THREADS must be an integer, got {value!r}") from None
+    if n <= 0 or n % 32 or n > 1024:
+        raise ValueError(f"GATO_MERIT_THREADS must be a multiple of 32 between 32 and 1024, got {n}")
+    return n
+
+
+def merit_threads() -> int | None:
+    """GATO_MERIT_THREADS: the merit kernel's block size, for GPUs with few SMs
+    (issue #19); None = the generated per-robot maximum. Compiled into the module
+    and part of its cache key, so both sizes can live in one cache."""
+    raw = os.environ.get("GATO_MERIT_THREADS", "").strip()
+    return validate_merit_threads(raw) if raw else None
+
+
 def native_root() -> Path:
     """The CMake source tree solver modules compile from: the wheel's bundled
     copy (gato/_native) or the source checkout around an editable install."""
@@ -121,6 +139,9 @@ def module_key(robot: dict, N: int, variant: str, plant_root: Path, arch: str | 
     tc = toolchain_identity(arch)
     inputs = {"codegen_key": robot["codegen_key"], "N": int(N), "variant": variant,
               "native_source_id": native_id, "toolchain": tc, "schema": MANIFEST_SCHEMA}
+    mt = merit_threads()
+    if mt is not None:          # absent when unset, so existing cache keys are unchanged
+        inputs["merit_threads"] = mt
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16]
     return key, inputs
 
@@ -189,10 +210,13 @@ def resolve(name: str, cache: Path | None = None) -> tuple[dict, Path] | None:
 
 def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=False,
                    collision_res=0.15, contact_frames=None, variant="default",
-                   build=False, cache_dir_override=None, arch=None, jobs=2, force=False) -> dict:
+                   build=False, cache_dir_override=None, arch=None, jobs=2, force=False,
+                   joint_dynamics=False) -> dict:
     """Generate a robot's dynamics headers into the per-host cache and record it
     in the manifest. Compiles the solver modules now only with ``build=True``;
-    otherwise the first ``gato.BSQP(..., plant_type=name)`` compiles (once)."""
+    otherwise the first ``gato.BSQP(..., plant_type=name)`` compiles (once).
+    ``joint_dynamics=True`` bakes the URDF's ``<dynamics damping>`` into the
+    dynamics and its derivatives (see gato.builder.codegen)."""
     from .builder import _codegen_key, codegen
 
     if not str(name).isidentifier():
@@ -201,14 +225,14 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     if not urdf_path.exists():
         raise FileNotFoundError(f"URDF not found: {urdf_path}")
     cache = Path(cache_dir_override) if cache_dir_override else cache_dir()
-    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base)
+    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics)
     dyn = cache / "robots" / key / name
     with _locked(cache):
         if force or not (dyn / "grid.cuh").exists() or not (dyn / "limits.cuh").exists():
             try:
                 meta = codegen(urdf_path, name, ee_frame=ee_frame, out_dir=dyn, register=False,
                                collision_res=collision_res, contact_frames=contact_frames,
-                               floating_base=floating_base)
+                               floating_base=floating_base, joint_dynamics=joint_dynamics)
             except ValueError as e:
                 if "could not be resolved" in str(e):
                     raise ValueError(
@@ -224,7 +248,8 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                  "urdf_sha256": hashlib.sha256(urdf_path.read_bytes()).hexdigest(),
                  "options": {"ee_frame": ee_frame, "floating_base": bool(floating_base),
                              "collision_res": collision_res,
-                             "contact_frames": list(contact_frames) if contact_frames else None},
+                             "contact_frames": list(contact_frames) if contact_frames else None,
+                             "joint_dynamics": bool(joint_dynamics)},
                  "N": sorted({int(n) for n in ([N] if isinstance(N, int) else N)}),
                  "variant": variant, "meta": meta, "registered": time.strftime("%Y-%m-%dT%H:%M:%S")}
         data = load_manifest(cache)
@@ -293,6 +318,8 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
                f"-Dpybind11_DIR={pybind11.get_cmake_dir()}"]
         if arch:
             cfg.append(f"-DCMAKE_CUDA_ARCHITECTURES={arch}")
+        if "merit_threads" in inputs:
+            cfg.append(f"-DGATO_MERIT_THREADS={inputs['merit_threads']}")
         t0 = time.time()
         with open(out / "build.log", "w") as logf:
             try:

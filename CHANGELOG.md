@@ -2,6 +2,33 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.1.3 — unreleased: GPUs with few SMs, joint damping, topology helpers
+
+- The fixed-base dynamics adapter allocates GRiD's topology helper buffer
+  instead of passing null. GRiD needs the helpers whenever a joint axis is not
+  the shared +Z subspace (a -Z or +X revolute, a prismatic joint, a skew axis)
+  or the chain branches. The vendored arms have none, so their modules and
+  goldens are unchanged; a registered arm with signed or mixed axes now matches
+  Pinocchio in the step and its linearization, which a new slow test checks.
+  Contributed by Felix Mueh (PR #21).
+- `GATO_MERIT_THREADS` selects the merit kernel's block size. The merit grid
+  is knots by batch by eight line-search candidates, and on a GPU with 14 or 15
+  SMs those blocks at the generated maximum size serialize (issue #19, Felix
+  Mueh on a GTX 1070). The kernel is thread-count invariant and the partials
+  are summed in fixed order, so a smaller block is bit-identical, and the
+  launch bound keeps the default register budget. Set the environment variable
+  before the first-use compile (`register_robot`, `build`, `BSQP`) or pass
+  `-DGATO_MERIT_THREADS=64` to CMake; each size is its own cache entry. Fusing
+  the eight candidates into one block per knot is the next step and is tracked
+  separately.
+- `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
+  URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
+  `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are
+  byte-identical. Coulomb friction is refused for now: the pinned GRiD emits
+  `friction * sign(qd)`, whose derivative is zero, so the SQP linearization
+  never sees the term and the line search stalls (issue #20); the smooth model
+  with first and second derivatives lands with the next grid-rbd release.
+
 ## 0.1.2 — 2026-10-20: three more arms, device-resident control, documentation site
 
 - Schur assembly no longer overwrites the Q Hessians with their inverses in

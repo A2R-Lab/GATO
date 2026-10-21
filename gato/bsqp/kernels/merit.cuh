@@ -50,13 +50,23 @@ __host__ __device__ constexpr size_t compute_merit_base_smem_ct()
         return MeritSmem<T>::total;
 }
 
-// __launch_bounds__ min-2-blocks: this kernel sat at 95 regs after the P4.3/P4.4
-// wave — 2 registers past the 2-blocks/SM bound at MAX_PERF_LEVEL_THREADS=352 on
-// sm_120 (65536/(2*352) = 93). The halved occupancy doubled the kernel at
-// saturated B (+62% whole-solve, the 2026-08-09 bisect's entire regression);
-// capping regs trades a ~2-slot spill for 2x occupancy.
+// Merit block size: GATO_MERIT_THREADS (settings.h) or the generated per-robot
+// maximum. MERIT_MIN_BLOCKS keeps the register budget of the tuned default
+// (2 blocks at MAX_PERF_LEVEL_THREADS) at any block size, so a smaller block
+// changes the launch geometry and not the register allocation or spill pattern.
+constexpr uint32_t MERIT_THREADS = (GATO_MERIT_THREADS > 0) ? static_cast<uint32_t>(GATO_MERIT_THREADS)
+                                                            : static_cast<uint32_t>(grid::MAX_PERF_LEVEL_THREADS);
+static_assert(MERIT_THREADS % 32 == 0 && MERIT_THREADS <= 1024, "GATO_MERIT_THREADS must be a multiple of 32 and at most 1024");
+constexpr unsigned MERIT_MIN_BLOCKS_RAW = (2u * static_cast<unsigned>(grid::MAX_PERF_LEVEL_THREADS)) / MERIT_THREADS;
+constexpr unsigned MERIT_MIN_BLOCKS = MERIT_MIN_BLOCKS_RAW < 1u ? 1u : (MERIT_MIN_BLOCKS_RAW > 32u ? 32u : MERIT_MIN_BLOCKS_RAW);
+
+// __launch_bounds__ min-2-blocks at the default size: this kernel sat at 95 regs
+// after the P4.3/P4.4 wave — 2 registers past the 2-blocks/SM bound at
+// MAX_PERF_LEVEL_THREADS=352 on sm_120 (65536/(2*352) = 93). The halved occupancy
+// doubled the kernel at saturated B (+62% whole-solve, the 2026-08-09 bisect's
+// entire regression); capping regs trades a ~2-slot spill for 2x occupancy.
 template<typename T, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
-__global__ void __launch_bounds__(grid::MAX_PERF_LEVEL_THREADS, 2)
+__global__ void __launch_bounds__(MERIT_THREADS, MERIT_MIN_BLOCKS)
 compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
@@ -233,7 +243,7 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 }
                 __syncthreads();
                 // block-wide GLASS reduce (sum -> s_temp[0]); NOT glass::warp::reduce: this block
-                // runs MAX_PERF_LEVEL_THREADS (multi-warp), and warp::reduce's contract is one
+                // runs MERIT_THREADS (multi-warp), and warp::reduce's contract is one
                 // 32-lane warp owning the reduction, so it is unsafe across >1 warp here.
                 glass::reduce<T, STATE_SIZE>(s_temp);
                 __syncthreads();
@@ -327,7 +337,7 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
                                   const T*                    d_fc_ref = nullptr)
 {
         dim3   grid(KNOT_POINTS, batch_size, NumAlphas);
-        dim3   thread_block(grid::MAX_PERF_LEVEL_THREADS);  // regen removed grid::SUGGESTED_THREADS
+        dim3   thread_block(MERIT_THREADS);
         size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision);
         static size_t attr_bytes = 0;   // runtime-sized (has_collision): re-attributes on growth
         opt_in_dynamic_smem(compute_merit_batched_kernel<T>, s_mem_size, attr_bytes);

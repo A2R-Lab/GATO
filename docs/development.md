@@ -21,7 +21,9 @@ one-time cost. The module key hashes the robot's codegen key, N, variant, the
 native source identity (`tools/native_identity.py`, the same content hash every
 module embeds) and the toolchain (CUDA arch from `nvidia-smi`, nvcc, host
 compiler, CMake, Python ABI tag, pybind11) — any change is a cache miss, never a
-stale binary; `register_robot(..., build=True)` compiles up front. The vendored
+stale binary; `register_robot(..., build=True)` compiles up front; `GATO_MERIT_THREADS` (the merit
+block size, for GPUs with few SMs) joins the key when set, so both sizes can live
+in one cache. The vendored
 robots are pre-registered from the bundled headers (`_cache.resolve`). Package
 modules in `python/gato/` (the receipt profile) win over cache modules with the
 same name; `gato.available()` lists both. `test/test_register_robot.py` is the

@@ -19,6 +19,7 @@ option(GATO_FAST_MATH "Compile CUDA with -use_fast_math (disable for tight-toler
 option(GATO_BUILD_DEMO "Build the bsqp C++ demo executable" ON)
 option(GATO_EXACT_HESSIAN "Compile the exact-Hessian (SO-SQP) stage-projection path; OFF keeps the device tree preprocessor-identical to the GN-only solver" OFF)
 option(GATO_CONTACT_FORCES "Append a per-knot contact wrench to the control vector (f_c extends u; a module-ABI change, so it builds as the separate _fc module variant); OFF keeps the baseline solver bit-identical" OFF)
+set(GATO_MERIT_THREADS "" CACHE STRING "Merit kernel block size (a multiple of 32, at most 1024); empty = the generated per-robot maximum. Smaller blocks suit GPUs with few SMs (issue #19); results are bit-identical")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # NOTE: -G is an nvcc flag and lives in the CUDA debug flags only; ASan on a CUDA
@@ -75,6 +76,9 @@ if(GATO_BUILD_DEMO)
   endif()
   if(GATO_CONTACT_FORCES)
     target_compile_definitions(bsqp PRIVATE GATO_CONTACT_FORCES=1)
+  endif()
+  if(GATO_MERIT_THREADS)
+    target_compile_definitions(bsqp PRIVATE GATO_MERIT_THREADS=${GATO_MERIT_THREADS})
   endif()
   # The per-robot dir supplies grid.cuh + limits.cuh to the generic plant header.
   target_include_directories(bsqp PRIVATE ${CMAKE_SOURCE_DIR}/gato/dynamics/indy7
@@ -211,6 +215,9 @@ foreach(pair ${GATO_MODULE_PAIRS})
       target_compile_definitions(${MODULE_NAME} PRIVATE USE_EXACT_HESSIAN=1)
     elseif(variant STREQUAL "fc")
       target_compile_definitions(${MODULE_NAME} PRIVATE GATO_CONTACT_FORCES=1)
+    endif()
+    if(GATO_MERIT_THREADS)
+      target_compile_definitions(${MODULE_NAME} PRIVATE GATO_MERIT_THREADS=${GATO_MERIT_THREADS})
     endif()
 
     set_target_properties(
