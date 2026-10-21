@@ -52,6 +52,12 @@ struct SQPStats {
         std::vector<int> sqp_iterations;
         std::vector<int> kkt_converged;  // 1 if converged, 0 if not
         bool             budget_hit = false;  // the SQP loop stopped on set_time_budget_us (not on convergence)
+        // dynamics defect of the returned trajectory (set_defect_telemetry): the merit's
+        // constraint term alone, L1 integrator error summed over the knots plus the
+        // initial-state gap; empty when telemetry is off. defect_exit: the loop
+        // stopped because every solve's defect was within set_defect_exit's tolerance.
+        std::vector<T>   defect;
+        bool             defect_exit = false;
         // ADMM mode only (kernels/admm.cuh): inner iterations run this solve and the
         // inner linear-system work they took (PCG steps on the pcg arm, back-solves
         // on the factor arm); 0 outside ADMM mode

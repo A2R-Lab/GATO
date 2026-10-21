@@ -271,6 +271,48 @@ def test_linsys_auto_default_deterministic(make_solver, smallest_module):
     np.testing.assert_array_equal(run(), run())
 
 
+def test_defect_telemetry_and_exit(make_solver, smallest_module):
+    """SolverParams.defect_telemetry reports the returned plan's dynamics defect
+    without changing the plan; defect_exit turns max_sqp_iters into a cap: a
+    tolerance every iterate meets stops after one iteration (bit-identical to a
+    max_sqp_iters=1 solver), one no iterate meets runs the full cap, and one set
+    at the cap's own final defect stops at or below it."""
+    plant, N = smallest_module
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+
+    def run(**kw):
+        s = make_solver(plant, N, batch_size=1, **kw)
+        c = MPCController(s, linsys="pcg")
+        x0 = np.full(s.nx, 0.1, dtype=np.float32)
+        c.reset(x0)
+        return c.step(x0, ref)
+
+    base = run(max_sqp_iters=4)
+    assert base.iterations >= 2
+    assert base.solve.stats.defect is None and np.isnan(base.defect) and not base.defect_exit
+
+    tele = run(max_sqp_iters=4, defect_telemetry=True)
+    np.testing.assert_array_equal(tele.xu_best, base.xu_best)          # telemetry is read-only
+    assert tele.iterations == base.iterations and not tele.defect_exit
+    assert np.isfinite(tele.defect) and tele.defect >= 0.0
+    assert tele.solve.stats.defect.shape == (1,) and float(tele.solve.stats.defect[0]) == tele.defect
+
+    loose = run(max_sqp_iters=4, defect_exit=1e30)
+    assert loose.iterations == 1 and loose.defect_exit and np.isfinite(loose.defect)
+    np.testing.assert_array_equal(loose.xu_best, run(max_sqp_iters=1).xu_best)
+
+    tight = run(max_sqp_iters=4, defect_exit=1e-30)
+    assert tight.iterations == base.iterations and not tight.defect_exit
+    np.testing.assert_array_equal(tight.xu_best, base.xu_best)
+
+    mid = run(max_sqp_iters=4, defect_exit=float(tele.defect))
+    assert 1 <= mid.iterations <= base.iterations
+    assert mid.defect <= tele.defect * (1 + 1e-6) + 1e-12
+
+    with pytest.raises(ValueError, match="defect_exit"):
+        run(defect_exit=-1.0)
+
+
 def test_deadline_budget(make_solver, smallest_module):
     """step(budget_s=...) is the iteration-level cutoff: a budget no iteration
     fits runs exactly one (bit-identical to a max_sqp_iters=1 solver) and

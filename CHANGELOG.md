@@ -27,6 +27,16 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   bit-identical, checked by the kernel gate `test/cuda/merit_fusion_parity.cu`
   and an end-to-end test; `GATO_MERIT_FUSED=0/1` forces one path for timing.
   The threshold is provisional until a timing window.
+- Dynamics-defect telemetry and exit. `SolverParams(defect_telemetry=True)`
+  reports the returned plan's dynamics defect in `SolverStats.defect` and
+  `StepResult.defect`: the merit's constraint term alone, the L1 integrator
+  error summed over the knots plus the initial-state gap, without changing the
+  plan. `defect_exit=tol` stops the SQP loop once every solve's accepted plan
+  is within the tolerance, so `max_sqp_iters` becomes a cap that a controller
+  pays only while the plan is dynamically inconsistent; a time budget still
+  wins. The October 18 saturation study traced most of the one-tick velocity
+  gap to this defect, and the policy is evaluated on the development set
+  before any default moves.
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
   URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
   `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are

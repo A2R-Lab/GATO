@@ -245,7 +245,7 @@ from a wheel or a checkout. Plant, horizon and variant are compile-time
 
 | object | owns | you call it for |
 |---|---|---|
-| `gato.SolverParams` | THE solver configuration (frozen dataclass, `.replace()`) | every knob: SQP/PCG budgets, `mu`, `rho`, cost weights, `linsys`, `exact_hessian` |
+| `gato.SolverParams` | THE solver configuration (frozen dataclass, `.replace()`) | every knob: SQP/PCG budgets, `mu`, `rho`, cost weights, `linsys`, `exact_hessian`, `defect_exit` |
 | `gato.BSQP` | one compiled module + its device buffers; **stateless in the trajectory**, stateful in duals / adapted rho | `solve(x, ref, xu_warm=None)`, the `set_*` cost/constraint surface, `ee_pos`, `sim_forward` |
 | `gato.MPCController` | the warm-start buffer (shift/hold), the per-step linsys policy, hypothesis batches, re-seeding, the URDF limit rows (ADMM by default on arms without existing rows; `limits="off"` adds no rows and preserves existing ones) | `reset(x0)`, `warmup`, `step(x, ref, budget_s=None) -> StepResult` (`u` = ACTUATED control to apply; `limits` / `row_viol` = the mechanism in force and the plan's violation per row group; a budget limits SQP work at iteration boundaries but can overrun) |
 | `gato.MPCPolicy` + `TrajectoryReference` / `GoalReference` | the clock and reference window | `policy(obs) -> action` in any gym-style loop |

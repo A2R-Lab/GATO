@@ -73,6 +73,7 @@ constexpr unsigned MERIT_MIN_BLOCKS = MERIT_MIN_BLOCKS_RAW < 1u ? 1u : (MERIT_MI
 template<typename T, uint32_t NumAlphas, bool FUSED, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false>
 __global__ void __launch_bounds__(MERIT_THREADS, MERIT_MIN_BLOCKS)
 compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
+                                          T* __restrict__       d_defect_partial_batch,  // optional (nullable): the constraint term alone, same slots
                                           T* __restrict__       d_dz_batch,
                                           T* __restrict__       d_xu_traj_batch,
                                           T* __restrict__       d_x_initial_batch,
@@ -269,6 +270,7 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
         if (threadIdx.x == 0) {
                 uint32_t merit_index = solve_idx * NumAlphas + alpha_idx;
                 d_merit_partial_batch[(size_t)merit_index * KNOT_POINTS + knot_idx] = cost_k + mu * constraint_k;
+                if (d_defect_partial_batch != nullptr) { d_defect_partial_batch[(size_t)merit_index * KNOT_POINTS + knot_idx] = constraint_k; }
         }
         __syncthreads();  // the next candidate reuses s_xux_k / s_temp
         }  // candidate loop
@@ -283,7 +285,9 @@ __global__ void reduce_merit_partials_kernel(T* __restrict__ d_merit_batch,
                                           const T* __restrict__ d_merit_partial_batch,
                                           uint32_t n_slots,
                                           uint32_t num_alphas,
-                                          const int32_t* __restrict__ d_kkt_converged_batch)
+                                          const int32_t* __restrict__ d_kkt_converged_batch,
+                                          T* __restrict__       d_defect_batch,           // optional (nullable): the defect per slot
+                                          const T* __restrict__ d_defect_partial_batch)
 {
         const uint32_t m = blockIdx.x * blockDim.x + threadIdx.x;
         if (m >= n_slots) return;
@@ -292,6 +296,12 @@ __global__ void reduce_merit_partials_kernel(T* __restrict__ d_merit_batch,
         T acc = static_cast<T>(0);
         for (uint32_t k = 0; k < KNOT_POINTS; k++) { acc += p[k]; }
         d_merit_batch[m] = acc;
+        if (d_defect_partial_batch != nullptr) {
+                const T* pd = d_defect_partial_batch + (size_t)m * KNOT_POINTS;
+                T accd = static_cast<T>(0);
+                for (uint32_t k = 0; k < KNOT_POINTS; k++) { accd += pd[k]; }
+                d_defect_batch[m] = accd;
+        }
 }
 
 template<typename T>
@@ -377,7 +387,9 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
                                   const T*                    d_u_cost_vec = nullptr,
                                   const T*                    d_q_pos_w_vec = nullptr,
                                   const T*                    d_fc_ref = nullptr,
-                                  int                         fused = -1)   // -1 auto (merit_fused_launch), 0/1 force
+                                  int                         fused = -1,   // -1 auto (merit_fused_launch), 0/1 force
+                                  T*                          d_defect_batch = nullptr,          // optional: per-(solve,alpha) constraint term
+                                  T*                          d_defect_partial_batch = nullptr)  // scratch for it, same size as the merit partials
 {
         dim3   thread_block(MERIT_THREADS);
         size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision);
@@ -389,6 +401,7 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
         auto   kernel = use_fused ? compute_merit_batched_kernel<T, NumAlphas, true> : compute_merit_batched_kernel<T, NumAlphas, false>;
 
         kernel<<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
+                                                                                    d_defect_partial_batch,
                                                                                     d_dz_batch,
                                                                                     d_xu_traj_batch,
                                                                                     inputs.d_x_s_batch,
@@ -422,5 +435,6 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
                                                                                     d_admm_rho_scale_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
         const uint32_t n_slots = batch_size * NumAlphas;
-        reduce_merit_partials_kernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch);
+        reduce_merit_partials_kernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch,
+                                                                         d_defect_batch, d_defect_partial_batch);
 }

@@ -35,6 +35,13 @@ class StepResult:
     admm_linsys: str = ""    # ADMM inner linsys this step ran ("pcg" | "bdsv_factor"; "" when ADMM is off)
     limits: str = ""         # limit mechanism in force ("admm" | "barrier" | "al" | "telemetry"; "" = no limit rows)
     row_viol: np.ndarray = None  # (n_groups,) max violation of the winner's plan per row group, get_row_groups() order
+    defect: float = float("nan")  # the winner's dynamics defect (SolverParams.defect_telemetry; NaN when off)
+    defect_exit: bool = False     # the solve stopped on SolverParams.defect_exit
+
+
+def _winner_defect(res, best_id):
+    d = res.stats.defect
+    return float(d[best_id]) if d is not None else float("nan")
 
 
 class MPCController:
@@ -394,6 +401,7 @@ class MPCController:
             iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
             limits=self.limits, row_viol=row_viol,
+            defect=_winner_defect(res, best_id), defect_exit=res.stats.defect_exit,
         )
 
     def _step_device(self, x, ref, budget_s, t0):
@@ -441,4 +449,5 @@ class MPCController:
             iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
             limits=self.limits, row_viol=row_viol,
+            defect=_winner_defect(res, best_id), defect_exit=res.stats.defect_exit,
         )

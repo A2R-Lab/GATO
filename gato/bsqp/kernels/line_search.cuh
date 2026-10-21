@@ -15,7 +15,8 @@ using namespace gato;
 using namespace gato::constants;
 
 template<typename T, uint32_t NumAlphas>
-__global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_batched_kernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch, const uint32_t* __restrict__ d_direct_iters)
+__global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_batched_kernel(T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* __restrict__ d_kkt_converged_batch, const uint32_t* __restrict__ d_direct_iters,
+                                                                                             const T* __restrict__ d_defect_batch, T* __restrict__ d_defect_accepted_batch)   // optional (nullable): per-candidate defect in, the accepted candidate's out
 {
         // launched with batch_size blocks
         const uint32_t solve_idx = blockIdx.x;
@@ -120,6 +121,7 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_ba
                         s_step_size = 1.0 / (T)(1 << s_step_idx[0]);
                         d_merit_initial_batch[solve_idx] = min_merit;
                         d_step_size_batch[solve_idx] = s_step_size;
+                        if (d_defect_batch != nullptr) { d_defect_accepted_batch[solve_idx] = d_defect_batch[solve_idx * NumAlphas + s_step_idx[0]]; }
                 }
         }
         __syncthreads();
@@ -150,13 +152,15 @@ __global__ __launch_bounds__(LINE_SEARCH_THREADS) void line_search_and_update_ba
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch, const uint32_t* d_direct_iters = nullptr)
+__host__ void line_search_and_update_batched(uint32_t batch_size, T* d_xu_traj_batch, T* d_dz_batch, T* d_merit_batch, T* d_merit_initial_batch, T* d_step_size_batch, T* d_rho_penalty_batch, T* d_drho_batch, int adapt_rho, const int32_t* d_kkt_converged_batch, const uint32_t* d_direct_iters = nullptr,
+                                             const T* d_defect_batch = nullptr, T* d_defect_accepted_batch = nullptr)
 {
         dim3 grid(batch_size);
         dim3 thread_block(LINE_SEARCH_THREADS);
         // the kernel's s_merit/s_step_idx arrays are static __shared__ — no dynamic smem needed
 
         line_search_and_update_batched_kernel<T, NumAlphas>
-            <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch, d_direct_iters);
+            <<<grid, thread_block>>>(d_xu_traj_batch, d_dz_batch, d_merit_batch, d_merit_initial_batch, d_step_size_batch, d_rho_penalty_batch, d_drho_batch, adapt_rho, d_kkt_converged_batch, d_direct_iters,
+                                     d_defect_batch, d_defect_accepted_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }

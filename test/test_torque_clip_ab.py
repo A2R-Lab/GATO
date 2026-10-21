@@ -245,3 +245,37 @@ def test_unclipped_audit_preserves_episode_and_covers_final_substep(experiment):
     assert sub["commanded_u_ratio"] == sub["applied_u_ratio"]
     assert sub["clipped_samples"] == 0
     assert sub["simulated_s"] == pytest.approx(measured["goal_events"][-1]["time"])
+
+
+def test_defect_policy_report_renders_and_rejects_unknown_policy(experiment, repo_root, tmp_path, capsys):
+    """defect_policy_dev: the report renders every (plant, task, actuator) cell
+    per policy from saved rows, keeps error rows out of the metrics, and the
+    collector refuses a policy that limits_holdout does not define."""
+    study = importlib.import_module("defect_policy_dev")
+
+    def row(mech, clip, reached, defect, iters, status="ok"):
+        r = dict(set="dev", seed=1, plant="fr3", task="pickplace", scenario=0, scenario_def={},
+                 mech=mech, clip=clip, N=64, sha="abc", date="d", quotable_times=False, status=status)
+        if status == "ok":
+            r["result"] = dict(reached=reached, time_to_all=1.5, iters_mean=iters, iters_max=iters,
+                               defect=(dict(p50=defect, p90=defect, p99=defect, max=defect, mean=defect)
+                                       if defect is not None else None),
+                               substeps=dict(qd_ratio=.9, applied_u_ratio=1.0, commanded_u_ratio=1.2,
+                                             clipped_samples=3 if clip else 0))
+        return r
+    rows = [row("admm-defect-tele", False, 3, 2e-3, 1), row("admm-defect-tele", True, 3, 2e-3, 1),
+            row("admm-sqp4-defect1e-3", False, 3, 8e-4, 2.5), row("admm-sqp4-defect1e-3", True, 3, 8e-4, 2.5),
+            row("admm-sqp4-defect1e-3", True, 0, None, 0, status="error")]
+    path = tmp_path / "rows.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    study.report([str(path)])
+    out = capsys.readouterr().out
+    assert "fr3 pickplace clipped  (1 errors)" in out and "fr3 pickplace unclipped  (0 errors)" in out
+    assert "| admm-sqp4-defect1e-3 | 1 | 3.00 | 1.50 | 2.50 / 2.5 | 8.00e-04" in out
+    assert "| admm-defect-tele | 1 | 3.00 | 1.50 | 1.00 / 1 | 2.00e-03" in out
+    assert out.count("| 0.900 | 1.000 | 1.200 |") == 4
+
+    args = SimpleNamespace(out=str(tmp_path / "x.jsonl"), mechs="nobody", plants="fr3", tasks="pickplace",
+                           n=1, seed=1, N=64, clip="0", scenarios=None)
+    with pytest.raises(SystemExit, match="unknown mechanism"):
+        study.collect(args)

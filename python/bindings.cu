@@ -386,6 +386,8 @@ class PyBSQP {
                 result["initial_merit"] = py::array_t<T>({B}, {sizeof(T)}, h_initial_merit.data());
                 result["linsys_mode"] = solver_.linsys_mode();
                 result["budget_hit"] = stats.budget_hit;
+                result["defect_exit"] = stats.defect_exit;
+                if (!stats.defect.empty()) { result["defect"] = py::array_t<T>({B}, {sizeof(T)}, stats.defect.data()); }
 
                 // Per-iteration stats: shape them as (iters, batch_size)
                 result["ls_num_iters"] = static_cast<int>(stats.line_search_stats.size());
@@ -620,6 +622,8 @@ class PyBSQP {
         void set_rho_adaptation(bool enabled) { solver_.set_rho_adaptation(enabled); }
         void set_collect_stats(bool enabled) { solver_.set_collect_stats(enabled); }
         void set_time_budget_us(double us) { solver_.set_time_budget_us(us); }
+        void set_defect_telemetry(bool on) { solver_.set_defect_telemetry(on); }
+        void set_defect_exit(T tol) { solver_.set_defect_exit(tol); }
         void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
         void set_admm_linsys_pcg(bool on) { solver_.set_admm_linsys_pcg(on); }
         void set_admm_exit(T eps_abs, T eps_rel, uint32_t check_every) { solver_.set_admm_exit(eps_abs, eps_rel, check_every); }
@@ -852,6 +856,8 @@ class PyBSQP {
             .def("set_rho_adaptation", &PyBSQP<Type>::set_rho_adaptation)                                                                                                                              \
             .def("set_collect_stats", &PyBSQP<Type>::set_collect_stats)                                                                                                                                \
             .def("set_time_budget_us", &PyBSQP<Type>::set_time_budget_us, py::arg("us"))                                                                                                                                \
+            .def("set_defect_telemetry", &PyBSQP<Type>::set_defect_telemetry, py::arg("on"))                                                                                                                             \
+            .def("set_defect_exit", &PyBSQP<Type>::set_defect_exit, py::arg("tol"))                                                                                                                                      \
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
             .def("set_admm_linsys_pcg", &PyBSQP<Type>::set_admm_linsys_pcg, py::arg("on"))                                                                                                             \
             .def("set_admm_exit", &PyBSQP<Type>::set_admm_exit, py::arg("eps_abs"), py::arg("eps_rel"), py::arg("check_every"))                                                                       \

@@ -116,6 +116,14 @@ class SolverParams:
     ``set_fc_cost`` / ``set_fc_ref``) and take precedence over these.
 
     ``exact_hessian``: SO-SQP stage-Hessian projection (needs an "eh" variant module).
+
+    Dynamics defect (Wave D): ``defect_telemetry`` reports the returned plan's
+    dynamics defect in ``SolverStats.defect``, the merit's constraint term alone
+    (the L1 integrator error summed over the knots plus the initial-state gap),
+    without changing the plan. ``defect_exit`` > 0 stops the SQP loop once every
+    solve's accepted plan has defect at or below it, so ``max_sqp_iters`` becomes
+    a cap paid only while the plan is dynamically inconsistent (implies
+    telemetry; a time budget still wins). 0 = off.
     """
     max_sqp_iters: int = 1
     max_pcg_iters: int = 200
@@ -133,6 +141,8 @@ class SolverParams:
     vel_lim_cost: float = 0.0
     ctrl_lim_cost: float = 0.0
     exact_hessian: bool = False
+    defect_telemetry: bool = False
+    defect_exit: float = 0.0
 
     def replace(self, **changes):
         return _dc_replace(self, **changes)

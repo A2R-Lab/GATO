@@ -74,6 +74,7 @@ test/test_contact_rows.py::test_masked_contact_sanitizer_smoke[admm]
 test/test_contact_rows.py::test_masked_contact_sanitizer_smoke[al]
 test/test_contact_rows.py::test_masked_contact_sanitizer_smoke[barrier]
 test/test_controller.py::test_deadline_budget
+test/test_controller.py::test_defect_telemetry_and_exit
 test/test_controller.py::test_explicit_seed_matches_raw_rti_loop[hold]
 test/test_controller.py::test_explicit_seed_matches_raw_rti_loop[zero-tail]
 test/test_controller.py::test_hold_warm_start
@@ -493,6 +494,7 @@ test/test_torque_clip_ab.py::test_clip_collection_refuses_existing_output
 test/test_torque_clip_ab.py::test_clip_development_data_integrity[seed1]
 test/test_torque_clip_ab.py::test_clip_development_data_integrity[seed2]
 test/test_torque_clip_ab.py::test_clip_report_rejects_missing_duplicate_and_mismatched_pairs
+test/test_torque_clip_ab.py::test_defect_policy_report_renders_and_rejects_unknown_policy
 test/test_torque_clip_ab.py::test_stress_data_preserves_failures_and_frozen_protocol
 test/test_torque_clip_ab.py::test_stress_diagnostics_preserve_unclipped_development_tail
 test/test_torque_clip_ab.py::test_stress_inventory_is_fixed_and_rejects_missing_cases

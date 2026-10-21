@@ -153,6 +153,24 @@ class BSQP {
         // SQPStats::budget_hit reports a budget stop.
         void set_time_budget_us(double us) { time_budget_us_ = us > 0.0 ? us : 0.0; }
         double time_budget_us() const { return time_budget_us_; }
+        // Dynamics-defect telemetry and exit (plan Wave D, 2026-10-21). The defect
+        // is the merit's constraint term alone: the L1 integrator error summed over
+        // the knots plus the initial-state gap, of the trajectory the solve returns
+        // (SQPStats::defect; the warm start's own value when every step was
+        // rejected). set_defect_exit(tol > 0) stops the SQP loop after the
+        // iteration whose accepted trajectory has defect <= tol on every solve, so a
+        // controller asks for max_sqp_iters and pays for the extra iterations only
+        // while the plan is dynamically inconsistent; with a time budget the budget
+        // still wins. tol <= 0 (default) = no exit. Telemetry costs one partial
+        // write per knot and a second fixed-order reduction; the exit one host sync
+        // per iteration. Neither changes the trajectory.
+        void set_defect_telemetry(bool enabled) { defect_telemetry_ = enabled || defect_exit_tol_ > static_cast<T>(0); }
+        void set_defect_exit(T tol)
+        {
+                defect_exit_tol_ = tol > static_cast<T>(0) ? tol : static_cast<T>(0);
+                if (defect_exit_tol_ > static_cast<T>(0)) { defect_telemetry_ = true; }
+        }
+        bool defect_telemetry() const { return defect_telemetry_; }
         // (Re)install the canonical three limit groups (BOX_Q / BOX_QD / BOX_U from the
         // vendored URDF tables) bound to one mechanism; the enable_limit_* methods
         // validate their own knobs and call this. Appended groups (EE / LIN_U /
@@ -961,7 +979,8 @@ class BSQP {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, sizeof(int32_t) * batch_size_));
 
                 compute_merit_batched<T, 1>(
-                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
+                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);   // one candidate: its defect IS the accepted (warm-start) value
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
@@ -1125,10 +1144,12 @@ class BSQP {
                         const bool admm_merit = admm_active_ && admm_merit_term_;
                         if (admm_merit) {
                                 compute_merit_batched<T, 1>(
-                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                                    batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
+                                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);
                         }
                         compute_merit_batched<T, NUM_ALPHAS>(
-                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                            batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
+                            /*fused=*/-1, defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -1138,7 +1159,8 @@ class BSQP {
                         const int adapt = (adapt_rho_ && !al_active_) ? 1 : 0;
                         line_search_and_update_batched<T, NUM_ALPHAS>(
                             batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_,
-                            direct_this_iter ? d_pcg_iterations_ : nullptr);   // a non-PD direct factor (count 2) bumps rho (settings.h NON_PD_RHO_FACTOR)
+                            direct_this_iter ? d_pcg_iterations_ : nullptr,   // a non-PD direct factor (count 2) bumps rho (settings.h NON_PD_RHO_FACTOR)
+                            defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr);
 
                         // stage line-search stats into per-iteration pinned slots; read once
                         // after the final device sync (no per-iteration host stall)
@@ -1155,6 +1177,18 @@ class BSQP {
                         // within every SQP iteration.
                         if (admm_active_ && admm_rho_adapt_) {
                                 rows::admm_adapt_rho_scale_batched<T>(batch_size_, d_admm_rho_scale_batch_, d_admm_resid_, d_kkt_converged_batch_);
+                        }
+
+                        // defect exit (set_defect_exit): every solve's accepted trajectory is
+                        // dynamically consistent to tolerance -> the remaining iterations are
+                        // not needed. A NaN defect never satisfies the test.
+                        if (defect_exit_tol_ > static_cast<T>(0)) {
+                                gpuErrchk(cudaMemcpyAsync(h_defect_, d_defect_accepted_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
+                                gpuErrchk(cudaEventRecord(sync_event_));
+                                gpuErrchk(cudaEventSynchronize(sync_event_));
+                                bool all_within = true;
+                                for (uint32_t b = 0; b < batch_size_; ++b) { if (!(h_defect_[b] <= defect_exit_tol_)) { all_within = false; break; } }
+                                if (all_within) { sqp_stats.defect_exit = true; break; }
                         }
                 }
 
@@ -1206,6 +1240,10 @@ class BSQP {
                 if (admm_active_) {
                         gpuErrchk(cudaMemcpy(sqp_stats.admm_iters.data(), d_admm_iters_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToHost));
                         gpuErrchk(cudaMemcpy(sqp_stats.admm_linsys_iters.data(), d_admm_linsys_iters_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToHost));
+                }
+                if (defect_telemetry_) {
+                        sqp_stats.defect.resize(batch_size_);
+                        gpuErrchk(cudaMemcpy(sqp_stats.defect.data(), d_defect_accepted_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToHost));
                 }
                 memset(h_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t));
                 memset(h_sqp_iters_B_, 0, batch_size_ * sizeof(uint32_t));
@@ -1279,6 +1317,11 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_merit_initial0_batch_, BT));
                 gpuErrchk(cudaMalloc(&d_merit_batch_, NUM_ALPHAS * BT));
                 gpuErrchk(cudaMalloc(&d_merit_partial_batch_, (size_t)NUM_ALPHAS * KNOT_POINTS * BT));
+                gpuErrchk(cudaMalloc(&d_defect_partial_batch_, (size_t)NUM_ALPHAS * KNOT_POINTS * BT));
+                gpuErrchk(cudaMalloc(&d_defect_batch_, NUM_ALPHAS * BT));
+                gpuErrchk(cudaMalloc(&d_defect_accepted_batch_, BT));
+                gpuErrchk(cudaMemset(d_defect_accepted_batch_, 0, BT));
+                gpuErrchk(cudaMallocHost(&h_defect_, BT));
                 // the multi-alpha merit buffer accumulates via atomicAdd and is re-zeroed by
                 // the line-search kernel after each read — zero it ONCE here, not per call
                 gpuErrchk(cudaMemset(d_merit_batch_, 0, NUM_ALPHAS * BT));
@@ -1375,6 +1418,10 @@ class BSQP {
                 gpuErrchk(cudaFree(d_merit_initial0_batch_));
                 gpuErrchk(cudaFree(d_merit_batch_));
                 gpuErrchk(cudaFree(d_merit_partial_batch_));
+                gpuErrchk(cudaFree(d_defect_partial_batch_));
+                gpuErrchk(cudaFree(d_defect_batch_));
+                gpuErrchk(cudaFree(d_defect_accepted_batch_));
+                gpuErrchk(cudaFreeHost(h_defect_));
                 gpuErrchk(cudaFree(d_pcg_iterations_));
                 gpuErrchk(cudaFree(d_step_size_batch_));
                 gpuErrchk(cudaFree(d_f_ext_batch_));
@@ -1428,6 +1475,13 @@ class BSQP {
         T* d_merit_initial0_batch_;
         T* d_merit_batch_;
         T* d_merit_partial_batch_;  // per-(solve,alpha,knot) merit partials (deterministic two-pass)
+        // dynamics-defect telemetry (set_defect_telemetry / set_defect_exit)
+        bool defect_telemetry_ = false;
+        T    defect_exit_tol_ = 0;
+        T*   d_defect_partial_batch_ = nullptr;   // per-(solve,alpha,knot) constraint terms
+        T*   d_defect_batch_ = nullptr;           // per-(solve,alpha) defect
+        T*   d_defect_accepted_batch_ = nullptr;  // per-solve defect of the current trajectory
+        T*   h_defect_ = nullptr;                 // pinned, the exit test's copy
         // Line search
         T*        d_step_size_batch_;
         int32_t*  d_kkt_converged_batch_;

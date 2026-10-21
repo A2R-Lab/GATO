@@ -111,6 +111,10 @@ class SolverStats:
     # adaptation retries). Only == 0 carries meaning downstream.
     linsys: str = "pcg"         # "pcg" | "bdsv" | "bdsv_first"
     budget_hit: bool = False    # the SQP loop stopped on solve(budget_s=...), not on convergence
+    # (B,) dynamics defect of the returned trajectory (SolverParams.defect_telemetry):
+    # the merit's constraint term alone; None when telemetry is off
+    defect: np.ndarray = None
+    defect_exit: bool = False   # the loop stopped on SolverParams.defect_exit (every solve within tolerance)
     # constraint row-group telemetry (None until a row group exists — any
     # enable_limit_* mode or an appended group): (n_groups, B) true violation of
     # the RETURNED trajectory per group, in get_row_groups() order (the three
@@ -344,6 +348,10 @@ class BSQP:
             rho_batch = np.asarray(rho_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_rho_penalty_batch(rho_batch, True)
         self.solver.set_rho_adaptation(bool(params.adapt_rho))
+        if params.defect_exit < 0:
+            raise ValueError(f"defect_exit must be >= 0 (0 = off), got {params.defect_exit!r}")
+        self.solver.set_defect_telemetry(bool(params.defect_telemetry))
+        self.solver.set_defect_exit(float(params.defect_exit))
         if mu_batch is not None:
             mu_batch = np.asarray(mu_batch, dtype=np.float32).reshape(self.batch_size)
             self.solver.set_mu_batch(mu_batch)
@@ -650,6 +658,8 @@ class BSQP:
             step_size=np.asarray(raw["ls_step_size"], dtype=np.float32).reshape(-1, B),
             linsys=_LINSYS_NAMES[int(raw.get("linsys_mode", 0))],
             budget_hit=bool(raw["budget_hit"]),
+            defect=(np.asarray(raw["defect"], dtype=np.float32).reshape(B) if "defect" in raw else None),
+            defect_exit=bool(raw.get("defect_exit", False)),
             row_max_violation=(np.asarray(raw["row_max_violation"], dtype=np.float32)
                                if "row_max_violation" in raw else None),
             row_sum_violation=(np.asarray(raw["row_sum_violation"], dtype=np.float32)

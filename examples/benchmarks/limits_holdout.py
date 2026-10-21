@@ -91,6 +91,14 @@ MECHS = {
     "none-sqp3": dict(limits="telemetry", params=dict(max_sqp_iters=3)),
     "admm-sqp3": dict(limits="admm", params=dict(max_sqp_iters=3)),
     "al-sqp3": dict(limits="al", params=dict(max_sqp_iters=3)),
+    # dynamics-defect telemetry and exit (Wave D): the default's defect per tick,
+    # then the cap-and-exit policy (up to 4 iterations, stop once the accepted
+    # plan's defect is within the tolerance)
+    "admm-defect-tele": dict(limits="admm", params=dict(defect_telemetry=True)),
+    "admm-sqp4": dict(limits="admm", params=dict(max_sqp_iters=4, defect_telemetry=True)),
+    "admm-sqp4-defect1e-2": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-2)),
+    "admm-sqp4-defect1e-3": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-3)),
+    "admm-sqp4-defect1e-4": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit=1e-4)),
 }
 SETS = {"dev": dict(seed=1, n=20, mechs=list(MECHS)),
         "holdout": dict(seed=20261016, n=100, mechs=["none", "barrier", "al", "admm"])}
@@ -116,7 +124,7 @@ def run_episode(model, plant, N, sc, mech, *, audit=None):
                    linsys="pcg", params=params, **cfg)
     if audit is not None:
         audit.attach(mpc)
-    rec = dict(u=[], viol=[], inner=[], solve_us=[])
+    rec = dict(u=[], viol=[], inner=[], solve_us=[], defect=[], iters=[])
     orig = mpc.controller.step
 
     def step(x, g, **kw):
@@ -124,6 +132,9 @@ def run_episode(model, plant, N, sc, mech, *, audit=None):
         rec["u"].append(np.asarray(r.u, dtype=float))
         rec["viol"].append(np.asarray(r.row_viol, dtype=float))
         rec["solve_us"].append(r.solve.solve_time_us)
+        rec["iters"].append(int(r.iterations))
+        if np.isfinite(r.defect):
+            rec["defect"].append(float(r.defect))
         if r.solve.stats.admm_iters is not None:
             rec["inner"].append(int(r.solve.stats.admm_iters.max()))
         return r
@@ -156,6 +167,8 @@ def run_episode(model, plant, N, sc, mech, *, audit=None):
                sim_q_out=float(q_out.max()),
                plan_viol=viol.max(axis=0).tolist(), plan_viol_mean=viol.mean(axis=0).tolist(),
                inner_mean=float(np.mean(rec["inner"])) if rec["inner"] else None,
+               iters_mean=float(np.mean(rec["iters"])), iters_max=int(max(rec["iters"])),
+               defect=(pct(np.asarray(rec["defect"], dtype=float)) if rec["defect"] else None),
                solve_ms=pct(np.asarray(rec["solve_us"], dtype=float) / 1e3))
     if audit is not None:
         out["substeps"] = audit.metrics()
