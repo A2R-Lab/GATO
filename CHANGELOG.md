@@ -18,9 +18,15 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   are summed in fixed order, so a smaller block is bit-identical, and the
   launch bound keeps the default register budget. Set the environment variable
   before the first-use compile (`register_robot`, `build`, `BSQP`) or pass
-  `-DGATO_MERIT_THREADS=64` to CMake; each size is its own cache entry. Fusing
-  the eight candidates into one block per knot is the next step and is tracked
-  separately.
+  `-DGATO_MERIT_THREADS=64` to CMake; each size is its own cache entry.
+- The merit kernel can evaluate all eight candidates in one block per knot
+  instead of one block per candidate, which cuts the grid eightfold. The solver
+  takes the fused launch when the one-candidate-per-block grid exceeds what the
+  device holds resident at once (SM count times occupancy), so a 14-SM part
+  takes it at any batch and the 5090 at larger ones. Both launches are
+  bit-identical, checked by the kernel gate `test/cuda/merit_fusion_parity.cu`
+  and an end-to-end test; `GATO_MERIT_FUSED=0/1` forces one path for timing.
+  The threshold is provisional until a timing window.
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
   URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
   `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are

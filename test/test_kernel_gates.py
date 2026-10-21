@@ -1,4 +1,4 @@
-"""The five standalone single-block kernel harnesses under test/cuda/, built
+"""The standalone kernel harnesses under test/cuda/, built
 and run from pytest (plan 2.D — they used to be orphaned: documented nvcc lines,
 never executed for the receipt). Each harness exits non-zero on any FAIL.
 
@@ -30,6 +30,9 @@ HARNESSES = {
     "ee_rows": ["-DKNOT_POINTS=8", "-DGATO_PLANT_HEADER=\"dynamics/plant.cuh\"",
                 "-I", str(REPO / "gato"), "-I", str(REPO / "gato" / "dynamics" / "indy7"),
                 "-I", str(_grid.collision_dir()), "-I", str(HERE / "cuda")],
+    "merit_fusion_parity": ["-DKNOT_POINTS=8", "-DGATO_PLANT_HEADER=\"dynamics/plant.cuh\"",
+                            "-I", str(REPO / "gato"), "-I", str(REPO / "gato" / "dynamics" / "indy7"),
+                            "-I", str(_grid.collision_dir()), "-I", str(HERE / "cuda")],
 }
 
 

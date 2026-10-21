@@ -250,6 +250,7 @@ test/test_kernel_gates.py::test_kernel_gate[bdsv_factor_solve]
 test/test_kernel_gates.py::test_kernel_gate[bdsv_vs_pcg]
 test/test_kernel_gates.py::test_kernel_gate[ee_rows]
 test/test_kernel_gates.py::test_kernel_gate[gamma_parity]
+test/test_kernel_gates.py::test_kernel_gate[merit_fusion_parity]
 test/test_kernel_gates.py::test_kernel_gate[pcg_vs_cpu]
 test/test_limits_closed_loop.py::test_admm_residual_exit_holds_in_closed_loop
 test/test_limits_closed_loop.py::test_admm_velocity_box_holds_in_closed_loop
@@ -447,6 +448,7 @@ test/test_rowgroups.py::test_u_cone_pyramid_enforced
 test/test_rowgroups.py::test_u_cone_soc_admm_enforced
 test/test_rowgroups.py::test_u_cone_soc_al_enforced
 test/test_smoke_solve.py::test_arbitrary_batch_size
+test/test_smoke_solve.py::test_merit_fused_and_unfused_paths_bit_identical
 test/test_smoke_solve.py::test_per_knot_weights_match_scalar_path
 test/test_smoke_solve.py::test_solve_budget_cutoff
 test/test_smoke_solve.py::test_solve_finite_and_deterministic[1-fr3-64]

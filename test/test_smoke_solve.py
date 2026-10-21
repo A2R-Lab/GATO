@@ -115,3 +115,33 @@ def test_solve_budget_cutoff(make_solver, smallest_module):
     r1 = make_solver(plant, N, batch_size=3, max_sqp_iters=1).solve(x, goals, budget_s=1.0)
     assert not r1.stats.budget_hit and (r1.stats.sqp_iters == 1).all()
     np.testing.assert_array_equal(r1.xu, one.xu)
+
+
+def test_merit_fused_and_unfused_paths_bit_identical(smallest_module, tmp_path):
+    """GATO_MERIT_FUSED=0 (one candidate per block) and =1 (all candidates in one
+    block per knot) give bit-identical solves; the default picks by SM count, so
+    both paths are forced here in their own processes (the override is read once)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    plant, N = smallest_module
+    here = Path(__file__).resolve().parent
+    script = (
+        "import sys, numpy as np, gato\n"
+        f"sys.path.insert(0, {str(here)!r})\n"
+        "from conftest import arm_problem, TEST_PARAMS, URDFS\n"
+        f"X, goals = arm_problem({plant!r}, {N}, 4, jitter=0.01)\n"
+        f"s = gato.BSQP(model_path=str(URDFS[{plant!r}]), batch_size=4, N={N}, dt=0.01, params=TEST_PARAMS, plant_type={plant!r})\n"
+        "r = s.solve(X, goals)\n"
+        "np.savez(sys.argv[1], xu=np.asarray(r.xu), iters=np.asarray(r.stats.sqp_iters))\n")
+    out = {}
+    for fused in ("0", "1"):
+        env = dict(os.environ, GATO_MERIT_FUSED=fused)
+        path = tmp_path / f"fused{fused}.npz"
+        subprocess.run([sys.executable, "-c", script, str(path)], check=True, env=env, cwd=here)
+        out[fused] = np.load(path)
+    assert np.isfinite(out["0"]["xu"]).all() and (out["0"]["iters"] >= 1).all()
+    np.testing.assert_array_equal(out["1"]["xu"], out["0"]["xu"])
+    np.testing.assert_array_equal(out["1"]["iters"], out["0"]["iters"])

@@ -140,6 +140,9 @@ cmake --build build --parallel 2                                # RAM-bound: rou
   `register_robot` and first-use compiles): the merit kernel's block size, a
   multiple of 32, for GPUs with few SMs. Results are bit-identical to the
   default, the generated per-robot maximum.
+- `GATO_MERIT_FUSED=0/1` (environment, read at run time): forces the
+  one-candidate-per-block or the fused merit launch; by default the solver picks
+  from the device SM count. Results are bit-identical either way.
 - `tools/build.sh` defaults to four jobs; use `JOBS=1` on the shared lab box or a RAM-limited
   machine. CMake caches `MODULES`: an old explicit list overrides `PLANT`/`KNOTS`.
   Clear it with `-DMODULES=""` when returning to the cross-product. The receipt
