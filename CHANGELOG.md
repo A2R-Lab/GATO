@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.1.3 — unreleased: GPUs with few SMs, joint damping, topology helpers
+## 0.1.3 — 2026-10-21: GPUs with few SMs, joint damping, topology helpers
 
 - The fixed-base dynamics adapter allocates GRiD's topology helper buffer
   instead of passing null. GRiD needs the helpers whenever a joint axis is not
