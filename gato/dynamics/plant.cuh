@@ -383,10 +383,18 @@ namespace plant {
         // XImats + the SO temp pool, whose element count == the per-timestep SO
         // workspace band the generated TIER_LITE path would use instead).
         template<typename T>
-        __host__ __device__ inline unsigned exact_hessian_so_smem_ct()
+        __host__ __device__ constexpr unsigned exact_hessian_so_numeric_ct()
         {
                 return NQ + NQ + NQ * NQ + 2 * NQ * NQ + 2 * grid::SECOND_ORDER_TENSOR_SIZE + XIMATS_COUNT
-                       + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T)) + topology_helpers_smem_ct<T>();
+                       + (unsigned)(grid::GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() / sizeof(T));
+        }
+        // The topology helper ints follow the numeric arena (topology_helpers_smem_ct);
+        // exact_hessian_contraction carves them at exact_hessian_so_numeric_ct and
+        // checks that the sum fits this sizer.
+        template<typename T>
+        __host__ __device__ constexpr unsigned exact_hessian_so_smem_ct()
+        {
+                return exact_hessian_so_numeric_ct<T>() + topology_helpers_smem_ct<T>();
         }
 
         // Adds E = sum_i w_i * d2a_i/dz2 (z = [q; qd; u], column-major (NX+NU)^2)
@@ -429,8 +437,9 @@ namespace plant {
                 T*            s_idsva_so = s_df2 + grid::SECOND_ORDER_TENSOR_SIZE;
                 T*            s_XImats = s_idsva_so + grid::SECOND_ORDER_TENSOR_SIZE;
                 T*            s_sotemp = s_XImats + XIMATS_COUNT;
-                int* s_topology_helpers = topology_helpers_at(
-                    s_so + exact_hessian_so_smem_ct<T>() - topology_helpers_smem_ct<T>());
+                static_assert(exact_hessian_so_numeric_ct<T>() + topology_helpers_smem_ct<T>() <= exact_hessian_so_smem_ct<T>(),
+                              "exact-Hessian SO arena must have room for the topology helpers after the numeric scratch");
+                int* s_topology_helpers = topology_helpers_at(s_so + exact_hessian_so_numeric_ct<T>());
 
                 for (int i = threadIdx.x; i < NQ; i += blockDim.x) {
                         const T cq = (INTEGRATOR_TYPE == 0) ? static_cast<T>(0) : (INTEGRATOR_TYPE == 1 ? dt * dt : static_cast<T>(0.5) * dt * dt);
