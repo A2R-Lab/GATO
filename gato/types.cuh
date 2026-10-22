@@ -58,6 +58,13 @@ struct SQPStats {
         // stopped because every solve's defect was within set_defect_exit's tolerance.
         std::vector<T>   defect;
         bool             defect_exit = false;
+        // per-stage device times (set_collect_stats): the initial merit, then per SQP
+        // iteration [KKT setup, Schur assembly, linear system, merit, line search] in
+        // microseconds, 0 for a stage the iteration did not reach; merit_fused: the merit
+        // launch this solve used (one block per knot evaluating every candidate)
+        double             initial_merit_time_us = 0.0;
+        std::vector<float> stage_times_us;
+        bool               merit_fused = false;
         // ADMM mode only (kernels/admm.cuh): inner iterations run this solve and the
         // inner linear-system work they took (PCG steps on the pcg arm, back-solves
         // on the factor arm); 0 outside ADMM mode

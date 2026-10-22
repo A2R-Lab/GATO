@@ -91,6 +91,10 @@ LINSYS_MODES = {"pcg": 0, "bdsv": 1, "bdsv_first": 2}
 _LINSYS_NAMES = {v: k for k, v in LINSYS_MODES.items()}
 
 
+# the per-iteration stages of SolverStats.stage_times_us, in column order
+STAGE_NAMES = ("kkt", "schur", "linsys", "merit", "line_search")
+
+
 @dataclass(frozen=True)
 class SolverStats:
     """Per-solve solver statistics (batch-shaped numpy arrays)."""
@@ -115,6 +119,12 @@ class SolverStats:
     # the merit's constraint term alone; None when telemetry is off
     defect: np.ndarray = None
     defect_exit: bool = False   # the loop stopped on SolverParams.defect_exit (every solve within tolerance)
+    # per-stage device times (set_collect_stats, on by default): (iterations, 5) float32
+    # microseconds in STAGE_NAMES order, 0 for a stage an iteration did not reach;
+    # the initial (pre-iteration) merit evaluation; which merit launch ran
+    stage_times_us: np.ndarray = None
+    initial_merit_time_us: float = 0.0
+    merit_fused: bool = False
     # constraint row-group telemetry (None until a row group exists — any
     # enable_limit_* mode or an appended group): (n_groups, B) true violation of
     # the RETURNED trajectory per group, in get_row_groups() order (the three
@@ -164,6 +174,32 @@ class SolveResult:
     def xu_b(self, b=0):
         """Trajectory of batch entry b (flat)."""
         return self.xu[b]
+
+    def summary(self):
+        """Where the solve's time went: the device time of each stage summed over
+        the SQP iterations as a share of the wall solve time, and what each stage
+        scales with. Needs set_collect_stats(True), the default."""
+        s = self.stats
+        launch = "fused (one block per knot, all candidates)" if s.merit_fused else "one block per candidate"
+        lines = [f"solve {self.solve_time_us} us wall, {int(s.sqp_iters.max())} iteration(s), batch {self.batch_size}, "
+                 f"linsys {s.linsys}, merit launch {launch}"]
+        if s.stage_times_us is None or s.stage_times_us.size == 0:
+            lines.append("  stage times not collected (set_collect_stats(True) before the solve)")
+            return "\n".join(lines)
+        totals = s.stage_times_us.sum(axis=0)
+        device = float(totals.sum()) + float(s.initial_merit_time_us)
+        rows = [("initial merit", float(s.initial_merit_time_us))]
+        rows += [(name, float(t)) for name, t in zip(STAGE_NAMES, totals)]
+        rows.append(("host, syncs, launch gaps", max(float(self.solve_time_us) - device, 0.0)))
+        width = max(len(name) for name, _ in rows)
+        wall = max(float(self.solve_time_us), 1e-9)
+        for name, us in rows:
+            lines.append(f"  {name:<{width}}  {us:10.1f} us  {100.0 * us / wall:5.1f} %")
+        lines.append("  scaling: kkt and schur run N x B blocks per iteration; linsys is the PCG iterations "
+                     "(stats.pcg_iters) or one factorization per iteration on bdsv; merit runs N x B x NUM_ALPHAS "
+                     "candidate blocks per iteration, N x B blocks when fused, at GATO_MERIT_THREADS threads; "
+                     "the line search runs B blocks.")
+        return "\n".join(lines)
 
     def u0(self, b=0):
         """First ACTUATED control of batch entry b — what an MPC applies
@@ -660,6 +696,9 @@ class BSQP:
             budget_hit=bool(raw["budget_hit"]),
             defect=(np.asarray(raw["defect"], dtype=np.float32).reshape(B) if "defect" in raw else None),
             defect_exit=bool(raw.get("defect_exit", False)),
+            stage_times_us=np.asarray(raw["stage_times_us"], dtype=np.float32).reshape(-1, 5),
+            initial_merit_time_us=float(raw.get("initial_merit_time_us", 0.0)),
+            merit_fused=bool(raw.get("merit_fused", False)),
             row_max_violation=(np.asarray(raw["row_max_violation"], dtype=np.float32)
                                if "row_max_violation" in raw else None),
             row_sum_violation=(np.asarray(raw["row_sum_violation"], dtype=np.float32)

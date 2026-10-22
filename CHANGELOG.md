@@ -48,6 +48,14 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   post-clip velocity excursion (1.668 to 1.046), and leaves tracking and
   completion unchanged. The default stays 1; the numbers are in
   docs/constraints.md.
+- Per-stage solve timing. `SolverStats.stage_times_us` holds the device time
+  of KKT setup, Schur assembly, the linear system, the merit evaluation and
+  the line search for every SQP iteration, recorded with CUDA events under
+  `set_collect_stats` and read once after the solve, so no host stall is
+  added; `initial_merit_time_us` and `merit_fused` sit next to it.
+  `SolveResult.summary()` prints the split as a share of the wall time with
+  what each stage scales with, and example 15 walks through it. Suggested by
+  Felix Mueh (issue #19).
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
   URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
   `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are

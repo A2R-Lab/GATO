@@ -354,7 +354,7 @@ __host__ bool merit_fused_launch(uint32_t batch_size, size_t s_mem_size, int fus
 }
 
 template<typename T, uint32_t NumAlphas>
-__host__ void compute_merit_batched(uint32_t                    batch_size,
+__host__ bool compute_merit_batched(uint32_t                    batch_size,   // returns the launch used: true = fused
                                   const int32_t*              d_kkt_converged_batch,  // nullptr => no converged-skip (initial merit)
                                   const T*                    d_knot_cost_weights,    // nullptr => scalar weights
                                   T*                          d_merit_batch,
@@ -437,4 +437,5 @@ __host__ void compute_merit_batched(uint32_t                    batch_size,
         const uint32_t n_slots = batch_size * NumAlphas;
         reduce_merit_partials_kernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch,
                                                                          d_defect_batch, d_defect_partial_batch);
+        return use_fused;
 }

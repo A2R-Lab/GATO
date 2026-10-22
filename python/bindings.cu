@@ -1,3 +1,4 @@
+#include <cstring>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
@@ -387,6 +388,14 @@ class PyBSQP {
                 result["linsys_mode"] = solver_.linsys_mode();
                 result["budget_hit"] = stats.budget_hit;
                 result["defect_exit"] = stats.defect_exit;
+                result["initial_merit_time_us"] = stats.initial_merit_time_us;
+                result["merit_fused"] = stats.merit_fused;
+                {
+                        const py::ssize_t n_it = static_cast<py::ssize_t>(stats.stage_times_us.size() / 5);
+                        py::array_t<float> st({n_it, (py::ssize_t)5});
+                        if (n_it > 0) { std::memcpy(st.request().ptr, stats.stage_times_us.data(), stats.stage_times_us.size() * sizeof(float)); }
+                        result["stage_times_us"] = st;
+                }
                 if (!stats.defect.empty()) { result["defect"] = py::array_t<T>({B}, {sizeof(T)}, stats.defect.data()); }
 
                 // Per-iteration stats: shape them as (iters, batch_size)

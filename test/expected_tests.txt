@@ -158,6 +158,7 @@ test/test_examples.py::test_intro_example_syntax[11_deadline_step.py]
 test/test_examples.py::test_intro_example_syntax[12_constraint_mechanisms.py]
 test/test_examples.py::test_intro_example_syntax[13_more_arms.py]
 test/test_examples.py::test_intro_example_syntax[14_mujoco_closed_loop.py]
+test/test_examples.py::test_intro_example_syntax[15_solver_stats.py]
 test/test_examples.py::test_merge_checkpoint_dry_run
 test/test_examples.py::test_merge_checkpoint_requires_quiet_declaration
 test/test_examples.py::test_mujoco_example_correctness_only
@@ -483,6 +484,7 @@ test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-46]
 test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-64]
 test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-indy7-8]
 test/test_smoke_solve.py::test_solve_finite_and_deterministic[8-ur5e-64]
+test/test_smoke_solve.py::test_stage_times_and_summary
 test/test_smoke_solve.py::test_terminal_merit_ignores_stale_shared_memory
 test/test_tasks.py::test_generators_on_every_arm[fr3]
 test/test_tasks.py::test_generators_on_every_arm[gen3]

@@ -145,3 +145,30 @@ def test_merit_fused_and_unfused_paths_bit_identical(smallest_module, tmp_path):
     assert np.isfinite(out["0"]["xu"]).all() and (out["0"]["iters"] >= 1).all()
     np.testing.assert_array_equal(out["1"]["xu"], out["0"]["xu"])
     np.testing.assert_array_equal(out["1"]["iters"], out["0"]["iters"])
+
+
+def test_stage_times_and_summary(make_solver, smallest_module):
+    """SolverStats.stage_times_us is (iterations, 5) device microseconds per stage,
+    summing to no more than the wall solve time; summary() names every stage and
+    the merit launch; with stats off the array is empty and the plan is unchanged."""
+    from gato.interface import STAGE_NAMES
+    plant, N = smallest_module
+    X, goals = _inputs(plant, N, 2)
+    s = make_solver(plant, N, batch_size=2)
+    res = s.solve(X, goals)
+    st = res.stats
+    iters = int(st.sqp_iters.max())
+    assert st.stage_times_us.shape == (iters, 5) and np.isfinite(st.stage_times_us).all()
+    assert (st.stage_times_us >= 0).all() and st.initial_merit_time_us >= 0
+    assert st.stage_times_us[:, :3].min() > 0           # every started iteration reached the linear system
+    assert st.stage_times_us.sum() + st.initial_merit_time_us <= res.solve_time_us + 100.0
+    text = res.summary()
+    assert all(name in text for name in STAGE_NAMES) and "merit launch" in text and "initial merit" in text
+    assert isinstance(st.merit_fused, bool)
+
+    # a fresh solver (the trust-region state carries across solves of one solver)
+    quiet = make_solver(plant, N, batch_size=2)
+    quiet.set_collect_stats(False)
+    off = quiet.solve(X, goals)
+    np.testing.assert_array_equal(off.xu, res.xu)          # collection never touches the plan
+    assert off.stats.stage_times_us.shape == (0, 5) and "not collected" in off.summary()

@@ -34,6 +34,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`12_constraint_mechanisms.py`](12_constraint_mechanisms.py) | The four limit mechanisms (`limits="telemetry"`, `"barrier"`, `"al"`, `"admm"`) on one pick-and-place task with a step reference, at N16/32/64: sampled plant velocity and commanded torque against URDF limits, planner violation, goals reached and simulated task time. `--plot` and `--json` save correctness results without solve timings; [figure and interpretation](../docs/constraints.md#mechanism-comparison-example). |
 | [`13_more_arms.py`](13_more_arms.py) | The arms added in 0.1.2 (FR3, Gen3, UR5e) under the controller defaults on figure-8s sized from their own URDF limits (`gato.tasks`): a feasible reference and one that asks for more than the velocity limit, with the telemetry-only run for contrast; the simulated plant's peak velocity and torque against the limits, the planner's violation, ADMM inner iterations. |
 | [`14_mujoco_closed_loop.py`](14_mujoco_closed_loop.py) | GATO inside a MuJoCo loop: the MuJoCo model from the same URDF, the dynamics fingerprint check on MuJoCo's forward dynamics, the controller defaults with a step budget, torques through `qfrc_applied` and substeps; the iiwa14 on a figure-8 sized from its velocity limits. |
+| [`15_solver_stats.py`](15_solver_stats.py) | Reading `SolveResult.stats` and `summary()`: the device time of each stage per SQP iteration (KKT setup, Schur assembly, linear system, merit, line search) as a share of the solve, cold and warm, and the knobs that move each stage. |
 
 ```bash
 python examples/01_single_solve.py
@@ -51,6 +52,7 @@ python examples/12_constraint_mechanisms.py
 python examples/13_more_arms.py             # needs bsqpN64_{fr3,gen3,ur5e} (the receipt profile)
 python examples/14_mujoco_closed_loop.py    # needs bsqpN64_iiwa14 and mujoco
 python examples/14_mujoco_closed_loop.py --correctness-only --periods 1  # no clock-dependent budget or timing report
+python examples/15_solver_stats.py
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

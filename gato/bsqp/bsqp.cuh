@@ -972,6 +972,10 @@ class BSQP {
                 uint32_t ls_iters_run = 0;  // iterations that reached merit+line-search
 
                 auto sqp_start_time = std::chrono::high_resolution_clock::now();
+                if (collect_stats_) {
+                        gpuErrchk(cudaEventRecord(ev_solve_start_));
+                        for (auto& n : stages_recorded_) { n = 0; }
+                }
 
                 // set d_dz_batch_ to zero
                 gpuErrchk(cudaMemset(d_dz_batch_, 0, TRAJ_SIZE * batch_size_ * sizeof(T)));
@@ -982,6 +986,7 @@ class BSQP {
                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
                     /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);   // one candidate: its defect IS the accepted (warm-start) value
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
+                if (collect_stats_) { gpuErrchk(cudaEventRecord(ev_initial_merit_end_)); }
 
                 // ADMM (z, y) (re)initialize from THIS solve's warm start when required;
                 // equality rows (lo == hi) reinit EVERY solve regardless — persistent y
@@ -1027,8 +1032,11 @@ class BSQP {
                                 if (elapsed_us + predicted_us > time_budget_us_) { sqp_stats.budget_hit = true; break; }
                         }
                         iters_started = i + 1;
+                        if (collect_stats_) { stage_record(i, 0); }
                         setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_);
+                        if (collect_stats_) { stage_record(i, 1); }
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
+                        if (collect_stats_) { stage_record(i, 2); }
 
                         if (collect_stats_) { gpuErrchk(cudaEventRecord(pcg_start_event_)); }
                         bool direct_this_iter = false;   // a direct (bdsv) solve ran: its reported iteration count 2 = non-PD factor
@@ -1102,6 +1110,7 @@ class BSQP {
                                 compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_kkt_converged_batch_);
                         }
 
+                        if (collect_stats_) { stage_record(i, 3); }
                         // convergence signal: PCG iteration counts (pinned staging + event —
                         // a pageable-destination copy here would silently serialize the host).
                         // There is no KKT-residual check: convergence is "PCG took no
@@ -1147,9 +1156,10 @@ class BSQP {
                                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
                                     /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);
                         }
-                        compute_merit_batched<T, NUM_ALPHAS>(
+                        sqp_stats.merit_fused = compute_merit_batched<T, NUM_ALPHAS>(
                             batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
                             /*fused=*/-1, defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr);
+                        if (collect_stats_) { stage_record(i, 4); }
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
                         // (nothing left to improve), so adaptation saturates rho, hits
@@ -1161,6 +1171,7 @@ class BSQP {
                             batch_size_, d_xu_traj_batch, d_dz_batch_, d_merit_batch_, d_merit_initial_batch_, d_step_size_batch_, d_rho_penalty_batch_, d_drho_batch_, adapt, d_kkt_converged_batch_,
                             direct_this_iter ? d_pcg_iterations_ : nullptr,   // a non-PD direct factor (count 2) bumps rho (settings.h NON_PD_RHO_FACTOR)
                             defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr);
+                        if (collect_stats_) { stage_record(i, 5); }
 
                         // stage line-search stats into per-iteration pinned slots; read once
                         // after the final device sync (no per-iteration host stall)
@@ -1197,6 +1208,18 @@ class BSQP {
                 // success and leaves both trajectory and merit untouched on failure).
 
                 gpuErrchk(cudaDeviceSynchronize());
+                if (collect_stats_) {
+                        float ms = 0.0f;
+                        gpuErrchk(cudaEventElapsedTime(&ms, ev_solve_start_, ev_initial_merit_end_));
+                        sqp_stats.initial_merit_time_us = 1000.0 * ms;
+                        sqp_stats.stage_times_us.assign((size_t)iters_started * 5, 0.0f);
+                        for (uint32_t it = 0; it < iters_started; ++it) {
+                                for (int k = 0; k + 1 < (int)stages_recorded_[it]; ++k) {
+                                        gpuErrchk(cudaEventElapsedTime(&ms, stage_events_[6 * (size_t)it + k], stage_events_[6 * (size_t)it + k + 1]));
+                                        sqp_stats.stage_times_us[(size_t)it * 5 + k] = 1000.0f * ms;
+                                }
+                        }
+                }
                 if (budgeted && !sqp_stats.budget_hit && iters_started > 0) {
                         // the last iteration had no boundary after it: record its cost here
                         iter_cost_hist_[iters_started - 1] = std::chrono::duration<double, std::micro>(
@@ -1281,6 +1304,11 @@ class BSQP {
 
                 gpuErrchk(cudaEventCreate(&pcg_start_event_));
                 gpuErrchk(cudaEventCreate(&pcg_stop_event_));
+                gpuErrchk(cudaEventCreate(&ev_solve_start_));
+                gpuErrchk(cudaEventCreate(&ev_initial_merit_end_));
+                stage_events_.resize(6 * (size_t)max_sqp_iters_);
+                for (auto& e : stage_events_) { gpuErrchk(cudaEventCreate(&e)); }
+                stages_recorded_.assign(max_sqp_iters_, 0);
 
                 // Allocate KKT system memory
                 gpuErrchk(cudaMalloc(&kkt_system_batch_.d_Q_batch, STATE_SQ_P_KNOTS * BT));
@@ -1396,6 +1424,9 @@ class BSQP {
 
                 gpuErrchk(cudaEventDestroy(pcg_start_event_));
                 gpuErrchk(cudaEventDestroy(pcg_stop_event_));
+                gpuErrchk(cudaEventDestroy(ev_solve_start_));
+                gpuErrchk(cudaEventDestroy(ev_initial_merit_end_));
+                for (auto& e : stage_events_) { gpuErrchk(cudaEventDestroy(e)); }
 
                 gpuErrchk(cudaFree(kkt_system_batch_.d_Q_batch));
                 gpuErrchk(cudaFree(kkt_system_batch_.d_R_batch));
@@ -1563,6 +1594,18 @@ class BSQP {
         T*          h_ls_step_size_;
         cudaEvent_t sync_event_;
         cudaEvent_t pcg_start_event_, pcg_stop_event_;
+        // per-stage timing (set_collect_stats): one event at the solve start, one after the
+        // initial merit, six per SQP iteration (iteration start, after KKT setup, after Schur
+        // assembly, after the linear system, after the merit, after the line search); read
+        // once after the final device sync, so no host stall is added
+        cudaEvent_t              ev_solve_start_, ev_initial_merit_end_;
+        std::vector<cudaEvent_t> stage_events_;
+        std::vector<uint8_t>     stages_recorded_;   // per iteration: events recorded so far (0..6)
+        void stage_record(uint32_t i, int k)
+        {
+                gpuErrchk(cudaEventRecord(stage_events_[6 * (size_t)i + k]));
+                stages_recorded_[i] = static_cast<uint8_t>(k + 1);
+        }
         uint32_t*   h_sqp_iters_B_;
         uint32_t    max_sqp_iters_;
         double      time_budget_us_ = 0.0;  // set_time_budget_us (0 = off)

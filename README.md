@@ -214,7 +214,8 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `10_torch_jax_arrays.py` (the solver and the controller on torch / JAX device tensors),
 `11_deadline_step.py` (the step budget), `12_constraint_mechanisms.py` (the four limit
 mechanisms on one task), `13_more_arms.py` (the FR3, Gen3 and UR5e on figure-8s sized
-from their own limits), `14_mujoco_closed_loop.py` (an independent MuJoCo loop).
+from their own limits), `14_mujoco_closed_loop.py` (an independent MuJoCo loop),
+`15_solver_stats.py` (where a solve's time goes, stage by stage).
 See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).
 
 ### C++/CUDA interface (power users)
