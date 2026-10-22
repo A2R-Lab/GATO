@@ -80,6 +80,8 @@ def collect(args):
             name = plant if th == "default" else f"{plant}_mt{th}"
             env = dict(os.environ, GATO_MERIT_FUSED=str(fused))
             env.pop("GATO_MERIT_THREADS", None)
+            if th != "default":
+                env["GATO_MERIT_THREADS"] = th      # the cache key of the <plant>_mt<threads> module
             t0 = time.perf_counter()
             r = subprocess.run([sys.executable, "-c", CHILD, plant, name, str(N), str(B), str(args.iters),
                                 str(args.warmup), str(args.solves)], env=env, capture_output=True, text=True)
