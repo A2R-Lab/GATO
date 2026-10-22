@@ -39,19 +39,22 @@ s = gato.BSQP(str(gato.robot_urdf(plant)), batch_size=B, N=N, dt=0.01, plant_typ
 x = np.zeros((B, s.nx), np.float32)
 goals = np.zeros((B, N * 6), np.float32)
 goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
-res = s.solve(x, goals)
+# every timed solve starts cold (hold-at-x seed), so each does the same work: iters iterations
+# with a merit launch each (a warm-started solve converges and skips the line search)
 for _ in range(warmup):
-    res = s.solve(x, goals, xu_warm=res.xu)
-stage = np.zeros((solves, 5)); wall = np.zeros(solves); init = np.zeros(solves); fused = None
+    s.solve(x, goals)
+stage = np.zeros((solves, 5)); wall = np.zeros(solves); init = np.zeros(solves); launches = np.zeros(solves); fused = None
 for i in range(solves):
-    res = s.solve(x, goals, xu_warm=res.xu)
+    res = s.solve(x, goals)
     st = res.stats
     stage[i] = st.stage_times_us.sum(axis=0); wall[i] = res.solve_time_us; init[i] = st.initial_merit_time_us
+    launches[i] = st.ls_num_iters
     fused = bool(st.merit_fused)
-    assert int(st.sqp_iters.max()) == iters
+assert launches.min() >= 1, "a solve ran no merit launch"
+per_launch = stage[:, STAGE_NAMES.index("merit")] / launches
 def q(v): return dict(p50=float(np.median(v)), p90=float(np.percentile(v, 90)), mean=float(v.mean()), max=float(v.max()))
-print(json.dumps(dict(merit_fused=fused, solve_us=q(wall), initial_merit_us=q(init),
-                      stages_us={n: q(stage[:, k]) for k, n in enumerate(STAGE_NAMES)}, n=solves)))
+print(json.dumps(dict(merit_fused=fused, solve_us=q(wall), initial_merit_us=q(init), merit_per_launch_us=q(per_launch),
+                      launches=q(launches), stages_us={n: q(stage[:, k]) for k, n in enumerate(STAGE_NAMES)}, n=solves)))
 '''
 
 
@@ -91,7 +94,7 @@ def collect(args):
                        box=box_state(), wall_s=round(time.perf_counter() - t0, 1))
             if r.returncode == 0:
                 row.update(status="ok", result=json.loads(r.stdout.strip().splitlines()[-1]))
-                m = row["result"]["stages_us"]["merit"]
+                m = row["result"]["merit_per_launch_us"]
                 print(f"{args.condition} {plant} N{N} B{B:2d} threads {th:>7} fused {fused} -> merit p50 {m['p50']:8.1f} us "
                       f"solve p50 {row['result']['solve_us']['p50']:8.1f} us (used fused={row['result']['merit_fused']})", flush=True)
             else:
@@ -106,8 +109,8 @@ def report(paths):
     ok = [r for r in rows if r["status"] == "ok"]
     print(f"{len(ok)} rows ok, {len(rows) - len(ok)} errors; quotable: {sorted({r['quotable_times'] for r in rows})}; "
           f"source: {sorted({r['sha'] for r in rows})}")
-    print("Merit device time per solve, median microseconds (p90 in brackets), and the whole solve's median; "
-          "ratio = fused / one block per candidate.")
+    print("Merit device time per launch, median microseconds (p90 in brackets), and the whole solve's median "
+          "(cold solves, the same iteration count each); ratio = fused / one block per candidate.")
     for cond in sorted({r["condition"] for r in ok}):
         print(f"\n### condition {cond}\n")
         print("| plant | N | B | threads | merit unfused | merit fused | ratio | solve unfused | solve fused |")
@@ -119,7 +122,7 @@ def report(paths):
                  if (r["condition"], r["plant"], r["N"], r["B"], r["threads"]) == (cond, plant, N, B, th)}
             if 0 not in g or 1 not in g:
                 continue
-            mu, mf = g[0]["stages_us"]["merit"], g[1]["stages_us"]["merit"]
+            mu, mf = g[0]["merit_per_launch_us"], g[1]["merit_per_launch_us"]
             print(f"| {plant} | {N} | {B} | {th} | {mu['p50']:.1f} [{mu['p90']:.1f}] | {mf['p50']:.1f} [{mf['p90']:.1f}] "
                   f"| {mf['p50'] / max(mu['p50'], 1e-9):.2f} | {g[0]['solve_us']['p50']:.1f} | {g[1]['solve_us']['p50']:.1f} |")
 

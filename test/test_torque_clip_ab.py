@@ -350,7 +350,7 @@ def test_merit_timing_report_pairs_launches(experiment, repo_root, tmp_path, cap
                  sha="abc", quotable_times=True, status=status)
         if status == "ok":
             r["result"] = dict(merit_fused=bool(fused), solve_us=dict(p50=1000.0 + merit, p90=1100.0, mean=1000.0, max=1200.0),
-                               stages_us={"merit": dict(p50=merit, p90=merit + 5, mean=merit, max=merit + 9)})
+                               merit_per_launch_us=dict(p50=merit, p90=merit + 5, mean=merit, max=merit + 9))
         return r
     rows = [row(0, 200.0), row(1, 100.0), row(0, 300.0, threads="64"), row(1, 0.0, status="error", threads="64")]
     path = tmp_path / "rows.jsonl"
