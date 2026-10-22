@@ -338,3 +338,25 @@ def test_derated_planner_datasets_are_frozen(repo_root):
         assert r["result"]["substeps"]["applied_u_ratio"] <= 1
         if r["task"] == "pickplace":
             assert r["result"]["reached"] == 3
+
+
+def test_merit_timing_report_pairs_launches(experiment, repo_root, tmp_path, capsys):
+    """merit_fusion_timing: the report pairs the two launches per (plant, N, B, block
+    size) with the fused/unfused ratio and skips unpaired rows; errors are counted."""
+    timing = importlib.import_module("merit_fusion_timing")
+
+    def row(fused, merit, status="ok", threads="default"):
+        r = dict(condition="5090", plant="indy7", N=32, B=8, threads=threads, fused_requested=fused,
+                 sha="abc", quotable_times=True, status=status)
+        if status == "ok":
+            r["result"] = dict(merit_fused=bool(fused), solve_us=dict(p50=1000.0 + merit, p90=1100.0, mean=1000.0, max=1200.0),
+                               stages_us={"merit": dict(p50=merit, p90=merit + 5, mean=merit, max=merit + 9)})
+        return r
+    rows = [row(0, 200.0), row(1, 100.0), row(0, 300.0, threads="64"), row(1, 0.0, status="error", threads="64")]
+    path = tmp_path / "rows.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    timing.report([str(path)])
+    out = capsys.readouterr().out
+    assert "3 rows ok, 1 errors" in out and "### condition 5090" in out
+    assert "| indy7 | 32 | 8 | default | 200.0 [205.0] | 100.0 [105.0] | 0.50 | 1200.0 | 1100.0 |" in out
+    assert "| indy7 | 32 | 8 | 64 |" not in out
