@@ -63,13 +63,15 @@ constexpr uint32_t DZ_THREADS = 128;
 #ifndef GATO_CONTACT_FORCES
     #define GATO_CONTACT_FORCES 0
 #endif
-// Merit kernel block size. 0 (default) resolves to grid::MAX_PERF_LEVEL_THREADS,
-// the generated per-robot maximum (kernels/merit.cuh). The merit grid is knots x
-// batch x NUM_ALPHAS blocks; on a GPU with few SMs that many blocks of the
-// maximum size serialize (issue #19). The kernel is thread-count invariant and
-// the partials are summed in fixed order, so a smaller block is bit-identical.
-// Set through the GATO_MERIT_THREADS environment variable (register_robot /
-// build / first-use compiles) or -DGATO_MERIT_THREADS=64 at configure time.
+// Merit kernel block size. 0 (default) resolves to 64 threads (kernels/merit.cuh):
+// measured 2026-10-22 on the RTX 5090 and on the 5090 throttled through MPS to
+// 10 and 25 percent of its SMs, 64 threads cut the merit launch two to four
+// times against the generated per-robot maximum at batch 8 and 16 on the three
+// arms and go2, never slower by more than a few microseconds at batch 1
+// (docs/merit_timing.md). The kernel is thread-count invariant and the partials
+// are summed in fixed order, so the block size is bit-identical. Override through
+// the GATO_MERIT_THREADS environment variable (register_robot / build /
+// first-use compiles) or -DGATO_MERIT_THREADS=128 at configure time.
 #ifndef GATO_MERIT_THREADS
     #define GATO_MERIT_THREADS 0
 #endif

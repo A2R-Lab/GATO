@@ -17,6 +17,7 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I use the solver from C++/CUDA? | [C++/CUDA interface](consumer_contract.md#8-ccuda-interface), [examples/cpp](../examples/cpp/) |
 | How do I add a robot or read the dynamics layer? | [Dynamics adapter](../gato/dynamics/README.md) |
 | How do I build, test, sign a receipt or time a change? | [Development and validation](development.md) |
+| What block size and launch does the merit kernel run at, and why? | [Merit launch timing](merit_timing.md) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
 | What do the current-code figures show? | [Figure refresh, October 2026](figure-refresh-2026-10-01.md) |
 | How is the project page updated? | [Website](website.md) |

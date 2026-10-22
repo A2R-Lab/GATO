@@ -138,11 +138,12 @@ cmake --build build --parallel 2                                # RAM-bound: rou
   attests (`test/receipt_modules.txt`).
 - `GATO_MERIT_THREADS` (a CMake cache variable, or the environment variable for
   `register_robot` and first-use compiles): the merit kernel's block size, a
-  multiple of 32, for GPUs with few SMs. Results are bit-identical to the
-  default, the generated per-robot maximum.
-- `GATO_MERIT_FUSED=0/1` (environment, read at run time): forces the
-  one-candidate-per-block or the fused merit launch; by default the solver picks
-  from the device SM count. Results are bit-identical either way.
+  multiple of 32; the default is 64, the measured optimum on the RTX 5090 and
+  on few-SM conditions ([docs/merit_timing.md](docs/merit_timing.md)). Results
+  are bit-identical at any size.
+- `GATO_MERIT_FUSED=1` (environment, read at run time): the fused merit launch,
+  one block per knot evaluating every candidate; measured slower in every
+  condition, kept for other hardware. Results are bit-identical either way.
 - `tools/build.sh` defaults to four jobs; use `JOBS=1` on the shared lab box or a RAM-limited
   machine. CMake caches `MODULES`: an old explicit list overrides `PLANT`/`KNOTS`.
   Clear it with `-DMODULES=""` when returning to the cross-product. The receipt

@@ -11,22 +11,19 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   goldens are unchanged; a registered arm with signed or mixed axes now matches
   Pinocchio in the step and its linearization, which a new slow test checks.
   Contributed by Felix Mueh (PR #21).
-- `GATO_MERIT_THREADS` selects the merit kernel's block size. The merit grid
-  is knots by batch by eight line-search candidates, and on a GPU with 14 or 15
-  SMs those blocks at the generated maximum size serialize (issue #19, Felix
-  Mueh on a GTX 1070). The kernel is thread-count invariant and the partials
-  are summed in fixed order, so a smaller block is bit-identical, and the
-  launch bound keeps the default register budget. Set the environment variable
-  before the first-use compile (`register_robot`, `build`, `BSQP`) or pass
-  `-DGATO_MERIT_THREADS=64` to CMake; each size is its own cache entry.
-- The merit kernel can evaluate all eight candidates in one block per knot
-  instead of one block per candidate, which cuts the grid eightfold. The solver
-  takes the fused launch when the one-candidate-per-block grid exceeds what the
-  device holds resident at once (SM count times occupancy), so a 14-SM part
-  takes it at any batch and the 5090 at larger ones. Both launches are
-  bit-identical, checked by the kernel gate `test/cuda/merit_fusion_parity.cu`
-  and an end-to-end test; `GATO_MERIT_FUSED=0/1` forces one path for timing.
-  The threshold is provisional until a timing window.
+- The merit kernel's block size defaults to 64 threads instead of the
+  generated per-robot maximum (256 to 448), and `GATO_MERIT_THREADS` overrides
+  it. Measured on October 22 on the RTX 5090 and on the 5090 throttled through
+  MPS to 10 and 25 percent of its SMs (docs/merit_timing.md): at batch 8 and 16
+  the merit launch takes two to four times less and the whole solve 15 to 45
+  percent less; at batch 1 the sizes tie. The kernel is thread-count invariant
+  and the partials are summed in fixed order, so the change is bit-identical
+  (goldens unchanged). Issue #19 (Felix Mueh, GTX 1070) reported the effect.
+- A fused merit launch, one block per knot evaluating all eight candidates in
+  turn, is available as `GATO_MERIT_FUSED=1` and is bit-identical to the
+  default (kernel gate `test/cuda/merit_fusion_parity.cu` and an end-to-end
+  test). It was slower in every measured cell, so it is not selected by default
+  on any device.
 - Dynamics-defect telemetry and exit. `SolverParams(defect_telemetry=True)`
   reports the returned plan's dynamics defect in `SolverStats.defect` and
   `StepResult.defect`: the merit's constraint term alone, the L1 integrator

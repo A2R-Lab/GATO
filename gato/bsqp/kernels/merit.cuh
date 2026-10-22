@@ -51,12 +51,12 @@ __host__ __device__ constexpr size_t compute_merit_base_smem_ct()
         return MeritSmem<T>::total;
 }
 
-// Merit block size: GATO_MERIT_THREADS (settings.h) or the generated per-robot
-// maximum. MERIT_MIN_BLOCKS keeps the register budget of the tuned default
-// (2 blocks at MAX_PERF_LEVEL_THREADS) at any block size, so a smaller block
-// changes the launch geometry and not the register allocation or spill pattern.
-constexpr uint32_t MERIT_THREADS = (GATO_MERIT_THREADS > 0) ? static_cast<uint32_t>(GATO_MERIT_THREADS)
-                                                            : static_cast<uint32_t>(grid::MAX_PERF_LEVEL_THREADS);
+// Merit block size: GATO_MERIT_THREADS (settings.h) or 64, the measured default
+// (docs/merit_timing.md). MERIT_MIN_BLOCKS keeps the register budget of the
+// former default (2 blocks at MAX_PERF_LEVEL_THREADS) at any block size, so the
+// block size changes the launch geometry and not the register allocation or
+// spill pattern.
+constexpr uint32_t MERIT_THREADS = (GATO_MERIT_THREADS > 0) ? static_cast<uint32_t>(GATO_MERIT_THREADS) : 64u;
 static_assert(MERIT_THREADS % 32 == 0 && MERIT_THREADS <= 1024, "GATO_MERIT_THREADS must be a multiple of 32 and at most 1024");
 constexpr unsigned MERIT_MIN_BLOCKS_RAW = (2u * static_cast<unsigned>(grid::MAX_PERF_LEVEL_THREADS)) / MERIT_THREADS;
 constexpr unsigned MERIT_MIN_BLOCKS = MERIT_MIN_BLOCKS_RAW < 1u ? 1u : (MERIT_MIN_BLOCKS_RAW > 32u ? 32u : MERIT_MIN_BLOCKS_RAW);
@@ -322,35 +322,27 @@ __host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0)
         return size;
 }
 
-// Fused or unfused launch. The unfused grid is KNOT_POINTS x batch x NumAlphas
-// blocks; when that exceeds what the device holds resident at once (SM count
-// times the occupancy at this launch's shared size) the fused launch, with
-// NumAlphas-fold fewer blocks, needs fewer waves (issue #19: a 15-SM GTX 1070
-// ran about 140 waves at N32 B16). Provisional SM-count rule; the threshold
-// is set in a timing window. GATO_MERIT_FUSED=0/1 forces one path for the
-// whole process (A/B timing); fused >= 0 forces it per call (the parity gate).
+// Fused or unfused launch. The default is one block per candidate: measured
+// 2026-10-22 (docs/merit_timing.md), the fused launch (one block per knot
+// evaluating all NumAlphas candidates in turn) was slower in every cell on the
+// RTX 5090 and on the 5090 throttled to 10 and 25 percent of its SMs, from a
+// few percent at large batches to seven times at batch 1, because the
+// candidates serialize inside the block while the GPU still had room for the
+// candidate blocks. The path stays available for other hardware:
+// GATO_MERIT_FUSED=1 forces it for the whole process, fused >= 0 forces it per
+// call (the parity gate). Both launches are bit-identical.
 template<typename T, uint32_t NumAlphas>
 __host__ bool merit_fused_launch(uint32_t batch_size, size_t s_mem_size, int fused)
 {
+        (void)batch_size; (void)s_mem_size;
         if (NumAlphas == 1) return false;
         if (fused >= 0) return fused != 0;
         static int env_override = -2;
         if (env_override == -2) {
                 const char* e = std::getenv("GATO_MERIT_FUSED");
-                env_override = (e && *e) ? (std::atoi(e) != 0 ? 1 : 0) : -1;
+                env_override = (e && *e) ? (std::atoi(e) != 0 ? 1 : 0) : 0;
         }
-        if (env_override >= 0) return env_override != 0;
-        static size_t sized_for = 0;
-        static size_t resident = 0;
-        if (resident == 0 || sized_for != s_mem_size) {
-                int dev = 0, sms = 1, per_sm = 1;
-                gpuErrchk(cudaGetDevice(&dev));
-                gpuErrchk(cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev));
-                gpuErrchk(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, compute_merit_batched_kernel<T, NumAlphas, false>, MERIT_THREADS, s_mem_size));
-                resident = (size_t)(sms > 0 ? sms : 1) * (size_t)(per_sm > 0 ? per_sm : 1);
-                sized_for = s_mem_size;
-        }
-        return (size_t)KNOT_POINTS * batch_size * NumAlphas > resident;
+        return env_override != 0;
 }
 
 template<typename T, uint32_t NumAlphas>

@@ -360,3 +360,22 @@ def test_merit_timing_report_pairs_launches(experiment, repo_root, tmp_path, cap
     assert "3 rows ok, 1 errors" in out and "### condition 5090" in out
     assert "| indy7 | 32 | 8 | default | 200.0 [205.0] | 100.0 [105.0] | 0.50 | 1200.0 | 1100.0 |" in out
     assert "| indy7 | 32 | 8 | 64 |" not in out
+
+
+def test_merit_timing_dataset_is_frozen(repo_root):
+    """The October 22 quiet-window merit timing: digest, the full cell inventory
+    (three conditions, three plants, both launches, three block sizes), zero
+    errors, one clean source, every row quotable."""
+    path = repo_root / "examples/benchmarks/data/merit_timing/merit_timing_20261022.jsonl"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == "2299d15ea2a9b0c65aca43e1e03ee7a756045cf15415b26efe5f21b735a34703"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 270
+    keys = {(r["condition"], r["plant"], r["N"], r["B"], r["threads"], r["fused_requested"]) for r in rows}
+    assert len(keys) == 270 and {k[0] for k in keys} == {"5090", "mps10", "mps25"}
+    assert {k[4] for k in keys} == {"default", "64", "128"} and {k[5] for k in keys} == {0, 1}
+    for r in rows:
+        assert r["status"] == "ok" and r["sha"] == "a791af7" and not r["dirty"] and r["quotable_times"] is True
+        assert r["result"]["n"] == 200 and r["result"]["merit_fused"] == bool(r["fused_requested"])
+        others = r["box"]["other_processes"]      # only the MPS server, and only under the MPS conditions
+        assert all(line.endswith("nvidia-cuda-mps-server") for line in others)
+        assert (len(others) > 0) == r["condition"].startswith("mps") or not others

@@ -219,7 +219,10 @@ configuration, the landing and the API page.
 ## Timing
 
 Timing needs an otherwise idle machine and an explicitly declared quiet window; nothing in
-the test suite or the build measures performance. The coordinator entry point is
+the test suite or the build measures performance. The merit kernel's block size and launch
+were measured on October 22 ([merit_timing.md](merit_timing.md), harness
+`examples/benchmarks/merit_fusion_timing.py`, which also drives the MPS-throttled few-SM
+conditions). The coordinator entry point is
 `examples/benchmarks/run_timing_handoff.sh`, which refuses to run without
 `GATO_QUIET_WINDOW=1`, a clean tree, a committed receipt and the cooperative
 `/tmp/a2rlab-timing.lock`:
