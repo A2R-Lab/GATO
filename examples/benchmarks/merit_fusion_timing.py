@@ -35,22 +35,32 @@ import gato
 from gato.interface import STAGE_NAMES
 plant, name, N, B, iters, warmup, solves = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7])
 s = gato.BSQP(str(gato.robot_urdf(plant)), batch_size=B, N=N, dt=0.01, plant_type=name,
-              params=gato.SolverParams(max_sqp_iters=iters, linsys="pcg"))
+              params=gato.SolverParams(max_sqp_iters=iters))   # the plant's wired linsys default (pcg arms, bdsv go2)
 x = np.zeros((B, s.nx), np.float32)
 goals = np.zeros((B, N * 6), np.float32)
-goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
-# every timed solve starts cold (hold-at-x seed), so each does the same work: iters iterations
-# with a merit launch each (a warm-started solve converges and skips the line search)
+if s.floating_base:        # go2: the standing posture, base target 5 cm ahead and 5 cm lower
+    from gato.config import GO2_START_CONFIGS
+    x[:, :s.nq] = GO2_START_CONFIGS["standing"]
+    goals[:, 0::6], goals[:, 2::6] = 0.05, 0.30
+else:                      # arms: away from the zero configuration, so the reach needs motion
+    x[:, :s.nq] = 0.3
+    goals[:, 0::6], goals[:, 2::6] = 0.35, 0.5
+# every timed solve starts cold (hold-at-x seed) with the trust region reset, so each does
+# the same work: iters iterations with a merit launch each (a warm-started solve converges
+# and skips the line search; the adapted rho would otherwise drift across solves)
+def one():
+    s.reset_rho()
+    return s.solve(x, goals)
 for _ in range(warmup):
-    s.solve(x, goals)
+    one()
 stage = np.zeros((solves, 5)); wall = np.zeros(solves); init = np.zeros(solves); launches = np.zeros(solves); fused = None
 for i in range(solves):
-    res = s.solve(x, goals)
+    res = one()
     st = res.stats
     stage[i] = st.stage_times_us.sum(axis=0); wall[i] = res.solve_time_us; init[i] = st.initial_merit_time_us
     launches[i] = st.ls_num_iters
     fused = bool(st.merit_fused)
-assert launches.min() >= 1, "a solve ran no merit launch"
+assert launches.min() >= 1, f"a solve ran no merit launch (sqp_iters {st.sqp_iters.tolist()}, pcg_iters {st.pcg_iters.tolist()}, linsys {st.linsys})"
 per_launch = stage[:, STAGE_NAMES.index("merit")] / launches
 def q(v): return dict(p50=float(np.median(v)), p90=float(np.percentile(v, 90)), mean=float(v.mean()), max=float(v.max()))
 print(json.dumps(dict(merit_fused=fused, solve_us=q(wall), initial_merit_us=q(init), merit_per_launch_us=q(per_launch),
