@@ -200,7 +200,7 @@ GATO_ALGORITHMS = (
 )
 
 
-def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False):
+def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False, friction_width=0.03):
     """Cache key of the URDF
     bytes, the pinned grid-rbd release (the emitter: its version and bundled
     source/peer provenance), the consumed algorithm set and the codegen options.
@@ -216,13 +216,13 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
     h.update(repr((tuple(GATO_ALGORITHMS), ee_frame, collision_res,
                    tuple(contact_frames) if contact_frames else None, bool(floating_base))).encode())
     if joint_dynamics:          # folded in only when on, so the keys of existing robots are unchanged
-        h.update(b"joint_dynamics")
+        h.update(f"joint_dynamics tanh {float(friction_width)!r}".encode())
     return h.hexdigest()[:16]
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
-            floating_base=False, joint_dynamics=False):
+            floating_base=False, joint_dynamics=False, friction_width=0.03):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -252,13 +252,15 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     tangent state cost). ee_frame is then the base-pose target frame (go2:
     imu_joint).
 
-    joint_dynamics: bake the URDF's <dynamics damping> into the dynamics and
-    its derivatives (GRiD's USE_JOINT_DYNAMICS; tau += damping * qd). Off by
+    joint_dynamics: bake the URDF's <dynamics damping> and <dynamics friction>
+    into the dynamics and its derivatives (GRiD's USE_JOINT_DYNAMICS):
+    tau += damping * qd + friction * tanh(qd / friction_width). Off by
     default, which keeps every generated header byte-identical and consistent
-    with bare Pinocchio. Coulomb friction is refused for now: the pinned GRiD
-    emits friction * sign(qd), whose derivative is zero, so the SQP
-    linearization never sees the term and the line search stalls (issue #20);
-    the smooth model lands with the next grid-rbd release.
+    with bare Pinocchio. The friction is GRiD's smooth model (grid-rbd 0.5.4):
+    the sign model has a zero derivative, which stalled the SQP (issue #20).
+    friction_width (rad/s, default 0.03) sets the velocity scale of the
+    smoothing and should be matched to the plan step; it is part of the
+    codegen key.
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -268,12 +270,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     robot = _parse_urdf(urdf_path, ee_frame, floating_base=floating_base)
-    if joint_dynamics and robot.robot_has_joint_friction():
-        raise ValueError(
-            "joint_dynamics=True: this URDF declares Coulomb <dynamics friction>. The pinned grid-rbd emits "
-            "friction * sign(qd), whose derivative is zero, so the SQP linearization never sees the term and "
-            "the line search stalls (issue #20). Set friction to 0 (damping is supported); the smooth friction "
-            "model arrives with the next grid-rbd release.")
+    if joint_dynamics and not float(friction_width) > 0.0:
+        raise ValueError(f"friction_width must be positive (rad/s), got {friction_width!r}")
     # Limits first: it validates every joint has bounded <limit> tags (cheap),
     # so an unsupported robot fails before the expensive grid.cuh generation.
     _write_limits(robot, out_dir / "limits.cuh", name, urdf_path.name)
@@ -289,6 +287,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     # fix; queued for a timing window.
     gen_kwargs = dict(DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid",
                       USE_JOINT_DYNAMICS=bool(joint_dynamics))
+    if joint_dynamics:
+        gen_kwargs.update(FRICTION_MODEL="tanh", FRICTION_WIDTH=float(friction_width))
     if floating_base:
         gen_kwargs["LAUNCH_CONFIG_ROBOT"] = Path(urdf_path).stem
     gen = GRiDCodeGenerator(robot, **gen_kwargs)
@@ -344,6 +344,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             "floating_base": bool(floating_base)}
     if joint_dynamics:
         meta["joint_dynamics"] = True
+        meta["friction_model"] = "tanh"
+        meta["friction_width"] = float(friction_width)
     if collision_res is not None:
         meta["collision"] = {"res": float(collision_res), "n_spheres": n_spheres}
     if contact_frames:
@@ -356,7 +358,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
           floating_base=False, contact_forces=False, exact_hessian=False,
-          joint_dynamics=False, merit_threads=None):
+          joint_dynamics=False, friction_width=0.03, merit_threads=None):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -379,8 +381,9 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
             appended to u) or "eh" (exact-Hessian SO-SQP) module VARIANT
             instead of the default — a separate ABI with its own module name
             (bsqpN{N}_{name}_fc / _eh), loaded with BSQP(..., variant=...).
-        joint_dynamics: bake the URDF's <dynamics damping> into the dynamics
-            (see codegen()); part of the codegen key.
+        joint_dynamics / friction_width: bake the URDF's <dynamics damping>
+            and smooth friction into the dynamics (see codegen()); both are
+            part of the codegen key.
         merit_threads: the merit kernel's block size (a multiple of 32), for
             GPUs with few SMs (issue #19); None reads GATO_MERIT_THREADS from
             the environment, and unset means the generated per-robot maximum.
@@ -398,7 +401,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     Ns = [int(n) for n in ([N] if isinstance(N, int) else N)]
 
     root = repo_root()
-    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics)
+    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width)
     have = load_registry().get(name, {})
     headers = [root / "gato" / "dynamics" / name / f for f in ("grid.cuh", "limits.cuh")]
     if have.get("codegen_key") == key and all(h.exists() for h in headers):
@@ -406,7 +409,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     else:
         meta = codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
                        contact_frames=contact_frames, floating_base=floating_base,
-                       joint_dynamics=joint_dynamics)
+                       joint_dynamics=joint_dynamics, friction_width=friction_width)
         _update_registry(name, {**meta, "codegen_key": key})
 
     try:

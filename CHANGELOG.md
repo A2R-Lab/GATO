@@ -57,12 +57,17 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   what each stage scales with, and example 15 walks through it. Suggested by
   Felix Mueh (issue #19).
 - `joint_dynamics=True` in `gato.build` and `gato.register_robot` bakes the
-  URDF's `<dynamics damping>` into the dynamics and its derivatives (GRiD's
-  `USE_JOINT_DYNAMICS`). The default is unchanged and the vendored headers are
-  byte-identical. Coulomb friction is refused for now: the pinned GRiD emits
-  `friction * sign(qd)`, whose derivative is zero, so the SQP linearization
-  never sees the term and the line search stalls (issue #20); the smooth model
-  with first and second derivatives lands with the next grid-rbd release.
+  URDF's `<dynamics damping>` and `friction` into the dynamics and their
+  derivatives (GRiD's `USE_JOINT_DYNAMICS`). The friction is GRiD's smooth
+  `tanh` model with `friction_width` (rad/s, default 0.03, part of the codegen
+  key): the sign model has a zero derivative, so the SQP linearization never
+  saw the term and the line search stalled (issue #20). The default is
+  unchanged and the vendored headers are byte-identical.
+- grid-rbd 0.5.4. The vendored headers regenerate with additions only (the
+  topology-helper footprint, per-algorithm suggested thread counts, the cost
+  menu); every existing kernel keeps its bytes and the goldens stand. The
+  fixed-base adapter takes the helper footprint from the generated
+  `TOPOLOGY_HELPERS_T_COUNT` instead of computing it.
 
 ## 0.1.2 — 2026-10-20: three more arms, device-resident control, documentation site
 

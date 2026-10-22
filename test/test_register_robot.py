@@ -213,13 +213,15 @@ def test_merit_threads_knob_is_bit_identical(cache, urdfs, tmp_path):
 
 @pytest.mark.gpu
 @pytest.mark.slow
-def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
-    """joint_dynamics=True (issue #20): the URDF's <dynamics damping> enters the
-    step and its linearization; checked against Pinocchio with the damping torque
-    applied to the input."""
+def test_registered_joint_dynamics_match_pinocchio(cache, tmp_path):
+    """joint_dynamics=True (issue #20): the URDF's <dynamics damping> and smooth
+    friction (tanh, friction_width) enter the step and its linearization; checked
+    against Pinocchio with the joint torque applied to the input."""
     import pinocchio as pin
 
     damping = (0.5, 0.2, 0.8)
+    friction = (0.3, 0.0, 0.6)
+    width = 0.05
     urdf = tmp_path / "damped.urdf"
     links, joints = [], []
     for i, b in enumerate(damping, 1):
@@ -230,7 +232,7 @@ def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
         parent = "base" if i == 1 else f"l{i-1}"
         joints.append(f'''<joint name="j{i}" type="revolute">
           <parent link="{parent}"/><child link="l{i}"/>
-          <origin xyz=".25 .02 .04"/><axis xyz="0 0 1"/><dynamics damping="{b}"/>
+          <origin xyz=".25 .02 .04"/><axis xyz="0 0 1"/><dynamics damping="{b}" friction="{friction[i - 1]}"/>
           <limit lower="-2" upper="2" effort="20" velocity="3"/></joint>''')
     urdf.write_text('<robot name="damped"><link name="base"/>'
                     + ''.join(links + joints)
@@ -238,19 +240,23 @@ def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
                       '<parent link="l3"/><child link="tool"/>'
                       '<origin xyz=".2 0 0"/></joint></robot>')
     name, N, dt = "cachebot_damped", 8, .01
-    gato.register_robot(name, urdf, N=[N], joint_dynamics=True)
+    gato.register_robot(name, urdf, N=[N], joint_dynamics=True, friction_width=width)
     entry = _cache.robot_entry(name)
     assert entry["options"]["joint_dynamics"] is True and entry["meta"]["joint_dynamics"] is True
+    assert entry["options"]["friction_width"] == width and entry["meta"]["friction_model"] == "tanh"
+    header = (cache / "robots" / entry["codegen_key"] / name / "grid.cuh").read_text()
+    assert "JOINT_FRICTION_MODEL_TANH" in header
     s = gato.BSQP(str(urdf), batch_size=1, N=N, dt=dt, plant_type=name)
     model = pin.buildModelFromUrdf(str(urdf))
     data = model.createData()
     D = np.diag(damping)
+    C = np.asarray(friction)
     q = np.array([.3, -.4, .2])
     v = np.array([.2, -.1, .15])
     u = np.array([.7, -.3, .5])
     x = np.r_[q, v]
     got = np.asarray(s.sim_forward(x[None], u[None], dt))[0]
-    tau = u - D @ v
+    tau = u - D @ v - C * np.tanh(v / width)
     acceleration = pin.aba(model, data, q, v, tau)
     expected = np.r_[q + dt * v + .5 * dt**2 * acceleration, v + dt * acceleration]
     np.testing.assert_allclose(got, expected, atol=2e-5, rtol=1e-4)
@@ -261,7 +267,7 @@ def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
     goals = np.zeros((1, N * 6), dtype=np.float32)
     kkt = s.debug_setup_kkt(xu[None], x[None], goals)
     aq, av, au = pin.computeABADerivatives(model, data, q, v, tau)
-    av = av - au @ D          # d(tau - D qd)/d qd through the inverse mass matrix
+    av = av - au @ (D + np.diag(C / width / np.cosh(v / width) ** 2))   # d(tau - D qd - C tanh(qd/w))/d qd through M^-1
     eye = np.eye(3)
     expected_A = np.block([[eye + .5 * dt**2 * aq, dt * eye + .5 * dt**2 * av],
                            [dt * aq, eye + dt * av]])
@@ -272,9 +278,9 @@ def test_registered_joint_damping_matches_pinocchio(cache, tmp_path):
     np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)
 
 
-def test_joint_dynamics_refuses_coulomb_friction(cache, tmp_path):
-    """The pinned GRiD's friction model has a zero derivative (issue #20): refuse it
-    with the reason rather than let the SQP stall."""
+def test_joint_dynamics_keys_and_width_validation(cache, tmp_path):
+    """joint_dynamics joins the codegen key only when on, the friction width is part
+    of it, and a non-positive width is rejected before codegen."""
     from gato.builder import _codegen_key
 
     urdf = tmp_path / "fric.urdf"
@@ -287,8 +293,8 @@ def test_joint_dynamics_refuses_coulomb_friction(cache, tmp_path):
                     '<limit lower="-2" upper="2" effort="20" velocity="3"/></joint>'
                     '<link name="tool"/><joint name="EE" type="fixed"><parent link="l1"/>'
                     '<child link="tool"/><origin xyz=".2 0 0"/></joint></robot>')
-    with pytest.raises(ValueError, match="friction"):
-        gato.register_robot("cachebot_fric", urdf, N=[8], joint_dynamics=True)
-    # the flag is part of the codegen key, and only when on
+    with pytest.raises(ValueError, match="friction_width"):
+        gato.register_robot("cachebot_fric", urdf, N=[8], joint_dynamics=True, friction_width=0.0)
     assert _codegen_key(urdf, "EE", 0.15, None, False) == _codegen_key(urdf, "EE", 0.15, None, False, False)
     assert _codegen_key(urdf, "EE", 0.15, None, False) != _codegen_key(urdf, "EE", 0.15, None, False, True)
+    assert _codegen_key(urdf, "EE", 0.15, None, False, True, 0.03) != _codegen_key(urdf, "EE", 0.15, None, False, True, 0.05)

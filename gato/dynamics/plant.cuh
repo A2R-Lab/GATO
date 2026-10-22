@@ -51,12 +51,13 @@ namespace plant {
         inline constexpr int VAF_COUNT    = 18 * grid::NUM_BODIES;      // v, a, f (6 each) per body
 
         // A serial chain can still need integer helpers when motion subspaces
-        // differ (negative or oblique axes). Append them after the T arena;
-        // rounding preserves the caller's T-element scratch accounting.
+        // differ (negative or oblique axes; the count rule is in GRiD's header).
+        // Appended after the T arena; the footprint in T elements is the
+        // generated TOPOLOGY_HELPERS_T_COUNT (grid-rbd 0.5.4).
         template<typename T>
         __host__ __device__ constexpr unsigned topology_helpers_smem_ct()
         {
-                return (grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T);
+                return static_cast<unsigned>(grid::TOPOLOGY_HELPERS_T_COUNT<T>());
         }
 
         template<typename T>

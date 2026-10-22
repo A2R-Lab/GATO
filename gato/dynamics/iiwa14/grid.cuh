@@ -373,6 +373,10 @@ namespace grid {
     const int GRID_QDD_OFFSET = 14;
     const int NUM_EES = 1;
     const int TOPOLOGY_HELPERS_COUNT = 0;
+    // TOPOLOGY_HELPERS_T_COUNT<T>(): the helper block's footprint in T elements, so an arena sized in T
+    // elements (a plant-layer workspace built from the *_SHARED_MEM_COUNT constants) reserves
+    // COUNT + TOPOLOGY_HELPERS_T_COUNT<T>() for the helpers; exact when sizeof(T) == sizeof(int), a ceiling otherwise.
+    template <typename T> __host__ __device__ constexpr size_t TOPOLOGY_HELPERS_T_COUNT() { return (sizeof(int) * static_cast<size_t>(TOPOLOGY_HELPERS_COUNT) + sizeof(T) - 1) / sizeof(T); }
     const int DYNAMICS_XI_T_COUNT = 504;
     const int XHOM_T_COUNT = 144;
     const int DXHOM_T_COUNT = 112;
@@ -34581,6 +34585,436 @@ namespace grid {
             }
         }
 
+        #define GRID_PLANT_HAS_GRAVITY_TORQUE 1
+        /**
+         * gravity_torque: RAW caller-scratch generalized gravity g(q) = RNEA(q, 0, 0) (size NUM_VEL)
+         *
+         * Notes:
+         *   Caller-scratch INNER (the ee_pos pattern): lays out the RNEA arena from s_scratch and calls grid::inverse_dynamics_inner at zero velocity and acceleration, so it is callable from another kernel's block. Writes g(q) into s_g; a consumer makes it a knot's torque target (u - g(q_ref)).
+         *   s_scratch must hold GRAVITY_TORQUE_DYNAMIC_SHARED_MEM_BYTES<T>() bytes, 16B aligned.
+         *
+         * @param s_g is the generalized gravity output (size NUM_VEL)
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch
+         * @param d_robotModel is the GPU model helpers
+         * @param gravity is the gravity constant
+         */
+        template <typename T>
+        __device__
+        void gravity_torque(T *s_g, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel, const T gravity) {
+            using namespace grid;
+            // GRID shared arena layout
+            //   T s_vaf[126]
+            //   T s_qd0[7]
+            //   T s_XImats[504]
+            //   T s_temp[42]
+            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_vaf = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(126);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_qd0 = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(7);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XImats = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(504);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(42);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(679, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
+            glass::set_const<T, 7>(static_cast<T>(0), s_qd0);
+            __syncthreads();
+            inverse_dynamics_inner<T>(s_g, s_vaf, s_q, s_qd0, s_XImats, s_topology_helpers, s_temp, nullptr, gravity);
+            __syncthreads();
+        }
+
+        template <typename T> __host__ __device__ constexpr size_t GRAVITY_TORQUE_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(679, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+        
+        // ---- cost activations: value, slope and curvature per residual entry ----
+        // a(r; w, eps): quadratic 1/2 w r^2; pseudo-Huber w (sqrt(r^2 + eps^2) - eps), eps > 0; the barrier kinds act on
+        // the feature value v with bounds [lo, hi] (w = mu, eps = delta for the relaxed log barrier; an infinite bound is 0).
+        // Every activated term is value = sum_i a(r_i), gradient = J^T a'(r), GN Hessian = J^T diag(a''(r)) J.
+        const int GRID_PLANT_ACTIVATION_NONE = -1;
+        const int GRID_PLANT_ACTIVATION_QUADRATIC = 0;
+        const int GRID_PLANT_ACTIVATION_PSEUDO_HUBER = 1;
+        const int GRID_PLANT_ACTIVATION_RELAXED_LOG_BARRIER = 2;
+        const int GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER = 3;
+        // menu term order in cost_menu_params::activation / eps (tracking_cost_menu)
+        const int GRID_PLANT_MENU_FRAME_POS = 0;
+        const int GRID_PLANT_MENU_STATE = 1;
+        const int GRID_PLANT_MENU_INPUT = 2;
+        const int GRID_PLANT_MENU_LINEAR_X = 3;
+        const int GRID_PLANT_MENU_LINEAR_U = 4;
+        const int GRID_PLANT_MENU_ORIENTATION = 5;
+        const int GRID_PLANT_MENU_VELOCITY = 6;
+        const int GRID_PLANT_MENU_FRAME_POS_2 = 7;
+        const int GRID_PLANT_MENU_TERMS = 8;
+        template <typename T>
+        __device__ __forceinline__
+        T relaxed_log_barrier_value(const T z, const T mu, const T delta) {
+            if (z > delta) { return -mu * log(z); }
+            T t = (z - static_cast<T>(2) * delta) / delta;
+            return mu * (static_cast<T>(0.5) * t * t - static_cast<T>(0.5) - log(delta));
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T relaxed_log_barrier_slope(const T z, const T mu, const T delta) {
+            if (z > delta) { return -mu / z; }
+            return mu * (z - static_cast<T>(2) * delta) / (delta * delta);
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T relaxed_log_barrier_curvature(const T z, const T mu, const T delta) {
+            if (z > delta) { return mu / (z * z); }
+            return mu / (delta * delta);
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_value(const int kind, const T w, const T r, const T eps, const T v, const T lo, const T hi) {
+            if (kind == GRID_PLANT_ACTIVATION_PSEUDO_HUBER) { T s = sqrt(r * r + eps * eps); return w * (s - eps); }
+            if (kind == GRID_PLANT_ACTIVATION_RELAXED_LOG_BARRIER) {
+                T acc = static_cast<T>(0);
+                if (!isinf(lo)) { acc += relaxed_log_barrier_value<T>(v - lo, w, eps); }
+                if (!isinf(hi)) { acc += relaxed_log_barrier_value<T>(hi - v, w, eps); }
+                return acc;
+            }
+            if (kind == GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER) {
+                T below = (!isinf(lo) && v < lo) ? (lo - v) : static_cast<T>(0);
+                T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
+                return static_cast<T>(0.5) * w * (below * below + above * above);
+            }
+            if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
+            return static_cast<T>(0.5) * w * r * r;
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_slope(const int kind, const T w, const T r, const T eps, const T v, const T lo, const T hi) {
+            if (kind == GRID_PLANT_ACTIVATION_PSEUDO_HUBER) { T s = sqrt(r * r + eps * eps); return w * r / s; }
+            if (kind == GRID_PLANT_ACTIVATION_RELAXED_LOG_BARRIER) {
+                T acc = static_cast<T>(0);
+                if (!isinf(lo)) { acc += relaxed_log_barrier_slope<T>(v - lo, w, eps); }
+                if (!isinf(hi)) { acc -= relaxed_log_barrier_slope<T>(hi - v, w, eps); }
+                return acc;
+            }
+            if (kind == GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER) {
+                T below = (!isinf(lo) && v < lo) ? (lo - v) : static_cast<T>(0);
+                T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
+                return w * (above - below);
+            }
+            if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
+            return w * r;
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_curvature(const int kind, const T w, const T r, const T eps, const T v, const T lo, const T hi) {
+            if (kind == GRID_PLANT_ACTIVATION_PSEUDO_HUBER) { T s = sqrt(r * r + eps * eps); return w * eps * eps / (s * s * s); }
+            if (kind == GRID_PLANT_ACTIVATION_RELAXED_LOG_BARRIER) {
+                T acc = static_cast<T>(0);
+                if (!isinf(lo)) { acc += relaxed_log_barrier_curvature<T>(v - lo, w, eps); }
+                if (!isinf(hi)) { acc += relaxed_log_barrier_curvature<T>(hi - v, w, eps); }
+                return acc;
+            }
+            if (kind == GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER) {
+                bool active = (!isinf(lo) && v < lo) || (!isinf(hi) && v > hi);
+                return active ? w : static_cast<T>(0);
+            }
+            if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
+            return w;
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_value(const int kind, const T w, const T r, const T eps) {
+            return activation_value<T>(kind, w, r, eps, r, -INFINITY, INFINITY);
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_slope(const int kind, const T w, const T r, const T eps) {
+            return activation_slope<T>(kind, w, r, eps, r, -INFINITY, INFINITY);
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        T activation_curvature(const int kind, const T w, const T r, const T eps) {
+            return activation_curvature<T>(kind, w, r, eps, r, -INFINITY, INFINITY);
+        }
+
+        /**
+         * state_cost: value = sum_i a(s_x[i] - s_x_des[i]; s_Q[i], eps) under the chosen activation
+         *
+         * Notes:
+         *   Block-cooperative: strided per-entry activations into s_scratch, then a serial reduction into s_out[0].
+         *   ACCUMULATE=false overwrites s_out[0]; ACCUMULATE=true adds into it.
+         *   Quadratic activation reproduces quadratic_state_cost exactly; s_scratch must hold >= 14.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param s_x is the current value (size NUM_POS + NUM_VEL = 14)
+         * @param s_x_des is the target (size NUM_POS + NUM_VEL = 14)
+         * @param s_Q is the per-entry weight (size NUM_POS + NUM_VEL = 14)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         * @param s_scratch is shared scratch of size >= 14
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void state_cost(T *s_out, const T *s_x, const T *s_x_des, const T *s_Q, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 14; i += blockDim.x*blockDim.y){
+                T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
+                s_scratch[i] = activation_value<T>(activation, s_Q[i], s_x[i] - s_x_des[i], eps, s_x[i], lo, hi);
+            }
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int i = 0; i < 14; ++i) acc += s_scratch[i];
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * state_cost_gradient: g[i] = a'(s_x[i] - s_x_des[i]; s_Q[i], eps)
+         *
+         * Notes:
+         *   ACCUMULATE=false overwrites s_grad; ACCUMULATE=true adds into it.
+         *
+         * @param s_grad is the gradient output (size NUM_POS + NUM_VEL = 14)
+         * @param s_x is the current value (size NUM_POS + NUM_VEL = 14)
+         * @param s_x_des is the target (size NUM_POS + NUM_VEL = 14)
+         * @param s_Q is the per-entry weight (size NUM_POS + NUM_VEL = 14)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void state_cost_gradient(T *s_grad, const T *s_x, const T *s_x_des, const T *s_Q, const int activation, const T eps, const T *s_lower, const T *s_upper) {
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 14; i += blockDim.x*blockDim.y){
+                T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
+                T g = activation_slope<T>(activation, s_Q[i], s_x[i] - s_x_des[i], eps, s_x[i], lo, hi);
+                if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
+            }
+        }
+
+        /**
+         * state_cost_hessian: Gauss-Newton Hessian = diag(a''(s_x - s_x_des; s_Q, eps)), column-major 14 x 14
+         *
+         * Notes:
+         *   Off-diagonal entries are zero. ACCUMULATE=false overwrites; ACCUMULATE=true adds.
+         *
+         * @param s_hess is the dense Hessian output (size 14*14, column-major)
+         * @param s_x is the current value (size NUM_POS + NUM_VEL = 14)
+         * @param s_x_des is the target (size NUM_POS + NUM_VEL = 14)
+         * @param s_Q is the per-entry weight (size NUM_POS + NUM_VEL = 14)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void state_cost_hessian(T *s_hess, const T *s_x, const T *s_x_des, const T *s_Q, const int activation, const T eps, const T *s_lower, const T *s_upper) {
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 196; ind += blockDim.x*blockDim.y){
+                int row = ind % 14;
+                int col = ind / 14;
+                T h = static_cast<T>(0);
+                if (row == col) { T lo = s_lower ? s_lower[row] : -INFINITY; T hi = s_upper ? s_upper[row] : INFINITY; h = activation_curvature<T>(activation, s_Q[row], s_x[row] - s_x_des[row], eps, s_x[row], lo, hi); }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        /**
+         * input_cost: value = sum_i a(s_u[i] - s_u_des[i]; s_R[i], eps) under the chosen activation
+         *
+         * Notes:
+         *   Block-cooperative: strided per-entry activations into s_scratch, then a serial reduction into s_out[0].
+         *   ACCUMULATE=false overwrites s_out[0]; ACCUMULATE=true adds into it.
+         *   Quadratic activation reproduces quadratic_input_cost exactly; s_scratch must hold >= 7.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param s_u is the current value (size NUM_VEL = 7)
+         * @param s_u_des is the target (size NUM_VEL = 7)
+         * @param s_R is the per-entry weight (size NUM_VEL = 7)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         * @param s_scratch is shared scratch of size >= 7
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void input_cost(T *s_out, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 7; i += blockDim.x*blockDim.y){
+                T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
+                s_scratch[i] = activation_value<T>(activation, s_R[i], s_u[i] - s_u_des[i], eps, s_u[i], lo, hi);
+            }
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int i = 0; i < 7; ++i) acc += s_scratch[i];
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * input_cost_gradient: g[i] = a'(s_u[i] - s_u_des[i]; s_R[i], eps)
+         *
+         * Notes:
+         *   ACCUMULATE=false overwrites s_grad; ACCUMULATE=true adds into it.
+         *
+         * @param s_grad is the gradient output (size NUM_VEL = 7)
+         * @param s_u is the current value (size NUM_VEL = 7)
+         * @param s_u_des is the target (size NUM_VEL = 7)
+         * @param s_R is the per-entry weight (size NUM_VEL = 7)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void input_cost_gradient(T *s_grad, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper) {
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 7; i += blockDim.x*blockDim.y){
+                T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
+                T g = activation_slope<T>(activation, s_R[i], s_u[i] - s_u_des[i], eps, s_u[i], lo, hi);
+                if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
+            }
+        }
+
+        /**
+         * input_cost_hessian: Gauss-Newton Hessian = diag(a''(s_u - s_u_des; s_R, eps)), column-major 7 x 7
+         *
+         * Notes:
+         *   Off-diagonal entries are zero. ACCUMULATE=false overwrites; ACCUMULATE=true adds.
+         *
+         * @param s_hess is the dense Hessian output (size 7*7, column-major)
+         * @param s_u is the current value (size NUM_VEL = 7)
+         * @param s_u_des is the target (size NUM_VEL = 7)
+         * @param s_R is the per-entry weight (size NUM_VEL = 7)
+         * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
+         * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void input_cost_hessian(T *s_hess, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper) {
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 49; ind += blockDim.x*blockDim.y){
+                int row = ind % 7;
+                int col = ind / 7;
+                T h = static_cast<T>(0);
+                if (row == col) { T lo = s_lower ? s_lower[row] : -INFINITY; T hi = s_upper ? s_upper[row] : INFINITY; h = activation_curvature<T>(activation, s_R[row], s_u[row] - s_u_des[row], eps, s_u[row], lo, hi); }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        /**
+         * linear_feature_cost: value = sum_m a(r_m; W[m], eps), r = A v + b - target (a linear feature of the state or the input)
+         *
+         * Notes:
+         *   Template M is the feature row count, N the variable size; both compile-time (loop bounds).
+         *   ACCUMULATE=false overwrites s_out[0]; ACCUMULATE=true adds into it.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param s_v is the variable (size N: NX for the state, NU for the input)
+         * @param s_A is the feature matrix, column-major M x N (A[m + M*n]); s_b is the offset (M)
+         * @param s_target is the per-knot target (M); s_W is the per-entry weight (M)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the feature value A v + b)
+         * @param s_scratch must hold >= M
+         */
+        template <typename T, int M, int N, bool ACCUMULATE = false>
+        __device__
+        void linear_feature_cost(T *s_out, const T *s_v, const T *s_A, const T *s_b, const T *s_target, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
+            for(int m = threadIdx.x + threadIdx.y*blockDim.x; m < M; m += blockDim.x*blockDim.y){
+                T f = s_b[m];
+                for (int n = 0; n < N; ++n) f += s_A[m + M * n] * s_v[n];
+                T r = f - s_target[m];
+                T lo = s_lower ? s_lower[m] : -INFINITY; T hi = s_upper ? s_upper[m] : INFINITY;
+                s_scratch[m] = activation_value<T>(activation, s_W[m], r, eps, f, lo, hi);
+            }
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int m = 0; m < M; ++m) acc += s_scratch[m];
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * linear_feature_cost_gradient: g = A^T a'(r)  (size N)
+         *
+         * Notes:
+         *   s_scratch (>= M) holds the per-row slopes between the two passes.
+         *   ACCUMULATE=false overwrites s_grad; ACCUMULATE=true adds into it.
+         *
+         * @param s_grad is the gradient output (size N)
+         * @param s_v is the variable (size N: NX for the state, NU for the input)
+         * @param s_A is the feature matrix, column-major M x N (A[m + M*n]); s_b is the offset (M)
+         * @param s_target is the per-knot target (M); s_W is the per-entry weight (M)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the feature value A v + b)
+         * @param s_scratch must hold >= M
+         */
+        template <typename T, int M, int N, bool ACCUMULATE = false>
+        __device__
+        void linear_feature_cost_gradient(T *s_grad, const T *s_v, const T *s_A, const T *s_b, const T *s_target, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
+            for(int m = threadIdx.x + threadIdx.y*blockDim.x; m < M; m += blockDim.x*blockDim.y){
+                T f = s_b[m];
+                for (int n = 0; n < N; ++n) f += s_A[m + M * n] * s_v[n];
+                T r = f - s_target[m];
+                T lo = s_lower ? s_lower[m] : -INFINITY; T hi = s_upper ? s_upper[m] : INFINITY;
+                s_scratch[m] = activation_slope<T>(activation, s_W[m], r, eps, f, lo, hi);
+            }
+            __syncthreads();
+            for(int n = threadIdx.x + threadIdx.y*blockDim.x; n < N; n += blockDim.x*blockDim.y){
+                T g = static_cast<T>(0);
+                for (int m = 0; m < M; ++m) g += s_A[m + M * n] * s_scratch[m];
+                if (ACCUMULATE) { s_grad[n] += g; } else { s_grad[n] = g; }
+            }
+        }
+
+        /**
+         * linear_feature_cost_hessian: Gauss-Newton Hessian = A^T diag(a''(r)) A  (column-major N x N)
+         *
+         * Notes:
+         *   s_scratch (>= M) holds the per-row curvatures between the two passes.
+         *   ACCUMULATE=false overwrites s_hess; ACCUMULATE=true adds into it.
+         *
+         * @param s_hess is the dense Hessian output (size N*N, column-major)
+         * @param s_v is the variable (size N: NX for the state, NU for the input)
+         * @param s_A is the feature matrix, column-major M x N (A[m + M*n]); s_b is the offset (M)
+         * @param s_target is the per-knot target (M); s_W is the per-entry weight (M)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the feature value A v + b)
+         * @param s_scratch must hold >= M
+         */
+        template <typename T, int M, int N, bool ACCUMULATE = false>
+        __device__
+        void linear_feature_cost_hessian(T *s_hess, const T *s_v, const T *s_A, const T *s_b, const T *s_target, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
+            for(int m = threadIdx.x + threadIdx.y*blockDim.x; m < M; m += blockDim.x*blockDim.y){
+                T f = s_b[m];
+                for (int n = 0; n < N; ++n) f += s_A[m + M * n] * s_v[n];
+                T r = f - s_target[m];
+                T lo = s_lower ? s_lower[m] : -INFINITY; T hi = s_upper ? s_upper[m] : INFINITY;
+                s_scratch[m] = activation_curvature<T>(activation, s_W[m], r, eps, f, lo, hi);
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < N * N; ind += blockDim.x*blockDim.y){
+                int row = ind % N;
+                int col = ind / N;
+                T h = static_cast<T>(0);
+                for (int m = 0; m < M; ++m) h += s_A[m + M * row] * s_scratch[m] * s_A[m + M * col];
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        // [grid_plant] frame_eval / frame_*_cost / tracking_cost_menu skipped: require 'frame_jacobian' (pass cost_frames= or add it to the algorithm list).
         // [grid_plant] com_cost skipped: requires 'com'+'ccrba'.
         // [grid_plant] momentum_cost skipped: requires 'dccrba' for the full tangent-state Jacobian.
         /**
@@ -35722,4 +36156,29 @@ namespace grid {
             __syncthreads();
         }
 
+    }
+    
+    // Suggested thread counts: per algorithm, the smallest multiple of 32 that covers the
+    // widest block-parallel loop reachable from its kernel, read from the emitted code at
+    // generation time (grid_codegen/suggested_threads.py). GPU-independent and untuned: a
+    // consumer that fuses several algorithms into one kernel takes the max over the ones it
+    // calls. launch_cfg<GRID_ALGO_*>::THREADS stays the tuned per-GPU override. Clamped to
+    // [32, 1024]; algorithms whose loops exceed 1024 stride, so 1024 is the honest answer.
+    namespace grid {
+        const int INVERSE_DYNAMICS_SUGGESTED_THREADS = 96;
+        const int MINV_SUGGESTED_THREADS = 96;
+        const int FORWARD_DYNAMICS_SUGGESTED_THREADS = 96;
+        const int INVERSE_DYNAMICS_GRADIENT_SUGGESTED_THREADS = 352;
+        const int FORWARD_DYNAMICS_GRADIENT_SUGGESTED_THREADS = 352;
+        const int END_EFFECTOR_POSE_SUGGESTED_THREADS = 32;
+        const int END_EFFECTOR_POSE_GRADIENT_SUGGESTED_THREADS = 64;
+        const int END_EFFECTOR_POSE_HESSIAN_SUGGESTED_THREADS = 160;
+        const int IDSVA_SO_BODY_FRAME_SUGGESTED_THREADS = 1024;
+        const int FDSVA_SO_SUGGESTED_THREADS = 1024;
+        const int INTEGRATOR_SUGGESTED_THREADS = 96;
+        const int INTEGRATOR_GRADIENT_SUGGESTED_THREADS = 352;
+        const int INTEGRATOR_WITH_GRADIENT_SUGGESTED_THREADS = 352;
+        const int F_EXT_GRADIENT_SUGGESTED_THREADS = 320;
+        const int F_EXT_GRADIENT_DQ_SUGGESTED_THREADS = 64;
+        const int TRACKING_COST_SUGGESTED_THREADS = 224;
     }
