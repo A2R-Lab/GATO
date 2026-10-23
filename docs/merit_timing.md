@@ -97,8 +97,9 @@ the former default (goldens unchanged, the thread-invariance gate in the
 register tests).
 
 The fused launch does not help. One block per knot evaluating the eight
-candidates in turn was slower in every cell, from a few percent at batch 16
-to seven times at batch 1 (Go2), in all three conditions: the candidates
+candidates in turn never won: within the repeat spread on Indy7 at batch 8 and 16
+(0.96 to 0.99 of the unfused time) and slower everywhere else, up to seven times at
+batch 1 (Go2), in all three conditions: the candidates
 serialize inside the block while the GPU, even at 10 percent of its SMs, still
 had room for the candidate blocks. The SM-count rule that selected it is
 removed; the path stays as `GATO_MERIT_FUSED=1` for a measurement on hardware
