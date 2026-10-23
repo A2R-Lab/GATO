@@ -1,6 +1,6 @@
 # The cost menu
 
-GATO's cost API since 0.2.0. A `CostMenu` replaces the tracking objective of
+GATO's cost API since 0.1.4. A `CostMenu` replaces the tracking objective of
 the solver (the scalar weights `q_cost`, `qd_cost`, `u_cost`, `N_cost`, the
 per-knot weight triples, the posture anchor and the end-effector reference)
 with up to eight terms, each a residual under an activation, evaluated by

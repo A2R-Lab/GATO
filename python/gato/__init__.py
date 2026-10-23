@@ -8,7 +8,7 @@ try:
 
     __version__ = _version("gato-mpc")
 except Exception:  # not installed (e.g. sys.path use from a checkout)
-    __version__ = "0.2.0"
+    __version__ = "0.1.4"
 
 from .interface import BSQP, SolveResult, SolverStats, available, module_name, robot_info, robot_urdf
 from .config import SolverParams

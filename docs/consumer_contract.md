@@ -72,7 +72,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 - Weights land literally on the KKT diagonals — `debug_setup_kkt` exposes the
   blocks, and `test/test_anchor.py` shows the pattern for verifying any cost
   claim directly instead of arguing from solve outcomes.
-- **The cost menu** (0.2.0, [cost_menu.md](cost_menu.md)) replaces everything
+- **The cost menu** (0.1.4, [cost_menu.md](cost_menu.md)) replaces everything
   above except the limit barriers: up to eight residual terms (frame position
   and orientation, state, input, linear features on x and u, the frame twist,
   a second frame) under per-knot activations (quadratic, pseudo-Huber, relaxed
