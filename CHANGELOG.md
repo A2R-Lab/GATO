@@ -2,7 +2,9 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.2.0 — unreleased: the cost menu
+## 0.2.0 — unreleased: the cost menu, GPUs with few SMs, joint damping, topology helpers
+
+0.1.3 was prepared on October 21 and never published; its items ship here.
 
 - The cost menu (`gato.cost_menu`, [docs/cost_menu.md](docs/cost_menu.md)):
   `BSQP.set_cost_menu(CostMenu(...))` replaces the tracking objective with up
@@ -34,8 +36,6 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   validates the quaternion. Bit-identical with the weights off. Example 19 and a KKT gate.
 - The merit timing page no longer says the fused launch lost in every cell:
   on the Indy7 at batch 8 and 16 the ratio sat inside the repeat spread.
-
-## 0.1.3 — 2026-10-21: GPUs with few SMs, joint damping, topology helpers
 
 - The fixed-base dynamics adapter allocates GRiD's topology helper buffer
   instead of passing null. GRiD needs the helpers whenever a joint axis is not
