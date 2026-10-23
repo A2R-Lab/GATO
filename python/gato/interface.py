@@ -410,6 +410,46 @@ class BSQP:
         self._admm_exit = (0.0, 0.0, 1)   # set_admm_exit (eps_abs, eps_rel, check_every); the C++ default
         if params.exact_hessian:
             self.set_exact_hessian(True)
+        self._cost_menu = None   # the applied gato.cost_menu.CostMenu (None = the tracking objective)
+
+    # ---- cost menu (gato.cost_menu) ----------------------------------------
+    @property
+    def cost_menu_available(self):
+        """True when the module carries grid_plant::tracking_cost_menu (fixed-base
+        plants built against grid-rbd 0.5.4, not the contact-force variant)."""
+        return bool(getattr(self.lib, "COST_MENU_AVAILABLE", False))
+
+    @property
+    def cost_menu(self):
+        """The applied :class:`gato.cost_menu.CostMenu`, or None while the tracking objective runs."""
+        return self._cost_menu
+
+    def set_cost_menu(self, menu):
+        """Apply a :class:`gato.cost_menu.CostMenu`: it replaces the tracking
+        objective (scalar weights, per-knot weights, posture anchor, EE
+        reference) in the KKT assembly and the merit until ``clear_cost_menu``.
+        Apply again to update targets or weights; the structure may change too.
+        The legacy cost setters raise while a menu is on."""
+        from .cost_menu import CostMenu
+        if not isinstance(menu, CostMenu):
+            raise TypeError(f"set_cost_menu expects a gato.cost_menu.CostMenu, got {type(menu).__name__}")
+        menu.apply(self)
+        self._cost_menu = menu
+
+    def clear_cost_menu(self):
+        """Back to the tracking objective (the menu's device buffers are kept for reuse)."""
+        self.solver.clear_cost_menu()
+        self._cost_menu = None
+
+    def cost_menu_terms(self, xu):
+        """Per-term values of the applied menu along ``xu`` (B, xu_size): an array
+        (B, N, 8) in :data:`gato.cost_menu.TERMS` order, each term evaluated alone
+        (an off term reads 0; the joint-limit barriers are not menu terms). A
+        readout for reporting and tests, never part of the solve."""
+        if self._cost_menu is None:
+            raise ValueError("no cost menu is applied (set_cost_menu first)")
+        xu = np.ascontiguousarray(np.asarray(xu, dtype=np.float32).reshape(self.batch_size, self.xu_size))
+        return np.asarray(self.solver.cost_menu_term_values(xu), dtype=np.float32)
 
     def set_linsys(self, mode):
         """Pick the S·λ = γ path for subsequent solves: "pcg" | "bdsv" | "bdsv_first".
@@ -1184,12 +1224,21 @@ spherizer), so margin is extra safety on top.
         ``weight`` may be a scalar or a length-nq array (per-joint anchor
         stiffness — tune light joints independently; see set_u_cost_vec for the
         matching effort-side knob and the closed-loop rate-limit story).
+
+        On a floating-base plant the first six entries of the array are the
+        base-pose tangent weights (three position, three orientation) and entry
+        six is unused; with ``set_q_nom`` they make a standing or base-pose
+        reference (example 19). Weights are finite and nonnegative.
         """
         w = np.asarray(weight, dtype=np.float32)
+        if np.any(w < 0) or not np.all(np.isfinite(w)):
+            raise ValueError("posture weights must be finite and nonnegative")
         if w.ndim == 0:
             self.solver.set_q_pos_cost_vec(np.empty(0, dtype=np.float32))  # back to scalar
             self.solver.set_q_pos_cost(float(w))
         else:
+            if w.size != self.nq:
+                raise ValueError(f"per-joint posture weights must have nq = {self.nq} entries, got {w.size}")
             self.solver.set_q_pos_cost_vec(np.ascontiguousarray(w.reshape(-1)))
 
     def set_u_cost_vec(self, weights=None):
@@ -1209,11 +1258,18 @@ spherizer), so margin is extra safety on top.
             self.solver.set_u_cost_vec(w)
 
     def set_q_nom(self, q_nom=None):
-        """Posture target for set_q_pos_cost (length-nq array; None resets to zeros)."""
+        """Posture target for set_q_pos_cost (length-nq array; None resets to zeros).
+        On a floating-base plant the first seven entries are the base pose
+        (position, quaternion xyzw) the base weights pull toward; the quaternion
+        must be unit."""
         if q_nom is None:
             self.solver.set_q_nom(np.empty(0, dtype=np.float32))
         else:
             q = np.ascontiguousarray(np.asarray(q_nom, dtype=np.float32).ravel())
+            if q.size != self.nq:
+                raise ValueError(f"q_nom must have nq = {self.nq} entries, got {q.size}")
+            if self.floating_base and abs(np.linalg.norm(q[3:7]) - 1.0) > 1e-4:
+                raise ValueError("q_nom on a floating-base plant carries the base pose: entries 3..6 must be a unit quaternion (xyzw)")
             self.solver.set_q_nom(q)
 
     def set_fc_cost(self, weight):

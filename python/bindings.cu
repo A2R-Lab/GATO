@@ -738,6 +738,39 @@ class PyBSQP {
         void set_q_pos_cost_vec(DenseArray w) { solver_.set_q_pos_cost_vec(optional_ptr(w, grid::NUM_JOINTS, "q_pos_cost_vec")); }
         void set_q_nom(DenseArray q_nom) { solver_.set_q_nom(optional_ptr(q_nom, grid::NUM_JOINTS, "q_nom")); }
 
+        // cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4; gato.cost_menu builds the arrays)
+        void set_cost_menu_field(const std::string& name, DenseArray values, bool per_solve)
+        {
+                py::buffer_info buf = values.request();
+                solver_.set_cost_menu_field(name, static_cast<const T*>(buf.ptr), static_cast<size_t>(buf.size), per_solve);
+        }
+        void clear_cost_menu_field(const std::string& name) { solver_.clear_cost_menu_field(name); }
+        void set_cost_menu_activation(py::array_t<int32_t, py::array::c_style | py::array::forcecast> activation)
+        {
+                py::buffer_info buf = activation.request();
+                solver_.set_cost_menu_activation(static_cast<const int*>(buf.ptr), static_cast<size_t>(buf.size));
+        }
+        void set_cost_menu_on(bool on) { solver_.set_cost_menu_on(on); }
+        bool cost_menu_on() const { return solver_.cost_menu_on(); }
+        void clear_cost_menu() { solver_.clear_cost_menu(); }
+        void set_cost_menu_gravity_target(DenseArray q_ref)
+        {
+                py::buffer_info buf = q_ref.request();
+                solver_.set_cost_menu_gravity_target(static_cast<const T*>(buf.ptr), static_cast<size_t>(buf.size));
+        }
+        // (B, KNOT_POINTS, NUM_TERMS) per-term menu values along xu (uploaded to the solver's trajectory buffer)
+        py::array_t<T> cost_menu_term_values(DenseArray xu_traj_batch)
+        {
+                py::buffer_info xu_buf = xu_traj_batch.request();
+                check_size(xu_buf, (size_t)XU_TRAJ_SIZE * batch_size_, "xu_traj_batch");
+                memcpy(h_xu_staging_, xu_buf.ptr, XU_TRAJ_SIZE * batch_size_ * sizeof(T));
+                gpuErrchk(cudaMemcpy(d_xu_traj_batch_, h_xu_staging_, XU_TRAJ_SIZE * batch_size_ * sizeof(T), cudaMemcpyHostToDevice));
+                const py::ssize_t B = static_cast<py::ssize_t>(batch_size_);
+                py::array_t<T> out({B, (py::ssize_t)KNOT_POINTS, (py::ssize_t)gato::menu::NUM_TERMS});
+                solver_.cost_menu_term_values(d_xu_traj_batch_, static_cast<T*>(out.request().ptr));
+                return out;
+        }
+
         void set_cost_weights_per_knot(DenseArray knot_weights)
         {
                 py::buffer_info buf = knot_weights.request();
@@ -883,6 +916,14 @@ class PyBSQP {
             .def("set_u_cost_vec", &PyBSQP<Type>::set_u_cost_vec)                                                                                                                                 \
             .def("set_q_pos_cost_vec", &PyBSQP<Type>::set_q_pos_cost_vec)                                                                                                                          \
             .def("set_q_nom", &PyBSQP<Type>::set_q_nom)                                                                                                                                                \
+            .def("set_cost_menu_field", &PyBSQP<Type>::set_cost_menu_field, py::arg("name"), py::arg("values"), py::arg("per_solve"))                                                             \
+            .def("clear_cost_menu_field", &PyBSQP<Type>::clear_cost_menu_field, py::arg("name"))                                                                                                  \
+            .def("set_cost_menu_activation", &PyBSQP<Type>::set_cost_menu_activation, py::arg("activation"))                                                                                      \
+            .def("set_cost_menu_on", &PyBSQP<Type>::set_cost_menu_on, py::arg("on"))                                                                                                              \
+            .def("cost_menu_on", &PyBSQP<Type>::cost_menu_on)                                                                                                                                     \
+            .def("clear_cost_menu", &PyBSQP<Type>::clear_cost_menu)                                                                                                                               \
+            .def("set_cost_menu_gravity_target", &PyBSQP<Type>::set_cost_menu_gravity_target, py::arg("q_ref"))                                                                                   \
+            .def("cost_menu_term_values", &PyBSQP<Type>::cost_menu_term_values, py::arg("xu_traj_batch"))                                                                                         \
             .def("set_cost_weights_per_knot", &PyBSQP<Type>::set_cost_weights_per_knot)                                                                                                                \
             .def("clear_cost_weights_per_knot", &PyBSQP<Type>::clear_cost_weights_per_knot)                                                                                                            \
             .def("enable_limit_telemetry", &PyBSQP<Type>::enable_limit_telemetry)                                                                                                                      \
@@ -933,6 +974,20 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("NQ") = gato::constants::NQ;
         m.attr("NV") = gato::constants::NV;
         m.attr("FLOATING_BASE") = gato::constants::FLOATING_BASE;
+        // cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4): fixed-base plants, not the fc variant
+        m.attr("COST_MENU_AVAILABLE") = bool(GATO_MENU_AVAILABLE);
+#if GATO_MENU_AVAILABLE
+        m.attr("NUM_COST_FRAMES") = int(grid_plant::GRID_PLANT_NUM_COST_FRAMES);   // frame 0 = the end-effector target
+#else
+        m.attr("NUM_COST_FRAMES") = 0;
+#endif
+        {
+                py::dict fields;   // per-knot element count of each menu field (gato.cost_menu shapes its uploads from this)
+                for (int f = 0; f < gato::menu::NUM_FIELDS; ++f) {
+                        fields[gato::menu::FIELD_NAMES[f]] = int(gato::menu::field_size(f, gato::constants::STATE_SIZE, gato::constants::ACTUATED_SIZE));
+                }
+                m.attr("COST_MENU_FIELDS") = fields;
+        }
         // flat per-batch-row sizes the device path validates against
         m.attr("XU_TRAJ_SIZE") = XU_TRAJ_SIZE;
         m.attr("REFERENCE_TRAJ_SIZE") = REFERENCE_TRAJ_SIZE;
