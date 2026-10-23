@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.1.4 — unreleased: the cost menu, GPUs with few SMs, joint damping, topology helpers
+## 0.1.4 — 2026-10-23: the cost menu, GPUs with few SMs, joint damping, topology helpers
 
 0.1.3 was prepared on October 21 and never published; its items ship here.
 
