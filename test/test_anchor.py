@@ -199,3 +199,53 @@ def test_floating_effort_vector_uses_actuator_width(variant):
     R_reset, r_reset = kkt()
     np.testing.assert_array_equal(R_reset, R0)
     np.testing.assert_array_equal(r_reset, r0)
+
+
+def test_floating_base_pose_weights_pull_toward_q_nom():
+    """Go2: the first six posture weights are the base tangent weights (position,
+    orientation) and the first seven q_nom entries the base pose they pull toward.
+    With them off the blocks are the former ones; with them on, against a base
+    lowered by 3 cm the base block of the KKT gains RBDReference's tangent
+    state-cost gradient and Gauss-Newton Hessian (the SE(3) chart couples the
+    translation and rotation rows), and the joint blocks are untouched."""
+    from conftest import go2_solver, go2_standing_x, go2_goals_at, go2_standing_q, GO2_URDF
+    from gato.common import initialize_warm_start
+    from URDFParser import URDFParser
+    from RBDReference import RBDReference
+
+    s = go2_solver(1)
+    x = go2_standing_x().astype(np.float32)
+    ref = go2_goals_at(s.model, x, 1)
+    q_nom = go2_standing_q()
+    x_low = go2_standing_x(pz=q_nom[2] - 0.03).astype(np.float32)
+    xu = initialize_warm_start(x_low, s.N, s.nx, s.nu).astype(np.float32)
+    ns = 2 * s.nv   # the KKT state is the tangent (STATE_SIZE), not the stored nx
+
+    def kkt():
+        d = s.debug_setup_kkt(xu[None], x_low[None], ref)
+        return (np.asarray(d['Q']).reshape(s.N, ns, ns), np.asarray(d['q']).reshape(s.N, ns))
+
+    Q0, q0 = kkt()
+    s.set_q_nom(q_nom)                      # zero base weights: the base pose in q_nom changes nothing
+    Qn, qn = kkt()
+    np.testing.assert_array_equal(Qn, Q0)
+    np.testing.assert_array_equal(qn, q0)
+    w = np.array([10.0, 20.0, 30.0, 1.0, 2.0, 3.0], dtype=np.float32)
+    s.set_q_pos_cost(np.concatenate([w, [0.0], np.zeros(s.nq - 7, np.float32)]))
+    Qw, qw = kkt()
+    rbd = RBDReference(URDFParser().parse(str(GO2_URDF), floating_base=True))
+    Qt = np.zeros(ns); Qt[:6] = w
+    _, g_ref, H_ref = rbd.quadratic_state_cost_tangent(x_low.astype(np.float64), np.concatenate([q_nom, np.zeros(s.nv)]), Qt)
+    for k in range(s.N):
+        dQ = Qw[k] - Q0[k]
+        dq = qw[k] - q0[k]
+        np.testing.assert_allclose(dQ[:6, :6], H_ref[:6, :6], rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(dq[:6], g_ref[:6], rtol=1e-4, atol=1e-5)
+        np.testing.assert_array_equal(dQ[6:, 6:], 0.0)
+        np.testing.assert_array_equal(dq[6:], 0.0)
+    with pytest.raises(ValueError, match="unit quaternion"):
+        s.set_q_nom(np.zeros(s.nq))
+    s.set_q_pos_cost(0.0)
+    Qr, qr = kkt()
+    np.testing.assert_array_equal(Qr, Q0)
+    np.testing.assert_array_equal(qr, q0)
