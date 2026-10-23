@@ -187,7 +187,7 @@ __device__ void build_contact_fext_floating(T* s_fext, const T* s_fc, const T* s
         grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         __syncthreads();
         grid::f_ext_body_inner<T>(s_fext, s_fc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
-                                  /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                  /*d_workspace*/nullptr);
         __syncthreads();
         if (d_f_ext_band != nullptr) {
                 for (int i = (int)threadIdx.x; i < fc_floating::FEXT; i += (int)blockDim.x) {
@@ -275,7 +275,7 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
         grid::f_ext_gradient_jacobianT_inner<T>(s_dtau_dfext, s_xux, a.s_XImats, a.s_topology_helpers, s_fc_temp);
         __syncthreads();
         grid::f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_xux, s_XmatsHom, a.s_topology_helpers, s_fc_temp,
-                                               /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                               /*d_workspace*/nullptr);
         __syncthreads();
         for (int ind = (int)threadIdx.x; ind < NVi * FC; ind += (int)blockDim.x) {   // G = dtau_dfext · dfext_dfc
                 const int k = ind % NVi, c = ind / NVi;
@@ -286,7 +286,7 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
         __syncthreads();
         // dfext/dq at fixed fc (linear in fc: identically 0 at fc = 0)
         grid::f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_fc, s_dtau_dfext, s_xux, s_XmatsHom, a.s_topology_helpers,
-                                              s_fc_temp, /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                              s_fc_temp, /*d_workspace*/nullptr);
         __syncthreads();
         for (int ind = (int)threadIdx.x; ind < NVi * NVi; ind += (int)blockDim.x) {  // dtau_dq_corr = dtau_dfext · dfext_dq
                 const int k = ind % NVi, j = ind / NVi;

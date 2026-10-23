@@ -43,7 +43,7 @@
  *       __global__ forward_dynamics_gradient_kernel<T>(T *d_df_du, const T *d_q_qd, const T *d_qdd, const T *d_Minv, const robotModel<T> *d_robotModel, const T gravity, const int NUM_TIMESTEPS)
  *       __host__   forward_dynamics_gradient<T,USE_QDD_MINV_FLAG=false>(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const T gravity, const int num_timesteps, const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams)
  *   
- *       __device__ end_effector_pose_inner<T,TEMP_IN_SMEM=true>(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem)
+ *       __device__ end_effector_pose_inner<T,TEMP_IN_SMEM=true>(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace)
  *       __device__ end_effector_pose_device<T>(T *s_end_effector_pose, const T *s_q, const robotModel<T> *d_robotModel)
  *       __global__ end_effector_pose_kernel<T>(T *d_end_effector_pose, const T *d_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS)
  *       __host__   end_effector_pose<T,USE_COMPRESSED_MEM=false>(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps, const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams)
@@ -352,7 +352,6 @@ namespace grid {
     }
 
     
-    template <typename T> __host__ __device__ constexpr size_t GRID_LINALG_NVIDIA_MAX_HELPER_BYTES();
     const int NUM_JOINTS = 6;
     const int NUM_POS = 6;
     const int NUM_VEL = 6;
@@ -521,57 +520,56 @@ namespace grid {
     #define GRID_GENERATED_NUM_JOINTS 6
     #define GRID_GENERATED_NUM_EES 1
     
-    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(594, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(954, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(594, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool INVERSE_DYNAMICS_REGRESSOR_Y_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T> __host__ __device__ constexpr size_t KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(648, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(1512, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t KINETIC_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(648, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CORIOLIS_MATRIX_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1920, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(1512, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool FD_PARAMETER_GRADIENT_Y_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(906, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1452, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(906, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DQDD_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DTAU_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_GRADIENT_DQ_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool F_EXT_GRADIENT_DQ_SLAB_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MINV_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(804, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(822, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(564, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(888, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MINV_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1020, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(804, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1038, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(822, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1962, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2004, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(564, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1104, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(888, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_MINV_F_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(864, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(2844, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(864, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_DU_D_QDD_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool INTEGRATOR_DU_DAB_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr int INTEGRATOR_DU_INNER_LEVEL() { return (TIER == TIER_SHARED) ? 0 : (TIER == TIER_LITE) ? 0 : 2; }
     template <typename T> __host__ __device__ constexpr size_t GRID_INTEGRATOR_GRADIENT_DAB_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(432); }
     template <typename T> __host__ __device__ constexpr size_t GRID_INTEGRATOR_GRADIENT_INNER_OFFSET_BYTES() { return sizeof(T) * static_cast<size_t>(648); }
-    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(576, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T> __host__ __device__ constexpr size_t MINV_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(978, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(576, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T> __host__ __device__ constexpr size_t MINV_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(978, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
-            ? grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>())
-            : grid_shared_arena_bytes<T>(432, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            ? grid_shared_arena_bytes<T>(1014, TOPOLOGY_HELPERS_COUNT)
+            : grid_shared_arena_bytes<T>(432, TOPOLOGY_HELPERS_COUNT);
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(582); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ABA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(528, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T> __host__ __device__ constexpr size_t GRID_EE_LINALG_SHARED_BYTES() { return static_cast<size_t>(0); }
-    template <typename T> __host__ __device__ constexpr size_t POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(354, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(236, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(466, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(466, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(198, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(742, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(742, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(526, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t COM_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(862, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(862, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(646, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(889, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(889, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(673, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ENERGY_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(850, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(850, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(634, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ABA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1368, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(528, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(732, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(444, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T> __host__ __device__ constexpr size_t POTENTIAL_ENERGY_REGRESSOR_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(354, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(236, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(466, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(466, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(198, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(742, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(742, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(526, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(600, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t COM_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(862, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(862, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(646, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(889, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(889, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(673, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t ENERGY_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(850, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(850, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(634, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool COM_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool CCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool ENERGY_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(919, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(919, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(703, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t CMM_TIME_VARIATION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(919, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(919, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(703, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool CMM_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1093, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1093, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(661, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1093, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1093, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(661, TOPOLOGY_HELPERS_COUNT); }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_OUTPUT_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(4128, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(4128, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(450, TOPOLOGY_HELPERS_COUNT); }
@@ -625,20 +623,20 @@ namespace grid {
     // Per-tier sizes for forward_dynamics_gradient_device (inline-CUDA users only). At TIER_SHARED the temp scratch arena lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing roughly 1332*sizeof(T) bytes of smem.
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
-            ? grid_shared_arena_bytes<T>(1986, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>())
-            : grid_shared_arena_bytes<T>(654, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            ? grid_shared_arena_bytes<T>(1986, TOPOLOGY_HELPERS_COUNT)
+            : grid_shared_arena_bytes<T>(654, TOPOLOGY_HELPERS_COUNT);
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(1332); }
     // Per-tier sizes for end_effector_pose_hessian_device (inline-CUDA users only). At TIER_SHARED the smem arena keeps only the FD scratch + s_Xhom; at TIER_LITE/MINIMAL the device contract is unchanged (smem arena is the same -- the caller-provided s_end_effector_pose_hessian is what shifts), and the inner writes its 216*sizeof(T) output bytes to d_workspace instead.
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES() {
-        return grid_shared_arena_bytes<T>(484, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>());
+        return grid_shared_arena_bytes<T>(484, TOPOLOGY_HELPERS_COUNT);
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(216); }
     // Per-tier sizes for inverse_dynamics_gradient_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 1332*sizeof(T) bytes of smem.
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
-            ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>())
-            : grid_shared_arena_bytes<T>(540, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+            ? grid_shared_arena_bytes<T>(1872, TOPOLOGY_HELPERS_COUNT)
+            : grid_shared_arena_bytes<T>(540, TOPOLOGY_HELPERS_COUNT);
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(1332); }
     // Per-tier sizes for idsva_so_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 2814*sizeof(T) bytes of smem. Frame picked at codegen time: body_frame.
@@ -9604,19 +9602,10 @@ namespace grid {
      * Linear algebra wrappers (SIMT GLASS)
      *
      */
-    // SIMT-only linalg. The `glass_nvidia_smem` parameter on each wrapper is
-    // retained for caller compatibility and is always ignored; the stub
-    // `GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()` below returns 0 so
-    // shared-memory arena calculations continue to compile unchanged.
-    
-    template <typename T>
-    __host__ __device__ constexpr size_t GRID_LINALG_NVIDIA_MAX_HELPER_BYTES() {
-        return static_cast<size_t>(0);
-    }
+    // SIMT-only linalg over the vendored GLASS.
     
     template <typename T, int M, int N, int K, bool TRANSPOSE_B = false, bool ROW_MAJOR_A = false, bool ROW_MAJOR_B = false, bool ROW_MAJOR_C = false>
-    __device__ void grid_linalg_gemm(const T *A, const T *B, T *C, T alpha, T beta, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_gemm(const T *A, const T *B, T *C, T alpha, T beta) {
         T *A_mut = const_cast<T *>(A);
         T *B_mut = const_cast<T *>(B);
         // GLASS v2 gemm: contraction is the LAST template dim, so the old (M,N,K)
@@ -9628,8 +9617,7 @@ namespace grid {
     }
     
     template <typename T, int M, int N, bool TRANSPOSE = false, bool ROW_MAJOR_A = false>
-    __device__ void grid_linalg_gemv(const T *A, const T *x, T *y, T alpha, T beta, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_gemv(const T *A, const T *x, T *y, T alpha, T beta) {
         T *A_mut = const_cast<T *>(A);
         T *x_mut = const_cast<T *>(x);
         // GLASS v2: gemv keeps its per-operand ROW_MAJOR flag (TRANSPOSE selects the math
@@ -9639,15 +9627,13 @@ namespace grid {
     }
     
     template <typename T, int M, int N, int ROW_STRIDE>
-    __device__ void grid_linalg_row_strided_gemv(const T *A, const T *x, T *y, T alpha, T beta, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_row_strided_gemv(const T *A, const T *x, T *y, T alpha, T beta) {
         glass::gemv_strided<T, M, N, ROW_STRIDE>(alpha, A, x, beta, y);
         __syncthreads();
     }
     
     template <typename T, int M, int N, int K, int A_RS, int B_RS>
-    __device__ void grid_linalg_row_strided_gemm(const T *A, const T *B, T *C, T alpha, T beta, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_row_strided_gemm(const T *A, const T *B, T *C, T alpha, T beta) {
         glass::gemm_strided<T, M, K, N, A_RS, B_RS>(alpha, A, B, beta, C);
         __syncthreads();
     }
@@ -9661,8 +9647,7 @@ namespace grid {
     // block-cooperative pass, base offsets per segment via the descriptor arrays. With
     // FUSE_SCALED_ADD, folds a per-segment y += S*scalar add into the single y store.
     template <typename T, int M, int N, int ROW_STRIDE = M, bool FUSE_SCALED_ADD = false>
-    __device__ void grid_linalg_segmented_row_strided_gemv(unsigned int segments, const int *seg_a_off, const int *seg_x_off, const int *seg_y_off, const T *A, const T *x, T *y, T alpha, T beta, const int *seg_s_off = nullptr, const T *S = nullptr, const T *scalar = nullptr, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_segmented_row_strided_gemv(unsigned int segments, const int *seg_a_off, const int *seg_x_off, const int *seg_y_off, const T *A, const T *x, T *y, T alpha, T beta, const int *seg_s_off = nullptr, const T *S = nullptr, const T *scalar = nullptr) {
         glass::gemv_segmented<T, M, N, ROW_STRIDE, FUSE_SCALED_ADD>(segments, seg_a_off, seg_x_off, seg_y_off, A, x, y, alpha, beta, seg_s_off, S, scalar);
         __syncthreads();
     }
@@ -9670,8 +9655,7 @@ namespace grid {
     // Indexed batched DIMxDIM (col-major) GEMM: C[c_idx[p]] = A[a_idx[p]] * B[b_idx[p]]
     // over a flat in-chain index list (e.g. compacted (ancestor,ee) pairs).
     template <typename T, int DIM = 4>
-    __device__ void grid_linalg_indexed_batched_gemm(unsigned int pairs, const int *a_idx, const int *b_idx, const int *c_idx, const T *A_base, const T *B_base, T *C_base, unsigned char *glass_nvidia_smem = nullptr) {
-        (void)glass_nvidia_smem;
+    __device__ void grid_linalg_indexed_batched_gemm(unsigned int pairs, const int *a_idx, const int *b_idx, const int *c_idx, const T *A_base, const T *B_base, T *C_base) {
         glass::gemm_batched_indexed<T, DIM>(pairs, a_idx, b_idx, c_idx, A_base, B_base, C_base);
         __syncthreads();
     }
@@ -12501,13 +12485,12 @@ namespace grid {
      * @param s_q is the vector of joint positions
      * @param s_Xhom is the pointer to the homogenous transformation matricies 
      * @param s_temp is a pointer to helper shared memory of size 32
-     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused by this inner)
+     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void end_effector_pose_inner(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void end_effector_pose_inner(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
         //
         // For each branch in parallel chain up the transform
@@ -12585,7 +12568,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -12595,18 +12577,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -12627,7 +12603,6 @@ namespace grid {
         //   T s_end_effector_pose[6]
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -12643,14 +12618,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0));
         #endif
         (void)s_arena_offset;
         // load to shared mem
@@ -12680,7 +12649,7 @@ namespace grid {
             }
             __syncthreads();
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose)[rep & 7]; }
         }
@@ -12709,7 +12678,6 @@ namespace grid {
         //   T s_end_effector_pose[6]
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -12725,14 +12693,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0));
         #endif
         (void)s_arena_offset;
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -12744,7 +12706,7 @@ namespace grid {
             __syncthreads();
             // compute
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             // save down to global
             T *d_end_effector_pose_k = &d_end_effector_pose[k*6];
@@ -12850,15 +12812,14 @@ namespace grid {
      * @param s_Xhom is the pointer to the LOCAL homogeneous transformation matrices (per-joint Xhom_local)
      * @param s_dXhom is the pointer to the LOCAL d-transforms (unused by the geometric-Jacobian path; kept for signature compatibility)
      * @param s_temp is a pointer to helper shared memory of size 232
-     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused)
+     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void end_effector_pose_gradient_inner(T *s_end_effector_pose_gradient, const T *s_q, const T *s_Xhom, const T *s_dXhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void end_effector_pose_gradient_inner(T *s_end_effector_pose_gradient, const T *s_q, const T *s_Xhom, const T *s_dXhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_dXhom; (void)s_linalg_smem;
+        (void)s_q; (void)s_dXhom;
         // scratch layout: Xworld | Jv (3 x nv x ee) | Jw (3 x nv x ee) | E_sincos (4 x ee)
         T *s_Xworld = &s_temp[0];
         T *s_Jv     = &s_temp[192];
@@ -13045,7 +13006,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[232]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13055,18 +13015,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(232);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -13089,7 +13043,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13105,14 +13058,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -13143,7 +13090,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -13159,7 +13106,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13175,14 +13121,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -13213,7 +13153,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -13227,7 +13167,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_q[6]
             //   T s_XmatsHom[192]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13238,14 +13177,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(192);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -13278,7 +13211,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -13305,7 +13238,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13321,14 +13253,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -13341,7 +13267,7 @@ namespace grid {
                 __syncthreads();
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -13357,7 +13283,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13373,14 +13298,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -13393,7 +13312,7 @@ namespace grid {
                 __syncthreads();
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -13407,7 +13326,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_q[6]
             //   T s_XmatsHom[192]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -13418,14 +13336,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(192);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -13440,7 +13352,7 @@ namespace grid {
                 s_temp = s_eegrad_temp;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
+                end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp);
                 __syncthreads();
             }
         }
@@ -13554,15 +13466,14 @@ namespace grid {
      * @param s_Xhom is the per-joint LOCAL homogeneous-transform buffer (read-only)
      * @param s_temp is helper shared memory of size 292 (s_Xworld | s_Sworld | s_E_sc; always kept in smem)
      * @param d_workspace is the global spill arena s_end_effector_pose_hessian is repointed at when !OUT_IN_SMEM (else unused)
-     * @param d_robotModel is the model-specific helper struct (kept for signature compatibility, unused by the analytic path)
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused by this inner)
+     * @param d_robotModel is the model-specific helper struct (kept for signature compatibility, unused by the analytic path)
      */
     template <typename T, bool OUT_IN_SMEM = true>
     __device__
-    void end_effector_pose_hessian_inner(T *s_end_effector_pose_hessian, T *s_end_effector_pose_gradient, const T *s_q, T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, const robotModel<T> *d_robotModel, unsigned char *s_linalg_smem) {
+    void end_effector_pose_hessian_inner(T *s_end_effector_pose_hessian, T *s_end_effector_pose_gradient, const T *s_q, T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, const robotModel<T> *d_robotModel) {
         if constexpr (!OUT_IN_SMEM) { s_end_effector_pose_hessian = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)d_robotModel; (void)s_linalg_smem;
+        (void)s_q; (void)d_robotModel;
         // scratch in s_temp: s_Xworld (16*n_joints) | s_Sworld (16*nv*num_ees) | s_E_sc (4*num_ees)
         T *s_Xworld = &s_temp[0];
         T *s_Sworld = &s_temp[192];  // per-DOF world-frame 4x4 generator (S_i_world)
@@ -14151,7 +14062,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[292]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14161,18 +14071,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(292);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_hessian_inner<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel, s_linalg_smem);
+        end_effector_pose_hessian_inner<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel);
     }
 
     /**
@@ -14200,7 +14104,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14219,14 +14122,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -14257,7 +14154,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -14278,7 +14175,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14297,14 +14193,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -14335,7 +14225,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -14354,7 +14244,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14367,14 +14256,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -14407,7 +14290,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -14444,7 +14327,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14463,14 +14345,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -14483,7 +14359,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_hessian_k = &d_end_effector_pose_hessian[k*216];
@@ -14505,7 +14381,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14524,14 +14399,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -14544,7 +14413,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_hessian_k = &d_end_effector_pose_hessian[k*216];
@@ -14564,7 +14433,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14577,14 +14445,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -14600,7 +14462,7 @@ namespace grid {
                 T *s_end_effector_pose_hessian_ws = &d_end_effector_pose_hessian[k*216];
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -14717,13 +14579,12 @@ namespace grid {
      * @param s_q is the vector of joint positions
      * @param s_Xhom is the pointer to the homogenous transformation matricies 
      * @param s_temp is a pointer to helper shared memory of size 32
-     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused by this inner)
+     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void end_effector_pose_inner_tool0_joint(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void end_effector_pose_inner_tool0_joint(T *s_end_effector_pose, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
         //
         // For each branch in parallel chain up the transform
@@ -14808,7 +14669,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14818,18 +14678,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -14850,7 +14704,6 @@ namespace grid {
         //   T s_end_effector_pose[6]
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14866,14 +14719,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0));
         #endif
         (void)s_arena_offset;
         // load to shared mem
@@ -14903,7 +14750,7 @@ namespace grid {
             }
             __syncthreads();
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose)[rep & 7]; }
         }
@@ -14932,7 +14779,6 @@ namespace grid {
         //   T s_end_effector_pose[6]
         //   T s_XmatsHom[192]
         //   T s_temp[32]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -14948,14 +14794,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(32);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(236, 0));
         #endif
         (void)s_arena_offset;
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -14967,7 +14807,7 @@ namespace grid {
             __syncthreads();
             // compute
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             // save down to global
             T *d_end_effector_pose_k = &d_end_effector_pose[k*6];
@@ -15073,15 +14913,14 @@ namespace grid {
      * @param s_Xhom is the pointer to the LOCAL homogeneous transformation matrices (per-joint Xhom_local)
      * @param s_dXhom is the pointer to the LOCAL d-transforms (unused by the geometric-Jacobian path; kept for signature compatibility)
      * @param s_temp is a pointer to helper shared memory of size 232
-     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused)
+     * @param d_workspace is the global-memory chain workspace used in place of s_temp when !TEMP_IN_SMEM
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void end_effector_pose_gradient_inner_tool0_joint(T *s_end_effector_pose_gradient, const T *s_q, const T *s_Xhom, const T *s_dXhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void end_effector_pose_gradient_inner_tool0_joint(T *s_end_effector_pose_gradient, const T *s_q, const T *s_Xhom, const T *s_dXhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_dXhom; (void)s_linalg_smem;
+        (void)s_q; (void)s_dXhom;
         // scratch layout: Xworld | Jv (3 x nv x ee) | Jw (3 x nv x ee) | E_sincos (4 x ee)
         T *s_Xworld = &s_temp[0];
         T *s_Jv     = &s_temp[192];
@@ -15280,7 +15119,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[232]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15290,18 +15128,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(232);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -15324,7 +15156,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15340,14 +15171,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -15378,7 +15203,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -15394,7 +15219,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15410,14 +15234,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -15448,7 +15266,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -15462,7 +15280,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_q[6]
             //   T s_XmatsHom[192]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15473,14 +15290,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(192);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -15513,7 +15324,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
             }
@@ -15540,7 +15351,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15556,14 +15366,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -15576,7 +15380,7 @@ namespace grid {
                 __syncthreads();
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -15592,7 +15396,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15608,14 +15411,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(466, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -15628,7 +15425,7 @@ namespace grid {
                 __syncthreads();
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -15642,7 +15439,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_q[6]
             //   T s_XmatsHom[192]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -15653,14 +15449,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(192);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(198, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -15675,7 +15465,7 @@ namespace grid {
                 s_temp = s_eegrad_temp;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp);
                 __syncthreads();
             }
         }
@@ -15789,15 +15579,14 @@ namespace grid {
      * @param s_Xhom is the per-joint LOCAL homogeneous-transform buffer (read-only)
      * @param s_temp is helper shared memory of size 292 (s_Xworld | s_Sworld | s_E_sc; always kept in smem)
      * @param d_workspace is the global spill arena s_end_effector_pose_hessian is repointed at when !OUT_IN_SMEM (else unused)
-     * @param d_robotModel is the model-specific helper struct (kept for signature compatibility, unused by the analytic path)
      * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
-     * @param s_linalg_smem is optional byte-addressed shared memory (reserved; unused by this inner)
+     * @param d_robotModel is the model-specific helper struct (kept for signature compatibility, unused by the analytic path)
      */
     template <typename T, bool OUT_IN_SMEM = true>
     __device__
-    void end_effector_pose_hessian_inner_tool0_joint(T *s_end_effector_pose_hessian, T *s_end_effector_pose_gradient, const T *s_q, T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, const robotModel<T> *d_robotModel, unsigned char *s_linalg_smem) {
+    void end_effector_pose_hessian_inner_tool0_joint(T *s_end_effector_pose_hessian, T *s_end_effector_pose_gradient, const T *s_q, T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, const robotModel<T> *d_robotModel) {
         if constexpr (!OUT_IN_SMEM) { s_end_effector_pose_hessian = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)d_robotModel; (void)s_linalg_smem;
+        (void)s_q; (void)d_robotModel;
         // scratch in s_temp: s_Xworld (16*n_joints) | s_Sworld (16*nv*num_ees) | s_E_sc (4*num_ees)
         T *s_Xworld = &s_temp[0];
         T *s_Sworld = &s_temp[192];  // per-DOF world-frame 4x4 generator (S_i_world)
@@ -16398,7 +16187,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[292]
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16408,18 +16196,12 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(292);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0));
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        end_effector_pose_hessian_inner_tool0_joint<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel, s_linalg_smem);
+        end_effector_pose_hessian_inner_tool0_joint<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel);
     }
 
     /**
@@ -16447,7 +16229,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16466,14 +16247,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -16504,7 +16279,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -16525,7 +16300,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16544,14 +16318,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -16582,7 +16350,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -16601,7 +16369,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16614,14 +16381,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -16654,7 +16415,7 @@ namespace grid {
                 }
                 __syncthreads();
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
             }
@@ -16691,7 +16452,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16710,14 +16470,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -16730,7 +16484,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_hessian_k = &d_end_effector_pose_hessian[k*216];
@@ -16752,7 +16506,6 @@ namespace grid {
             //   T s_end_effector_pose_gradient[36]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16771,14 +16524,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(742, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -16791,7 +16538,7 @@ namespace grid {
                 (void)d_workspace;
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_hessian_k = &d_end_effector_pose_hessian[k*216];
@@ -16811,7 +16558,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XmatsHom[192]
             //   T s_temp[292]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -16824,14 +16570,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(292);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(490, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -16847,7 +16587,7 @@ namespace grid {
                 T *s_end_effector_pose_hessian_ws = &d_end_effector_pose_hessian[k*216];
                 // compute
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_hessian_inner_tool0_joint<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel);
                 __syncthreads();
                 // save down to global
                 T *d_end_effector_pose_gradient_k = &d_end_effector_pose_gradient[k*36];
@@ -17370,7 +17110,7 @@ namespace grid {
     // grid_rbd contact_fext launcher sizes on THIS constant — never on another algorithm's
     // (it used max(F_EXT_GRADIENT, EE_POSE)+4096, borrowed from families a dynamics-only subset
     // does not even build; a family launcher must size on its own arena constant).
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_CONTACT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t F_EXT_CONTACT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT); }
     /**
      * Contact-frame wrenches -> joint-local f_ext
      *
@@ -17389,9 +17129,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void f_ext_body_inner(T *s_f_ext, const T *s_f_c, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void f_ext_body_inner(T *s_f_ext, const T *s_f_c, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         T *s_Xworld = s_temp;   // 16 * 6
         //
         // Build world transforms for every joint via BFS-level chain-up
@@ -17541,9 +17281,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void f_ext_body_jacobian_dfc_inner(T *s_dfext_dfc, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void f_ext_body_jacobian_dfc_inner(T *s_dfext_dfc, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         T *s_Xworld = s_temp;   // 16 * 6
         //
         // Build world transforms for every joint via BFS-level chain-up
@@ -17692,9 +17432,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void f_ext_body_jacobian_dq_inner(T *s_dfext_dq, const T *s_f_c, const T *s_dtau_dfext, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void f_ext_body_jacobian_dq_inner(T *s_dfext_dq, const T *s_f_c, const T *s_dtau_dfext, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         T *s_Xworld = s_temp;   // 16 * 6
         //
         // Build world transforms for every joint via BFS-level chain-up
@@ -17850,7 +17590,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[192] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -17867,23 +17606,17 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        f_ext_body_inner<T>(s_f_ext, s_f_c, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        f_ext_body_inner<T>(s_f_ext, s_f_c, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -17900,7 +17633,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[192] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -17917,23 +17649,17 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -17952,7 +17678,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[192] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -17969,23 +17694,17 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_f_c, s_dtau_dfext, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_f_c, s_dtau_dfext, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     
@@ -17993,7 +17712,7 @@ namespace grid {
     //      (the points f_ext_body takes the wrench about) as a suffixed multi-target batch; registration order.
     // batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS_CONTACT_FRAMES = 1
     const int NUM_MULTI_TARGETS_CONTACT_FRAMES = 1;
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(192); }
     /**
      * Batched multi-target world positions
@@ -18011,9 +17730,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void multi_target_position_contact_frames_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void multi_target_position_contact_frames_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         T *s_Xworld = s_temp;   // 16 * 6
         //
         // Build world transforms for every joint via BFS-level chain-up
@@ -18142,7 +17861,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[192] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -18159,27 +17877,21 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        multi_target_position_contact_frames_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        multi_target_position_contact_frames_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     // batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(423, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(423, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_CONTACT_FRAMES_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(231); }
     /**
      * Batched multi-target world-position gradient
@@ -18197,9 +17909,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void multi_target_position_gradient_contact_frames_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void multi_target_position_gradient_contact_frames_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         // scratch layout: Xworld | Jv (3 x nv x anchor) | Jw (3 x nv x anchor) | ro (3 x target)
         T *s_Xworld = &s_temp[0];
         T *s_Jv     = &s_temp[192];
@@ -18383,7 +18095,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[231] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -18400,23 +18111,17 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(423, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(423, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        multi_target_position_gradient_contact_frames_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        multi_target_position_gradient_contact_frames_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     // Asked-for names: thin aliases over the suffixed multi-target family. positions = 3*NUM_CONTACT_FRAMES;
@@ -18439,7 +18144,7 @@ namespace grid {
     }
     // batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS = 17
     const int NUM_MULTI_TARGETS = 17;
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(384, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(192); }
     /**
      * Batched multi-target world positions
@@ -18457,9 +18162,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void multi_target_position_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void multi_target_position_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         T *s_Xworld = s_temp;   // 16 * 6
         //
         // Build world transforms for every joint via BFS-level chain-up
@@ -18588,7 +18293,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[192] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -18605,27 +18309,21 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        multi_target_position_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        multi_target_position_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     // batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(651, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(651, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(192, TOPOLOGY_HELPERS_COUNT); }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(459); }
     /**
      * Batched multi-target world-position gradient
@@ -18643,9 +18341,9 @@ namespace grid {
      */
     template <typename T, bool TEMP_IN_SMEM = true>
     __device__
-    void multi_target_position_gradient_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+    void multi_target_position_gradient_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace) {
         if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
-        (void)s_q; (void)s_linalg_smem;
+        (void)s_q;
         // scratch layout: Xworld | Jv (3 x nv x anchor) | Jw (3 x nv x anchor) | ro (3 x target)
         T *s_Xworld = &s_temp[0];
         T *s_Jv     = &s_temp[192];
@@ -18829,7 +18527,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XmatsHom[192]
         //   T s_temp[459] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -18846,23 +18543,17 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(651, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(651, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(192, 0));
         }
         #endif
         (void)s_arena_offset;
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-        multi_target_position_gradient_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+        multi_target_position_gradient_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
     }
 
     /**
@@ -18886,7 +18577,6 @@ namespace grid {
     template <typename T>
     __device__
     void inverse_dynamics_inner(T *s_c,  T *s_vaf, const T *s_q, const T *s_qd, const T *s_qdd, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_f_ext, const T gravity) {
-        unsigned char *s_linalg_smem = nullptr;
         //
         // Forward Pass
         //
@@ -18914,14 +18604,14 @@ namespace grid {
             s_temp[0] = s_qd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         static const int seg_a_x_off_lvl1[1] = {36};
         static const int seg_a_y_off_lvl1[1] = {42};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -18941,14 +18631,14 @@ namespace grid {
             s_temp[0] = s_qd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         static const int seg_a_x_off_lvl2[1] = {42};
         static const int seg_a_y_off_lvl2[1] = {48};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -18968,14 +18658,14 @@ namespace grid {
             s_temp[0] = s_qd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         static const int seg_a_x_off_lvl3[1] = {48};
         static const int seg_a_y_off_lvl3[1] = {54};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -18995,14 +18685,14 @@ namespace grid {
             s_temp[0] = s_qd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         static const int seg_a_x_off_lvl4[1] = {54};
         static const int seg_a_y_off_lvl4[1] = {60};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19022,14 +18712,14 @@ namespace grid {
             s_temp[0] = s_qd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         static const int seg_a_x_off_lvl5[1] = {60};
         static const int seg_a_y_off_lvl5[1] = {66};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19116,7 +18806,6 @@ namespace grid {
     template <typename T>
     __device__
     void inverse_dynamics_inner(T *s_c,  T *s_vaf, const T *s_q, const T *s_qd, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_f_ext, const T gravity) {
-        unsigned char *s_linalg_smem = nullptr;
         //
         // Forward Pass
         //
@@ -19144,7 +18833,7 @@ namespace grid {
             s_temp[0] = s_qd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         static const int seg_a_x_off_lvl1[1] = {36};
         static const int seg_a_y_off_lvl1[1] = {42};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19167,7 +18856,7 @@ namespace grid {
             s_temp[0] = s_qd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         static const int seg_a_x_off_lvl2[1] = {42};
         static const int seg_a_y_off_lvl2[1] = {48};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19190,7 +18879,7 @@ namespace grid {
             s_temp[0] = s_qd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         static const int seg_a_x_off_lvl3[1] = {48};
         static const int seg_a_y_off_lvl3[1] = {54};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19213,7 +18902,7 @@ namespace grid {
             s_temp[0] = s_qd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         static const int seg_a_x_off_lvl4[1] = {54};
         static const int seg_a_y_off_lvl4[1] = {60};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19236,7 +18925,7 @@ namespace grid {
             s_temp[0] = s_qd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         static const int seg_a_x_off_lvl5[1] = {60};
         static const int seg_a_y_off_lvl5[1] = {66};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19326,7 +19015,6 @@ namespace grid {
     template <typename T>
     __device__
     void inverse_dynamics_inner_vaf(T *s_vaf, const T *s_q, const T *s_qd, const T *s_qdd, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_f_ext, const T gravity) {
-        unsigned char *s_linalg_smem = nullptr;
         //
         // Forward Pass
         //
@@ -19354,14 +19042,14 @@ namespace grid {
             s_temp[0] = s_qd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         static const int seg_a_x_off_lvl1[1] = {36};
         static const int seg_a_y_off_lvl1[1] = {42};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19381,14 +19069,14 @@ namespace grid {
             s_temp[0] = s_qd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         static const int seg_a_x_off_lvl2[1] = {42};
         static const int seg_a_y_off_lvl2[1] = {48};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19408,14 +19096,14 @@ namespace grid {
             s_temp[0] = s_qd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         static const int seg_a_x_off_lvl3[1] = {48};
         static const int seg_a_y_off_lvl3[1] = {54};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19435,14 +19123,14 @@ namespace grid {
             s_temp[0] = s_qd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         static const int seg_a_x_off_lvl4[1] = {54};
         static const int seg_a_y_off_lvl4[1] = {60};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19462,14 +19150,14 @@ namespace grid {
             s_temp[0] = s_qd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         static const int seg_a_x_off_lvl5[1] = {60};
         static const int seg_a_y_off_lvl5[1] = {66};
         if(threadIdx.x == 0 && threadIdx.y == 0){
             s_temp[0] = s_qdd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         // sync before a += MxS(v)*qd[S] 
         __syncthreads();
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 1; ind += blockDim.x*blockDim.y){
@@ -19549,7 +19237,6 @@ namespace grid {
     template <typename T>
     __device__
     void inverse_dynamics_inner_vaf(T *s_vaf, const T *s_q, const T *s_qd, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_f_ext, const T gravity) {
-        unsigned char *s_linalg_smem = nullptr;
         //
         // Forward Pass
         //
@@ -19577,7 +19264,7 @@ namespace grid {
             s_temp[0] = s_qd[1];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl1, seg_v_x_off_lvl1, seg_v_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl1, S_sel_lvl1, s_temp);
         static const int seg_a_x_off_lvl1[1] = {36};
         static const int seg_a_y_off_lvl1[1] = {42};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl1, seg_a_x_off_lvl1, seg_a_y_off_lvl1, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19600,7 +19287,7 @@ namespace grid {
             s_temp[0] = s_qd[2];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl2, seg_v_x_off_lvl2, seg_v_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl2, S_sel_lvl2, s_temp);
         static const int seg_a_x_off_lvl2[1] = {42};
         static const int seg_a_y_off_lvl2[1] = {48};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl2, seg_a_x_off_lvl2, seg_a_y_off_lvl2, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19623,7 +19310,7 @@ namespace grid {
             s_temp[0] = s_qd[3];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl3, seg_v_x_off_lvl3, seg_v_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl3, S_sel_lvl3, s_temp);
         static const int seg_a_x_off_lvl3[1] = {48};
         static const int seg_a_y_off_lvl3[1] = {54};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl3, seg_a_x_off_lvl3, seg_a_y_off_lvl3, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19646,7 +19333,7 @@ namespace grid {
             s_temp[0] = s_qd[4];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl4, seg_v_x_off_lvl4, seg_v_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl4, S_sel_lvl4, s_temp);
         static const int seg_a_x_off_lvl4[1] = {54};
         static const int seg_a_y_off_lvl4[1] = {60};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl4, seg_a_x_off_lvl4, seg_a_y_off_lvl4, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19669,7 +19356,7 @@ namespace grid {
             s_temp[0] = s_qd[5];
         }
         __syncthreads();
-        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp, s_linalg_smem);
+        grid_linalg_segmented_row_strided_gemv<T,6,6,6,true>(1, seg_a_off_lvl5, seg_v_x_off_lvl5, seg_v_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0), seg_s_off_lvl5, S_sel_lvl5, s_temp);
         static const int seg_a_x_off_lvl5[1] = {60};
         static const int seg_a_y_off_lvl5[1] = {66};
         grid_linalg_segmented_row_strided_gemv<T,6,6,6>(1, seg_a_off_lvl5, seg_a_x_off_lvl5, seg_a_y_off_lvl5, s_XImats, s_vaf, s_vaf, static_cast<T>(1), static_cast<T>(0));
@@ -19749,7 +19436,6 @@ namespace grid {
         //   T s_vaf[108]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -19762,14 +19448,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(576, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(576, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -19796,7 +19476,6 @@ namespace grid {
         //   T s_vaf[108]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -19809,14 +19488,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(576, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(576, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -19842,7 +19515,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -19852,14 +19524,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(468, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(468, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -19885,7 +19551,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -19895,14 +19560,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(468, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(468, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -19931,7 +19590,6 @@ namespace grid {
         //   T s_qdd[6]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -19953,14 +19611,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(600, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(600, 0));
         #endif
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[6];
@@ -20031,7 +19683,6 @@ namespace grid {
         //   T s_qdd[6]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20053,14 +19704,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(600, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(600, 0));
         #endif
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[6];
@@ -20112,7 +19757,6 @@ namespace grid {
         //   T s_vaf[108]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20131,14 +19775,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(594, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(594, 0));
         #endif
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[6];
@@ -20203,7 +19841,6 @@ namespace grid {
         //   T s_vaf[108]
         //   T s_XImats[432]
         //   T s_temp[36]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20222,14 +19859,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(36);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(594, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(594, 0));
         #endif
         (void)s_arena_offset;
         T *s_q = s_q_qd; T *s_qd = &s_q_qd[6];
@@ -20379,7 +20010,6 @@ namespace grid {
     template <typename T, bool F_IN_SMEM = true>
     __device__ __forceinline__
     void minv_inner(T *s_Minv, const T *s_q, T *s_XImats, int *s_topology_helpers, T *s_temp, T *d_workspace) {
-        unsigned char *s_linalg_smem = nullptr;
         T *s_F;
         if constexpr (F_IN_SMEM) { s_F = &s_temp[330]; (void)d_workspace; }
         else { s_F = d_workspace; }
@@ -20436,7 +20066,7 @@ namespace grid {
         }
         __syncthreads();
         // IA[parent_ind] += IA_Update_Temp * Xmat
-        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[180], &s_temp[144], static_cast<T>(1), static_cast<T>(1), s_linalg_smem);
+        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[180], &s_temp[144], static_cast<T>(1), static_cast<T>(1));
         // backward pass updates where bfs_level is 4
         //     joints are: wrist_2_joint
         //     links are: wrist_2_link
@@ -20477,7 +20107,7 @@ namespace grid {
         }
         __syncthreads();
         // IA[parent_ind] += IA_Update_Temp * Xmat
-        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[144], &s_temp[108], static_cast<T>(1), static_cast<T>(1), s_linalg_smem);
+        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[144], &s_temp[108], static_cast<T>(1), static_cast<T>(1));
         // backward pass updates where bfs_level is 3
         //     joints are: wrist_1_joint
         //     links are: wrist_1_link
@@ -20518,7 +20148,7 @@ namespace grid {
         }
         __syncthreads();
         // IA[parent_ind] += IA_Update_Temp * Xmat
-        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[108], &s_temp[72], static_cast<T>(1), static_cast<T>(1), s_linalg_smem);
+        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[108], &s_temp[72], static_cast<T>(1), static_cast<T>(1));
         // backward pass updates where bfs_level is 2
         //     joints are: elbow_joint
         //     links are: forearm_link
@@ -20559,7 +20189,7 @@ namespace grid {
         }
         __syncthreads();
         // IA[parent_ind] += IA_Update_Temp * Xmat
-        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[72], &s_temp[36], static_cast<T>(1), static_cast<T>(1), s_linalg_smem);
+        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[72], &s_temp[36], static_cast<T>(1), static_cast<T>(1));
         // backward pass updates where bfs_level is 1
         //     joints are: shoulder_lift_joint
         //     links are: upper_arm_link
@@ -20600,7 +20230,7 @@ namespace grid {
         }
         __syncthreads();
         // IA[parent_ind] += IA_Update_Temp * Xmat
-        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[36], &s_temp[0], static_cast<T>(1), static_cast<T>(1), s_linalg_smem);
+        grid_linalg_gemm<T,6,6,6>(&s_temp[294], &s_XImats[36], &s_temp[0], static_cast<T>(1), static_cast<T>(1));
         // backward pass updates where bfs_level is 0
         //     joints are: shoulder_pan_joint
         //     links are: shoulder_link
@@ -20727,7 +20357,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XImats[432]
         //   T s_temp[546]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20737,14 +20366,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(546);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(978, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(978, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -20773,7 +20396,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[546]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20789,14 +20411,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(546);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -20843,7 +20459,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[546]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20859,14 +20474,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(546);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -20913,7 +20522,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[330]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -20929,14 +20537,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(330);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(804, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(804, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -21001,7 +20603,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[546]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21017,14 +20618,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(546);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -21053,7 +20648,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[546]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21069,14 +20663,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(546);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1020, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -21105,7 +20693,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[330]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21121,14 +20708,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(330);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(804, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(804, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -21319,7 +20900,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XImats[432]
         //   T s_temp[582] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21336,18 +20916,12 @@ namespace grid {
             s_temp = d_workspace;
         }
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
         if constexpr (RESOURCE_TIER == TIER_SHARED) {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1014, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1014, 0));
         }
         else {
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(432, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(432, 0));
         }
         #endif
         (void)s_arena_offset;
@@ -21376,7 +20950,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21392,14 +20965,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -21447,7 +21014,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21463,14 +21029,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -21518,7 +21078,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[366]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21534,14 +21093,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(366);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(822, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(822, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -21606,7 +21159,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21622,14 +21174,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -21660,7 +21206,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21676,14 +21221,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1038, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -21714,7 +21253,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[366]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -21730,14 +21268,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(366);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(822, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(822, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -22303,7 +21835,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22325,14 +21856,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22388,7 +21913,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22410,14 +21934,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22472,7 +21990,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22492,14 +22009,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(630, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(630, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22573,7 +22084,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22595,14 +22105,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22638,7 +22142,6 @@ namespace grid {
             //   T s_qdd[6]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22660,14 +22163,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1962, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22702,7 +22199,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22722,14 +22218,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(630, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(630, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22784,7 +22274,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22803,14 +22292,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22858,7 +22341,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22877,14 +22359,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -22931,7 +22407,6 @@ namespace grid {
             //   T s_dc_du[72]
             //   T s_vaf[108]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -22948,14 +22423,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(624, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(624, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23023,7 +22492,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23042,14 +22510,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23080,7 +22542,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23099,14 +22560,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1956, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23136,7 +22591,6 @@ namespace grid {
             //   T s_dc_du[72]
             //   T s_vaf[108]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23153,14 +22607,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(624, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(624, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23417,7 +22865,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23442,14 +22889,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23503,7 +22944,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23528,14 +22968,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23586,7 +23020,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23603,14 +23036,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(558, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(558, 0));
             #endif
             (void)s_arena_offset;
             T *s_dc_du; T *s_Minv;  // repointed to the L2-pinned SO band (output spill) per timing branch
@@ -23681,7 +23108,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23706,14 +23132,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23753,7 +23173,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23778,14 +23197,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1998, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23822,7 +23235,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23839,14 +23251,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(558, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(558, 0));
             #endif
             (void)s_arena_offset;
             T *s_dc_du; T *s_Minv;  // repointed to the L2-pinned SO band (output spill) per timing branch
@@ -23900,7 +23306,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23925,14 +23330,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -23972,7 +23371,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -23997,14 +23395,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -24041,7 +23433,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24058,14 +23449,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0));
             #endif
             (void)s_arena_offset;
             T *s_dc_du; T *s_Minv;  // repointed to the L2-pinned SO band (output spill) per timing branch
@@ -24120,7 +23505,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24145,14 +23529,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -24184,7 +23562,6 @@ namespace grid {
             //   T s_Minv[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24209,14 +23586,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2004, 0));
             #endif
             (void)s_arena_offset;
             T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -24245,7 +23616,6 @@ namespace grid {
             //   T s_vaf[108]
             //   T s_qdd[6]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24262,14 +23632,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0));
             #endif
             (void)s_arena_offset;
             T *s_dc_du; T *s_Minv;  // repointed to the L2-pinned SO band (output spill) per timing branch
@@ -24475,7 +23839,6 @@ namespace grid {
         // GRID shared arena layout
         //   T s_XImats[432]
         //   T s_temp[582]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24485,14 +23848,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(582);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1014, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(1014, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -24540,7 +23897,6 @@ namespace grid {
             //   T s_dqdd_dfext[216]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24559,14 +23915,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -24619,7 +23969,6 @@ namespace grid {
             //   T s_dqdd_dfext[216]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24638,14 +23987,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -24698,7 +24041,6 @@ namespace grid {
             //   T s_dqdd_dfext[0]
             //   T s_XImats[432]
             //   T s_temp[468]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24717,14 +24059,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(468);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(906, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(906, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -24794,7 +24130,6 @@ namespace grid {
             //   T s_dqdd_dfext[216]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24813,14 +24148,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -24891,7 +24220,6 @@ namespace grid {
             //   T s_dqdd_dfext[216]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -24910,14 +24238,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1452, 0));
             #endif
             (void)s_arena_offset;
             (void)d_workspace;
@@ -24988,7 +24310,6 @@ namespace grid {
             //   T s_dqdd_dfext[0]
             //   T s_XImats[432]
             //   T s_temp[468]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25007,14 +24328,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(468);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(906, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(906, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -25193,7 +24508,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25206,14 +24520,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -25285,7 +24593,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25298,14 +24605,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -25377,7 +24678,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25390,14 +24690,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -25483,7 +24777,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25496,14 +24789,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -25593,7 +24880,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25606,14 +24892,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -25703,7 +24983,6 @@ namespace grid {
             //   T s_q[6]
             //   T s_XImats[432]
             //   T s_temp[12]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -25716,14 +24995,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(12);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -26072,7 +25345,6 @@ namespace grid {
         //   T s_stage_point[36]
         //   T s_XImats[432]
         //   T s_temp[582]
-        //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
         extern __shared__ __align__(16) unsigned char s_arena[];
         size_t s_arena_offset = 0;
         s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26091,14 +25363,8 @@ namespace grid {
         T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
         s_arena_offset += sizeof(T) * static_cast<size_t>(582);
         int *s_topology_helpers = nullptr;
-        unsigned char *s_linalg_smem = nullptr;
-        if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-            s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-        }
         #ifdef GRID_CUDA_DEBUG_LAYOUT
-        assert(s_arena_offset == grid_shared_arena_bytes<T>(1074, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+        assert(s_arena_offset == grid_shared_arena_bytes<T>(1074, 0));
         #endif
         (void)s_arena_offset;
         load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -26131,7 +25397,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26156,14 +25421,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26214,7 +25473,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26239,14 +25497,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26297,7 +25549,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[366]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26322,14 +25573,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(366);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(888, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(888, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26399,7 +25644,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26424,14 +25668,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26465,7 +25703,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[582]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26490,14 +25727,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(1104, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26531,7 +25762,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[366]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -26556,14 +25786,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(366);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(888, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(888, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -26700,7 +25924,6 @@ namespace grid {
         T *s_XImats;
         T *s_temp;
         int *s_topology_helpers;
-        unsigned char *s_linalg_smem;
         static __device__ integrator_arena<T> carve(void *base) {
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
             size_t s_arena_offset = 0;
@@ -26727,12 +25950,6 @@ namespace grid {
             a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(582);
             a.s_topology_helpers = nullptr;
-            a.s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
             assert(s_arena_offset <= INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
             #endif
@@ -27714,7 +26931,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -27763,14 +26979,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -27828,7 +27038,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -27877,14 +27086,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -27939,7 +27142,6 @@ namespace grid {
             //   T s_dInt_q_6x6[36]
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -27980,14 +27182,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(852, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(852, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28066,7 +27262,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28115,14 +27310,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28163,7 +27352,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28212,14 +27400,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28257,7 +27439,6 @@ namespace grid {
             //   T s_dInt_q_6x6[36]
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28298,14 +27479,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(852, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(852, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28465,7 +27640,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28517,14 +27691,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28587,7 +27755,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28639,14 +27806,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28706,7 +27867,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_x_kp1[12]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28750,14 +27910,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(864, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(864, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28842,7 +27996,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -28894,14 +28047,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -28948,7 +28095,6 @@ namespace grid {
             //   T s_x_kp1[12]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -29000,14 +28146,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2844, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -29051,7 +28191,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_x_kp1[12]
             //   T s_XImats[432]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -29095,14 +28234,8 @@ namespace grid {
             s_arena_offset += sizeof(T) * static_cast<size_t>(432);
             T *s_temp = nullptr;
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(864, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(864, 0));
             #endif
             (void)s_arena_offset;
             T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -29258,7 +28391,6 @@ namespace grid {
         T *s_XImats;
         T *s_temp;
         int *s_topology_helpers;
-        unsigned char *s_linalg_smem;
         static __device__ integrator_du_arena<T> carve(void *base) {
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
             size_t s_arena_offset = 0;
@@ -29312,12 +28444,6 @@ namespace grid {
             a.s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             a.s_topology_helpers = nullptr;
-            a.s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                a.s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
             assert(s_arena_offset <= INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
             #endif
@@ -30062,7 +29188,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30128,7 +29254,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30187,7 +29313,7 @@ namespace grid {
                 T *s_temp = nullptr;
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30267,7 +29393,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30325,7 +29451,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(4128, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30376,7 +29502,7 @@ namespace grid {
                 T *s_temp = nullptr;
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(450, 0));
                 #endif
                 (void)s_arena_offset;
                 T *d_temp_spill = nullptr; (void)d_temp_spill;
@@ -30535,10 +29661,10 @@ namespace grid {
             int *s_topology_helpers = nullptr;
             #ifdef GRID_CUDA_DEBUG_LAYOUT
             if constexpr (RESOURCE_TIER == TIER_SHARED) {
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(3246, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(3246, 0));
             }
             else {
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(432, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(432, 0));
             }
             #endif
             (void)s_arena_offset;
@@ -30865,7 +29991,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -30935,7 +30061,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -30994,7 +30120,7 @@ namespace grid {
                 T *s_temp = nullptr;
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0));
                 #endif
                 (void)s_arena_offset;
                 T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -31078,7 +30204,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -31141,7 +30267,7 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(5106, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -31193,7 +30319,7 @@ namespace grid {
                 T *s_temp = nullptr;
                 int *s_topology_helpers = nullptr;
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0, 0));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0));
                 #endif
                 (void)s_arena_offset;
                 T *s_q = s_q_qd_u; T *s_qd = &s_q_qd_u[6]; T *s_u = &s_q_qd_u[12];
@@ -31358,7 +30484,7 @@ namespace grid {
         // [centroidal] generalized_gravity/nonlinear_effects skipped: not requested (request 'generalized_gravity'/'nonlinear_effects').
         // [centroidal] com/ccrba/energy/dccrba/cmm_time_variation skipped: not requested.
         // [coriolis] coriolis_matrix skipped: not requested (request 'coriolis_matrix').
-        template <typename T> __host__ __device__ constexpr size_t FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(330, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+        template <typename T> __host__ __device__ constexpr size_t FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(330, TOPOLOGY_HELPERS_COUNT); }
         #define GRID_HAS_FRAME_JACOBIAN 1
         /**
          * Compute a general-frame geometric Jacobian
@@ -31497,7 +30623,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[96]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31507,14 +30632,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(96);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(288, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(288, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
@@ -31542,7 +30661,6 @@ namespace grid {
             //   T s_frame_jacobian[36]
             //   T s_XmatsHom[192]
             //   T s_temp[96]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31558,14 +30676,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(96);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(330, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(330, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -31608,7 +30720,6 @@ namespace grid {
             //   T s_frame_jacobian[36]
             //   T s_XmatsHom[192]
             //   T s_temp[96]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -31624,14 +30735,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(96);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(330, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(330, 0));
             #endif
             (void)s_arena_offset;
             // load to shared mem
@@ -33094,7 +32199,8 @@ namespace grid {
          * Notes:
          *   Block-cooperative reduction into s_scratch then a serial add into s_out[0].
          *   s_lower / s_upper are explicit bound vectors (size 6); an inf entry skips that side (isfinite guard).
-         *   s_scratch must hold at least 6 elements.
+         *   COUNT and VAR_OFFSET (templates, defaults 6 and 0) select the bounded slice s_var[VAR_OFFSET .. VAR_OFFSET + COUNT); the floating-base menu bounds the joint positions alone this way.
+         *   s_scratch must hold at least COUNT elements.
          *
          * @param s_out is the scalar barrier cost (added into s_out[0])
          * @param s_var is the variable vector (this barrier reads s_var[0 + i])
@@ -33102,16 +32208,16 @@ namespace grid {
          * @param mu is the barrier weight
          * @param s_scratch is shared scratch of size >= 6
          */
-        template <typename T>
+        template <typename T, int COUNT = 6, int VAR_OFFSET = 0>
         __device__
         void joint_position_barrier(T *s_out, const T *s_var, const T *s_lower, const T *s_upper, const T mu, T *s_scratch) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                s_scratch[i] = grid_plant_log_barrier<T>(s_var[0 + i], s_lower[i], s_upper[i], mu);
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
+                s_scratch[i] = grid_plant_log_barrier<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T acc = static_cast<T>(0);
-                for (int i = 0; i < 6; ++i) acc += s_scratch[i];
+                for (int i = 0; i < COUNT; ++i) acc += s_scratch[i];
                 s_out[0] += acc;
             }
         }
@@ -33126,10 +32232,10 @@ namespace grid {
          * @param s_grad is the packed gradient output (added into)
          * @param s_var / s_lower / s_upper / mu as in the value function
          */
-        template <typename T, int VAR_OFFSET = 0, int GRAD_OFFSET = 0>
+        template <typename T, int VAR_OFFSET = 0, int GRAD_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_position_barrier_gradient(T *s_grad, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 s_grad[GRAD_OFFSET + i] += grid_plant_log_barrier_grad<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
         }
@@ -33145,10 +32251,10 @@ namespace grid {
          * @param s_hess is the dense column-major hessian (added into)
          * @param s_var / s_lower / s_upper / mu as above
          */
-        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 0, int HESS_OFFSET = 0>
+        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 0, int HESS_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_position_barrier_hessian(T *s_hess, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 int d = HESS_OFFSET + i;
                 s_hess[d * HESS_STRIDE + d] += grid_plant_log_barrier_hess<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
@@ -33160,7 +32266,8 @@ namespace grid {
          * Notes:
          *   Block-cooperative reduction into s_scratch then a serial add into s_out[0].
          *   s_lower / s_upper are explicit bound vectors (size 6); an inf entry skips that side (isfinite guard).
-         *   s_scratch must hold at least 6 elements.
+         *   COUNT and VAR_OFFSET (templates, defaults 6 and 6) select the bounded slice s_var[VAR_OFFSET .. VAR_OFFSET + COUNT); the floating-base menu bounds the joint positions alone this way.
+         *   s_scratch must hold at least COUNT elements.
          *
          * @param s_out is the scalar barrier cost (added into s_out[0])
          * @param s_var is the variable vector (this barrier reads s_var[6 + i])
@@ -33168,16 +32275,16 @@ namespace grid {
          * @param mu is the barrier weight
          * @param s_scratch is shared scratch of size >= 6
          */
-        template <typename T>
+        template <typename T, int COUNT = 6, int VAR_OFFSET = 6>
         __device__
         void joint_velocity_barrier(T *s_out, const T *s_var, const T *s_lower, const T *s_upper, const T mu, T *s_scratch) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                s_scratch[i] = grid_plant_log_barrier<T>(s_var[6 + i], s_lower[i], s_upper[i], mu);
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
+                s_scratch[i] = grid_plant_log_barrier<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T acc = static_cast<T>(0);
-                for (int i = 0; i < 6; ++i) acc += s_scratch[i];
+                for (int i = 0; i < COUNT; ++i) acc += s_scratch[i];
                 s_out[0] += acc;
             }
         }
@@ -33192,10 +32299,10 @@ namespace grid {
          * @param s_grad is the packed gradient output (added into)
          * @param s_var / s_lower / s_upper / mu as in the value function
          */
-        template <typename T, int VAR_OFFSET = 6, int GRAD_OFFSET = 0>
+        template <typename T, int VAR_OFFSET = 6, int GRAD_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_velocity_barrier_gradient(T *s_grad, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 s_grad[GRAD_OFFSET + i] += grid_plant_log_barrier_grad<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
         }
@@ -33211,10 +32318,10 @@ namespace grid {
          * @param s_hess is the dense column-major hessian (added into)
          * @param s_var / s_lower / s_upper / mu as above
          */
-        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 6, int HESS_OFFSET = 0>
+        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 6, int HESS_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_velocity_barrier_hessian(T *s_hess, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 int d = HESS_OFFSET + i;
                 s_hess[d * HESS_STRIDE + d] += grid_plant_log_barrier_hess<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
@@ -33226,7 +32333,8 @@ namespace grid {
          * Notes:
          *   Block-cooperative reduction into s_scratch then a serial add into s_out[0].
          *   s_lower / s_upper are explicit bound vectors (size 6); an inf entry skips that side (isfinite guard).
-         *   s_scratch must hold at least 6 elements.
+         *   COUNT and VAR_OFFSET (templates, defaults 6 and 0) select the bounded slice s_var[VAR_OFFSET .. VAR_OFFSET + COUNT); the floating-base menu bounds the joint positions alone this way.
+         *   s_scratch must hold at least COUNT elements.
          *
          * @param s_out is the scalar barrier cost (added into s_out[0])
          * @param s_var is the variable vector (this barrier reads s_var[0 + i])
@@ -33234,16 +32342,16 @@ namespace grid {
          * @param mu is the barrier weight
          * @param s_scratch is shared scratch of size >= 6
          */
-        template <typename T>
+        template <typename T, int COUNT = 6, int VAR_OFFSET = 0>
         __device__
         void joint_torque_barrier(T *s_out, const T *s_var, const T *s_lower, const T *s_upper, const T mu, T *s_scratch) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
-                s_scratch[i] = grid_plant_log_barrier<T>(s_var[0 + i], s_lower[i], s_upper[i], mu);
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
+                s_scratch[i] = grid_plant_log_barrier<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T acc = static_cast<T>(0);
-                for (int i = 0; i < 6; ++i) acc += s_scratch[i];
+                for (int i = 0; i < COUNT; ++i) acc += s_scratch[i];
                 s_out[0] += acc;
             }
         }
@@ -33258,10 +32366,10 @@ namespace grid {
          * @param s_grad is the packed gradient output (added into)
          * @param s_var / s_lower / s_upper / mu as in the value function
          */
-        template <typename T, int VAR_OFFSET = 0, int GRAD_OFFSET = 0>
+        template <typename T, int VAR_OFFSET = 0, int GRAD_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_torque_barrier_gradient(T *s_grad, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 s_grad[GRAD_OFFSET + i] += grid_plant_log_barrier_grad<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
         }
@@ -33277,10 +32385,10 @@ namespace grid {
          * @param s_hess is the dense column-major hessian (added into)
          * @param s_var / s_lower / s_upper / mu as above
          */
-        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 0, int HESS_OFFSET = 0>
+        template <typename T, int HESS_STRIDE, int VAR_OFFSET = 0, int HESS_OFFSET = 0, int COUNT = 6>
         __device__
         void joint_torque_barrier_hessian(T *s_hess, const T *s_var, const T *s_lower, const T *s_upper, const T mu) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < COUNT; i += blockDim.x*blockDim.y){
                 int d = HESS_OFFSET + i;
                 s_hess[d * HESS_STRIDE + d] += grid_plant_log_barrier_hess<T>(s_var[VAR_OFFSET + i], s_lower[i], s_upper[i], mu);
             }
@@ -33386,7 +32494,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[32]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33396,18 +32503,12 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(32);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
         }
 
@@ -33432,7 +32533,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33442,20 +32542,14 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
-            end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
         }
 
@@ -33480,7 +32574,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[192]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33490,18 +32583,12 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(192);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(384, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
         }
 
@@ -33527,7 +32614,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[231]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33537,20 +32623,14 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(231);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(423, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(423, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            multi_target_position_contact_frames_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
-            multi_target_position_gradient_contact_frames_inner<T, true>(s_dpos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            multi_target_position_gradient_contact_frames_inner<T, true>(s_dpos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
         }
 
@@ -33577,7 +32657,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[32]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33587,18 +32666,12 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(32);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T acc = static_cast<T>(0);
@@ -33629,7 +32702,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[232]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33639,20 +32711,14 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(232);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
-            end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+            end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
             __syncthreads();
             for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
                 T g = static_cast<T>(0);
@@ -33696,7 +32762,6 @@ namespace grid {
                 // GRID shared arena layout
                 //   T s_XmatsHom[192]
                 //   T s_temp[292]
-                //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
                 unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33706,27 +32771,20 @@ namespace grid {
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
                 s_arena_offset += sizeof(T) * static_cast<size_t>(292);
                 int *s_topology_helpers = nullptr;
-                unsigned char *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                    s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(484, 0));
                 #endif
                 (void)s_arena_offset;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_inner_tool0_joint<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
-                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
+                end_effector_pose_hessian_inner_tool0_joint<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
                 __syncthreads();
             }
             else {
                 // GRID shared arena layout
                 //   T s_XmatsHom[192]
                 //   T s_temp[232]
-                //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
                 unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -33736,18 +32794,12 @@ namespace grid {
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
                 s_arena_offset += sizeof(T) * static_cast<size_t>(232);
                 int *s_topology_helpers = nullptr;
-                unsigned char *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                    s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(424, 0));
                 #endif
                 (void)s_arena_offset;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                end_effector_pose_gradient_inner_tool0_joint<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
             }
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 144; ind += blockDim.x*blockDim.y){
@@ -33994,7 +33046,6 @@ namespace grid {
             //   T s_qd0[6]
             //   T s_XImats[432]
             //   T s_temp[36]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -34010,14 +33061,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(36);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(582, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(582, 0));
             #endif
             (void)s_arena_offset;
             load_update_XImats_helpers<T>(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp);
@@ -34027,17 +33072,21 @@ namespace grid {
             __syncthreads();
         }
 
-        template <typename T> __host__ __device__ constexpr size_t GRAVITY_TORQUE_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(582, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+        template <typename T> __host__ __device__ constexpr size_t GRAVITY_TORQUE_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(582, grid::TOPOLOGY_HELPERS_COUNT); }
+        #define GRID_PLANT_HAS_ACTIVATIONS 1
         
         // ---- cost activations: value, slope and curvature per residual entry ----
         // a(r; w, eps): quadratic 1/2 w r^2; pseudo-Huber w (sqrt(r^2 + eps^2) - eps), eps > 0; the barrier kinds act on
-        // the feature value v with bounds [lo, hi] (w = mu, eps = delta for the relaxed log barrier; an infinite bound is 0).
+        // the feature value v with bounds [lo, hi] (w = mu, eps = delta for the relaxed log barrier; an infinite bound is 0;
+        // the smooth hinge is w (sqrt(d^2 + eps^2) - eps) on the bound violation d = max(0, lo - v) + max(0, v - hi), eps > 0).
+        // The bound kinds are C1 at a bound: the curvature is one-sided, 0 inside and w (quadratic barrier) or w / eps (smooth hinge) just outside.
         // Every activated term is value = sum_i a(r_i), gradient = J^T a'(r), GN Hessian = J^T diag(a''(r)) J.
         const int GRID_PLANT_ACTIVATION_NONE = -1;
         const int GRID_PLANT_ACTIVATION_QUADRATIC = 0;
         const int GRID_PLANT_ACTIVATION_PSEUDO_HUBER = 1;
         const int GRID_PLANT_ACTIVATION_RELAXED_LOG_BARRIER = 2;
         const int GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER = 3;
+        const int GRID_PLANT_ACTIVATION_SMOOTH_HINGE = 4;
         // menu term order in cost_menu_params::activation / eps (tracking_cost_menu)
         const int GRID_PLANT_MENU_FRAME_POS = 0;
         const int GRID_PLANT_MENU_STATE = 1;
@@ -34085,6 +33134,12 @@ namespace grid {
                 T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
                 return static_cast<T>(0.5) * w * (below * below + above * above);
             }
+            if (kind == GRID_PLANT_ACTIVATION_SMOOTH_HINGE) {
+                T below = (!isinf(lo) && v < lo) ? (lo - v) : static_cast<T>(0);
+                T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
+                T d = below + above; T s = sqrt(d * d + eps * eps);
+                return w * (s - eps);
+            }
             if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
             return static_cast<T>(0.5) * w * r * r;
         }
@@ -34104,6 +33159,12 @@ namespace grid {
                 T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
                 return w * (above - below);
             }
+            if (kind == GRID_PLANT_ACTIVATION_SMOOTH_HINGE) {
+                T below = (!isinf(lo) && v < lo) ? (lo - v) : static_cast<T>(0);
+                T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
+                T d = below + above; T s = sqrt(d * d + eps * eps);
+                return w * (above - below) / s;
+            }
             if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
             return w * r;
         }
@@ -34121,6 +33182,14 @@ namespace grid {
             if (kind == GRID_PLANT_ACTIVATION_QUADRATIC_BARRIER) {
                 bool active = (!isinf(lo) && v < lo) || (!isinf(hi) && v > hi);
                 return active ? w : static_cast<T>(0);
+            }
+            if (kind == GRID_PLANT_ACTIVATION_SMOOTH_HINGE) {
+                T below = (!isinf(lo) && v < lo) ? (lo - v) : static_cast<T>(0);
+                T above = (!isinf(hi) && v > hi) ? (v - hi) : static_cast<T>(0);
+                T d = below + above;
+                if (d <= static_cast<T>(0)) { return static_cast<T>(0); }
+                T s = sqrt(d * d + eps * eps);
+                return w * eps * eps / (s * s * s);
             }
             if (kind == GRID_PLANT_ACTIVATION_NONE) { return static_cast<T>(0); }
             return w;
@@ -34144,6 +33213,7 @@ namespace grid {
             return activation_curvature<T>(kind, w, r, eps, r, -INFINITY, INFINITY);
         }
 
+        #define GRID_PLANT_HAS_STATE_COST 1
         /**
          * state_cost: value = sum_i a(s_x[i] - s_x_des[i]; s_Q[i], eps) under the chosen activation
          *
@@ -34223,33 +33293,34 @@ namespace grid {
             }
         }
 
+        #define GRID_PLANT_HAS_INPUT_COST 1
         /**
          * input_cost: value = sum_i a(s_u[i] - s_u_des[i]; s_R[i], eps) under the chosen activation
          *
          * Notes:
          *   Block-cooperative: strided per-entry activations into s_scratch, then a serial reduction into s_out[0].
          *   ACCUMULATE=false overwrites s_out[0]; ACCUMULATE=true adds into it.
-         *   Quadratic activation reproduces quadratic_input_cost exactly; s_scratch must hold >= 6.
+         *   Quadratic activation reproduces quadratic_input_cost exactly; s_scratch must hold >= N.
          *
          * @param s_out is the scalar cost output (s_out[0])
-         * @param s_u is the current value (size NUM_VEL = 6)
-         * @param s_u_des is the target (size NUM_VEL = 6)
-         * @param s_R is the per-entry weight (size NUM_VEL = 6)
+         * @param s_u is the current value (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_u_des is the target (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_R is the per-entry weight (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
          * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
          * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
-         * @param s_scratch is shared scratch of size >= 6
+         * @param s_scratch is shared scratch of size >= N
          */
-        template <typename T, bool ACCUMULATE = false>
+        template <typename T, bool ACCUMULATE = false, int N = 6>
         __device__
         void input_cost(T *s_out, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < N; i += blockDim.x*blockDim.y){
                 T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
                 s_scratch[i] = activation_value<T>(activation, s_R[i], s_u[i] - s_u_des[i], eps, s_u[i], lo, hi);
             }
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T acc = static_cast<T>(0);
-                for (int i = 0; i < 6; ++i) acc += s_scratch[i];
+                for (int i = 0; i < N; ++i) acc += s_scratch[i];
                 if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
             }
         }
@@ -34260,17 +33331,17 @@ namespace grid {
          * Notes:
          *   ACCUMULATE=false overwrites s_grad; ACCUMULATE=true adds into it.
          *
-         * @param s_grad is the gradient output (size NUM_VEL = 6)
-         * @param s_u is the current value (size NUM_VEL = 6)
-         * @param s_u_des is the target (size NUM_VEL = 6)
-         * @param s_R is the per-entry weight (size NUM_VEL = 6)
+         * @param s_grad is the gradient output (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_u is the current value (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_u_des is the target (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_R is the per-entry weight (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
          * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
          * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
          */
-        template <typename T, bool ACCUMULATE = false>
+        template <typename T, bool ACCUMULATE = false, int N = 6>
         __device__
         void input_cost_gradient(T *s_grad, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper) {
-            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < N; i += blockDim.x*blockDim.y){
                 T lo = s_lower ? s_lower[i] : -INFINITY; T hi = s_upper ? s_upper[i] : INFINITY;
                 T g = activation_slope<T>(activation, s_R[i], s_u[i] - s_u_des[i], eps, s_u[i], lo, hi);
                 if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
@@ -34278,30 +33349,31 @@ namespace grid {
         }
 
         /**
-         * input_cost_hessian: Gauss-Newton Hessian = diag(a''(s_u - s_u_des; s_R, eps)), column-major 6 x 6
+         * input_cost_hessian: Gauss-Newton Hessian = diag(a''(s_u - s_u_des; s_R, eps)), column-major N x N
          *
          * Notes:
          *   Off-diagonal entries are zero. ACCUMULATE=false overwrites; ACCUMULATE=true adds.
          *
-         * @param s_hess is the dense Hessian output (size 6*6, column-major)
-         * @param s_u is the current value (size NUM_VEL = 6)
-         * @param s_u_des is the target (size NUM_VEL = 6)
-         * @param s_R is the per-entry weight (size NUM_VEL = 6)
+         * @param s_hess is the dense Hessian output (size N*N, column-major)
+         * @param s_u is the current value (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_u_des is the target (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
+         * @param s_R is the per-entry weight (size N (template, default NUM_VEL = 6; the floating-base menu passes NUM_VEL - 6))
          * @param activation is a GRID_PLANT_ACTIVATION_* id; eps is its parameter
          * @param s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier)
          */
-        template <typename T, bool ACCUMULATE = false>
+        template <typename T, bool ACCUMULATE = false, int N = 6>
         __device__
         void input_cost_hessian(T *s_hess, const T *s_u, const T *s_u_des, const T *s_R, const int activation, const T eps, const T *s_lower, const T *s_upper) {
-            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
-                int row = ind % 6;
-                int col = ind / 6;
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < N * N; ind += blockDim.x*blockDim.y){
+                int row = ind % N;
+                int col = ind / N;
                 T h = static_cast<T>(0);
                 if (row == col) { T lo = s_lower ? s_lower[row] : -INFINITY; T hi = s_upper ? s_upper[row] : INFINITY; h = activation_curvature<T>(activation, s_R[row], s_u[row] - s_u_des[row], eps, s_u[row], lo, hi); }
                 if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
             }
         }
 
+        #define GRID_PLANT_HAS_LINEAR_FEATURE_COST 1
         /**
          * linear_feature_cost: value = sum_m a(r_m; W[m], eps), r = A v + b - target (a linear feature of the state or the input)
          *
@@ -34371,6 +33443,7 @@ namespace grid {
          *
          * Notes:
          *   s_scratch (>= M) holds the per-row curvatures between the two passes.
+         *   LD (template, default N) is the leading dimension of s_hess, so the block can land inside a larger column-major matrix.
          *   ACCUMULATE=false overwrites s_hess; ACCUMULATE=true adds into it.
          *
          * @param s_hess is the dense Hessian output (size N*N, column-major)
@@ -34380,7 +33453,7 @@ namespace grid {
          * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the feature value A v + b)
          * @param s_scratch must hold >= M
          */
-        template <typename T, int M, int N, bool ACCUMULATE = false>
+        template <typename T, int M, int N, bool ACCUMULATE = false, int LD = N>
         __device__
         void linear_feature_cost_hessian(T *s_hess, const T *s_v, const T *s_A, const T *s_b, const T *s_target, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_scratch) {
             for(int m = threadIdx.x + threadIdx.y*blockDim.x; m < M; m += blockDim.x*blockDim.y){
@@ -34396,48 +33469,11 @@ namespace grid {
                 int col = ind / N;
                 T h = static_cast<T>(0);
                 for (int m = 0; m < M; ++m) h += s_A[m + M * row] * s_scratch[m] * s_A[m + M * col];
-                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+                if (ACCUMULATE) { s_hess[row + LD * col] += h; } else { s_hess[row + LD * col] = h; }
             }
         }
 
-        // SO(3) helpers for the orientation residual (serial, column-major 3x3)
-        template <typename T>
-        __device__ __forceinline__
-        void plant_so3_log(const T *R, T *phi) {
-            T c = (R[0] + R[4] + R[8] - static_cast<T>(1)) * static_cast<T>(0.5);
-            c = c > static_cast<T>(1) ? static_cast<T>(1) : (c < static_cast<T>(-1) ? static_cast<T>(-1) : c);
-            T theta = acos(c);
-            T w0 = R[5] - R[7], w1 = R[6] - R[2], w2 = R[1] - R[3];
-            if (theta < static_cast<T>(1e-6)) { phi[0] = static_cast<T>(0.5) * w0; phi[1] = static_cast<T>(0.5) * w1; phi[2] = static_cast<T>(0.5) * w2; return; }
-            if (theta < static_cast<T>(3.14159265358979323846) - static_cast<T>(1e-4)) {
-                T k = theta / (static_cast<T>(2) * sin(theta));
-                phi[0] = k * w0; phi[1] = k * w1; phi[2] = k * w2; return;
-            }
-            // near pi: axis from the symmetric part (R + I)/2, sign from the antisymmetric part
-            T S0 = static_cast<T>(0.5) * (R[0] + static_cast<T>(1)), S4 = static_cast<T>(0.5) * (R[4] + static_cast<T>(1)), S8 = static_cast<T>(0.5) * (R[8] + static_cast<T>(1));
-            T a0, a1, a2;
-            if (S0 >= S4 && S0 >= S8) { T s = sqrt(S0 > static_cast<T>(1e-18) ? S0 : static_cast<T>(1e-18)); a0 = S0 / s; a1 = static_cast<T>(0.5) * (R[1] + R[3]) / s; a2 = static_cast<T>(0.5) * (R[2] + R[6]) / s; }
-            else if (S4 >= S8) { T s = sqrt(S4 > static_cast<T>(1e-18) ? S4 : static_cast<T>(1e-18)); a0 = static_cast<T>(0.5) * (R[1] + R[3]) / s; a1 = S4 / s; a2 = static_cast<T>(0.5) * (R[5] + R[7]) / s; }
-            else { T s = sqrt(S8 > static_cast<T>(1e-18) ? S8 : static_cast<T>(1e-18)); a0 = static_cast<T>(0.5) * (R[2] + R[6]) / s; a1 = static_cast<T>(0.5) * (R[5] + R[7]) / s; a2 = S8 / s; }
-            T n = sqrt(a0 * a0 + a1 * a1 + a2 * a2); a0 /= n; a1 /= n; a2 /= n;
-            if (a0 * w0 + a1 * w1 + a2 * w2 < static_cast<T>(0)) { a0 = -a0; a1 = -a1; a2 = -a2; }
-            phi[0] = theta * a0; phi[1] = theta * a1; phi[2] = theta * a2;
-        }
-
-        template <typename T>
-        __device__ __forceinline__
-        void plant_so3_right_jacobian_inv(const T *phi, T *J) {
-            T theta = sqrt(phi[0] * phi[0] + phi[1] * phi[1] + phi[2] * phi[2]);
-            T coef = (theta < static_cast<T>(1e-5)) ? (static_cast<T>(1) / static_cast<T>(12))
-                : (static_cast<T>(1) / (theta * theta) - (static_cast<T>(1) + cos(theta)) / (static_cast<T>(2) * theta * sin(theta)));
-            // S = [phi]x column-major; J = I + 1/2 S + coef S^2
-            T S[9] = { static_cast<T>(0), phi[2], -phi[1], -phi[2], static_cast<T>(0), phi[0], phi[1], -phi[0], static_cast<T>(0) };
-            for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) {
-                T s2 = S[r] * S[3 * c] + S[r + 3] * S[3 * c + 1] + S[r + 6] * S[3 * c + 2];
-                J[r + 3 * c] = ((r == c) ? static_cast<T>(1) : static_cast<T>(0)) + static_cast<T>(0.5) * S[r + 3 * c] + coef * s2;
-            }
-        }
-
+        #define GRID_PLANT_HAS_FRAME_EVAL 1
         #define GRID_PLANT_HAS_COST_FRAMES 1
         const int GRID_PLANT_NUM_COST_FRAMES = 1;
         // cost frames (index -> name): 0 = tool0_joint
@@ -34464,7 +33500,6 @@ namespace grid {
             // GRID shared arena layout
             //   T s_XmatsHom[192]
             //   T s_temp[96]
-            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -34474,14 +33509,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(96);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(288, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(288, 0));
             #endif
             (void)s_arena_offset;
             load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
@@ -34498,7 +33527,8 @@ namespace grid {
             __syncthreads();
         }
 
-        template <typename T> __host__ __device__ constexpr size_t FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(288, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_EE_LINALG_SHARED_BYTES<T>()); }
+        template <typename T> __host__ __device__ constexpr size_t FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(288, grid::TOPOLOGY_HELPERS_COUNT); }
+        #define GRID_PLANT_HAS_FRAME_POSITION_COST 1
         /**
          * frame_position_cost: value = sum_r a(p_f,r(q) - p_des_r; W[r], eps) on a baked cost frame
          *
@@ -34580,6 +33610,7 @@ namespace grid {
             }
         }
 
+        #define GRID_PLANT_HAS_FRAME_ORIENTATION_COST 1
         /**
          * frame_orientation_cost: value = sum_r a(e_r; W[r], eps), e = log(R_des^T R_f(q)) on a baked cost frame
          *
@@ -34602,8 +33633,8 @@ namespace grid {
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
                 T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
-                T e[3]; plant_so3_log<T>(E, e);
-                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                T e[3]; grid::glass::thread::so3_log<T>(E, e);
+                T Ji[9]; grid::glass::thread::so3_right_jacobian_inv<T>(e, Ji);
                 for (int vi = 0; vi < 6; ++vi) {
                     T *Jc = &s_J[6 * vi];
                     T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
@@ -34637,8 +33668,8 @@ namespace grid {
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
                 T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
-                T e[3]; plant_so3_log<T>(E, e);
-                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                T e[3]; grid::glass::thread::so3_log<T>(E, e);
+                T Ji[9]; grid::glass::thread::so3_right_jacobian_inv<T>(e, Ji);
                 for (int vi = 0; vi < 6; ++vi) {
                     T *Jc = &s_J[6 * vi];
                     T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
@@ -34680,8 +33711,8 @@ namespace grid {
             if(threadIdx.x == 0 && threadIdx.y == 0){
                 T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
                 T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
-                T e[3]; plant_so3_log<T>(E, e);
-                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                T e[3]; grid::glass::thread::so3_log<T>(E, e);
+                T Ji[9]; grid::glass::thread::so3_right_jacobian_inv<T>(e, Ji);
                 for (int vi = 0; vi < 6; ++vi) {
                     T *Jc = &s_J[6 * vi];
                     T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
@@ -34704,7 +33735,7 @@ namespace grid {
          *
          * Notes:
          *   Column j of the world-axis Jacobian is a_j x (p_f - p_j) (revolute) or l_j (prismatic). A joint m moves everything downstream of it rigidly: for m an ancestor-or-self of j the axis, origin and frame point, for m downstream of j the frame point alone. Serial over the baked chain pairs.
-         *   Fixed base only (the floating root has no single axis); the world transforms are read back from the frame_eval arena.
+         *   On a floating base the root enters as six columns (three translations, three rotations about the base origin, axes in the base frame) under the same rules, so the derivative is taken along the tangent; the world transforms are read back from the frame_eval arena.
          *
          * @param s_frame / s_scratch / cf / s_q / s_qd / d_robotModel as for frame_velocity_cost
          */
@@ -34772,7 +33803,7 @@ namespace grid {
          * frame_velocity_cost: value = sum_r a(v_r - v_des_r; W[r], eps), v = J(q) qd the frame twist [linear; angular] with world axes at the frame point
          *
          * Notes:
-         *   ACCUMULATE=false overwrites s_out[0]; true adds. Fixed base.
+         *   ACCUMULATE=false overwrites s_out[0]; true adds.
          *
          * @param s_out is the scalar cost output (s_out[0])
          * @param cf is the cost-frame index; s_q / s_qd are the joint positions and velocities
@@ -34845,6 +33876,9 @@ namespace grid {
         }
 
         #define GRID_PLANT_HAS_COST_MENU 1
+        const int GRID_PLANT_MENU_TANGENT = 0;  // 1: the preset is in the tangent layout (gradient 2*NUM_VEL, Hessian 2*NUM_VEL square, input NUM_VEL - 6)
+        const int GRID_PLANT_MENU_NU = 6;  // the input width of the preset
+        const int GRID_PLANT_MENU_NLX = 12;  // the variable width of the linear x feature ([q[7:]; qd] on a floating base, x on a fixed base)
         /**
          * cost_menu_params: the per-knot buffers of tracking_cost_menu (every pointer a runtime buffer; a term whose activation is GRID_PLANT_ACTIVATION_NONE is skipped)
          *
@@ -34852,7 +33886,7 @@ namespace grid {
          *   x_des / u_des / Q / R and the barrier bound-and-mu triples as tracking_cost; ee_des / W are the cost-frame CF position target and weight.
          *   activation (GRID_PLANT_MENU_TERMS ints) and eps (same length) select and parameterize every term, order GRID_PLANT_MENU_*.
          *   x_lower / x_upper, ub_lower / ub_upper, lx_lower / lx_upper, lu_lower / lu_upper, v_lower / v_upper, cf_lower / cf_upper are the barrier-activation bounds of the matching term (nullptr when unused).
-         *   Ax / bx / tx / Wx (MX rows over NX) and Au / bu / tu / Wu (MU rows over NU) are the linear features; R_des / Wo the orientation of frame CF; v_des / Wv its twist; cf_des / Wcf the position of frame CF2.
+         *   Ax / bx / tx / Wx (MX rows over GRID_PLANT_MENU_NLX) and Au / bu / tu / Wu (MU rows over GRID_PLANT_MENU_NU) are the linear features; R_des / Wo the orientation of frame CF; v_des / Wv its twist; cf_des / Wcf the position of frame CF2.
          *
          */
         template <typename T>
@@ -34875,9 +33909,9 @@ namespace grid {
          *   With quadratic activations on the first three terms, the others GRID_PLANT_ACTIVATION_NONE and MX = MU = 0, the value equals tracking_cost. Fixed base.
          *
          * @param s_out is the scalar total-cost output (s_out[0])
-         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param s_x / s_u are the current state [q; qd] (size 12) and control (size 6); p holds every per-knot buffer
          * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
-         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(90, MX, MU) elements; d_robotModel is the GPU model
          */
         template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
         __device__
@@ -34925,16 +33959,16 @@ namespace grid {
         }
 
         /**
-         * tracking_cost_menu_gradient: s_qk (state gradient, NX) + s_rk (input gradient, NU) of tracking_cost_menu
+         * tracking_cost_menu_gradient: s_qk (state gradient, 12) + s_rk (input gradient, 6) of tracking_cost_menu
          *
          * Notes:
-         *   Every term adds into the blocks after a sync; ACCUMULATE=false zeroes them first.
+         *   Every term adds into the blocks after a sync; ACCUMULATE=false zeroes them first. Fixed base.
          *
          * @param s_qk is the state-block gradient output (size 12)
          * @param s_rk is the input-block gradient output (size 6)
-         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param s_x / s_u are the current state [q; qd] (size 12) and control (size 6); p holds every per-knot buffer
          * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
-         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(90, MX, MU) elements; d_robotModel is the GPU model
          */
         template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
         __device__
@@ -34989,16 +34023,16 @@ namespace grid {
         }
 
         /**
-         * tracking_cost_menu_hessian: s_Qk (state GN Hessian, NX*NX) + s_Rk (input Hessian, NU*NU) of tracking_cost_menu
+         * tracking_cost_menu_hessian: s_Qk (state GN Hessian, 12*12) + s_Rk (input Hessian, 6*6) of tracking_cost_menu
          *
          * Notes:
-         *   Gauss-Newton throughout; every term adds after a sync; ACCUMULATE=false zeroes the blocks first.
+         *   Gauss-Newton throughout; every term adds after a sync; ACCUMULATE=false zeroes the blocks first. Fixed base.
          *
          * @param s_Qk is the state GN Hessian output (size 144, column-major)
          * @param s_Rk is the input Hessian output (size 36, column-major)
-         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param s_x / s_u are the current state [q; qd] (size 12) and control (size 6); p holds every per-knot buffer
          * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
-         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(90, MX, MU) elements; d_robotModel is the GPU model
          */
         template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
         __device__
@@ -35234,7 +34268,6 @@ namespace grid {
             //   T s_dInt_v_6x6[36]
             //   T s_XImats[432]
             //   T s_temp[1332]
-            //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
             extern __shared__ __align__(16) unsigned char s_arena[];
             size_t s_arena_offset = 0;
             s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -35286,14 +34319,8 @@ namespace grid {
             T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
             int *s_topology_helpers = nullptr;
-            unsigned char *s_linalg_smem = nullptr;
-            if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-            }
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(2832, 0));
             #endif
             (void)s_arena_offset;
             for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -35336,7 +34363,6 @@ namespace grid {
             T *s_XImats;
             T *s_temp;
             int *s_topology_helpers;
-            unsigned char *s_linalg_smem;
             static __device__ plant_step_gradient_arena<T> carve(void *base) {
                 unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
                 size_t s_arena_offset = 0;
@@ -35390,12 +34416,6 @@ namespace grid {
                 a.s_temp = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
                 s_arena_offset += sizeof(T) * static_cast<size_t>(1332);
                 a.s_topology_helpers = nullptr;
-                a.s_linalg_smem = nullptr;
-                if (static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                    s_arena_offset = grid::grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    a.s_linalg_smem = grid::grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
                 assert(s_arena_offset <= grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_SHARED>());
                 #endif
@@ -35434,7 +34454,6 @@ namespace grid {
                 //   T s_qdd[6]
                 //   T s_XImats[432]
                 //   T s_temp[2814]
-                //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -35468,14 +34487,8 @@ namespace grid {
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
-                unsigned char *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                    s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(8994, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(8994, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -35507,7 +34520,6 @@ namespace grid {
                 //   T s_qdd[6]
                 //   T s_XImats[432]
                 //   T s_temp[2814]
-                //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -35541,14 +34553,8 @@ namespace grid {
                 T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
                 s_arena_offset += sizeof(T) * static_cast<size_t>(2814);
                 int *s_topology_helpers = nullptr;
-                unsigned char *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                    s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(8994, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(8994, 0));
                 #endif
                 (void)s_arena_offset;
                 (void)d_workspace;
@@ -35576,7 +34582,6 @@ namespace grid {
                 //   T s_df_du[72]
                 //   T s_qdd[6]
                 //   T s_XImats[432]
-                //   bytes s_linalg_smem[GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()]
                 extern __shared__ __align__(16) unsigned char s_arena[];
                 size_t s_arena_offset = 0;
                 s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
@@ -35599,14 +34604,8 @@ namespace grid {
                 s_arena_offset += sizeof(T) * static_cast<size_t>(432);
                 T *s_temp = nullptr;
                 int *s_topology_helpers = nullptr;
-                unsigned char *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) > 0) {
-                    s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
-                    s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
-                    s_arena_offset += static_cast<size_t>(GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
-                }
                 #ifdef GRID_CUDA_DEBUG_LAYOUT
-                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()));
+                assert(s_arena_offset == grid_shared_arena_bytes<T>(564, 0));
                 #endif
                 (void)s_arena_offset;
                 for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
@@ -35634,7 +34633,7 @@ namespace grid {
             }
         }
 
-        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(8994, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(8994, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()) : grid::grid_shared_arena_bytes<T>(564, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()); }
+        template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(8994, grid::TOPOLOGY_HELPERS_COUNT) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(8994, grid::TOPOLOGY_HELPERS_COUNT) : grid::grid_shared_arena_bytes<T>(564, grid::TOPOLOGY_HELPERS_COUNT); }
         static const int GRID_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER = 1;
         #define GRID_PLANT_HAS_STEP_HESSIAN 1
         /**

@@ -140,8 +140,7 @@ __host__ void debug_contact_dynamics(T* d_qdd, T* d_fext, T* d_dqdd_dfc, T* d_dq
         // f_ext_gradient arena (XImats + minv/jacobianT temp) and the hom-transform
         // family (~288 + EE linalg bytes) on every generated robot. fc builds append
         // the adapter's persistent fc block after the FD_DU arena.
-        const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT) * sizeof(T)
-                            + static_cast<size_t>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+        const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT) * sizeof(T);
         debug_contact_dynamics_kernel<T><<<1, 128, smem>>>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
                                                         d_dqdd_dfc_adapter, d_dqdd_dq_adapter,
                                                         d_q, d_qd, d_u, d_fc, d_GRiD_mem);

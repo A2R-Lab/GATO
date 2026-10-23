@@ -44,6 +44,13 @@
       "RR_foot_joint",
       "RL_foot_joint"
     ],
+    "cost_frames": [
+      "imu_joint",
+      "FR_foot_joint",
+      "FL_foot_joint",
+      "RR_foot_joint",
+      "RL_foot_joint"
+    ],
     "ee_frame": "imu_joint",
     "floating_base": true,
     "nq": 19,

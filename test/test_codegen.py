@@ -17,7 +17,8 @@ ROBOT_KW = {
     "indy7": dict(ee_frame="EE"),
     "iiwa14": dict(ee_frame="EE"),
     "go2": dict(ee_frame="imu_joint", floating_base=True,
-                contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"]),
+                contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"],
+                cost_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"]),
     "fr3": dict(ee_frame="fr3_hand_tcp_joint"),
     "gen3": dict(ee_frame="tool_frame_joint"),
     "ur5e": dict(ee_frame="tool0_joint"),
@@ -150,8 +151,8 @@ def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, 
 def test_cost_frames_bake_a_second_frame(urdfs, tmp_path):
     """cost_frames=[joint] bakes that joint as cost frame 1 behind the end-effector
     target (frame 0): the header reports two frames and the registry metadata the
-    list; a floating-base plant takes no cost frames (the menu is fixed-base only
-    in grid-rbd 0.5.4); the codegen key moves with the list."""
+    list; on a floating base the target is frame 0 too and the menu is in the
+    tangent layout; the codegen key moves with the list."""
     from gato.builder import _codegen_key
     out = tmp_path / "iiwa14_elbow"
     meta = codegen(urdfs["iiwa14"], "iiwa14_elbow", out_dir=out, register=False, ee_frame="EE", cost_frames=["A4"])
@@ -164,6 +165,9 @@ def test_cost_frames_bake_a_second_frame(urdfs, tmp_path):
     k0 = _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False)
     k1 = _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False, cost_frames=["A4"])
     assert k0 != k1 and k0 == _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False, cost_frames=[])
-    with pytest.raises(ValueError, match="fixed-base only"):
-        codegen(REPO_GO2, "go2_frames", out_dir=tmp_path / "go2", register=False, ee_frame="imu_joint",
-                floating_base=True, contact_frames=ROBOT_KW["go2"]["contact_frames"], cost_frames=["FL_hip_joint"])
+    # a floating base: the imu target is cost frame 0 and the named frame follows; the menu is in the tangent layout
+    meta_go2 = codegen(REPO_GO2, "go2_frames", out_dir=tmp_path / "go2_frames", register=False, ee_frame="imu_joint",
+                       floating_base=True, contact_frames=ROBOT_KW["go2"]["contact_frames"], cost_frames=["FL_hip_joint"])
+    assert meta_go2["cost_frames"] == ["imu_joint", "FL_hip_joint"]
+    text = (tmp_path / "go2_frames" / "grid.cuh").read_text()
+    assert "#define GRID_PLANT_HAS_COST_MENU 1" in text and "const int GRID_PLANT_MENU_TANGENT = 1;" in text

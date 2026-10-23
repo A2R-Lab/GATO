@@ -39,7 +39,7 @@ dependencies = [
     "scipy>=1.15.2",           # trimesh voxel fill; missing it changes the generated collision geometry
     # the code generator, URDFParser, the GLASS headers and GRiD's collision headers all
     # come from this one released wheel; gato._grid pins the exact version + bundled GLASS
-    "grid-rbd==0.5.4",
+    "grid-rbd==0.5.5",
     "platformdirs>=4.0",       # per-host cache of registered robots / compiled modules (gato.register_robot)
     # build the bsqpN{knot}_{plant}.so pybind11 extensions
     "pybind11>=2.13.6",

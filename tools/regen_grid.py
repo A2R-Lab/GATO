@@ -41,10 +41,14 @@ ROBOTS = {
     # contact frames = the four feet (fc-on-feet wave); floating_base=True is
     # REQUIRED (codegen does NOT auto-detect the free-flyer — a fixed-base
     # parse of go2 crashes the named-target EE emitter).
+    # cost_frames: the feet follow the imu target (cost frame 0) as cost frames 1 to 4;
+    # the menu preset addresses frames 0 and 1 (the imu and the FR foot)
     "go2": dict(urdf=REPO_ROOT / "examples" / "go2_description" / "go2.urdf",
                 ee_frame="imu_joint", collision_res=0.15, floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint",
-                                "RR_foot_joint", "RL_foot_joint"]),
+                                "RR_foot_joint", "RL_foot_joint"],
+                cost_frames=["FR_foot_joint", "FL_foot_joint",
+                             "RR_foot_joint", "RL_foot_joint"]),
 }
 
 
@@ -64,7 +68,8 @@ def main() -> None:
                        algorithm_list="all" if args.all_algos else None,
                        collision_res=spec.get("collision_res"),
                        contact_frames=spec.get("contact_frames"),
-                       floating_base=spec.get("floating_base", False))
+                       floating_base=spec.get("floating_base", False),
+                       cost_frames=spec.get("cost_frames"))
         print(f"[{rid}] wrote gato/dynamics/{rid}/{{grid.cuh, limits.cuh}}  meta={meta}")
     print("Done.")
 
