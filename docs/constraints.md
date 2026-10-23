@@ -14,6 +14,14 @@ Mechanisms: `telemetry` (report only) · `barrier` (relaxed log barrier, soft)
 approximately hard) · `al` (PHR augmented Lagrangian, outer loop = warm-started
 repeat solves — pass `xu_warm` explicitly).
 
+Since 0.2.0 the cost menu ([cost_menu.md](cost_menu.md)) offers barrier
+activations (a relaxed log barrier and a quadratic barrier on any term's
+feature value, per knot). They are cost terms evaluated in the merit and the
+KKT blocks, with no duals, no projection and no feasibility telemetry; the
+row groups below stay the constraint layer, and the two compose: the limit
+barriers of the tracking objective stay in force under the menu, and any row
+group can be active with any menu.
+
 ## Mechanism comparison example
 
 ![Constraint mechanisms on one Indy7 pick-and-place scenario](assets/constraint-mechanisms.png)

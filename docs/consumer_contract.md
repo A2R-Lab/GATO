@@ -72,6 +72,18 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 - Weights land literally on the KKT diagonals — `debug_setup_kkt` exposes the
   blocks, and `test/test_anchor.py` shows the pattern for verifying any cost
   claim directly instead of arguing from solve outcomes.
+- **The cost menu** (0.2.0, [cost_menu.md](cost_menu.md)) replaces everything
+  above except the limit barriers: up to eight residual terms (frame position
+  and orientation, state, input, linear features on x and u, the frame twist,
+  a second frame) under per-knot activations (quadratic, pseudo-Huber, relaxed
+  log barrier, quadratic barrier), targets and weights per knot, shared or per
+  solve. While a menu is on the setters above raise. The orientation residual
+  is the log map, the twist is linear then angular with world axes at the
+  frame point, matrices are column-major on the device (the Python layer
+  converts). Fixed-base plants only in grid-rbd 0.5.4; on the Go2 the base
+  pose goes through the posture anchor: the first six entries of
+  `set_q_pos_cost` with an array are the base tangent weights and the first seven of
+  `set_q_nom` the stored base pose.
 
 ## 4. Solve interface
 

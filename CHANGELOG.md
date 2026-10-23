@@ -2,6 +2,39 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.2.0 — unreleased: the cost menu
+
+- The cost menu (`gato.cost_menu`, [docs/cost_menu.md](docs/cost_menu.md)):
+  `BSQP.set_cost_menu(CostMenu(...))` replaces the tracking objective with up
+  to eight terms under per-knot activations, GRiD's generated
+  `grid_plant::tracking_cost_menu` of grid-rbd 0.5.4: end-effector position
+  and orientation (the log-map residual), state, input, linear features on x
+  and u, the end-effector twist, a second baked frame; quadratic, pseudo-Huber,
+  relaxed log barrier and quadratic barrier activations; targets, weights,
+  bounds and parameters per knot, shared across the batch or per solve. The
+  input target may be the gravity torque at a reference configuration. The
+  setup-KKT and merit kernels carry a second instantiation for the menu, so
+  the default kernels and the goldens are unchanged; with quadratic
+  activations the menu reproduces the tracking objective to rounding. The
+  legacy cost setters raise while a menu is on. `BSQP.cost_menu_terms(xu)`
+  reads the value of every term along a trajectory. Fixed-base plants only in
+  0.5.4; not on the contact-force variant. Examples 16 to 18. Issue #20 (Felix
+  Mueh) asked for custom costs, an orientation target and a dead-zone
+  activation.
+- Codegen bakes cost frames: the end-effector target is cost frame 0 on every
+  fixed-base plant (the arms' headers grow by the frame family and the menu,
+  additively), and `gato.build(..., cost_frames=[joint, ...])` or
+  `register_robot(..., cost_frames=[...])` bakes extra frames for the menu's
+  second position term. The frame list is part of the codegen key and the
+  registry.
+- The Go2 base pose: the first six entries of the per-joint `set_q_pos_cost` array are the
+  base-pose tangent weights (position, orientation) and the first seven of
+  `set_q_nom` the stored base pose they pull toward, a weight change on the
+  existing tangent state cost (the base rows weighed zero before). `BSQP.set_q_nom`
+  validates the quaternion. Bit-identical with the weights off. Example 19 and a KKT gate.
+- The merit timing page no longer says the fused launch lost in every cell:
+  on the Indy7 at batch 8 and 16 the ratio sat inside the repeat spread.
+
 ## 0.1.3 — 2026-10-21: GPUs with few SMs, joint damping, topology helpers
 
 - The fixed-base dynamics adapter allocates GRiD's topology helper buffer

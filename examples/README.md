@@ -35,6 +35,10 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`13_more_arms.py`](13_more_arms.py) | The arms added in 0.1.2 (FR3, Gen3, UR5e) under the controller defaults on figure-8s sized from their own URDF limits (`gato.tasks`): a feasible reference and one that asks for more than the velocity limit, with the telemetry-only run for contrast; the simulated plant's peak velocity and torque against the limits, the planner's violation, ADMM inner iterations. |
 | [`14_mujoco_closed_loop.py`](14_mujoco_closed_loop.py) | GATO inside a MuJoCo loop: the MuJoCo model from the same URDF, the dynamics fingerprint check on MuJoCo's forward dynamics, the controller defaults with a step budget, torques through `qfrc_applied` and substeps; the iiwa14 on a figure-8 sized from its velocity limits. |
 | [`15_solver_stats.py`](15_solver_stats.py) | Reading `SolveResult.stats` and `summary()`: the device time of each stage per SQP iteration (KKT setup, Schur assembly, linear system, merit, line search) as a share of the solve, cold and warm, and the knobs that move each stage. |
+| [`16_cost_menu.py`](16_cost_menu.py) | The cost menu: the tracking objective spelled as a menu and checked against it, then per-solve goals, a pseudo-Huber posture term, targets that move from tick to tick, the per-term readout; [the page](../docs/cost_menu.md). |
+| [`17_tool_pose_and_posture.py`](17_tool_pose_and_posture.py) | A tool pose: an orientation target (the log-map residual), a linear feature holding the elbow, an input cost measured against the gravity torque at a reference configuration; the cost split per term along the horizon. |
+| [`18_robust_reference.py`](18_robust_reference.py) | A reference with corrupted knots: the quadratic and the pseudo-Huber tracking term on the same problem, the planned end-effector path against the clean reference and the outliers. |
+| [`19_go2_standing.py`](19_go2_standing.py) | A standing reference for the Go2 through the posture anchor's base-pose weights (the floating-base menu is the next GRiD batch): a lowered and rolled base returns to the stance. |
 
 ```bash
 python examples/01_single_solve.py
@@ -53,6 +57,10 @@ python examples/13_more_arms.py             # needs bsqpN64_{fr3,gen3,ur5e} (the
 python examples/14_mujoco_closed_loop.py    # needs bsqpN64_iiwa14 and mujoco
 python examples/14_mujoco_closed_loop.py --correctness-only --periods 1  # no clock-dependent budget or timing report
 python examples/15_solver_stats.py
+python examples/16_cost_menu.py
+python examples/17_tool_pose_and_posture.py   # needs pinocchio
+python examples/18_robust_reference.py        # needs pinocchio
+python examples/19_go2_standing.py            # needs bsqpN16_go2 and pinocchio
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

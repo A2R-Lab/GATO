@@ -216,7 +216,9 @@ The intro demos in [examples/](examples/) walk the whole surface:
 `11_deadline_step.py` (the step budget), `12_constraint_mechanisms.py` (the four limit
 mechanisms on one task), `13_more_arms.py` (the FR3, Gen3 and UR5e on figure-8s sized
 from their own limits), `14_mujoco_closed_loop.py` (an independent MuJoCo loop),
-`15_solver_stats.py` (where a solve's time goes, stage by stage).
+`15_solver_stats.py` (where a solve's time goes, stage by stage), `16_cost_menu.py` to
+`19_go2_standing.py` (the cost menu: orientation targets, robust and barrier activations, linear
+features, a gravity-relative effort cost, the Go2 base-pose weights; [docs/cost_menu.md](docs/cost_menu.md)).
 See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).
 
 ### C++/CUDA interface (power users)
@@ -396,7 +398,9 @@ tracks; on a floating base, the base-pose target frame); every actuated joint
 needs bounded `<limit>` tags (the barrier cost uses them). `joint_dynamics=True`
 bakes the URDF's `<dynamics damping>` and `friction` into the dynamics and
 its derivatives, the friction as GRiD's smooth `tanh` model with
-`friction_width` (rad/s, default 0.03; match it to the plan step). Scope: serial chains,
+`friction_width` (rad/s, default 0.03; match it to the plan step). `cost_frames=[...]`
+bakes extra URDF joints as cost frames for the cost menu's second position term (the
+end-effector target is always cost frame 0; [docs/cost_menu.md](docs/cost_menu.md)). Scope: serial chains,
 fixed or floating base (quaternion free-flyer). Codegen is skipped when nothing
 that feeds it changed (URDF, the grid-rbd release, algorithm set, options). The same path is
 exposed as a CLI for the vendored robots: `python tools/regen_grid.py`. Built
