@@ -7,6 +7,9 @@
     "contact_frames": [
       "fr3_hand_tcp_joint"
     ],
+    "cost_frames": [
+      "fr3_hand_tcp_joint"
+    ],
     "ee_frame": "fr3_hand_tcp_joint",
     "floating_base": false,
     "nq": 7,
@@ -19,6 +22,9 @@
       "res": 0.15
     },
     "contact_frames": [
+      "tool_frame_joint"
+    ],
+    "cost_frames": [
       "tool_frame_joint"
     ],
     "ee_frame": "tool_frame_joint",
@@ -52,6 +58,9 @@
     "contact_frames": [
       "EE"
     ],
+    "cost_frames": [
+      "EE"
+    ],
     "ee_frame": "EE",
     "floating_base": false,
     "nq": 7,
@@ -66,6 +75,9 @@
     "contact_frames": [
       "EE"
     ],
+    "cost_frames": [
+      "EE"
+    ],
     "ee_frame": "EE",
     "floating_base": false,
     "nq": 6,
@@ -78,6 +90,9 @@
       "res": 0.15
     },
     "contact_frames": [
+      "tool0_joint"
+    ],
+    "cost_frames": [
       "tool0_joint"
     ],
     "ee_frame": "tool0_joint",

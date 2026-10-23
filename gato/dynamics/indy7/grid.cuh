@@ -75,7 +75,7 @@
  *   By default device and kernels need to be launched with dynamic shared mem of size <FUNC_CODE>_DYNAMIC_SHARED_MEM_COUNT where <FUNC_CODE> = [INVERSE_DYNAMICS, MINV, FORWARD_DYNAMICS, INVERSE_DYNAMICS_GRADIENT, FORWARD_DYNAMICS_GRADIENT]
  *   
  *   Codegen profile: all
- *   Generated algorithms: end_effector_pose, end_effector_pose_gradient, end_effector_pose_hessian, f_ext_gradient, fdsva_so, forward_dynamics, forward_dynamics_gradient, idsva_so_body_frame, integrator, integrator_gradient, integrator_with_gradient, inverse_dynamics, inverse_dynamics_gradient, minv
+ *   Generated algorithms: end_effector_pose, end_effector_pose_gradient, end_effector_pose_hessian, f_ext_gradient, fdsva_so, forward_dynamics, forward_dynamics_gradient, frame_jacobian, idsva_so_body_frame, integrator, integrator_gradient, integrator_with_gradient, inverse_dynamics, inverse_dynamics_gradient, minv
  *   
  *   Additional EEPose Functions Included for Fixed Kinematic Target: EE
  *   
@@ -31300,6 +31300,415 @@ namespace grid {
         // [centroidal] generalized_gravity/nonlinear_effects skipped: not requested (request 'generalized_gravity'/'nonlinear_effects').
         // [centroidal] com/ccrba/energy/dccrba/cmm_time_variation skipped: not requested.
         // [coriolis] coriolis_matrix skipped: not requested (request 'coriolis_matrix').
+        template <typename T> __host__ __device__ constexpr size_t FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES() { return grid_shared_arena_bytes<T>(266, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+        #define GRID_HAS_FRAME_JACOBIAN 1
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param s_J is the output 6 x NUM_VEL geometric Jacobian (column-major, [linear; angular])
+         * @param target_jid is the joint id whose frame Jacobian is requested
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED
+         * @param s_q is the vector of joint positions (unused; baked into s_Xhom)
+         * @param s_Xhom is the per-joint LOCAL homogeneous transforms
+         * @param d_robotModel is the GPU model helpers
+         * @param s_temp is scratch of size 96
+         */
+        template <typename T>
+        __device__
+        void frame_jacobian_inner(T *s_J, const int target_jid, const int reference_frame, const T *s_q, const T *s_Xhom, const robotModel<T> *d_robotModel, T *s_temp) {
+            (void)s_q;
+            T *s_Xworld = &s_temp[0];
+            // Step 1: world homogeneous transforms (chain-up of local s_Xhom)
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 0; const int par = -1;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 1; const int par = 0;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 2; const int par = 1;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 3; const int par = 2;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 4; const int par = 3;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+                int slot = ind / 16; int ele = ind % 16;
+                int row = ele & 3; int col = ele >> 2;
+                const int jid = 5; const int par = 4;
+                if (par == -1) { s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele]; }
+                else { s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]); }
+            }
+            __syncthreads();
+            glass::set_const<T, 36>(static_cast<T>(0), s_J);
+            // Step 3: geometric Jacobian at frame origin, world axes
+            static const int fj_target[] = { 0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5 };
+            static const int fj_jj[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5 };
+            static const int fj_vi[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5 };
+            static const T fj_ang[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1) };
+            static const T fj_lin[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                const T *Xf = &s_Xworld[16*target_jid];
+                T pfx = Xf[12], pfy = Xf[13], pfz = Xf[14];
+                for (int t = 0; t < 21; ++t) {
+                    if (fj_target[t] != target_jid) continue;
+                    int jj = fj_jj[t]; int vi = fj_vi[t];
+                    const T *Xj = &s_Xworld[16*jj];
+                    T a0=fj_ang[3*t], a1=fj_ang[3*t+1], a2=fj_ang[3*t+2];
+                    T l0=fj_lin[3*t], l1=fj_lin[3*t+1], l2=fj_lin[3*t+2];
+                    T aw0 = Xj[0]*a0 + Xj[4]*a1 + Xj[8]*a2;
+                    T aw1 = Xj[1]*a0 + Xj[5]*a1 + Xj[9]*a2;
+                    T aw2 = Xj[2]*a0 + Xj[6]*a1 + Xj[10]*a2;
+                    T lw0 = Xj[0]*l0 + Xj[4]*l1 + Xj[8]*l2;
+                    T lw1 = Xj[1]*l0 + Xj[5]*l1 + Xj[9]*l2;
+                    T lw2 = Xj[2]*l0 + Xj[6]*l1 + Xj[10]*l2;
+                    T pjx = Xj[12], pjy = Xj[13], pjz = Xj[14];
+                    T dx = pfx - pjx, dy = pfy - pjy, dz = pfz - pjz;
+                    T linf0 = lw0 + (aw1*dz - aw2*dy);
+                    T linf1 = lw1 + (aw2*dx - aw0*dz);
+                    T linf2 = lw2 + (aw0*dy - aw1*dx);
+                    T *Jc = &s_J[6*vi];
+                    Jc[0]+=linf0; Jc[1]+=linf1; Jc[2]+=linf2; Jc[3]+=aw0; Jc[4]+=aw1; Jc[5]+=aw2;
+                }
+            }
+            __syncthreads();
+            // Step 4: reference-frame transform (in place per column)
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                const T *Xf2 = &s_Xworld[16*target_jid];
+                T Rf[9]; for (int c=0;c<3;++c) for (int r=0;r<3;++r) Rf[r+3*c] = Xf2[r + 4*c];
+                T pfx2 = Xf2[12], pfy2 = Xf2[13], pfz2 = Xf2[14];
+                for (int vi = 0; vi < 6; ++vi) {
+                    T *Jc = &s_J[6*vi];
+                    T v0=Jc[0], v1=Jc[1], v2=Jc[2], w0=Jc[3], w1=Jc[4], w2=Jc[5];
+                    if (reference_frame == 1) {
+                      Jc[0] = v0 + (pfy2*w2 - pfz2*w1);
+                      Jc[1] = v1 + (pfz2*w0 - pfx2*w2);
+                      Jc[2] = v2 + (pfx2*w1 - pfy2*w0);
+                    } else if (reference_frame == 0) {
+                      Jc[0] = Rf[0]*v0 + Rf[1]*v1 + Rf[2]*v2;
+                      Jc[1] = Rf[3]*v0 + Rf[4]*v1 + Rf[5]*v2;
+                      Jc[2] = Rf[6]*v0 + Rf[7]*v1 + Rf[8]*v2;
+                      Jc[3] = Rf[0]*w0 + Rf[1]*w1 + Rf[2]*w2;
+                      Jc[4] = Rf[3]*w0 + Rf[4]*w1 + Rf[5]*w2;
+                      Jc[5] = Rf[6]*w0 + Rf[7]*w1 + Rf[8]*w2;
+                    }
+                }
+            }
+            __syncthreads();
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param s_J holds the 6 x NUM_VEL geometric Jacobian (column-major, [linear; angular])
+         * @param target_jid is the joint id of the frame
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED
+         * @param s_q is the joint position vector
+         * @param d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void frame_jacobian_device(T *s_J, const int target_jid, const int reference_frame, const T *s_q, const robotModel<T> *d_robotModel) {
+            // GRID shared arena layout
+            //   T s_XmatsHom[128]
+            //   T s_temp[96]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            extern __shared__ __align__(16) unsigned char s_arena[];
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(96);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            frame_jacobian_inner<T>(s_J, target_jid, reference_frame, s_q, s_XmatsHom, d_robotModel, s_temp);
+            __syncthreads();
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param d_frame_jacobian is the vector of 6 x NUM_VEL geometric Jacobians (column-major, [linear; angular])
+         * @param d_q is the vector of joint positions
+         * @param stride_q is the stride between each q
+         * @param target_jid is the joint id whose frame Jacobian is requested (runtime)
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED (runtime)
+         * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+         * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+        __global__
+        __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
+        void frame_jacobian_kernel(T *d_frame_jacobian, const T *d_q, const int stride_q, const int target_jid, const int reference_frame, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+            // GRID shared arena layout
+            //   T s_q[6]
+            //   T s_frame_jacobian[36]
+            //   T s_XmatsHom[128]
+            //   T s_temp[96]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            extern __shared__ __align__(16) unsigned char s_arena[];
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(6);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_frame_jacobian = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(96);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(266, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+                // load to shared mem
+                const T *d_q_k = &d_q[k*stride_q];
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
+                    s_q[ind] = d_q_k[ind];
+                }
+                __syncthreads();
+                // compute
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                frame_jacobian_inner<T>(s_frame_jacobian, target_jid, reference_frame, s_q, s_XmatsHom, d_robotModel, s_temp);
+                __syncthreads();
+                // save down to global
+                T *d_frame_jacobian_k = &d_frame_jacobian[k*36];
+                for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
+                    d_frame_jacobian_k[ind] = s_frame_jacobian[ind];
+                }
+                __syncthreads();
+            }
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param d_frame_jacobian is the vector of 6 x NUM_VEL geometric Jacobians (column-major, [linear; angular])
+         * @param d_q is the vector of joint positions
+         * @param stride_q is the stride between each q
+         * @param target_jid is the joint id whose frame Jacobian is requested (runtime)
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED (runtime)
+         * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+         * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool MUJOCO_OUTPUT = false>
+        __global__
+        __launch_bounds__(tier_max_threads<RESOURCE_TIER>())
+        void frame_jacobian_kernel_single_timing(T *d_frame_jacobian, const T *d_q, const int stride_q, const int target_jid, const int reference_frame, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+            // GRID shared arena layout
+            //   T s_q[6]
+            //   T s_frame_jacobian[36]
+            //   T s_XmatsHom[128]
+            //   T s_temp[96]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            extern __shared__ __align__(16) unsigned char s_arena[];
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_q = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(6);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_frame_jacobian = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(36);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(96);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(266, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            // load to shared mem
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
+                s_q[ind] = d_q[ind];
+            }
+            __syncthreads();
+            // compute with NUM_TIMESTEPS as NUM_REPS for timing
+            for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
+                // anti-LICM: volatile reload of inputs each rep
+                for(int _aopt_i = threadIdx.x + threadIdx.y*blockDim.x; _aopt_i < 6; _aopt_i += blockDim.x*blockDim.y){
+                    reinterpret_cast<volatile T *>(s_q)[_aopt_i] = reinterpret_cast<const volatile T *>(d_q)[_aopt_i];
+                }
+                __syncthreads();
+                // anti-LICM (1/2): stomp one input slot with `rep`
+                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
+                    reinterpret_cast<volatile T *>(s_q)[rep % (6)] = static_cast<T>(rep);
+                }
+                // anti-LICM (2/2): feedback prev rep's d_frame_jacobian into s_q (true loop-carried dep)
+                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
+                    T _aopt_fb1 = reinterpret_cast<const volatile T *>(d_frame_jacobian)[(rep + 0x3FF) & 0x3FF];
+                    T _aopt_fb2 = reinterpret_cast<const volatile T *>(d_frame_jacobian)[(rep + 0x3FE) & 0x3FF];
+                    T _aopt_fb3 = reinterpret_cast<const volatile T *>(d_frame_jacobian)[(rep + 0x3FD) & 0x3FF];
+                    reinterpret_cast<volatile T *>(s_q)[(rep + 1) % (6)] += _aopt_fb1;
+                    reinterpret_cast<volatile T *>(s_q)[(rep + 2) % (6)] += _aopt_fb2;
+                    reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (6)] += _aopt_fb3;
+                }
+                __syncthreads();
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+                frame_jacobian_inner<T>(s_frame_jacobian, target_jid, reference_frame, s_q, s_XmatsHom, d_robotModel, s_temp);
+                __syncthreads();
+                if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_frame_jacobian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_frame_jacobian)[rep & 7]; }
+            }
+            // save down to global
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
+                d_frame_jacobian[ind] = s_frame_jacobian[ind];
+            }
+            __syncthreads();
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param hd_data is the packaged input and output pointers
+         * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+         * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+         * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+         * @param target_jid is the joint id of the requested frame (default leaf-EE)
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED (default LWA)
+         */
+        template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __host__
+        void frame_jacobian(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                    const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams, int target_jid = 5, int reference_frame = 2) {
+            static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "frame_jacobian requires all-data or kinematics gridData");
+            if (target_jid < 0) { target_jid = 5; }       // -1 => leaf-EE default (frame still honored)
+            if (reference_frame < 0) { reference_frame = 2; }  // -1 => LOCAL_WORLD_ALIGNED default
+            // start code with memory transfer
+            int stride_q;
+            if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+            else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+            gpuErrchkKernel();
+            // then call the kernel
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            dim3 _grid_thr_clamped_47 = grid_host_clamp_threads((const void*)&frame_jacobian_kernel<T, RESOURCE_TIER>, thread_dimms);
+            if (USE_COMPRESSED_MEM) {frame_jacobian_kernel<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_47,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            else                    {frame_jacobian_kernel<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_47,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q_qd_u,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            gpuErrchkKernel();
+            // finally transfer the result back
+            gpuErrchk(cudaMemcpy(hd_data->h_frame_jacobian,hd_data->d_frame_jacobian,6*NUM_VEL*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
+            gpuErrchkKernel();
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param hd_data is the packaged input and output pointers
+         * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+         * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+         * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+         * @param target_jid is the joint id of the requested frame (default leaf-EE)
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED (default LWA)
+         */
+        template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __host__
+        void frame_jacobian_single_timing(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                                  const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams, int target_jid = 5, int reference_frame = 2) {
+            static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "frame_jacobian requires all-data or kinematics gridData");
+            if (target_jid < 0) { target_jid = 5; }       // -1 => leaf-EE default (frame still honored)
+            if (reference_frame < 0) { reference_frame = 2; }  // -1 => LOCAL_WORLD_ALIGNED default
+            // start code with memory transfer
+            int stride_q;
+            if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+            else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+            gpuErrchkKernel();
+            // then call the kernel
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
+            dim3 _grid_thr_clamped_48 = grid_host_clamp_threads((const void*)&frame_jacobian_kernel_single_timing<T, RESOURCE_TIER>, thread_dimms);
+            if (USE_COMPRESSED_MEM) {frame_jacobian_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_48,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            else                    {frame_jacobian_kernel_single_timing<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_48,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q_qd_u,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            gpuErrchkKernel();
+            clock_gettime(CLOCK_MONOTONIC,&end);
+            // finally transfer the result back
+            gpuErrchk(cudaMemcpy(hd_data->h_frame_jacobian,hd_data->d_frame_jacobian,6*NUM_VEL*sizeof(T),cudaMemcpyDeviceToHost));
+            gpuErrchkKernel();
+            printf("Single Call FRAME_JACOBIAN %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
+        }
+
+        /**
+         * Compute a general-frame geometric Jacobian
+         *
+         * @param hd_data is the packaged input and output pointers
+         * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+         * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+         * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+         * @param target_jid is the joint id of the requested frame (default leaf-EE)
+         * @param reference_frame is 0=LOCAL, 1=WORLD, 2=LOCAL_WORLD_ALIGNED (default LWA)
+         */
+        template <typename T, bool USE_COMPRESSED_MEM = false, gridDataKind KIND = GRID_DATA_ALL, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __host__
+        void frame_jacobian_compute_only(gridData<T, KIND> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                                 const dim3 block_dimms, const dim3 thread_dimms, int target_jid = 5, int reference_frame = 2) {
+            static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS, "frame_jacobian requires all-data or kinematics gridData");
+            if (target_jid < 0) { target_jid = 5; }       // -1 => leaf-EE default (frame still honored)
+            if (reference_frame < 0) { reference_frame = 2; }  // -1 => LOCAL_WORLD_ALIGNED default
+            int stride_q = USE_COMPRESSED_MEM ? NUM_JOINTS: 3*NUM_JOINTS;
+            // then call the kernel
+            gpuErrchk(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            dim3 _grid_thr_clamped_49 = grid_host_clamp_threads((const void*)&frame_jacobian_kernel<T, RESOURCE_TIER>, thread_dimms);
+            if (USE_COMPRESSED_MEM) {frame_jacobian_kernel<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_49,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            else                    {frame_jacobian_kernel<T, RESOURCE_TIER><<<block_dimms,_grid_thr_clamped_49,FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(hd_data->d_frame_jacobian,hd_data->d_q_qd_u,stride_q,target_jid,reference_frame,d_robotModel,num_timesteps);}
+            gpuErrchkKernel();
+        }
+
         /**
          * Run inverse dynamics, Minv, and forward dynamics in sequence
          *
@@ -31612,6 +32021,13 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_64, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_64)", _e); } }
                 auto _grid_kern_alias_65 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel_single_timing<T>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_65, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_65)", _e); } }
+            }
+            if (FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(frame_jacobian)", _e); } }
+                auto _grid_kern_alias_66 = static_cast<void (*)(T *, const T *, const int, const int, const int, const robotModel<T> *, const int)>(&frame_jacobian_kernel<T>);
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_66, cudaFuncAttributeMaxDynamicSharedMemorySize, FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_66)", _e); } }
+                auto _grid_kern_alias_67 = static_cast<void (*)(T *, const T *, const int, const int, const int, const robotModel<T> *, const int)>(&frame_jacobian_kernel_single_timing<T>);
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_67, cudaFuncAttributeMaxDynamicSharedMemorySize, FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_67)", _e); } }
             }
             return cudaSuccess;
         }
@@ -32253,6 +32669,41 @@ namespace grid {
                 { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("end_effector_pose_hessian", END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(end_effector_pose_hessian)", _e); } }
                 auto _grid_kern_alias_0 = static_cast<void (*)(T *, T *, unsigned char *, const T *, const int, const robotModel<T> *, const int)>(&end_effector_pose_hessian_kernel<T>);
                 { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
+            }
+            return cudaSuccess;
+        }
+
+        /**
+         * Set MaxDynamicSharedMemorySize for the frame_jacobian kernel(s) only (callable from any TU; idempotent). Split-compile entry point: registers just this algo so a solo TU instantiates only its kernel.
+         *
+         */
+        template <typename T>
+        __host__ __forceinline__
+        void init_grid_kernel_attr_frame_jacobian(){
+            size_t _grid_smem_max = 0; gpuErrchk(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max));
+            if (FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+                gpuErrchk(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const int, const int, const robotModel<T> *, const int)>(&frame_jacobian_kernel<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+                auto _grid_kern_alias_1 = static_cast<void (*)(T *, const T *, const int, const int, const int, const robotModel<T> *, const int)>(&frame_jacobian_kernel_single_timing<T>);
+                gpuErrchk(cudaFuncSetAttribute(_grid_kern_alias_1, cudaFuncAttributeMaxDynamicSharedMemorySize, FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>()));
+            }
+        }
+
+        /**
+         * Library-safe MaxDynamicSharedMemorySize registration for the frame_jacobian kernel(s) only, WITHOUT the _single_timing bench twins (bindings entry point; callable from any TU; idempotent).
+         *
+         * @param failed_op (optional) receives a static string naming the failed operation
+         * @return cudaSuccess or the first error
+         */
+        template <typename T>
+        __host__ __forceinline__
+        cudaError_t init_grid_kernel_attr_frame_jacobian_checked(const char **failed_op = nullptr){
+            size_t _grid_smem_max = 0; { cudaError_t _e = GRID_CUDA_CALL(grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max)); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_get_max_dynamic_shared_memory_bytes(&_grid_smem_max))", _e); } }
+            if (FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>() <= _grid_smem_max) {
+                { cudaError_t _e = GRID_CUDA_CALL(grid_check_dynamic_shared_memory_bytes("frame_jacobian", FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "grid_check_dynamic_shared_memory_bytes(frame_jacobian)", _e); } }
+                auto _grid_kern_alias_0 = static_cast<void (*)(T *, const T *, const int, const int, const int, const robotModel<T> *, const int)>(&frame_jacobian_kernel<T>);
+                { cudaError_t _e = GRID_CUDA_CALL(cudaFuncSetAttribute(_grid_kern_alias_0, cudaFuncAttributeMaxDynamicSharedMemorySize, FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>())); if (_e != cudaSuccess) { return grid_fail(failed_op, "cudaFuncSetAttribute(_grid_kern_alias_0)", _e); } }
             }
             return cudaSuccess;
         }
@@ -33891,7 +34342,658 @@ namespace grid {
             }
         }
 
-        // [grid_plant] frame_eval / frame_*_cost / tracking_cost_menu skipped: require 'frame_jacobian' (pass cost_frames= or add it to the algorithm list).
+        // SO(3) helpers for the orientation residual (serial, column-major 3x3)
+        template <typename T>
+        __device__ __forceinline__
+        void plant_so3_log(const T *R, T *phi) {
+            T c = (R[0] + R[4] + R[8] - static_cast<T>(1)) * static_cast<T>(0.5);
+            c = c > static_cast<T>(1) ? static_cast<T>(1) : (c < static_cast<T>(-1) ? static_cast<T>(-1) : c);
+            T theta = acos(c);
+            T w0 = R[5] - R[7], w1 = R[6] - R[2], w2 = R[1] - R[3];
+            if (theta < static_cast<T>(1e-6)) { phi[0] = static_cast<T>(0.5) * w0; phi[1] = static_cast<T>(0.5) * w1; phi[2] = static_cast<T>(0.5) * w2; return; }
+            if (theta < static_cast<T>(3.14159265358979323846) - static_cast<T>(1e-4)) {
+                T k = theta / (static_cast<T>(2) * sin(theta));
+                phi[0] = k * w0; phi[1] = k * w1; phi[2] = k * w2; return;
+            }
+            // near pi: axis from the symmetric part (R + I)/2, sign from the antisymmetric part
+            T S0 = static_cast<T>(0.5) * (R[0] + static_cast<T>(1)), S4 = static_cast<T>(0.5) * (R[4] + static_cast<T>(1)), S8 = static_cast<T>(0.5) * (R[8] + static_cast<T>(1));
+            T a0, a1, a2;
+            if (S0 >= S4 && S0 >= S8) { T s = sqrt(S0 > static_cast<T>(1e-18) ? S0 : static_cast<T>(1e-18)); a0 = S0 / s; a1 = static_cast<T>(0.5) * (R[1] + R[3]) / s; a2 = static_cast<T>(0.5) * (R[2] + R[6]) / s; }
+            else if (S4 >= S8) { T s = sqrt(S4 > static_cast<T>(1e-18) ? S4 : static_cast<T>(1e-18)); a0 = static_cast<T>(0.5) * (R[1] + R[3]) / s; a1 = S4 / s; a2 = static_cast<T>(0.5) * (R[5] + R[7]) / s; }
+            else { T s = sqrt(S8 > static_cast<T>(1e-18) ? S8 : static_cast<T>(1e-18)); a0 = static_cast<T>(0.5) * (R[2] + R[6]) / s; a1 = static_cast<T>(0.5) * (R[5] + R[7]) / s; a2 = S8 / s; }
+            T n = sqrt(a0 * a0 + a1 * a1 + a2 * a2); a0 /= n; a1 /= n; a2 /= n;
+            if (a0 * w0 + a1 * w1 + a2 * w2 < static_cast<T>(0)) { a0 = -a0; a1 = -a1; a2 = -a2; }
+            phi[0] = theta * a0; phi[1] = theta * a1; phi[2] = theta * a2;
+        }
+
+        template <typename T>
+        __device__ __forceinline__
+        void plant_so3_right_jacobian_inv(const T *phi, T *J) {
+            T theta = sqrt(phi[0] * phi[0] + phi[1] * phi[1] + phi[2] * phi[2]);
+            T coef = (theta < static_cast<T>(1e-5)) ? (static_cast<T>(1) / static_cast<T>(12))
+                : (static_cast<T>(1) / (theta * theta) - (static_cast<T>(1) + cos(theta)) / (static_cast<T>(2) * theta * sin(theta)));
+            // S = [phi]x column-major; J = I + 1/2 S + coef S^2
+            T S[9] = { static_cast<T>(0), phi[2], -phi[1], -phi[2], static_cast<T>(0), phi[0], phi[1], -phi[0], static_cast<T>(0) };
+            for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) {
+                T s2 = S[r] * S[3 * c] + S[r + 3] * S[3 * c + 1] + S[r + 6] * S[3 * c + 2];
+                J[r + 3 * c] = ((r == c) ? static_cast<T>(1) : static_cast<T>(0)) + static_cast<T>(0.5) * S[r + 3 * c] + coef * s2;
+            }
+        }
+
+        #define GRID_PLANT_HAS_COST_FRAMES 1
+        const int GRID_PLANT_NUM_COST_FRAMES = 1;
+        // cost frames (index -> name): 0 = EE
+        const int GRID_PLANT_FRAME_SCRATCH_COUNT = 88;  // [X_f(16) | J(6*NV) | dJqd(6*NV)]
+        /**
+         * frame_eval: RAW caller-scratch cost-frame evaluator (world placement + LOCAL_WORLD_ALIGNED Jacobian at the frame point)
+         *
+         * Notes:
+         *   Lays out the XmatsHom arena from s_scratch, loads the transforms once, runs grid::frame_jacobian_inner at the frame's joint and shifts the linear rows to the frame point (a fixed joint's offset), so a named frame such as an elbow or a tool is addressed by its baked index.
+         *   s_X receives the 4x4 world placement (column-major), s_J the 6 x NUM_VEL Jacobian [linear; angular] with world axes at the frame point.
+         *   s_scratch must hold >= FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES<T>() bytes, 16B aligned; after the call s_scratch[0 .. 16*NUM_JOINTS) holds every joint's world transform (frame_velocity_cost reads it).
+         *
+         * @param s_J is the 6 x NUM_VEL Jacobian output; s_X is the 16-element placement output
+         * @param cf is the cost-frame index (0 .. GRID_PLANT_NUM_COST_FRAMES - 1)
+         * @param s_q is the joint position vector (size NUM_POS)
+         * @param s_scratch is caller shared scratch; d_robotModel is the GPU model helpers
+         */
+        template <typename T>
+        __device__
+        void frame_eval(T *s_J, T *s_X, const int cf, const T *s_q, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            using namespace grid;
+            static const int cf_jid[] = { 5 };
+            static const T cf_offset[] = { static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.059999999999999998), static_cast<T>(1) };
+            // GRID shared arena layout
+            //   T s_XmatsHom[128]
+            //   T s_temp[96]
+            //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+            unsigned char *s_arena = reinterpret_cast<unsigned char *>(s_scratch);
+            size_t s_arena_offset = 0;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(128);
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            T *s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(96);
+            int *s_topology_helpers = nullptr;
+            unsigned char *s_linalg_smem = nullptr;
+            if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+                s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+                s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+                s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+            }
+            #ifdef GRID_CUDA_DEBUG_LAYOUT
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(224, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+            #endif
+            (void)s_arena_offset;
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+            const int jid = cf_jid[cf];
+            frame_jacobian_inner<T>(s_J, jid, 2, s_q, s_XmatsHom, d_robotModel, s_temp);
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                // X_f = Xworld[jid] * X_offset; then shift the linear rows from the joint origin to the frame point
+                const T *Xj = &s_temp[16 * jid]; const T *O = &cf_offset[16 * cf];
+                for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) { s_X[r + 4 * c] = Xj[r] * O[4 * c] + Xj[r + 4] * O[4 * c + 1] + Xj[r + 8] * O[4 * c + 2] + Xj[r + 12] * O[4 * c + 3]; }
+                T dx = s_X[12] - Xj[12], dy = s_X[13] - Xj[13], dz = s_X[14] - Xj[14];
+                for (int vi = 0; vi < 6; ++vi) { T *Jc = &s_J[6 * vi]; T w0 = Jc[3], w1 = Jc[4], w2 = Jc[5]; Jc[0] += w1 * dz - w2 * dy; Jc[1] += w2 * dx - w0 * dz; Jc[2] += w0 * dy - w1 * dx; }
+            }
+            __syncthreads();
+        }
+
+        template <typename T> __host__ __device__ constexpr size_t FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES() { return grid::grid_shared_arena_bytes<T>(224, grid::TOPOLOGY_HELPERS_COUNT, grid::GRID_EE_LINALG_SHARED_BYTES<T>()); }
+        /**
+         * frame_position_cost: value = sum_r a(p_f,r(q) - p_des_r; W[r], eps) on a baked cost frame
+         *
+         * Notes:
+         *   The end-effector frame (cf = 0) under the quadratic activation reproduces ee_pos_cost. ACCUMULATE=false overwrites s_out[0]; true adds.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_p_des is the desired frame position (3); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the position)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT (holds X_f and the Jacobian after the call); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_position_cost(T *s_out, const T *s_q, const int cf, const T *s_p_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int r = 0; r < 3; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; T p = s_X[12 + r]; acc += activation_value<T>(activation, s_W[r], p - s_p_des[r], eps, p, lo, hi); }
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * frame_position_cost_gradient: grad_x = [J_p^T a'(r) ; 0] over x = [q; qd]
+         *
+         * Notes:
+         *   The qd-block (entries NUM_VEL..11) is set to zero when !ACCUMULATE. ACCUMULATE=false overwrites s_grad; true adds.
+         *
+         * @param s_grad is the gradient over x (size 12)
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_p_des is the desired frame position (3); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the position)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT (holds X_f and the Jacobian after the call); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_position_cost_gradient(T *s_grad, const T *s_q, const int cf, const T *s_p_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+                T g = static_cast<T>(0);
+                for (int r = 0; r < 3; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; T p = s_X[12 + r]; g += s_J[6 * i + r] * activation_slope<T>(activation, s_W[r], p - s_p_des[r], eps, p, lo, hi); }
+                if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
+            }
+            if (!ACCUMULATE) {
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+                    s_grad[6 + i] = static_cast<T>(0);
+                }
+            }
+        }
+
+        /**
+         * frame_position_cost_hessian: Gauss-Newton Hessian = J_p^T diag(a''(r)) J_p in the q-block of an NX x NX column-major matrix
+         *
+         * Notes:
+         *   The qd rows and columns are zero. ACCUMULATE=false overwrites s_hess; true adds.
+         *
+         * @param s_hess is the dense Hessian output (size 12*12, column-major)
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_p_des is the desired frame position (3); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the position)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT (holds X_f and the Jacobian after the call); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_position_cost_hessian(T *s_hess, const T *s_q, const int cf, const T *s_p_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 144; ind += blockDim.x*blockDim.y){
+                int row = ind % 12; int col = ind / 12;
+                T h = static_cast<T>(0);
+                if (row < 6 && col < 6) { for (int r = 0; r < 3; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; T p = s_X[12 + r]; h += s_J[6 * row + r] * activation_curvature<T>(activation, s_W[r], p - s_p_des[r], eps, p, lo, hi) * s_J[6 * col + r]; } }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        /**
+         * frame_orientation_cost: value = sum_r a(e_r; W[r], eps), e = log(R_des^T R_f(q)) on a baked cost frame
+         *
+         * Notes:
+         *   Log-map residual on the canonical branch |e| <= pi (no Euler chart); its Jacobian is Jr(e)^-1 times the frame's body-axes angular Jacobian.
+         *   ACCUMULATE=false overwrites s_out[0]; true adds.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_R_des is the desired rotation (3x3 column-major, 9); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost (no bounds: the residual is a rotation vector)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT; after the call its angular rows hold J_e and s_frame[0..2] the residual e; s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_orientation_cost(T *s_out, const T *s_q, const int cf, const T *s_R_des, const T *s_W, const int activation, const T eps, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
+                T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
+                T e[3]; plant_so3_log<T>(E, e);
+                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                for (int vi = 0; vi < 6; ++vi) {
+                    T *Jc = &s_J[6 * vi];
+                    T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
+                    Jc[3] = Ji[0] * wl0 + Ji[3] * wl1 + Ji[6] * wl2; Jc[4] = Ji[1] * wl0 + Ji[4] * wl1 + Ji[7] * wl2; Jc[5] = Ji[2] * wl0 + Ji[5] * wl1 + Ji[8] * wl2;
+                }
+                s_X[0] = e[0]; s_X[1] = e[1]; s_X[2] = e[2];
+                T acc = static_cast<T>(0);
+                for (int r = 0; r < 3; ++r) acc += activation_value<T>(activation, s_W[r], e[r], eps);
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * frame_orientation_cost_gradient: grad_x = [J_e^T a'(e) ; 0] over x = [q; qd]
+         *
+         * Notes:
+         *   The qd-block is set to zero when !ACCUMULATE. ACCUMULATE=false overwrites s_grad; true adds.
+         *
+         * @param s_grad is the gradient over x (size 12)
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_R_des is the desired rotation (3x3 column-major, 9); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost (no bounds: the residual is a rotation vector)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT; after the call its angular rows hold J_e and s_frame[0..2] the residual e; s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_orientation_cost_gradient(T *s_grad, const T *s_q, const int cf, const T *s_R_des, const T *s_W, const int activation, const T eps, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
+                T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
+                T e[3]; plant_so3_log<T>(E, e);
+                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                for (int vi = 0; vi < 6; ++vi) {
+                    T *Jc = &s_J[6 * vi];
+                    T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
+                    Jc[3] = Ji[0] * wl0 + Ji[3] * wl1 + Ji[6] * wl2; Jc[4] = Ji[1] * wl0 + Ji[4] * wl1 + Ji[7] * wl2; Jc[5] = Ji[2] * wl0 + Ji[5] * wl1 + Ji[8] * wl2;
+                }
+                s_X[0] = e[0]; s_X[1] = e[1]; s_X[2] = e[2];
+            }
+            __syncthreads();
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+                T g = static_cast<T>(0);
+                for (int r = 0; r < 3; ++r) g += s_J[6 * i + 3 + r] * activation_slope<T>(activation, s_W[r], s_X[r], eps);
+                if (ACCUMULATE) { s_grad[i] += g; } else { s_grad[i] = g; }
+            }
+            if (!ACCUMULATE) {
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+                    s_grad[6 + i] = static_cast<T>(0);
+                }
+            }
+        }
+
+        /**
+         * frame_orientation_cost_hessian: Gauss-Newton Hessian = J_e^T diag(a''(e)) J_e in the q-block of an NX x NX column-major matrix
+         *
+         * Notes:
+         *   The qd rows and columns are zero. ACCUMULATE=false overwrites s_hess; true adds.
+         *
+         * @param s_hess is the dense Hessian output (size 12*12, column-major)
+         * @param cf is the cost-frame index; s_q is the joint position vector (size NUM_POS)
+         * @param s_R_des is the desired rotation (3x3 column-major, 9); s_W is the per-axis weight (3)
+         * @param activation / eps as for state_cost (no bounds: the residual is a rotation vector)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT; after the call its angular rows hold J_e and s_frame[0..2] the residual e; s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_orientation_cost_hessian(T *s_hess, const T *s_q, const int cf, const T *s_R_des, const T *s_W, const int activation, const T eps, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T R[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) R[r + 3 * c] = s_X[r + 4 * c];
+                T E[9]; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) E[r + 3 * c] = s_R_des[3 * r] * R[3 * c] + s_R_des[3 * r + 1] * R[3 * c + 1] + s_R_des[3 * r + 2] * R[3 * c + 2];  // (R_des^T R_f)[r][c]
+                T e[3]; plant_so3_log<T>(E, e);
+                T Ji[9]; plant_so3_right_jacobian_inv<T>(e, Ji);
+                for (int vi = 0; vi < 6; ++vi) {
+                    T *Jc = &s_J[6 * vi];
+                    T wl0 = R[0] * Jc[3] + R[1] * Jc[4] + R[2] * Jc[5], wl1 = R[3] * Jc[3] + R[4] * Jc[4] + R[5] * Jc[5], wl2 = R[6] * Jc[3] + R[7] * Jc[4] + R[8] * Jc[5];
+                    Jc[3] = Ji[0] * wl0 + Ji[3] * wl1 + Ji[6] * wl2; Jc[4] = Ji[1] * wl0 + Ji[4] * wl1 + Ji[7] * wl2; Jc[5] = Ji[2] * wl0 + Ji[5] * wl1 + Ji[8] * wl2;
+                }
+                s_X[0] = e[0]; s_X[1] = e[1]; s_X[2] = e[2];
+            }
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 144; ind += blockDim.x*blockDim.y){
+                int row = ind % 12; int col = ind / 12;
+                T h = static_cast<T>(0);
+                if (row < 6 && col < 6) { for (int r = 0; r < 3; ++r) h += s_J[6 * row + 3 + r] * activation_curvature<T>(activation, s_W[r], s_X[r], eps) * s_J[6 * col + 3 + r]; }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        #define GRID_PLANT_HAS_FRAME_VELOCITY_COST 1
+        /**
+         * frame_velocity_eval: frame_eval plus the twist J qd (into s_frame[0..5]) and its configuration derivative d(J qd)/dq (6 x NUM_VEL, after the Jacobian)
+         *
+         * Notes:
+         *   Column j of the world-axis Jacobian is a_j x (p_f - p_j) (revolute) or l_j (prismatic). A joint m moves everything downstream of it rigidly: for m an ancestor-or-self of j the axis, origin and frame point, for m downstream of j the frame point alone. Serial over the baked chain pairs.
+         *   Fixed base only (the floating root has no single axis); the world transforms are read back from the frame_eval arena.
+         *
+         * @param s_frame / s_scratch / cf / s_q / s_qd / d_robotModel as for frame_velocity_cost
+         */
+        template <typename T>
+        __device__
+        void frame_velocity_eval(const int cf, const T *s_q, const T *s_qd, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            T *s_X = s_frame; T *s_J = s_frame + 16; T *s_dJ = s_frame + 16 + 6 * 6;
+            frame_eval<T>(s_J, s_X, cf, s_q, s_scratch, d_robotModel);
+            static const int fv_target[] = { 0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5 };
+            static const int fv_jj[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5 };
+            static const int fv_vi[] = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5 };
+            static const T fv_ang[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1) };
+            static const T fv_lin[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0) };
+            static const T fv_alpha[] = { static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1), static_cast<T>(1) };
+            static const int fv_cf_jid[] = { 5 };
+            const T *s_Xworld = reinterpret_cast<const T *>(s_scratch) + 128;  // world transforms left by frame_eval
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
+                s_dJ[ind] = static_cast<T>(0);
+            }
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                const int tj = fv_cf_jid[cf];
+                const T pfx = s_X[12], pfy = s_X[13], pfz = s_X[14];
+                for (int r = 0; r < 6; ++r) { T acc = static_cast<T>(0); for (int vi = 0; vi < 6; ++vi) acc += s_J[6 * vi + r] * s_qd[vi]; s_X[r] = acc; }  // the twist J qd into s_X[0..5] (the placement's rotation block is no longer needed)
+                for (int a = 0; a < 21; ++a) {
+                    if (fv_target[a] != tj) continue;
+                    const int jj = fv_jj[a]; const int vi = fv_vi[a]; const T *Xj = &s_Xworld[16 * jj];
+                    const bool rot_j = (fv_ang[3 * a] * fv_ang[3 * a] + fv_ang[3 * a + 1] * fv_ang[3 * a + 1] + fv_ang[3 * a + 2] * fv_ang[3 * a + 2]) > static_cast<T>(0.25);
+                    const T *axl = rot_j ? &fv_ang[3 * a] : &fv_lin[3 * a];
+                    T aj0 = Xj[0] * axl[0] + Xj[4] * axl[1] + Xj[8] * axl[2], aj1 = Xj[1] * axl[0] + Xj[5] * axl[1] + Xj[9] * axl[2], aj2 = Xj[2] * axl[0] + Xj[6] * axl[1] + Xj[10] * axl[2];
+                    T dj0 = pfx - Xj[12], dj1 = pfy - Xj[13], dj2 = pfz - Xj[14];
+                    const T w = fv_alpha[a] * s_qd[vi];
+                    for (int b = 0; b < 21; ++b) {
+                        if (fv_target[b] != tj) continue;
+                        const int mm = fv_jj[b]; const int vm = fv_vi[b]; const T *Xm = &s_Xworld[16 * mm];
+                        const bool rot_m = (fv_ang[3 * b] * fv_ang[3 * b] + fv_ang[3 * b + 1] * fv_ang[3 * b + 1] + fv_ang[3 * b + 2] * fv_ang[3 * b + 2]) > static_cast<T>(0.25);
+                        const T *axm = rot_m ? &fv_ang[3 * b] : &fv_lin[3 * b];
+                        T am0 = Xm[0] * axm[0] + Xm[4] * axm[1] + Xm[8] * axm[2], am1 = Xm[1] * axm[0] + Xm[5] * axm[1] + Xm[9] * axm[2], am2 = Xm[2] * axm[0] + Xm[6] * axm[1] + Xm[10] * axm[2];
+                        const T sw = fv_alpha[b] * w;
+                        T l0 = static_cast<T>(0), l1 = static_cast<T>(0), l2 = static_cast<T>(0), g0 = static_cast<T>(0), g1 = static_cast<T>(0), g2 = static_cast<T>(0);
+                        if (mm <= jj) {
+                            if (rot_j && rot_m) {
+                                // d_axis = am x aj; d_lin = d_axis x d + aj x (am x d)
+                                T x0 = am1 * aj2 - am2 * aj1, x1 = am2 * aj0 - am0 * aj2, x2 = am0 * aj1 - am1 * aj0;
+                                T y0 = am1 * dj2 - am2 * dj1, y1 = am2 * dj0 - am0 * dj2, y2 = am0 * dj1 - am1 * dj0;
+                                l0 = (x1 * dj2 - x2 * dj1) + (aj1 * y2 - aj2 * y1); l1 = (x2 * dj0 - x0 * dj2) + (aj2 * y0 - aj0 * y2); l2 = (x0 * dj1 - x1 * dj0) + (aj0 * y1 - aj1 * y0);
+                                g0 = x0; g1 = x1; g2 = x2;
+                            }
+                            else if (!rot_j && rot_m) { l0 = am1 * aj2 - am2 * aj1; l1 = am2 * aj0 - am0 * aj2; l2 = am0 * aj1 - am1 * aj0; }
+                        }
+                        else if (rot_j) {
+                            // m downstream of j: only the frame point moves, by am x (p_f - p_m) (revolute m) or by the prismatic axis
+                            T dm0 = pfx - Xm[12], dm1 = pfy - Xm[13], dm2 = pfz - Xm[14];
+                            T p0 = rot_m ? (am1 * dm2 - am2 * dm1) : am0, p1 = rot_m ? (am2 * dm0 - am0 * dm2) : am1, p2 = rot_m ? (am0 * dm1 - am1 * dm0) : am2;
+                            l0 = aj1 * p2 - aj2 * p1; l1 = aj2 * p0 - aj0 * p2; l2 = aj0 * p1 - aj1 * p0;
+                        }
+                        T *D = &s_dJ[6 * vm]; D[0] += sw * l0; D[1] += sw * l1; D[2] += sw * l2; D[3] += sw * g0; D[4] += sw * g1; D[5] += sw * g2;
+                    }
+                }
+            }
+            __syncthreads();
+        }
+
+        /**
+         * frame_velocity_cost: value = sum_r a(v_r - v_des_r; W[r], eps), v = J(q) qd the frame twist [linear; angular] with world axes at the frame point
+         *
+         * Notes:
+         *   ACCUMULATE=false overwrites s_out[0]; true adds. Fixed base.
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param cf is the cost-frame index; s_q / s_qd are the joint positions and velocities
+         * @param s_v_des is the desired twist [linear; angular] (6) with world axes at the frame point; s_W is the per-entry weight (6)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the twist entries)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT ([X_f | J | dJqd]); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_velocity_cost(T *s_out, const T *s_q, const T *s_qd, const int cf, const T *s_v_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            frame_velocity_eval<T>(cf, s_q, s_qd, s_frame, s_scratch, d_robotModel);
+            const T *s_v = s_frame; const T *s_J = s_frame + 16; const T *s_dJ = s_frame + 16 + 6 * 6;
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int r = 0; r < 6; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; acc += activation_value<T>(activation, s_W[r], s_v[r] - s_v_des[r], eps, s_v[r], lo, hi); }
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+        }
+
+        /**
+         * frame_velocity_cost_gradient: grad_x = [d(J qd)/dq^T a'(r) ; J^T a'(r)] over x = [q; qd]
+         *
+         * Notes:
+         *   ACCUMULATE=false overwrites s_grad; true adds.
+         *
+         * @param s_grad is the gradient over x (size 12)
+         * @param cf is the cost-frame index; s_q / s_qd are the joint positions and velocities
+         * @param s_v_des is the desired twist [linear; angular] (6) with world axes at the frame point; s_W is the per-entry weight (6)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the twist entries)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT ([X_f | J | dJqd]); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_velocity_cost_gradient(T *s_grad, const T *s_q, const T *s_qd, const int cf, const T *s_v_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            frame_velocity_eval<T>(cf, s_q, s_qd, s_frame, s_scratch, d_robotModel);
+            const T *s_v = s_frame; const T *s_J = s_frame + 16; const T *s_dJ = s_frame + 16 + 6 * 6;
+            for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 12; c += blockDim.x*blockDim.y){
+                T g = static_cast<T>(0);
+                for (int r = 0; r < 6; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; g += ((c < 6) ? s_dJ[6 * c + r] : s_J[6 * (c - 6) + r]) * activation_slope<T>(activation, s_W[r], s_v[r] - s_v_des[r], eps, s_v[r], lo, hi); }
+                if (ACCUMULATE) { s_grad[c] += g; } else { s_grad[c] = g; }
+            }
+        }
+
+        /**
+         * frame_velocity_cost_hessian: Gauss-Newton Hessian = J_x^T diag(a''(r)) J_x, J_x = [d(J qd)/dq | J], NX x NX column-major
+         *
+         * Notes:
+         *   ACCUMULATE=false overwrites s_hess; true adds.
+         *
+         * @param s_hess is the dense Hessian output (size 12*12, column-major)
+         * @param cf is the cost-frame index; s_q / s_qd are the joint positions and velocities
+         * @param s_v_des is the desired twist [linear; angular] (6) with world axes at the frame point; s_W is the per-entry weight (6)
+         * @param activation / eps as for state_cost; s_lower / s_upper are per-entry bounds for the barrier activations (nullptr when the activation is not a barrier) (bounds on the twist entries)
+         * @param s_frame is scratch of GRID_PLANT_FRAME_SCRATCH_COUNT ([X_f | J | dJqd]); s_scratch is the frame_eval arena
+         * @param d_robotModel is the GPU model
+         */
+        template <typename T, bool ACCUMULATE = false>
+        __device__
+        void frame_velocity_cost_hessian(T *s_hess, const T *s_q, const T *s_qd, const int cf, const T *s_v_des, const T *s_W, const int activation, const T eps, const T *s_lower, const T *s_upper, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            frame_velocity_eval<T>(cf, s_q, s_qd, s_frame, s_scratch, d_robotModel);
+            const T *s_v = s_frame; const T *s_J = s_frame + 16; const T *s_dJ = s_frame + 16 + 6 * 6;
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 144; ind += blockDim.x*blockDim.y){
+                int row = ind % 12; int col = ind / 12;
+                T h = static_cast<T>(0);
+                for (int r = 0; r < 6; ++r) { T lo = s_lower ? s_lower[r] : -INFINITY; T hi = s_upper ? s_upper[r] : INFINITY; T cu = activation_curvature<T>(activation, s_W[r], s_v[r] - s_v_des[r], eps, s_v[r], lo, hi); int c = row; T jr = ((c < 6) ? s_dJ[6 * c + r] : s_J[6 * (c - 6) + r]); c = col; T jc = ((c < 6) ? s_dJ[6 * c + r] : s_J[6 * (c - 6) + r]); h += jr * cu * jc; }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+        }
+
+        #define GRID_PLANT_HAS_COST_MENU 1
+        /**
+         * cost_menu_params: the per-knot buffers of tracking_cost_menu (every pointer a runtime buffer; a term whose activation is GRID_PLANT_ACTIVATION_NONE is skipped)
+         *
+         * Notes:
+         *   x_des / u_des / Q / R and the barrier bound-and-mu triples as tracking_cost; ee_des / W are the cost-frame CF position target and weight.
+         *   activation (GRID_PLANT_MENU_TERMS ints) and eps (same length) select and parameterize every term, order GRID_PLANT_MENU_*.
+         *   x_lower / x_upper, ub_lower / ub_upper, lx_lower / lx_upper, lu_lower / lu_upper, v_lower / v_upper, cf_lower / cf_upper are the barrier-activation bounds of the matching term (nullptr when unused).
+         *   Ax / bx / tx / Wx (MX rows over NX) and Au / bu / tu / Wu (MU rows over NU) are the linear features; R_des / Wo the orientation of frame CF; v_des / Wv its twist; cf_des / Wcf the position of frame CF2.
+         *
+         */
+        template <typename T>
+        struct cost_menu_params {
+            const T *x_des; const T *u_des; const T *ee_des; const T *Q; const T *R; const T *W;
+            const T *q_lower; const T *q_upper; T mu_q; const T *qd_lower; const T *qd_upper; T mu_qd; const T *u_lower; const T *u_upper; T mu_u;
+            const int *activation; const T *eps;
+            const T *x_lower; const T *x_upper; const T *ub_lower; const T *ub_upper;
+            const T *Ax; const T *bx; const T *tx; const T *Wx; const T *lx_lower; const T *lx_upper;
+            const T *Au; const T *bu; const T *tu; const T *Wu; const T *lu_lower; const T *lu_upper;
+            const T *R_des; const T *Wo;
+            const T *v_des; const T *Wv; const T *v_lower; const T *v_upper;
+            const T *cf_des; const T *Wcf; const T *cf_lower; const T *cf_upper;
+        };
+        /**
+         * tracking_cost_menu: frame position (CF) + state + input + the three joint barriers + linear features on x and u + frame orientation and twist (CF) + a second frame position (CF2)
+         *
+         * Notes:
+         *   PRESET over the activated terms, chained through ACCUMULATE with a sync between terms; the first term carries the preset's ACCUMULATE.
+         *   With quadratic activations on the first three terms, the others GRID_PLANT_ACTIVATION_NONE and MX = MU = 0, the value equals tracking_cost. Fixed base.
+         *
+         * @param s_out is the scalar total-cost output (s_out[0])
+         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         */
+        template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
+        __device__
+        void tracking_cost_menu(T *s_out, const T *s_x, const T *s_u, const cost_menu_params<T> &p, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            if (!ACCUMULATE) { if (threadIdx.x == 0 && threadIdx.y == 0) { s_out[0] = static_cast<T>(0); } }
+            __syncthreads();
+            if (p.activation[GRID_PLANT_MENU_FRAME_POS] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost<T, true>(s_out, s_x, CF, p.ee_des, p.W, p.activation[GRID_PLANT_MENU_FRAME_POS], p.eps[GRID_PLANT_MENU_FRAME_POS], nullptr, nullptr, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_STATE] != GRID_PLANT_ACTIVATION_NONE) {
+                state_cost<T, true>(s_out, s_x, p.x_des, p.Q, p.activation[GRID_PLANT_MENU_STATE], p.eps[GRID_PLANT_MENU_STATE], p.x_lower, p.x_upper, s_scratch);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_INPUT] != GRID_PLANT_ACTIVATION_NONE) {
+                input_cost<T, true>(s_out, s_u, p.u_des, p.R, p.activation[GRID_PLANT_MENU_INPUT], p.eps[GRID_PLANT_MENU_INPUT], p.ub_lower, p.ub_upper, s_scratch);
+                __syncthreads();
+            }
+            joint_position_barrier<T>(s_out, s_x, p.q_lower, p.q_upper, p.mu_q, s_scratch);
+            __syncthreads();
+            joint_velocity_barrier<T>(s_out, s_x, p.qd_lower, p.qd_upper, p.mu_qd, s_scratch);
+            __syncthreads();
+            joint_torque_barrier<T>(s_out, s_u, p.u_lower, p.u_upper, p.mu_u, s_scratch);
+            __syncthreads();
+            if constexpr (MX > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_X] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost<T, MX, 12, true>(s_out, s_x, p.Ax, p.bx, p.tx, p.Wx, p.activation[GRID_PLANT_MENU_LINEAR_X], p.eps[GRID_PLANT_MENU_LINEAR_X], p.lx_lower, p.lx_upper, s_scratch);
+                __syncthreads();
+                } }
+            if constexpr (MU > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_U] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost<T, MU, 6, true>(s_out, s_u, p.Au, p.bu, p.tu, p.Wu, p.activation[GRID_PLANT_MENU_LINEAR_U], p.eps[GRID_PLANT_MENU_LINEAR_U], p.lu_lower, p.lu_upper, s_scratch);
+                __syncthreads();
+                } }
+            if (p.activation[GRID_PLANT_MENU_ORIENTATION] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_orientation_cost<T, true>(s_out, s_x, CF, p.R_des, p.Wo, p.activation[GRID_PLANT_MENU_ORIENTATION], p.eps[GRID_PLANT_MENU_ORIENTATION], s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_VELOCITY] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_velocity_cost<T, true>(s_out, s_x, s_x + 6, CF, p.v_des, p.Wv, p.activation[GRID_PLANT_MENU_VELOCITY], p.eps[GRID_PLANT_MENU_VELOCITY], p.v_lower, p.v_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if constexpr (CF2 >= 0) { if (p.activation[GRID_PLANT_MENU_FRAME_POS_2] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost<T, true>(s_out, s_x, CF2, p.cf_des, p.Wcf, p.activation[GRID_PLANT_MENU_FRAME_POS_2], p.eps[GRID_PLANT_MENU_FRAME_POS_2], p.cf_lower, p.cf_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+                } }
+        }
+
+        /**
+         * tracking_cost_menu_gradient: s_qk (state gradient, NX) + s_rk (input gradient, NU) of tracking_cost_menu
+         *
+         * Notes:
+         *   Every term adds into the blocks after a sync; ACCUMULATE=false zeroes them first.
+         *
+         * @param s_qk is the state-block gradient output (size 12)
+         * @param s_rk is the input-block gradient output (size 6)
+         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         */
+        template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
+        __device__
+        void tracking_cost_menu_gradient(T *s_qk, T *s_rk, const T *s_x, const T *s_u, const cost_menu_params<T> &p, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            if (!ACCUMULATE) {
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 12; i += blockDim.x*blockDim.y){
+                    s_qk[i] = static_cast<T>(0);
+                }
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6; i += blockDim.x*blockDim.y){
+                    s_rk[i] = static_cast<T>(0);
+                }
+            }
+            __syncthreads();
+            if (p.activation[GRID_PLANT_MENU_FRAME_POS] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost_gradient<T, true>(s_qk, s_x, CF, p.ee_des, p.W, p.activation[GRID_PLANT_MENU_FRAME_POS], p.eps[GRID_PLANT_MENU_FRAME_POS], nullptr, nullptr, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_STATE] != GRID_PLANT_ACTIVATION_NONE) {
+                state_cost_gradient<T, true>(s_qk, s_x, p.x_des, p.Q, p.activation[GRID_PLANT_MENU_STATE], p.eps[GRID_PLANT_MENU_STATE], p.x_lower, p.x_upper);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_INPUT] != GRID_PLANT_ACTIVATION_NONE) {
+                input_cost_gradient<T, true>(s_rk, s_u, p.u_des, p.R, p.activation[GRID_PLANT_MENU_INPUT], p.eps[GRID_PLANT_MENU_INPUT], p.ub_lower, p.ub_upper);
+                __syncthreads();
+            }
+            joint_position_barrier_gradient<T, 0, 0>(s_qk, s_x, p.q_lower, p.q_upper, p.mu_q);
+            __syncthreads();
+            joint_velocity_barrier_gradient<T, 6, 6>(s_qk, s_x, p.qd_lower, p.qd_upper, p.mu_qd);
+            __syncthreads();
+            joint_torque_barrier_gradient<T, 0, 0>(s_rk, s_u, p.u_lower, p.u_upper, p.mu_u);
+            __syncthreads();
+            if constexpr (MX > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_X] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost_gradient<T, MX, 12, true>(s_qk, s_x, p.Ax, p.bx, p.tx, p.Wx, p.activation[GRID_PLANT_MENU_LINEAR_X], p.eps[GRID_PLANT_MENU_LINEAR_X], p.lx_lower, p.lx_upper, s_scratch);
+                __syncthreads();
+                } }
+            if constexpr (MU > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_U] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost_gradient<T, MU, 6, true>(s_rk, s_u, p.Au, p.bu, p.tu, p.Wu, p.activation[GRID_PLANT_MENU_LINEAR_U], p.eps[GRID_PLANT_MENU_LINEAR_U], p.lu_lower, p.lu_upper, s_scratch);
+                __syncthreads();
+                } }
+            if (p.activation[GRID_PLANT_MENU_ORIENTATION] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_orientation_cost_gradient<T, true>(s_qk, s_x, CF, p.R_des, p.Wo, p.activation[GRID_PLANT_MENU_ORIENTATION], p.eps[GRID_PLANT_MENU_ORIENTATION], s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_VELOCITY] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_velocity_cost_gradient<T, true>(s_qk, s_x, s_x + 6, CF, p.v_des, p.Wv, p.activation[GRID_PLANT_MENU_VELOCITY], p.eps[GRID_PLANT_MENU_VELOCITY], p.v_lower, p.v_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if constexpr (CF2 >= 0) { if (p.activation[GRID_PLANT_MENU_FRAME_POS_2] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost_gradient<T, true>(s_qk, s_x, CF2, p.cf_des, p.Wcf, p.activation[GRID_PLANT_MENU_FRAME_POS_2], p.eps[GRID_PLANT_MENU_FRAME_POS_2], p.cf_lower, p.cf_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+                } }
+        }
+
+        /**
+         * tracking_cost_menu_hessian: s_Qk (state GN Hessian, NX*NX) + s_Rk (input Hessian, NU*NU) of tracking_cost_menu
+         *
+         * Notes:
+         *   Gauss-Newton throughout; every term adds after a sync; ACCUMULATE=false zeroes the blocks first.
+         *
+         * @param s_Qk is the state GN Hessian output (size 144, column-major)
+         * @param s_Rk is the input Hessian output (size 36, column-major)
+         * @param s_x / s_u are the current state [q; qd] and control (sizes 12 / 6); p holds every per-knot buffer
+         * @param MX / MU are the linear feature row counts (0 omits the term); CF is the cost frame of the position, orientation and twist terms (0 = the end-effector target); CF2 (-1 = none) the frame of the second position term
+         * @param s_frame is GRID_PLANT_FRAME_SCRATCH_COUNT scratch; s_scratch must hold the frame_eval arena (FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES) and >= max(NX, MX, MU) elements; d_robotModel is the GPU model
+         */
+        template <typename T, int MX = 0, int MU = 0, int CF = 0, int CF2 = -1, bool ACCUMULATE = false>
+        __device__
+        void tracking_cost_menu_hessian(T *s_qk, T *s_rk, const T *s_x, const T *s_u, const cost_menu_params<T> &p, T *s_frame, T *s_scratch, const grid::robotModel<T> *d_robotModel) {
+            if (!ACCUMULATE) {
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 144; i += blockDim.x*blockDim.y){
+                    s_qk[i] = static_cast<T>(0);
+                }
+                for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 36; i += blockDim.x*blockDim.y){
+                    s_rk[i] = static_cast<T>(0);
+                }
+            }
+            __syncthreads();
+            if (p.activation[GRID_PLANT_MENU_FRAME_POS] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost_hessian<T, true>(s_qk, s_x, CF, p.ee_des, p.W, p.activation[GRID_PLANT_MENU_FRAME_POS], p.eps[GRID_PLANT_MENU_FRAME_POS], nullptr, nullptr, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_STATE] != GRID_PLANT_ACTIVATION_NONE) {
+                state_cost_hessian<T, true>(s_qk, s_x, p.x_des, p.Q, p.activation[GRID_PLANT_MENU_STATE], p.eps[GRID_PLANT_MENU_STATE], p.x_lower, p.x_upper);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_INPUT] != GRID_PLANT_ACTIVATION_NONE) {
+                input_cost_hessian<T, true>(s_rk, s_u, p.u_des, p.R, p.activation[GRID_PLANT_MENU_INPUT], p.eps[GRID_PLANT_MENU_INPUT], p.ub_lower, p.ub_upper);
+                __syncthreads();
+            }
+            joint_position_barrier_hessian<T, 12, 0, 0>(s_qk, s_x, p.q_lower, p.q_upper, p.mu_q);
+            __syncthreads();
+            joint_velocity_barrier_hessian<T, 12, 6, 6>(s_qk, s_x, p.qd_lower, p.qd_upper, p.mu_qd);
+            __syncthreads();
+            joint_torque_barrier_hessian<T, 6, 0, 0>(s_rk, s_u, p.u_lower, p.u_upper, p.mu_u);
+            __syncthreads();
+            if constexpr (MX > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_X] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost_hessian<T, MX, 12, true>(s_qk, s_x, p.Ax, p.bx, p.tx, p.Wx, p.activation[GRID_PLANT_MENU_LINEAR_X], p.eps[GRID_PLANT_MENU_LINEAR_X], p.lx_lower, p.lx_upper, s_scratch);
+                __syncthreads();
+                } }
+            if constexpr (MU > 0) { if (p.activation[GRID_PLANT_MENU_LINEAR_U] != GRID_PLANT_ACTIVATION_NONE) {
+                linear_feature_cost_hessian<T, MU, 6, true>(s_rk, s_u, p.Au, p.bu, p.tu, p.Wu, p.activation[GRID_PLANT_MENU_LINEAR_U], p.eps[GRID_PLANT_MENU_LINEAR_U], p.lu_lower, p.lu_upper, s_scratch);
+                __syncthreads();
+                } }
+            if (p.activation[GRID_PLANT_MENU_ORIENTATION] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_orientation_cost_hessian<T, true>(s_qk, s_x, CF, p.R_des, p.Wo, p.activation[GRID_PLANT_MENU_ORIENTATION], p.eps[GRID_PLANT_MENU_ORIENTATION], s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if (p.activation[GRID_PLANT_MENU_VELOCITY] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_velocity_cost_hessian<T, true>(s_qk, s_x, s_x + 6, CF, p.v_des, p.Wv, p.activation[GRID_PLANT_MENU_VELOCITY], p.eps[GRID_PLANT_MENU_VELOCITY], p.v_lower, p.v_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+            }
+            if constexpr (CF2 >= 0) { if (p.activation[GRID_PLANT_MENU_FRAME_POS_2] != GRID_PLANT_ACTIVATION_NONE) {
+                frame_position_cost_hessian<T, true>(s_qk, s_x, CF2, p.cf_des, p.Wcf, p.activation[GRID_PLANT_MENU_FRAME_POS_2], p.eps[GRID_PLANT_MENU_FRAME_POS_2], p.cf_lower, p.cf_upper, s_frame, s_scratch, d_robotModel);
+                __syncthreads();
+                } }
+        }
+
         // [grid_plant] com_cost skipped: requires 'com'+'ccrba'.
         // [grid_plant] momentum_cost skipped: requires 'dccrba' for the full tangent-state Jacobian.
         /**
@@ -35066,5 +36168,6 @@ namespace grid {
         const int INTEGRATOR_WITH_GRADIENT_SUGGESTED_THREADS = 256;
         const int F_EXT_GRADIENT_SUGGESTED_THREADS = 224;
         const int F_EXT_GRADIENT_DQ_SUGGESTED_THREADS = 64;
+        const int FRAME_JACOBIAN_SUGGESTED_THREADS = 32;
         const int TRACKING_COST_SUGGESTED_THREADS = 160;
     }

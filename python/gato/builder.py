@@ -200,7 +200,18 @@ GATO_ALGORITHMS = (
 )
 
 
-def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False, friction_width=0.03):
+def algorithms_for(floating_base):
+    """The consumed GRiD families for a plant. Fixed-base plants add the
+    frame_jacobian family: the cost menu of grid-rbd 0.5.4 (tracking_cost_menu
+    and the frame position, orientation and twist residuals) rides on it, and
+    the generator bakes the end-effector target as cost frame 0. Floating-base
+    plants keep the base set (the menu is fixed-base only in 0.5.4, so the Go2
+    header is unchanged)."""
+    return GATO_ALGORITHMS if floating_base else GATO_ALGORITHMS + ("frame_jacobian",)
+
+
+def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False, friction_width=0.03,
+                 cost_frames=None):
     """Cache key of the URDF
     bytes, the pinned grid-rbd release (the emitter: its version and bundled
     source/peer provenance), the consumed algorithm set and the codegen options.
@@ -213,16 +224,19 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
     h.update(Path(urdf_path).read_bytes())
     h.update(_grid.GRID_RBD_PIN.encode())
     h.update(json.dumps(_grid.require(), sort_keys=True).encode())
-    h.update(repr((tuple(GATO_ALGORITHMS), ee_frame, collision_res,
+    h.update(repr((tuple(algorithms_for(floating_base)), ee_frame, collision_res,
                    tuple(contact_frames) if contact_frames else None, bool(floating_base))).encode())
     if joint_dynamics:          # folded in only when on, so the keys of existing robots are unchanged
         h.update(f"joint_dynamics tanh {float(friction_width)!r}".encode())
+    if cost_frames:             # extra named cost frames beyond the end-effector target (frame 0)
+        h.update(repr(("cost_frames", tuple(cost_frames))).encode())
     return h.hexdigest()[:16]
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
-            floating_base=False, joint_dynamics=False, friction_width=0.03):
+            floating_base=False, joint_dynamics=False, friction_width=0.03,
+            cost_frames=None):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -261,6 +275,12 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     friction_width (rad/s, default 0.03) sets the velocity scale of the
     smoothing and should be matched to the plan step; it is part of the
     codegen key.
+
+    cost_frames: extra URDF joint names (articulated or fixed, addressed by
+    their URDF name) baked as cost frames for the cost menu's frame terms, on
+    top of the end-effector target, which grid-rbd always bakes as cost frame
+    0 on a fixed-base plant. The menu is fixed-base only in grid-rbd 0.5.4,
+    so a floating-base plant takes no cost frames. Part of the codegen key.
     """
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
@@ -272,6 +292,10 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     robot = _parse_urdf(urdf_path, ee_frame, floating_base=floating_base)
     if joint_dynamics and not float(friction_width) > 0.0:
         raise ValueError(f"friction_width must be positive (rad/s), got {friction_width!r}")
+    cost_frames = [str(f) for f in (cost_frames or [])]
+    if floating_base and cost_frames:
+        raise ValueError("cost_frames are fixed-base only: grid-rbd 0.5.4 emits the cost menu "
+                         "for fixed-base plants (the floating-base composition is the next GRiD batch)")
     # Limits first: it validates every joint has bounded <limit> tags (cheap),
     # so an unsupported robot fails before the expensive grid.cuh generation.
     _write_limits(robot, out_dir / "limits.cuh", name, urdf_path.name)
@@ -300,7 +324,9 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     if algorithm_list == "all":
         kwargs["codegen_profile"] = "all"
     else:
-        kwargs["algorithm_list"] = list(GATO_ALGORITHMS if algorithm_list is None else algorithm_list)
+        kwargs["algorithm_list"] = list(algorithms_for(floating_base) if algorithm_list is None else algorithm_list)
+    if not floating_base:
+        kwargs["cost_frames"] = cost_frames    # the EE target is frame 0 regardless; these are the extras
     n_spheres = None
     if collision_res is not None:
         from grid_codegen.algorithms._collision import (
@@ -350,6 +376,9 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         meta["collision"] = {"res": float(collision_res), "n_spheres": n_spheres}
     if contact_frames:
         meta["contact_frames"] = list(contact_frames)
+    if not floating_base:
+        # the baked cost frames in index order (frame 0 = the end-effector target)
+        meta["cost_frames"] = [f[0] for f in gen._cost_frames]
     if register:
         _update_registry(name, meta)
     return meta
@@ -358,7 +387,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
 def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
           floating_base=False, contact_forces=False, exact_hessian=False,
-          joint_dynamics=False, friction_width=0.03, merit_threads=None):
+          joint_dynamics=False, friction_width=0.03, merit_threads=None,
+          cost_frames=None):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -388,6 +418,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
             GPUs with few SMs (issue #19); None reads GATO_MERIT_THREADS from
             the environment, and unset means the generated per-robot maximum.
             Results are bit-identical at any size.
+        cost_frames: extra named cost frames for the cost menu (see codegen());
+            the end-effector target is always cost frame 0 on a fixed-base plant.
     Returns: list of built (name, N) pairs.
     """
     name = name or Path(urdf_path).stem
@@ -401,7 +433,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     Ns = [int(n) for n in ([N] if isinstance(N, int) else N)]
 
     root = repo_root()
-    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width)
+    key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
+                       cost_frames)
     have = load_registry().get(name, {})
     headers = [root / "gato" / "dynamics" / name / f for f in ("grid.cuh", "limits.cuh")]
     if have.get("codegen_key") == key and all(h.exists() for h in headers):
@@ -409,7 +442,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
     else:
         meta = codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
                        contact_frames=contact_frames, floating_base=floating_base,
-                       joint_dynamics=joint_dynamics, friction_width=friction_width)
+                       joint_dynamics=joint_dynamics, friction_width=friction_width,
+                       cost_frames=cost_frames)
         _update_registry(name, {**meta, "codegen_key": key})
 
     try:

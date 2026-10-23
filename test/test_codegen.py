@@ -12,6 +12,7 @@ pytestmark = pytest.mark.slow
 # codegen kwargs per vendored robot — MUST mirror tools/regen_grid.py ROBOTS
 # (go2: floating base + the four baked foot contact frames; N16-only module)
 GO2_URDF = "examples/go2_description/go2.urdf"
+REPO_GO2 = __import__("pathlib").Path(__file__).resolve().parents[1] / GO2_URDF
 ROBOT_KW = {
     "indy7": dict(ee_frame="EE"),
     "iiwa14": dict(ee_frame="EE"),
@@ -144,3 +145,25 @@ def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, 
     with pytest.raises(UserWarning, match='voxelization failed|SKIPPING'):
         codegen(urdfs['indy7'], 'indy7', out_dir=out, register=False)
     assert not (out / 'grid.cuh').exists()
+
+
+def test_cost_frames_bake_a_second_frame(urdfs, tmp_path):
+    """cost_frames=[joint] bakes that joint as cost frame 1 behind the end-effector
+    target (frame 0): the header reports two frames and the registry metadata the
+    list; a floating-base plant takes no cost frames (the menu is fixed-base only
+    in grid-rbd 0.5.4); the codegen key moves with the list."""
+    from gato.builder import _codegen_key
+    out = tmp_path / "iiwa14_elbow"
+    meta = codegen(urdfs["iiwa14"], "iiwa14_elbow", out_dir=out, register=False, ee_frame="EE", cost_frames=["A4"])
+    header = (out / "grid.cuh").read_text()
+    assert "const int GRID_PLANT_NUM_COST_FRAMES = 2;" in header
+    assert "#define GRID_PLANT_HAS_COST_MENU 1" in header
+    assert meta["cost_frames"] == ["EE", "A4"]
+    base = codegen(urdfs["iiwa14"], "iiwa14_base", out_dir=tmp_path / "iiwa14_base", register=False, ee_frame="EE")
+    assert base["cost_frames"] == ["EE"]
+    k0 = _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False)
+    k1 = _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False, cost_frames=["A4"])
+    assert k0 != k1 and k0 == _codegen_key(urdfs["iiwa14"], "EE", 0.15, None, False, cost_frames=[])
+    with pytest.raises(ValueError, match="fixed-base only"):
+        codegen(REPO_GO2, "go2_frames", out_dir=tmp_path / "go2", register=False, ee_frame="imu_joint",
+                floating_base=True, contact_frames=ROBOT_KW["go2"]["contact_frames"], cost_frames=["FL_hip_joint"])
