@@ -4,6 +4,26 @@
 #
 
 cmake_minimum_required(VERSION 3.22)
+# "native" (CMake 3.24+) detects the local GPU at configure time and compiles
+# only for that architecture. This must run BEFORE project() enables CUDA: enabling
+# the language sets CMAKE_CUDA_ARCHITECTURES to the compiler default (sm_75 with
+# CUDA 12/13), after which "NOT DEFINED" is false and a fresh tree silently built
+# sm_75 modules that ran on the 5090 through JIT with other GLASS dispatch variants
+# (found 2026-10-24: PCG shifted by ulps and the bdsv path returned a zero step). On older CMake (e.g. 3.22 on Ubuntu 22.04), fall
+# back to a broad list of recent arches. Override at configure time with: cmake
+# -DCMAKE_CUDA_ARCHITECTURES="75;86;87;89;100;120" ..
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+    set(CMAKE_CUDA_ARCHITECTURES native)
+  else()
+    # No silent fallback to a stale arch list (the old 75;86;89 default could
+    # not even target the sm_120 boxes this repo is developed on): older CMake
+    # cannot detect the GPU, so the caller must say which one to build for.
+    message(FATAL_ERROR "CMake < 3.24 cannot detect the CUDA arch ('native'); pass "
+                        "-DCMAKE_CUDA_ARCHITECTURES=<sm> explicitly (e.g. 120 for RTX 50xx, 89 for RTX 40xx)")
+  endif()
+endif()
+message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 project(GATO LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -32,22 +52,6 @@ if(GATO_FAST_MATH)
   set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -use_fast_math")
 endif()
 
-# "native" (CMake 3.24+) detects the local GPU at configure time and compiles
-# only for that architecture. On older CMake (e.g. 3.22 on Ubuntu 22.04), fall
-# back to a broad list of recent arches. Override at configure time with: cmake
-# -DCMAKE_CUDA_ARCHITECTURES="75;86;87;89;100;120" ..
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
-    set(CMAKE_CUDA_ARCHITECTURES native)
-  else()
-    # No silent fallback to a stale arch list (the old 75;86;89 default could
-    # not even target the sm_120 boxes this repo is developed on): older CMake
-    # cannot detect the GPU, so the caller must say which one to build for.
-    message(FATAL_ERROR "CMake < 3.24 cannot detect the CUDA arch ('native'); pass "
-                        "-DCMAKE_CUDA_ARCHITECTURES=<sm> explicitly (e.g. 120 for RTX 50xx, 89 for RTX 40xx)")
-  endif()
-endif()
-message(STATUS "Targeting CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(pybind11 CONFIG REQUIRED)

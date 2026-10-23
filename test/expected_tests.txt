@@ -48,6 +48,7 @@ test/test_bindings_shapes.py::test_strided_xu_view_matches_contiguous
 test/test_bindings_shapes.py::test_broadcast_reference_and_f64_state_match_contiguous
 test/test_bindings_shapes.py::test_fortran_order_f_ext_matches_c_order
 test/test_build.py::test_build_end_to_end
+test/test_build.py::test_fresh_tree_targets_the_local_gpu
 test/test_codegen.py::test_regen_matches_vendored[indy7]
 test/test_codegen.py::test_regen_matches_vendored[iiwa14]
 test/test_codegen.py::test_regen_matches_vendored[go2]
@@ -151,7 +152,10 @@ test/test_cost_menu.py::test_menu_terms_match_rbdreference
 test/test_cost_menu.py::test_menu_per_solve_targets_keep_the_batch_independent
 test/test_cost_menu.py::test_menu_refuses_legacy_setters_and_clears
 test/test_cost_menu.py::test_menu_gravity_target_is_the_generalized_gravity
-test/test_cost_menu.py::test_menu_refused_on_floating_base
+test/test_cost_menu.py::test_menu_floating_quadratic_state_reproduces_tracking_objective[default]
+test/test_cost_menu.py::test_menu_floating_quadratic_state_reproduces_tracking_objective[fc]
+test/test_cost_menu.py::test_menu_floating_terms_match_rbdreference
+test/test_cost_menu.py::test_menu_floating_refuses_gravity_target_and_bad_quaternion
 test/test_cpp_interface.py::test_paths_resolve_vendored_robot
 test/test_cpp_interface.py::test_paths_cli_formats
 test/test_cpp_interface.py::test_standalone_cpp_example_builds_and_runs

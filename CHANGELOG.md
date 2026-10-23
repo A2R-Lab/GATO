@@ -19,21 +19,37 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   the default kernels and the goldens are unchanged; with quadratic
   activations the menu reproduces the tracking objective to rounding. The
   legacy cost setters raise while a menu is on. `BSQP.cost_menu_terms(xu)`
-  reads the value of every term along a trajectory. Fixed-base plants only in
-  0.5.4; not on the contact-force variant. Examples 16 to 18. Issue #20 (Felix
-  Mueh) asked for custom costs, an orientation target and a dead-zone
+  reads the value of every term along a trajectory. On the Go2 the menu is in
+  the tangent layout (the log-map state residual, tangent-indexed weights and
+  bounds, the actuated inputs; cost frame 0 is the imu, the feet follow). On
+  the contact-force variant the wrench slots keep their regularization around
+  the menu. The smooth hinge activation (grid-rbd 0.5.5)
+  is the pseudo-Huber of a bound violation. Examples 16 to 18. Issue #20
+  (Felix Mueh) asked for custom costs, an orientation target and a dead-zone
   activation.
 - Codegen bakes cost frames: the end-effector target is cost frame 0 on every
-  fixed-base plant (the arms' headers grow by the frame family and the menu,
-  additively), and `gato.build(..., cost_frames=[joint, ...])` or
-  `register_robot(..., cost_frames=[...])` bakes extra frames for the menu's
-  second position term. The frame list is part of the codegen key and the
-  registry.
+  plant (the imu on the Go2), and `gato.build(..., cost_frames=[joint, ...])`
+  or `register_robot(..., cost_frames=[...])` bakes extra frames for the menu's
+  second position term (the vendored Go2 bakes its four feet). The frame list
+  is part of the codegen key and the registry.
+- grid-rbd pin 0.5.5: the smooth hinge, the floating-base menu and frame
+  twist, capability constants per emitted term, the SO(3) helpers from the
+  vendored GLASS, and the retirement of the cuBLASDx-era linalg scratch (the
+  adapters drop that argument; no shared-memory sizes change). The GRiD
+  cleanup behind issue #22 (the stale numpy reference retired, a signed-axis
+  arm in the receipt) ships in the same release.
 - The Go2 base pose: the first six entries of the per-joint `set_q_pos_cost` array are the
   base-pose tangent weights (position, orientation) and the first seven of
   `set_q_nom` the stored base pose they pull toward, a weight change on the
   existing tangent state cost (the base rows weighed zero before). `BSQP.set_q_nom`
   validates the quaternion. Bit-identical with the weights off. Example 19 and a KKT gate.
+- Fresh build trees target the local GPU. The CMake "native" architecture
+  default ran after `project()` had enabled CUDA, which had already set the
+  compiler default (sm_75), so a fresh tree and `gato.build` without `arch`
+  compiled sm_75 modules that ran on an RTX 5090 through JIT with other GLASS
+  dispatch variants: PCG results shifted by rounding and the direct solver
+  returned a zero step. The default is set before `project()` now; pass
+  `ARCH=<sm>` to `tools/build.sh` or `arch=` to `gato.build` to override.
 - The merit timing page no longer says the fused launch lost in every cell:
   on the Indy7 at batch 8 and 16 the ratio sat inside the repeat spread.
 
