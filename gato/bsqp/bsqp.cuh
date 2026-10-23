@@ -853,7 +853,7 @@ class BSQP {
         // per-knot [ee, qd, u] weight triples (KNOT_POINTS x 3, knot-major); overrides the
         // scalar q/qd/u/N weights (terminal EE weight = last knot's ee entry). Enables
         // via-points / terminal-only goals / horizon masking at runtime.
-        // Cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4; bsqp/cost_menu_host.cuh).
+        // Cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5; bsqp/cost_menu_host.cuh).
         // Fields by name, one copy shared across the batch (count KNOT_POINTS x size) or
         // one per solve (batch x KNOT_POINTS x size); the activation table picks a
         // GRID_PLANT_ACTIVATION_* per term per knot. While on, the menu replaces the

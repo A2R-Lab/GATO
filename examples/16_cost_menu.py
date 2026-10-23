@@ -26,7 +26,7 @@ B, DT = 2, 0.01
 params = gato.SolverParams(max_sqp_iters=1, q_cost=2.0, qd_cost=1e-3, u_cost=1e-6, N_cost=20.0)   # the real-time iteration
 solver = gato.BSQP(str(gato.robot_urdf(plant)), batch_size=B, N=N, dt=DT, plant_type=plant, params=params)
 if not solver.cost_menu_available:
-    raise SystemExit(f"{plant}: the module does not carry the cost menu (fixed-base plants built against grid-rbd 0.5.4)")
+    raise SystemExit(f"{plant}: the module does not carry the cost menu (rebuild against grid-rbd 0.5.5)")
 nq, nv, nx, nu = solver.nq, solver.nv, solver.nx, solver.nu
 
 q0 = np.asarray(START[plant], np.float32)

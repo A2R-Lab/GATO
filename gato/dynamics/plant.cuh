@@ -18,12 +18,6 @@ using namespace sqp;
 namespace gato {
 namespace plant {
 
-        template<typename T>
-        __host__ __device__ constexpr unsigned ee_linalg_pad_ct()
-        {
-                return (unsigned)(grid::GRID_EE_LINALG_SHARED_BYTES<T>() > 0 ? (grid::GRID_EE_LINALG_SHARED_BYTES<T>() + 16 + sizeof(T) - 1) / sizeof(T) : 0);
-        }
-
         // Dimension aliases (the generated grid.cuh exposes NUM_JOINTS / NUM_POS /
         // NUM_VEL / NUM_EES). ⚠ grid::NUM_JOINTS == NUM_POS (= nq), NOT nv —
         // on floating base (CL-3) nq = nv + 1 and the two must not be mixed:
@@ -188,7 +182,7 @@ namespace plant {
                 grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 __syncthreads();
                 grid::f_ext_body_inner<T>(s_fext, s_fc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
-                                          /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                          /*d_workspace*/nullptr);
                 __syncthreads();
                 if (d_f_ext_band != nullptr) {
                         for (int i = threadIdx.x + threadIdx.y * blockDim.x; i < FEXT_COUNT; i += blockDim.x * blockDim.y) {
@@ -219,7 +213,7 @@ namespace plant {
                 // dfext/dq at fixed f_c (needs the LOCAL body Jacobians == dtau_dfext's columns)
                 grid::f_ext_body_jacobian_dq_inner<T>(s_dfext_dq, s_fc, s_dtau_dfext, s_q, s_XmatsHom,
                                                       s_topology_helpers, s_temp,
-                                                      /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                                      /*d_workspace*/nullptr);
                 __syncthreads();
                 // dtau_dq_corr = dtau_dfext @ dfext_dq   (NQ x NQ, col-major [j*NQ + k])
                 for (int ind = tid; ind < NQ * NQ; ind += nth) {
@@ -344,7 +338,7 @@ namespace plant {
                         __syncthreads();
                         if (INCLUDE_DU) {
                                 grid::f_ext_body_jacobian_dfc_inner<T>(s_dfext_dfc, s_q, s_XmatsHom, s_topology_helpers, s_temp,
-                                                                       /*d_workspace*/nullptr, /*s_linalg_smem*/nullptr);
+                                                                       /*d_workspace*/nullptr);
                                 __syncthreads();
                                 for (int ind = tid; ind < NQ * FC; ind += nth) {  // dtau_dfc = dtau_dfext @ dfext_dfc
                                         int k = ind % NQ; int c = ind / NQ;
@@ -490,10 +484,11 @@ namespace plant {
         // All buffers are carved from a caller scratch slab and built cooperatively.
         // ===================================================================
 
-// The cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4) is emitted for
-// fixed-base plants; the contact-force variant widens the control past the
-// menu's NU, so the menu is off there until the preset composes the fc tail.
-#if defined(GRID_PLANT_HAS_COST_MENU) && !GATO_CONTACT_FORCES
+// The cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5) is emitted for
+// fixed-base plants and for free-flyer plants with single-axis joints. On the
+// contact-force variant the adapter below composes the fc tail (the wrench
+// regularization of the default preset) around the generated menu.
+#if defined(GRID_PLANT_HAS_COST_MENU)
 #define GATO_MENU_AVAILABLE 1
 #else
 #define GATO_MENU_AVAILABLE 0
@@ -684,130 +679,6 @@ namespace plant {
 #endif
         }
 
-#if GATO_MENU_AVAILABLE
-        // ─── COST MENU adapter (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4) ──
-        //
-        // When the host turns the menu on it replaces the tracking objective:
-        // every target, weight, bound and activation is a per-knot buffer
-        // (gato::menu::Buffers; one copy shared across the batch or one per
-        // solve). The joint-limit barriers keep GATO's constexpr limit tables and
-        // scalar mu, as in the default preset. The linear features are full-rank
-        // (MX = NX, MU = NU; a row is off through activation NONE or a zero
-        // weight). Position, orientation and twist act on cost frame 0 (the
-        // end-effector target), the second position term on cost frame 1 when
-        // the plant bakes one. The terminal knot has no control: its input and
-        // linear-u terms and its torque barrier are off, as in the default path.
-        inline constexpr int MENU_CF2 = (grid_plant::GRID_PLANT_NUM_COST_FRAMES > 1) ? 1 : -1;
-
-        template<typename T>
-        __host__ __device__ constexpr unsigned menu_act_ct()
-        {       // the knot's activation ints, in T slots
-                return (unsigned)((gato::menu::NUM_TERMS * sizeof(int) + sizeof(T) - 1) / sizeof(T));
-        }
-        template<typename T>
-        __host__ __device__ constexpr unsigned menu_scratch_ct()
-        {       // the preset's s_scratch: the frame_eval arena (16-byte aligned, hence the slack) and at least NX elements
-                constexpr unsigned arena = (unsigned)((grid_plant::FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES<T>() + sizeof(T) - 1) / sizeof(T)) + (unsigned)(16 / sizeof(T));
-                return arena > (unsigned)NX ? arena : (unsigned)NX;
-        }
-        // s_temp element count of menu_cost_value / menu_cost_grad_hess
-        template<typename T>
-        __host__ __device__ constexpr unsigned menu_cost_smem_ct()
-        {
-                return (4 * NQ + 2 * NU) + menu_act_ct<T>() + (unsigned)grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT + menu_scratch_ct<T>();
-        }
-
-        template<typename T>
-        struct MenuCarve { T* s_q_lo; T* s_q_hi; T* s_qd_lo; T* s_qd_hi; T* s_u_lo; T* s_u_hi; int* s_act; T* s_frame; T* s_scratch; };
-
-        template<typename T>
-        __device__ __forceinline__ MenuCarve<T> menu_carve(T* s_temp)
-        {
-                MenuCarve<T> c;
-                c.s_q_lo = s_temp;            c.s_q_hi = c.s_q_lo + NQ;
-                c.s_qd_lo = c.s_q_hi + NQ;    c.s_qd_hi = c.s_qd_lo + NQ;
-                c.s_u_lo = c.s_qd_hi + NQ;    c.s_u_hi = c.s_u_lo + NU;
-                c.s_act = reinterpret_cast<int*>(c.s_u_hi + NU);
-                c.s_frame = c.s_u_hi + NU + menu_act_ct<T>();
-                const uintptr_t a = reinterpret_cast<uintptr_t>(c.s_frame + grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT);
-                c.s_scratch = reinterpret_cast<T*>((a + 15u) & ~static_cast<uintptr_t>(15u));
-                return c;
-        }
-
-        // the limit buffers and the knot's activations (terminal: input terms off); act_override
-        // (NUM_TERMS ints) replaces the knot's table, for the per-term readout. Ends without a barrier.
-        template<typename T>
-        __device__ __forceinline__ void menu_prepare(const MenuCarve<T>& c, const gato::menu::Buffers<T>& m, uint32_t knot_idx, bool is_terminal, const int* act_override = nullptr)
-        {
-                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
-                const int nth = blockDim.x * blockDim.y;
-                for (int i = tid; i < NQ; i += nth) {
-                        c.s_q_lo[i]  = JOINT_LIMITS<T>()[i][0]; c.s_q_hi[i]  = JOINT_LIMITS<T>()[i][1];
-                        c.s_qd_lo[i] = VEL_LIMITS<T>()[i][0];   c.s_qd_hi[i] = VEL_LIMITS<T>()[i][1];
-                }
-                for (int i = tid; i < NU; i += nth) { c.s_u_lo[i] = CTRL_LIMITS<T>()[i][0]; c.s_u_hi[i] = CTRL_LIMITS<T>()[i][1]; }
-                for (int t = tid; t < gato::menu::NUM_TERMS; t += nth) {
-                        int a = act_override ? act_override[t] : m.activation[knot_idx * gato::menu::NUM_TERMS + t];
-                        if (is_terminal && (t == grid_plant::GRID_PLANT_MENU_INPUT || t == grid_plant::GRID_PLANT_MENU_LINEAR_U)) { a = grid_plant::GRID_PLANT_ACTIVATION_NONE; }
-                        c.s_act[t] = a;
-                }
-        }
-
-        // the preset's parameter block for one (solve, knot)
-        template<typename T>
-        __device__ __forceinline__ grid_plant::cost_menu_params<T> menu_params(const MenuCarve<T>& c, const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx,
-                                                                                 T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal)
-        {
-                namespace mn = gato::menu;
-                grid_plant::cost_menu_params<T> p;
-                const auto at = [&](int f) { return m.at(f, solve_idx, knot_idx, mn::field_size(f, NX, NU)); };
-                p.x_des = at(mn::X_DES);   p.u_des = at(mn::U_DES);   p.ee_des = at(mn::EE_DES);
-                p.Q = at(mn::Q);           p.R = at(mn::R);           p.W = at(mn::W);
-                p.q_lower = c.s_q_lo;      p.q_upper = c.s_q_hi;      p.mu_q = q_lim_cost;
-                p.qd_lower = c.s_qd_lo;    p.qd_upper = c.s_qd_hi;    p.mu_qd = vel_lim_cost;
-                p.u_lower = c.s_u_lo;      p.u_upper = c.s_u_hi;      p.mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost;
-                p.activation = c.s_act;    p.eps = at(mn::EPS);
-                p.x_lower = at(mn::X_LOWER);   p.x_upper = at(mn::X_UPPER);   p.ub_lower = at(mn::UB_LOWER); p.ub_upper = at(mn::UB_UPPER);
-                p.Ax = at(mn::AX); p.bx = at(mn::BX); p.tx = at(mn::TX); p.Wx = at(mn::WX); p.lx_lower = at(mn::LX_LOWER); p.lx_upper = at(mn::LX_UPPER);
-                p.Au = at(mn::AU); p.bu = at(mn::BU); p.tu = at(mn::TU); p.Wu = at(mn::WU); p.lu_lower = at(mn::LU_LOWER); p.lu_upper = at(mn::LU_UPPER);
-                p.R_des = at(mn::R_DES);   p.Wo = at(mn::WO);
-                p.v_des = at(mn::V_DES);   p.Wv = at(mn::WV);         p.v_lower = at(mn::V_LOWER);   p.v_upper = at(mn::V_UPPER);
-                p.cf_des = at(mn::CF_DES); p.Wcf = at(mn::WCF);       p.cf_lower = at(mn::CF_LOWER); p.cf_upper = at(mn::CF_UPPER);
-                return p;
-        }
-
-        // VALUE: the menu's total cost at one knot. s_temp >= menu_cost_smem_ct().
-        template<typename T>
-        __device__ T menu_cost_value(const T* s_x, const T* s_u, const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx, bool is_terminal,
-                                     T* s_temp, const grid::robotModel<T>* d_robotModel, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost,
-                                     const int* act_override = nullptr)
-        {
-                const MenuCarve<T> c = menu_carve<T>(s_temp);
-                menu_prepare<T>(c, m, knot_idx, is_terminal, act_override);
-                __syncthreads();
-                const grid_plant::cost_menu_params<T> p = menu_params<T>(c, m, solve_idx, knot_idx, q_lim_cost, vel_lim_cost, ctrl_lim_cost, is_terminal);
-                __shared__ T s_out[1];
-                grid_plant::tracking_cost_menu<T, NX, NU, 0, MENU_CF2>(s_out, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
-                __syncthreads();
-                return s_out[0];
-        }
-
-        // GRAD+HESS: s_Qk/s_qk (state block, NX) and s_Rk/s_rk (input block, NU), Gauss-Newton. s_temp >= menu_cost_smem_ct().
-        template<typename T>
-        __device__ void menu_cost_grad_hess(const T* s_x, const T* s_u, T* s_Qk, T* s_qk, T* s_Rk, T* s_rk,
-                                            const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx, bool is_terminal,
-                                            T* s_temp, const grid::robotModel<T>* d_robotModel, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
-        {
-                const MenuCarve<T> c = menu_carve<T>(s_temp);
-                menu_prepare<T>(c, m, knot_idx, is_terminal);
-                __syncthreads();
-                const grid_plant::cost_menu_params<T> p = menu_params<T>(c, m, solve_idx, knot_idx, q_lim_cost, vel_lim_cost, ctrl_lim_cost, is_terminal);
-                grid_plant::tracking_cost_menu_gradient<T, NX, NU, 0, MENU_CF2>(s_qk, s_rk, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
-                __syncthreads();
-                grid_plant::tracking_cost_menu_hessian<T, NX, NU, 0, MENU_CF2>(s_Qk, s_Rk, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
-                __syncthreads();
-        }
-#endif  // GATO_MENU_AVAILABLE
 
 #else  // !GRID_PLANT_HAS_TRACKING_COST — FLOATING BASE (CL-3 W3.4)
         // ─── FLOATING BASE: composed tracking cost ───────────────────────────
@@ -848,8 +719,7 @@ namespace plant {
                 // scratch (54), the per-slot partial buffer 3*NU + FC)
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
-                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                    + ee_linalg_pad_ct<T>();
+                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
                 constexpr unsigned partials = (unsigned)(3 * NU + FC);
                 constexpr unsigned tsc = 54u;
                 constexpr unsigned mx0 = arena > partials ? arena : partials;
@@ -862,8 +732,7 @@ namespace plant {
                 // + max(EE gradient arena, tangent state-cost GN scratch (90))
                 constexpr unsigned arena =
                     (unsigned)grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
-                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                    + ee_linalg_pad_ct<T>();
+                    + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
                 constexpr unsigned tsc = 90u;
                 return 3 + 6 * NEE + 6 * NV * NEE + 2 * NV + NX + (arena > tsc ? arena : tsc);
         }
@@ -1063,6 +932,218 @@ namespace plant {
         }
 #endif  // GRID_PLANT_HAS_TRACKING_COST
 
+#if GATO_MENU_AVAILABLE
+        // ===================================================================
+        // COST MENU adapter (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5)
+        //
+        // When the host turns the menu on it replaces the tracking objective:
+        // every target, weight, bound and activation is a per-knot buffer
+        // (gato::menu::Buffers; one copy shared across the batch or one per
+        // solve). The joint-limit barriers keep GATO's constexpr limit tables
+        // and scalar mu, as in the default preset. The linear features are
+        // full-rank (MX = MENU_NLX, MU = MENU_NU; a row is off through
+        // activation NONE or a zero weight). Position, orientation and twist act
+        // on cost frame 0 (the end-effector target; the imu on the Go2), the
+        // second position term on cost frame 1 when the plant bakes one. The
+        // terminal knot has no control: its input and linear-u terms and its
+        // torque barrier are off, as in the default path.
+        //
+        // One adapter for both bases. On a floating base the preset is in the
+        // tangent layout (GRID_PLANT_MENU_TANGENT): the state term is the
+        // log-map residual, the weights and bounds of the state term are
+        // tangent-indexed (2 NV; the base pose carries no bound), the input is
+        // the NV - 6 actuated torques, the position barrier bounds the NQ - 7
+        // joint positions, the velocity barrier the NV tangent velocities (the
+        // base rows unbounded), and the linear x feature reads [q[7:]; qd].
+        // The outputs are the KKT blocks the kernels consume: STATE_SIZE wide.
+        // ===================================================================
+        inline constexpr bool MENU_TANGENT = (grid_plant::GRID_PLANT_MENU_TANGENT != 0);
+        inline constexpr int  MENU_NU  = grid_plant::GRID_PLANT_MENU_NU;    // the preset's input width
+        inline constexpr int  MENU_NLX = grid_plant::GRID_PLANT_MENU_NLX;   // the linear x feature's variable width
+        inline constexpr int  MENU_TS  = MENU_TANGENT ? 2 * NV : NX;       // the state block width
+        inline constexpr int  MENU_NQB = MENU_TANGENT ? NQ - 7 : NQ;       // joint positions under the position barrier
+        inline constexpr int  MENU_NVB = NV;                                // velocities under the velocity barrier
+        inline constexpr int  MENU_CF2 = (grid_plant::GRID_PLANT_NUM_COST_FRAMES > 1) ? 1 : -1;
+        static_assert(MENU_NU == NU, "the menu's input width must be the plant's actuated width");
+        static_assert(MENU_TS == (int)gato::constants::STATE_SIZE, "the menu's state block must be the KKT state size");
+        static_assert(MENU_TANGENT == (bool)gato::constants::FLOATING_BASE, "the menu layout must follow the plant's base");
+
+        __host__ __device__ constexpr gato::menu::Dims menu_dims()
+        {
+                return gato::menu::Dims{static_cast<uint32_t>(NX), static_cast<uint32_t>(MENU_TS), static_cast<uint32_t>(MENU_NU), static_cast<uint32_t>(MENU_NLX)};
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned menu_act_ct()
+        {       // the knot's activation ints, in T slots
+                return (unsigned)((gato::menu::NUM_TERMS * sizeof(int) + sizeof(T) - 1) / sizeof(T));
+        }
+        template<typename T>
+        __host__ __device__ constexpr unsigned menu_scratch_ct()
+        {       // the preset's s_scratch: the frame_eval arena (16-byte aligned, hence the slack) and the
+                // larger of the tangent state term's scratch (NV + 72 + 2 NV) and the linear feature widths
+                constexpr unsigned arena = (unsigned)((grid_plant::FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES<T>() + sizeof(T) - 1) / sizeof(T)) + (unsigned)(16 / sizeof(T));
+                constexpr unsigned terms = (unsigned)(NV + 72 + MENU_TS) > (unsigned)MENU_NLX ? (unsigned)(NV + 72 + MENU_TS) : (unsigned)MENU_NLX;
+                return arena > terms ? arena : terms;
+        }
+        // s_temp element count of menu_cost_value / menu_cost_grad_hess (fc builds add the
+        // NU-wide input blocks the generated preset writes before the scatter into CONTROL_SIZE)
+        template<typename T>
+        __host__ __device__ constexpr unsigned menu_cost_smem_ct()
+        {
+                return (2 * MENU_NQB + 2 * MENU_NVB + 2 * MENU_NU) + menu_act_ct<T>() + (unsigned)grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT
+                       + (FC > 0 ? (unsigned)(MENU_NU + MENU_NU * MENU_NU) : 0u) + menu_scratch_ct<T>();
+        }
+
+        template<typename T>
+        struct MenuCarve { T* s_q_lo; T* s_q_hi; T* s_qd_lo; T* s_qd_hi; T* s_u_lo; T* s_u_hi; int* s_act; T* s_frame; T* s_r_nu; T* s_R_nu; T* s_scratch; };
+
+        template<typename T>
+        __device__ __forceinline__ MenuCarve<T> menu_carve(T* s_temp)
+        {
+                MenuCarve<T> c;
+                c.s_q_lo = s_temp;                   c.s_q_hi = c.s_q_lo + MENU_NQB;
+                c.s_qd_lo = c.s_q_hi + MENU_NQB;     c.s_qd_hi = c.s_qd_lo + MENU_NVB;
+                c.s_u_lo = c.s_qd_hi + MENU_NVB;     c.s_u_hi = c.s_u_lo + MENU_NU;
+                c.s_act = reinterpret_cast<int*>(c.s_u_hi + MENU_NU);
+                c.s_frame = c.s_u_hi + MENU_NU + menu_act_ct<T>();
+                c.s_r_nu = c.s_frame + grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT;   // fc builds only (NU and NU*NU)
+                c.s_R_nu = c.s_r_nu + MENU_NU;
+                const uintptr_t a = reinterpret_cast<uintptr_t>(FC > 0 ? c.s_R_nu + MENU_NU * MENU_NU : c.s_r_nu);
+                c.s_scratch = reinterpret_cast<T*>((a + 15u) & ~static_cast<uintptr_t>(15u));
+                return c;
+        }
+
+        // the limit buffers and the knot's activations (terminal: input terms off); act_override
+        // (NUM_TERMS ints) replaces the knot's table, for the per-term readout. Ends without a barrier.
+        template<typename T>
+        __device__ __forceinline__ void menu_prepare(const MenuCarve<T>& c, const gato::menu::Buffers<T>& m, uint32_t knot_idx, bool is_terminal, const int* act_override = nullptr)
+        {
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                for (int i = tid; i < MENU_NQB; i += nth) { c.s_q_lo[i] = JOINT_LIMITS<T>()[i][0]; c.s_q_hi[i] = JOINT_LIMITS<T>()[i][1]; }
+                for (int i = tid; i < MENU_NVB; i += nth) {
+                        if (MENU_TANGENT && i < 6) {   // the base twist carries no limit
+                                c.s_qd_lo[i] = -static_cast<T>(INFINITY); c.s_qd_hi[i] = static_cast<T>(INFINITY);
+                        } else {
+                                const int j = MENU_TANGENT ? i - 6 : i;
+                                c.s_qd_lo[i] = VEL_LIMITS<T>()[j][0]; c.s_qd_hi[i] = VEL_LIMITS<T>()[j][1];
+                        }
+                }
+                for (int i = tid; i < MENU_NU; i += nth) { c.s_u_lo[i] = CTRL_LIMITS<T>()[i][0]; c.s_u_hi[i] = CTRL_LIMITS<T>()[i][1]; }
+                for (int t = tid; t < gato::menu::NUM_TERMS; t += nth) {
+                        int a = act_override ? act_override[t] : m.activation[knot_idx * gato::menu::NUM_TERMS + t];
+                        if (is_terminal && (t == grid_plant::GRID_PLANT_MENU_INPUT || t == grid_plant::GRID_PLANT_MENU_LINEAR_U)) { a = grid_plant::GRID_PLANT_ACTIVATION_NONE; }
+                        c.s_act[t] = a;
+                }
+        }
+
+        // the preset's parameter block for one (solve, knot)
+        template<typename T>
+        __device__ __forceinline__ grid_plant::cost_menu_params<T> menu_params(const MenuCarve<T>& c, const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx,
+                                                                                 T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, bool is_terminal)
+        {
+                namespace mn = gato::menu;
+                grid_plant::cost_menu_params<T> p;
+                const auto at = [&](int f) { return m.at(f, solve_idx, knot_idx, mn::field_size(f, menu_dims())); };
+                p.x_des = at(mn::X_DES);   p.u_des = at(mn::U_DES);   p.ee_des = at(mn::EE_DES);
+                p.Q = at(mn::Q);           p.R = at(mn::R);           p.W = at(mn::W);
+                p.q_lower = c.s_q_lo;      p.q_upper = c.s_q_hi;      p.mu_q = q_lim_cost;
+                p.qd_lower = c.s_qd_lo;    p.qd_upper = c.s_qd_hi;    p.mu_qd = vel_lim_cost;
+                p.u_lower = c.s_u_lo;      p.u_upper = c.s_u_hi;      p.mu_u = is_terminal ? static_cast<T>(0) : ctrl_lim_cost;
+                p.activation = c.s_act;    p.eps = at(mn::EPS);
+                p.x_lower = at(mn::X_LOWER);   p.x_upper = at(mn::X_UPPER);   p.ub_lower = at(mn::UB_LOWER); p.ub_upper = at(mn::UB_UPPER);
+                p.Ax = at(mn::AX); p.bx = at(mn::BX); p.tx = at(mn::TX); p.Wx = at(mn::WX); p.lx_lower = at(mn::LX_LOWER); p.lx_upper = at(mn::LX_UPPER);
+                p.Au = at(mn::AU); p.bu = at(mn::BU); p.tu = at(mn::TU); p.Wu = at(mn::WU); p.lu_lower = at(mn::LU_LOWER); p.lu_upper = at(mn::LU_UPPER);
+                p.R_des = at(mn::R_DES);   p.Wo = at(mn::WO);
+                p.v_des = at(mn::V_DES);   p.Wv = at(mn::WV);         p.v_lower = at(mn::V_LOWER);   p.v_upper = at(mn::V_UPPER);
+                p.cf_des = at(mn::CF_DES); p.Wcf = at(mn::WCF);       p.cf_lower = at(mn::CF_LOWER); p.cf_upper = at(mn::CF_UPPER);
+                return p;
+        }
+
+        // VALUE: the menu's total cost at one knot. s_x is the STORED state, s_u the control
+        // (the actuated torques, then the fc wrench slots on fc builds, whose regularization
+        // 0.5 fc_cost |fc - fc_ref|^2 composes here as in the default preset; 0 on the terminal
+        // knot). s_temp >= menu_cost_smem_ct().
+        template<typename T>
+        __device__ T menu_cost_value(const T* s_x, const T* s_u, const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx, bool is_terminal,
+                                     T* s_temp, const grid::robotModel<T>* d_robotModel, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost,
+                                     const int* act_override = nullptr, T fc_cost = static_cast<T>(0), const T* d_fc_ref = nullptr)
+        {
+                const MenuCarve<T> c = menu_carve<T>(s_temp);
+                menu_prepare<T>(c, m, knot_idx, is_terminal, act_override);
+                __syncthreads();
+                const grid_plant::cost_menu_params<T> p = menu_params<T>(c, m, solve_idx, knot_idx, q_lim_cost, vel_lim_cost, ctrl_lim_cost, is_terminal);
+                __shared__ T s_out[1];
+                grid_plant::tracking_cost_menu<T, MENU_NLX, MENU_NU, 0, MENU_CF2>(s_out, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
+                __syncthreads();
+#if GATO_CONTACT_FORCES
+                if (!is_terminal && fc_cost != static_cast<T>(0)) {
+                        // fixed-order serial sum, as the default preset's partials (the merit stays deterministic)
+                        if (threadIdx.x == 0 && threadIdx.y == 0) {
+                                T acc = static_cast<T>(0);
+                                for (int j = 0; j < FC; ++j) {
+                                        const T e = s_u[NU + j] - ((d_fc_ref != nullptr) ? d_fc_ref[j] : static_cast<T>(0));
+                                        acc += static_cast<T>(0.5) * fc_cost * e * e;
+                                }
+                                s_out[0] += acc;
+                        }
+                        __syncthreads();
+                }
+#else
+                (void)fc_cost; (void)d_fc_ref;
+#endif
+                return s_out[0];
+        }
+
+        // GRAD+HESS: s_Qk/s_qk (state block, STATE_SIZE) and s_Rk/s_rk (input block, CONTROL_SIZE:
+        // the actuated block from the generated preset, then the fc rows fc_cost (fc - fc_ref) and
+        // diagonal fc_cost on fc builds), Gauss-Newton. s_temp >= menu_cost_smem_ct().
+        template<typename T>
+        __device__ void menu_cost_grad_hess(const T* s_x, const T* s_u, T* s_Qk, T* s_qk, T* s_Rk, T* s_rk,
+                                            const gato::menu::Buffers<T>& m, uint32_t solve_idx, uint32_t knot_idx, bool is_terminal,
+                                            T* s_temp, const grid::robotModel<T>* d_robotModel, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost,
+                                            T fc_cost = static_cast<T>(0), const T* d_fc_ref = nullptr)
+        {
+                const MenuCarve<T> c = menu_carve<T>(s_temp);
+                menu_prepare<T>(c, m, knot_idx, is_terminal);
+                __syncthreads();
+                const grid_plant::cost_menu_params<T> p = menu_params<T>(c, m, solve_idx, knot_idx, q_lim_cost, vel_lim_cost, ctrl_lim_cost, is_terminal);
+#if GATO_CONTACT_FORCES
+                // the generated preset writes NU-wide input blocks; scatter them into the CONTROL_SIZE layout
+                grid_plant::tracking_cost_menu_gradient<T, MENU_NLX, MENU_NU, 0, MENU_CF2>(s_qk, c.s_r_nu, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
+                __syncthreads();
+                grid_plant::tracking_cost_menu_hessian<T, MENU_NLX, MENU_NU, 0, MENU_CF2>(s_Qk, c.s_R_nu, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
+                __syncthreads();
+                const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+                const int nth = blockDim.x * blockDim.y;
+                const T fcw = is_terminal ? static_cast<T>(0) : fc_cost;
+                for (int j = tid; j < CS; j += nth) {
+                        if (j < NU) {
+                                s_rk[j] = c.s_r_nu[j];
+                        } else {
+                                const int cidx = j - NU;
+                                const T e = s_u[j] - ((d_fc_ref != nullptr) ? d_fc_ref[cidx] : static_cast<T>(0));
+                                s_rk[j] = fcw * e;
+                        }
+                }
+                for (int i = tid; i < CS * CS; i += nth) {
+                        const int r = i % CS, col = i / CS;
+                        T v = static_cast<T>(0);
+                        if (r < NU && col < NU) { v = c.s_R_nu[col * NU + r]; }
+                        else if (r == col) { v = fcw; }
+                        s_Rk[i] = v;
+                }
+                __syncthreads();
+#else
+                (void)fc_cost; (void)d_fc_ref;
+                grid_plant::tracking_cost_menu_gradient<T, MENU_NLX, MENU_NU, 0, MENU_CF2>(s_qk, s_rk, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
+                __syncthreads();
+                grid_plant::tracking_cost_menu_hessian<T, MENU_NLX, MENU_NU, 0, MENU_CF2>(s_Qk, s_Rk, s_x, s_u, p, c.s_frame, c.s_scratch, d_robotModel);
+                __syncthreads();
+#endif
+        }
+#endif  // GATO_MENU_AVAILABLE
+
         // ===================================================================
         // RAW EE-pose evaluators (constraint row-group layer)
         //
@@ -1076,20 +1157,18 @@ namespace plant {
         // ===================================================================
 
         // Counts include the topology-helper int region (0 on fixed serial
-        // chains — identical values there) and the constexpr linalg bytes pad.
+        // chains — identical values there).
         template<typename T>
         __host__ __device__ constexpr unsigned ee_pos_smem_ct()
         {
                 return grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT
-                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + ee_linalg_pad_ct<T>();
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
         }
         template<typename T>
         __host__ __device__ constexpr unsigned ee_pos_grad_smem_ct()
         {
                 return grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
-                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + ee_linalg_pad_ct<T>();
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
         }
 
         // Contact-frame positions (CL-4 §1.3, GRiD contact_frame_positions surface
@@ -1106,14 +1185,12 @@ namespace plant {
         template<typename T>
         __host__ __device__ constexpr unsigned contact_pos_smem_ct()
         {
-                return (unsigned)grid::CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT
-                       + ee_linalg_pad_ct<T>();
+                return (unsigned)grid::CONTACT_FRAME_POSITIONS_DYNAMIC_SHARED_MEM_COUNT;
         }
         template<typename T>
         __host__ __device__ constexpr unsigned contact_pos_grad_smem_ct()
         {
-                return (unsigned)grid::CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT
-                       + ee_linalg_pad_ct<T>();
+                return (unsigned)grid::CONTACT_FRAME_POSITIONS_GRADIENT_DYNAMIC_SHARED_MEM_COUNT;
         }
 
         // Carve helper for the remaining hand-carved inner compositions (the
@@ -1123,19 +1200,13 @@ namespace plant {
         // (nullptr on fixed serial chains, count 0 — pointer values identical
         // there).
         template<typename T, unsigned TOTAL_T_CT>
-        __device__ __forceinline__ void ee_carve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers, unsigned char** s_linalg_smem)
+        __device__ __forceinline__ void ee_carve(T* s_scratch, T** s_XmatsHom, T** s_temp, int** s_topology_helpers)
         {
                 using namespace grid;
                 *s_XmatsHom = s_scratch;
                 *s_temp = s_scratch + XHOM_T_COUNT;
                 *s_topology_helpers = (TOPOLOGY_HELPERS_COUNT > 0)
                                           ? reinterpret_cast<int*>(s_scratch + TOTAL_T_CT) : nullptr;
-                *s_linalg_smem = nullptr;
-                if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
-                        size_t off = grid_align_up((TOTAL_T_CT * sizeof(T)) + TOPOLOGY_HELPERS_COUNT * sizeof(int),
-                                                   static_cast<size_t>(16));
-                        *s_linalg_smem = reinterpret_cast<unsigned char*>(s_scratch) + off;
-                }
         }
 
         template<typename T>
@@ -1206,15 +1277,13 @@ namespace plant {
         __host__ __device__ constexpr unsigned mt_pos_arena_ct()
         {
                 return mt_pos_t_ct<T>()
-                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + ee_linalg_pad_ct<T>();
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
         }
         template<typename T>
         __host__ __device__ constexpr unsigned mt_pos_grad_arena_ct()
         {
                 return mt_pos_grad_t_ct<T>()
-                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T))
-                       + ee_linalg_pad_ct<T>();
+                       + (unsigned)((grid::TOPOLOGY_HELPERS_COUNT * sizeof(int) + sizeof(T) - 1) / sizeof(T));
         }
 
         template<typename T>
@@ -1239,12 +1308,11 @@ namespace plant {
                 using namespace grid;
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
-                unsigned char* s_linalg_smem;
-                ee_carve<T, mt_pos_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                ee_carve<T, mt_pos_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers);
                 T* s_pos = s_scratch + mt_pos_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
                 grid_collision::load_collision_radii<T>(s_r);
                 __syncthreads();
                 for (int i = threadIdx.x; i < NCC; i += blockDim.x) {
@@ -1265,14 +1333,13 @@ namespace plant {
                 using namespace grid;
                 T *s_XmatsHom, *s_temp;
                 int* s_topology_helpers;
-                unsigned char* s_linalg_smem;
-                ee_carve<T, mt_pos_grad_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers, &s_linalg_smem);
+                ee_carve<T, mt_pos_grad_t_ct<T>()>(s_scratch, &s_XmatsHom, &s_temp, &s_topology_helpers);
                 T* s_pos = s_scratch + mt_pos_grad_arena_ct<T>();
                 T* s_r = s_pos + 3 * NCC;
                 T* s_normal = s_r + NCC;
                 T* s_pos_grad = s_normal + 3 * NCC;
                 load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
-                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                multi_target_position_inner<T, true>(s_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
                 grid_collision::load_collision_radii<T>(s_r);
                 __syncthreads();
                 for (int i = threadIdx.x; i < NCC; i += blockDim.x) {
@@ -1283,7 +1350,7 @@ namespace plant {
                         s_normal[3 * i + 2] = nz;
                 }
                 __syncthreads();
-                multi_target_position_gradient_inner<T, true>(s_pos_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+                multi_target_position_gradient_inner<T, true>(s_pos_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
                 __syncthreads();
                 for (int ind = threadIdx.x; ind < NCC * NV; ind += blockDim.x) {
                         const int vi = ind % NV;

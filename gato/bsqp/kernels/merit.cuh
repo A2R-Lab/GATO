@@ -197,7 +197,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
         if constexpr (MENU) {
 #if GATO_MENU_AVAILABLE
                 // the cost menu replaces the tracking objective (per-knot buffers, shared or per solve)
-                cost_k = plant::menu_cost_value<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, menu, solve_idx, knot_idx, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), s_temp, d_robot_model, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                cost_k = plant::menu_cost_value<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, menu, solve_idx, knot_idx, /*is_terminal=*/(knot_idx == KNOT_POINTS - 1), s_temp, d_robot_model, q_lim_cost, vel_lim_cost, ctrl_lim_cost,
+                                                   /*act_override=*/nullptr, fc_cost, d_fc_ref ? d_fc_ref + (size_t)knot_idx * constants::FC_SIZE : nullptr);
 #else
                 cost_k = static_cast<T>(0);
 #endif

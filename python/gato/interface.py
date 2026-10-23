@@ -420,6 +420,12 @@ class BSQP:
         return bool(getattr(self.lib, "COST_MENU_AVAILABLE", False))
 
     @property
+    def cost_menu_tangent(self):
+        """True on a floating-base plant: the menu's state weights and bounds are
+        tangent-indexed (2 nv) and its state target is a stored state."""
+        return bool(getattr(self.lib, "COST_MENU_TANGENT", False))
+
+    @property
     def cost_menu(self):
         """The applied :class:`gato.cost_menu.CostMenu`, or None while the tracking objective runs."""
         return self._cost_menu

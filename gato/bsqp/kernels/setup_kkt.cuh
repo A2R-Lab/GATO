@@ -319,7 +319,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         if constexpr (MENU) {
 #if GATO_MENU_AVAILABLE
                                 gato::plant::menu_cost_grad_hess<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_Q_k, s_q_k, s_R_k, s_r_k, menu, solve_idx, knot_idx, /*is_terminal=*/false,
-                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost, fc_cost, d_fc_ref_k);
 #endif
                         } else {
                         gato::plant::tracking_cost_grad_hess<T>(
@@ -340,7 +340,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         if constexpr (MENU) {
 #if GATO_MENU_AVAILABLE
                                 gato::plant::menu_cost_grad_hess<T>(s_xux_k, s_xux_k + XU_STATE_SIZE, s_Q_k, s_q_k, s_R_k, s_r_k, menu, solve_idx, knot_idx, /*is_terminal=*/false,
-                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost, fc_cost, d_fc_ref_k);
 #endif
                         } else {
                         gato::plant::tracking_cost_grad_hess<T>(
@@ -357,7 +357,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         if constexpr (MENU) {
 #if GATO_MENU_AVAILABLE
                                 gato::plant::menu_cost_grad_hess<T>(s_xkp1, s_xkp1, s_Q_last, s_q_last, s_R_dummy, s_r_dummy, menu, solve_idx, KNOT_POINTS - 1, /*is_terminal=*/true,
-                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost);
+                                                                    s_temp, d_robotModel, q_lim_cost, vel_lim_cost, ctrl_lim_cost, fc_cost, d_fc_ref_kp1);
 #endif
                                 (void)ee_w_kp1;
                         } else {

@@ -974,7 +974,7 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("NQ") = gato::constants::NQ;
         m.attr("NV") = gato::constants::NV;
         m.attr("FLOATING_BASE") = gato::constants::FLOATING_BASE;
-        // cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4): fixed-base plants, not the fc variant
+        // cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5): fixed-base and free-flyer plants
         m.attr("COST_MENU_AVAILABLE") = bool(GATO_MENU_AVAILABLE);
 #if GATO_MENU_AVAILABLE
         m.attr("NUM_COST_FRAMES") = int(grid_plant::GRID_PLANT_NUM_COST_FRAMES);   // frame 0 = the end-effector target
@@ -984,9 +984,10 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         {
                 py::dict fields;   // per-knot element count of each menu field (gato.cost_menu shapes its uploads from this)
                 for (int f = 0; f < gato::menu::NUM_FIELDS; ++f) {
-                        fields[gato::menu::FIELD_NAMES[f]] = int(gato::menu::field_size(f, gato::constants::STATE_SIZE, gato::constants::ACTUATED_SIZE));
+                        fields[gato::menu::FIELD_NAMES[f]] = int(gato::menu::Host<float>::per_knot_size(f));
                 }
                 m.attr("COST_MENU_FIELDS") = fields;
+                m.attr("COST_MENU_TANGENT") = gato::menu::Host<float>::tangent();   // floating base: state weights and bounds are tangent-indexed
         }
         // flat per-batch-row sizes the device path validates against
         m.attr("XU_TRAJ_SIZE") = XU_TRAJ_SIZE;

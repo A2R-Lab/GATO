@@ -4,7 +4,7 @@ GATO's cost API since 0.2.0. A `CostMenu` replaces the tracking objective of
 the solver (the scalar weights `q_cost`, `qd_cost`, `u_cost`, `N_cost`, the
 per-knot weight triples, the posture anchor and the end-effector reference)
 with up to eight terms, each a residual under an activation, evaluated by
-GRiD's generated `grid_plant::tracking_cost_menu` (grid-rbd 0.5.4). The menu
+GRiD's generated `grid_plant::tracking_cost_menu` (grid-rbd 0.5.5). The menu
 is runtime data, like the constraint row groups: it is built in Python, applied
 to a solver, updated by applying it again, and cleared. The solver's
 `solve(x, ref, ...)` keeps its reference argument; the menu does not read it.
@@ -45,9 +45,10 @@ Activations, per term and per knot (one name, or one name per knot):
 | `pseudo_huber` | w (sqrt(r^2 + eps^2) - eps): quadratic below eps, linear above | `eps` > 0, the scale |
 | `relaxed_log_barrier` | the log barrier on the feature value inside [lower, upper], with the quadratic extension of Grandia et al. below the relaxation distance | `eps` > 0, the relaxation distance; `w` the barrier weight |
 | `quadratic_barrier` | w (max(0, lower - v)^2 + max(0, v - upper)^2) / 2 on the feature value v | |
+| `smooth_hinge` | w (sqrt(d^2 + eps^2) - eps) on the bound violation d = max(0, lower - v) + max(0, v - upper): flat inside, quadratic just past a bound, linear further out; its curvature is one-sided at the bound, as the quadratic barrier's | `eps` > 0, the scale |
 | `none` | the term is off at that knot | |
 
-The two barrier kinds act on the feature value, not on the residual, and need
+The three barrier kinds act on the feature value, not on the residual, and need
 `lower` and `upper` (an infinite bound disables that side); `frame_pos` and
 `orientation` have no bounds. The gradient of every term is J^T a'(r) and its
 Hessian the Gauss-Newton J^T diag(a''(r)) J, so the KKT blocks stay positive
@@ -82,18 +83,35 @@ KKT blocks agree to about 1e-6 relative and a solve can pick another
 line-search candidate on a tie after a few iterations
 (`test/test_cost_menu.py`).
 
-## Availability
+## Availability and the floating base
 
-grid-rbd 0.5.4 emits the menu for fixed-base plants, so the five vendored arms
-and any registered fixed-base robot carry it (`BSQP.cost_menu_available`,
-module attribute `COST_MENU_AVAILABLE`). The contact-force variant widens the
-control past the menu's input size and does not carry it. The Go2 and other
-floating-base plants wait for the floating composition of the next GRiD batch;
-on them a standing or base-pose reference goes through the tracking
-objective's posture anchor, whose first six weights are the base-pose tangent
-weights (`set_q_pos_cost` with an array, `set_q_nom`; example 19). The menu was first
-measured on October 23 for correctness only; its cost per iteration against
-the tracking objective is a quiet-window item.
+grid-rbd 0.5.5 emits the menu for fixed-base plants and for free-flyer plants
+with single-axis joints, so the five vendored arms, the Go2 and any registered
+robot of either kind carry it (`BSQP.cost_menu_available`, module attribute
+`COST_MENU_AVAILABLE`); a floating plant with spherical joints does not. On
+the contact-force variant the menu's input term covers the actuated torques
+and the wrench slots keep the regularization of the tracking objective
+(`fc_cost`, `set_fc_ref`), composed around the menu as in the default preset.
+The menu was first measured on October 23 for correctness only; its cost per
+iteration against the tracking objective is a quiet-window item.
+
+On a floating base (`BSQP.cost_menu_tangent`, module attribute
+`COST_MENU_TANGENT`) the preset is in the tangent layout. The state term is
+the log-map residual `[difference(q_des, q); qd - qd_des]`: its target is a
+stored state (nq + nv, the base pose as position and unit quaternion xyzw),
+its weight and bounds are tangent-indexed (2 nv: three base position rows,
+three base orientation rows, the joints, then the velocities), the base rows
+carry no bound, and its Gauss-Newton Hessian carries the SE(3) chart coupling
+between the base translation and rotation rows. `input` and `linear_u` are
+over the nv - 6 actuated torques, `linear_x` reads `[q[7:]; qd]` (2 nv - 6
+wide), and the gravity target is refused (the actuated part of g(q) is not a
+contact-consistent equilibrium). Cost frame 0 is the end-effector target, the
+imu on the Go2, so `frame_pos`, `orientation` and `velocity` are base-pose and
+base-twist terms there; the vendored Go2 bakes the four feet as cost frames 1
+to 4 and `frame_pos_2` addresses the FR foot. A standing reference is a state
+term with base weights (or, on the tracking objective, the posture anchor's
+first six weights; example 19, which also runs the same reference as a menu
+state term on the contact-force variant).
 
 ## Cost frames
 
@@ -102,8 +120,9 @@ elbow, a camera, any articulated or fixed joint of the URDF, by its URDF name)
 are baked at codegen time: `gato.build(..., cost_frames=["A4"])` or
 `gato.register_robot(..., cost_frames=[...])`; they become cost frame 1, 2,
 ... in the order given, and the `frame_pos_2` term addresses cost frame 1. The
-vendored arms carry frame 0 only. A joint attached to the world root cannot be
-a cost frame (it does not move). The frame list is part of the codegen key.
+vendored arms carry frame 0 only, the vendored Go2 the imu and its four feet.
+A joint attached to the world root cannot be a cost frame (it does not move).
+The frame list is part of the codegen key.
 
 ## Reading the cost
 

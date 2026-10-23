@@ -6,8 +6,8 @@ base pose: the first six entries of the per-slot posture weights
 tangent space of the log-map state cost, and the first seven entries of
 ``set_q_nom`` are the stored base pose (position, quaternion xyzw) they pull
 toward. With them the imu target, which fixes one point of the body, becomes
-a full standing reference. The cost menu itself is fixed-base in grid-rbd
-0.5.4; the floating composition is the next GRiD batch.
+a full standing reference; the cost menu's state term on the Go2 expresses the
+same reference (docs/cost_menu.md), the anchor is the lighter path.
 
 The model is the fc-on-feet variant (contact wrenches in the control, the
 standing setpoint of example 07: mg/4 up on every foot, the moment rows
@@ -86,3 +86,23 @@ for wp, wo in ((0.0, 0.0), (500.0, 200.0), (5000.0, 2000.0), (50000.0, 20000.0))
     print(f"  {wp:8.0f} / {wo:<15.0f} {int(res.stats.sqp_iters[0]):5d} " + " ".join(f"{h:8.4f}" for h in heights)
           + f" {roll:+8.2f}   " + " ".join(f"{f:5.1f}" for f in fz))
 print("  the imu target and the joint posture already level the body; the base weights raise it toward the stance height")
+
+# The same reference as a cost-menu state term (grid-rbd 0.5.5 composes the menu on a
+# floating base): the target is the stored stance state, the weights are tangent-indexed
+# (base position, base orientation, joints, then the velocities). Quadratic activations
+# reproduce the anchor's objective; the other activations are available on every row.
+from gato.cost_menu import CostMenu, Term   # noqa: E402
+
+if solver().cost_menu_available:
+    s = solver()
+    standing_setpoint(s)
+    wp, wo = 5000.0, 2000.0
+    s.set_cost_menu(CostMenu(
+        state=Term(weight=np.concatenate([[wp] * 3, [wo] * 3, np.full(nq - 7, 50.0), np.full(nv, params.qd_cost)]),
+                   target=np.concatenate([q_stand, np.zeros(nv)])),
+        input=Term(weight=params.u_cost),
+    ))
+    res = s.solve(x0, goals)
+    heights = [base_pose(res.xu_b(0), k)[0] for k in (4, 8, 12, 15)]
+    print(f"  the menu's state term at {wp:.0f} / {wo:.0f} (imu term off): heights " + " ".join(f"{h:.4f}" for h in heights)
+          + f", roll {base_pose(res.xu_b(0), N - 1)[1]:+.2f} deg")

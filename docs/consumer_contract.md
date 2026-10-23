@@ -80,10 +80,10 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   solve. While a menu is on the setters above raise. The orientation residual
   is the log map, the twist is linear then angular with world axes at the
   frame point, matrices are column-major on the device (the Python layer
-  converts). Fixed-base plants only in grid-rbd 0.5.4; on the Go2 the base
-  pose goes through the posture anchor: the first six entries of
-  `set_q_pos_cost` with an array are the base tangent weights and the first seven of
-  `set_q_nom` the stored base pose.
+  converts). On a floating base (grid-rbd 0.5.5) the state term is the
+  log-map residual with tangent-indexed weights and a stored state target; the
+  posture anchor's first six weights (`set_q_pos_cost` with an array) and the
+  first seven entries of `set_q_nom` are the lighter base-pose path.
 
 ## 4. Solve interface
 

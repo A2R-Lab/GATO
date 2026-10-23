@@ -1,12 +1,14 @@
-"""The cost menu (gato.cost_menu over grid_plant::tracking_cost_menu, grid-rbd 0.5.4).
+"""The cost menu (gato.cost_menu over grid_plant::tracking_cost_menu, grid-rbd 0.5.5).
 
 Host tier: shape and validation rules of CostMenu.apply against a recording stub.
 GPU tier: the menu with quadratic activations reproduces the tracking objective
 (KKT blocks to rounding, the initial merit, the first SQP iteration); every term
 matches RBDReference's menu oracle in the assembled KKT blocks; per-solve targets
 keep the batch independent; the legacy cost setters are refused while a menu is
-on; the gravity target is Pinocchio's generalized gravity; a floating-base module
-refuses the menu (fixed-base only in grid-rbd 0.5.4)."""
+on; the gravity target is Pinocchio's generalized gravity; on the Go2 the menu is
+in the tangent layout: its quadratic state term reproduces the floating tracking
+objective, every term matches the oracle's tangent gradients and Hessians, and the
+gravity target is refused."""
 import types
 
 import numpy as np
@@ -245,7 +247,8 @@ def test_menu_terms_match_rbdreference(make_solver, smallest_module):
         linear_x=LinearTerm(weight=Wx, A=Ax, b=bx, target=tx),
         linear_u=LinearTerm(weight=Wu, A=Au, b=bu, target=tu, activation="pseudo_huber", eps=0.3),
         orientation=Term(weight=Wo, target=R_des),
-        velocity=Term(weight=Wv, target=v_des, activation="quadratic_barrier", lower=v_des - 0.05, upper=v_des + 0.05),
+        velocity=Term(weight=Wv, target=v_des, activation=["quadratic_barrier"] * 5 + ["smooth_hinge"] * (N - 5), eps=0.02,
+                      lower=v_des - 0.05, upper=v_des + 0.05),
     )
     s.set_cost_menu(menu)
     Qk, qk, Rk, rk = _kkt(s, x0, ref, xu)
@@ -264,7 +267,8 @@ def test_menu_terms_match_rbdreference(make_solver, smallest_module):
         vals["linear_x"], g, H = rbd.linear_feature_cost(x, Ax, bx, tx[k], Wx, act("quadratic"), 0.0); gx += g; Hx += H
         R_cm = np.asarray(R_des[k]).T.reshape(-1)   # column-major, as the device buffer
         vals["orientation"], g, H = rbd.frame_orientation_cost(q, ee, R_cm, Wo, act("quadratic"), 0.0); gx += g; Hx += H
-        vals["velocity"], g, H = rbd.frame_velocity_cost(q, qd, ee, v_des[k], Wv, act("quadratic_barrier"), 0.0, v_des[k] - 0.05, v_des[k] + 0.05); gx += g; Hx += H
+        v_kind = "quadratic_barrier" if k < 5 else "smooth_hinge"
+        vals["velocity"], g, H = rbd.frame_velocity_cost(q, qd, ee, v_des[k], Wv, act(v_kind), 0.02, v_des[k] - 0.05, v_des[k] + 0.05); gx += g; Hx += H
         if not terminal:
             vals["input"], g, H = rbd.input_cost(u, u_des[k], Rw[k], act(u_act[k]), 0.5, u_lo[k], u_hi[k]); gu += g; Hu += H
             vals["linear_u"], g, H = rbd.linear_feature_cost(u, Au[k], bu[k], tu, Wu[k], act("pseudo_huber"), 0.3); gu += g; Hu += H
@@ -355,11 +359,144 @@ def test_menu_gravity_target_is_the_generalized_gravity(make_solver, smallest_mo
         np.testing.assert_allclose(rk[k], -g, rtol=1e-4, atol=1e-4)
 
 
-@pytest.mark.gpu
-def test_menu_refused_on_floating_base():
-    from conftest import go2_solver, require_module
+def _go2_setup(**kw):
+    from conftest import go2_solver, go2_standing_x, go2_goals_at, require_module
     require_module("bsqpN16_go2")
-    s = go2_solver(B=1)
-    assert not s.cost_menu_available and int(s.lib.NUM_COST_FRAMES) == 0
-    with pytest.raises(ValueError, match="fixed-base"):
-        s.set_cost_menu(CostMenu(input=Term(weight=1.0)))
+    s = go2_solver(1, **kw)
+    x = go2_standing_x().astype(np.float32)
+    ref = go2_goals_at(s.model, x, 1)
+    return s, x, ref
+
+
+def _go2_trajectory(s, x, seed=5, scale=0.1):
+    """A jittered hold on the standing state: the base quaternion stays unit (perturbed and renormalized)."""
+    from gato.common import initialize_warm_start
+    rng = np.random.default_rng(seed)
+    xu = initialize_warm_start(x, s.N, s.nx, s.nu).astype(np.float32)
+    nx, nu = s.nx, s.nu
+    for k in range(s.N):
+        xk = xu[k * (nx + nu):k * (nx + nu) + nx]
+        xk += rng.normal(0, scale, nx).astype(np.float32)
+        xk[3:7] /= np.linalg.norm(xk[3:7])
+        if k < s.N - 1:
+            xu[k * (nx + nu) + nx:(k + 1) * (nx + nu)] = rng.normal(0, 1.0, nu).astype(np.float32)
+    return xu
+
+
+def _go2_kkt(s, x, ref, xu):
+    d = s.debug_setup_kkt(xu[None], x[None], ref)
+    ns, nu, N = 2 * s.nv, s.nu, s.N
+    return (np.asarray(d["Q"]).reshape(N, ns, ns), np.asarray(d["q"]).reshape(N, ns),
+            np.asarray(d["R"]).reshape(N, nu, nu), np.asarray(d["r"]).reshape(N, nu))
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("variant", [None, "fc"], ids=["default", "fc"])
+def test_menu_floating_quadratic_state_reproduces_tracking_objective(variant):
+    """Go2: the menu's quadratic state term with the tracking objective's tangent weights
+    (joint posture off, velocities under qd_cost, zero base rows) and the input term
+    reproduce the floating tracking objective's KKT blocks with the imu term off
+    (q_cost = N_cost = 0), to rounding; on the contact-force variant the wrench rows
+    (fc_cost around a reference) come out identical too."""
+    from conftest import go2_standing_q, require_module
+    if variant == "fc":
+        require_module("bsqpN16_go2_fc")
+    s, x, ref = _go2_setup(variant=variant, q_cost=0.0, N_cost=0.0)
+    assert s.cost_menu_available and s.cost_menu_tangent
+    if variant == "fc":
+        fc_ref = np.linspace(-1.0, 1.0, s.n_fc).astype(np.float32)
+        s.set_fc_ref(fc_ref)
+    xu = _go2_trajectory(s, x)
+    Q0, q0, R0, r0 = _go2_kkt(s, x, ref, xu)
+    nv = s.nv
+    x_des = np.concatenate([go2_standing_q(), np.zeros(nv)])
+    s2, _, _ = _go2_setup(variant=variant, q_cost=0.0, N_cost=0.0)
+    if variant == "fc":
+        s2.set_fc_ref(fc_ref)
+    s2.set_cost_menu(CostMenu(state=Term(weight=[0.0] * nv + [s2.params.qd_cost] * nv, target=x_des),
+                              input=Term(weight=s2.params.u_cost)))
+    Q1, q1, R1, r1 = _go2_kkt(s2, x, ref, xu)
+    np.testing.assert_allclose(Q1, Q0, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(q1, q0, rtol=1e-5, atol=1e-6)
+    np.testing.assert_array_equal(R1[:-1], R0[:-1])
+    np.testing.assert_array_equal(r1[:-1], r0[:-1])
+
+
+@pytest.mark.gpu
+def test_menu_floating_terms_match_rbdreference():
+    """Go2: every term in the tangent layout against RBDReference (state_cost_tangent,
+    the frame terms on the imu with tangent-sized derivatives, the input and the
+    linear features over the actuated inputs and [q[7:]; qd]), at a running knot, a
+    knot with other activations and the terminal knot; the limit barriers off."""
+    from URDFParser import URDFParser
+    from RBDReference import RBDReference
+    from conftest import GO2_URDF, go2_standing_q
+    s, x, ref = _go2_setup(q_lim_cost=0.0, vel_lim_cost=0.0, ctrl_lim_cost=0.0)
+    N, nq, nv, nu = s.N, s.nq, s.nv, s.nu
+    ns, nlx = 2 * nv, 2 * nv - 6
+    rng = np.random.default_rng(9)
+    xu = _go2_trajectory(s, x, seed=4, scale=0.15)
+    x_des = np.tile(np.concatenate([go2_standing_q(), np.zeros(nv)]), (N, 1)) + rng.normal(0, 0.1, (N, nq + nv))
+    x_des[:, 3:7] /= np.linalg.norm(x_des[:, 3:7], axis=1, keepdims=True)
+    Q = np.abs(rng.normal(0.5, 0.2, (N, ns)))
+    x_act = ["pseudo_huber"] * 5 + ["smooth_hinge"] * (N - 5)
+    x_lo = -0.5 + rng.normal(0, 0.05, (N, ns)); x_hi = x_lo + 0.6
+    u_des = rng.normal(0, 2.0, (N, nu)); Rw = np.abs(rng.normal(1e-2, 3e-3, (N, nu)))
+    Ax = rng.normal(0, 1.0, (nlx, nlx)); bx = rng.normal(0, 0.1, nlx); tx = rng.normal(0, 0.2, (N, nlx)); Wx = np.abs(rng.normal(0.3, 0.1, nlx))
+    Au = rng.normal(0, 1.0, (nu, nu)); bu = rng.normal(0, 0.1, nu); tu = rng.normal(0, 0.2, nu); Wu = np.abs(rng.normal(0.3, 0.1, nu))
+    rbd = RBDReference(URDFParser().parse(str(GO2_URDF), floating_base=True))
+    ee = s.ee_frame
+    q_stand = go2_standing_q()
+    R_start, p_start, _ = rbd._frame_placement(q_stand, ee)
+    R_des = np.stack([R_start @ _rotation_small(rng, 0.8) for _ in range(N)]); Wo = np.abs(rng.normal(0.7, 0.2, 3))
+    p_des = p_start[None, :] + rng.normal(0, 0.05, (N, 3)); W = np.abs(rng.normal(1.0, 0.3, (N, 3)))
+    v_des = rng.normal(0, 0.5, (N, 6)); Wv = np.abs(rng.normal(0.4, 0.1, 6))
+    s.set_cost_menu(CostMenu(
+        frame_pos=Term(weight=W, target=p_des, activation="pseudo_huber", eps=0.02),
+        state=Term(weight=Q, target=x_des, activation=x_act, eps=0.05, lower=x_lo, upper=x_hi),
+        input=Term(weight=Rw, target=u_des, activation="quadratic_barrier", lower=np.full((N, nu), -5.0), upper=np.full((N, nu), 5.0)),
+        linear_x=LinearTerm(weight=Wx, A=Ax, b=bx, target=tx),
+        linear_u=LinearTerm(weight=Wu, A=Au, b=bu, target=tu, activation="pseudo_huber", eps=0.3),
+        orientation=Term(weight=Wo, target=R_des),
+        velocity=Term(weight=Wv, target=v_des),
+    ))
+    Qk, qk, Rk, rk = _go2_kkt(s, x, ref, xu)
+    values = s.cost_menu_terms(xu[None])[0]
+    act = lambda name: ACTIVATIONS[name]
+    for k in (0, 5, N - 1):
+        xk, uk = _knot(xu, k, s.nx, nu)
+        q, qd = xk[:nq], xk[nq:]
+        terminal = (k == N - 1)
+        gx = np.zeros(ns); Hx = np.zeros((ns, ns)); gu = np.zeros(nu); Hu = np.zeros((nu, nu)); vals = {}
+        vals["frame_pos"], g, H = rbd.frame_position_cost(q, ee, p_des[k], W[k], act("pseudo_huber"), 0.02); gx += g; Hx += H
+        vals["state"], g, H = rbd.state_cost_tangent(xk, x_des[k], Q[k], act(x_act[k]), 0.05, x_lo[k], x_hi[k]); gx += g; Hx += H
+        vals["linear_x"], g, H = rbd.linear_feature_cost(np.concatenate([q[7:], qd]), Ax, bx, tx[k], Wx, act("quadratic"), 0.0)
+        gx[6:] += g; Hx[6:, 6:] += H
+        R_cm = np.asarray(R_des[k]).T.reshape(-1)
+        vals["orientation"], g, H = rbd.frame_orientation_cost(q, ee, R_cm, Wo, act("quadratic"), 0.0); gx += g; Hx += H
+        vals["velocity"], g, H = rbd.frame_velocity_cost(q, qd, ee, v_des[k], Wv, act("quadratic"), 0.0); gx += g; Hx += H
+        if not terminal:
+            vals["input"], g, H = rbd.input_cost(uk, u_des[k], Rw[k], act("quadratic_barrier"), 0.0, np.full(nu, -5.0), np.full(nu, 5.0)); gu += g; Hu += H
+            vals["linear_u"], g, H = rbd.linear_feature_cost(uk, Au, bu, tu, Wu, act("pseudo_huber"), 0.3); gu += g; Hu += H
+        else:
+            vals["input"] = vals["linear_u"] = 0.0
+        np.testing.assert_allclose(qk[k], gx, rtol=2e-4, atol=2e-4 * max(1.0, np.abs(gx).max()), err_msg=f"q at knot {k}")
+        np.testing.assert_allclose(Qk[k], Hx, rtol=2e-4, atol=2e-4 * max(1.0, np.abs(Hx).max()), err_msg=f"Q at knot {k}")
+        if not terminal:
+            np.testing.assert_allclose(rk[k], gu, rtol=2e-4, atol=2e-4 * max(1.0, np.abs(gu).max()), err_msg=f"r at knot {k}")
+            np.testing.assert_allclose(Rk[k], Hu, rtol=2e-4, atol=2e-4 * max(1.0, np.abs(Hu).max()), err_msg=f"R at knot {k}")
+        for name, v in vals.items():
+            np.testing.assert_allclose(values[k, TERMS.index(name)], v, rtol=2e-4, atol=1e-5, err_msg=f"value of {name} at knot {k}")
+
+
+@pytest.mark.gpu
+def test_menu_floating_refuses_gravity_target_and_bad_quaternion():
+    from conftest import go2_standing_q
+    s, x, ref = _go2_setup()
+    with pytest.raises(ValueError, match="fixed-base plants only"):
+        s.set_cost_menu(CostMenu(input=Term(weight=1.0, target="gravity"), q_ref=go2_standing_q()))
+    with pytest.raises(ValueError, match="unit quaternion"):
+        s.set_cost_menu(CostMenu(state=Term(weight=1.0, target=np.zeros(s.nx))))
+    with pytest.raises(ValueError, match="stored state"):
+        s.set_cost_menu(CostMenu(state=Term(weight=1.0)))
+    assert s.cost_menu is None

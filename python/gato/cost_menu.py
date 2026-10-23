@@ -1,4 +1,4 @@
-"""The cost menu: GATO's cost API over grid_plant::tracking_cost_menu (grid-rbd 0.5.4).
+"""The cost menu: GATO's cost API over grid_plant::tracking_cost_menu (grid-rbd 0.5.5).
 
 A :class:`CostMenu` replaces the solver's tracking objective (the scalar
 ``q_cost``/``qd_cost``/``u_cost`` weights, the per-knot weight triples, the
@@ -18,12 +18,22 @@ term            residual                                       size    frame
 ``frame_pos_2`` second frame position minus target             3       1
 ==============  =============================================  ======  =======
 
+On a floating-base plant (``BSQP.cost_menu_tangent``) the state term is the
+log-map residual: its target is the stored state (nq + nv, a unit quaternion
+in the base pose), its weight and bounds are tangent-indexed (2 nv: three
+base position rows, three base orientation rows, the joints, then the
+velocities; the base rows carry no bound), ``input`` is over the nv - 6
+actuated torques, and ``linear_x`` reads ``[q[7:]; qd]`` (2 nv - 6 wide). The
+gravity target exists for fixed-base plants only. Cost frame 0 is the imu on
+the Go2, cost frame 1 the first foot.
+
 Activations (per term, per knot): ``quadratic`` (1/2 w r^2), ``pseudo_huber``
 (w (sqrt(r^2 + eps^2) - eps)), ``relaxed_log_barrier`` (the log barrier on the
 feature value inside ``[lower, upper]`` with the quadratic extension below
-``eps``) and ``quadratic_barrier`` (1/2 w times the squared bound violation).
-The two barrier kinds act on the feature value, not on the residual, and
-need ``lower``/``upper``. Every target, weight, bound and parameter is per
+``eps``), ``quadratic_barrier`` (1/2 w times the squared bound violation) and
+``smooth_hinge`` (the pseudo-Huber of the bound violation: quadratic just past
+a bound, linear further out, flat inside). The three barrier kinds act on the
+feature value, not on the residual, and need ``lower``/``upper``. Every target, weight, bound and parameter is per
 knot: pass one value for every knot (shape ``(size,)``), one per knot
 (``(N, size)``) or one per solve and knot (``(B, N, size)``); only the fields
 given per solve are stored per solve. The joint-limit barriers of the default
@@ -44,9 +54,9 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-ACTIVATIONS = {"none": -1, "quadratic": 0, "pseudo_huber": 1, "relaxed_log_barrier": 2, "quadratic_barrier": 3}
-BARRIER_KINDS = ("relaxed_log_barrier", "quadratic_barrier")
-EPS_KINDS = ("pseudo_huber", "relaxed_log_barrier")
+ACTIVATIONS = {"none": -1, "quadratic": 0, "pseudo_huber": 1, "relaxed_log_barrier": 2, "quadratic_barrier": 3, "smooth_hinge": 4}
+BARRIER_KINDS = ("relaxed_log_barrier", "quadratic_barrier", "smooth_hinge")
+EPS_KINDS = ("pseudo_huber", "relaxed_log_barrier", "smooth_hinge")
 TERMS = ("frame_pos", "state", "input", "linear_x", "linear_u", "orientation", "velocity", "frame_pos_2")
 
 # field names of each term (gato::menu::FIELD_NAMES): target, weight, lower, upper; the linear
@@ -67,8 +77,10 @@ _FIELDS = {
 class Term:
     """One menu term.
 
-    weight: per-entry weight (nonnegative), broadcast to the term's size.
-    target: the residual's target; None means zeros. For ``orientation`` the
+    weight: per-entry weight (nonnegative), broadcast to the term's size (the
+        tangent size for ``state`` on a floating base).
+    target: the residual's target; None means zeros (on a floating base the
+        state target is a stored state, so None is not a valid base pose there). For ``orientation`` the
         target is a rotation matrix ``R_des`` (3 by 3, per knot or per solve),
         for ``input`` it may be the string ``"gravity"`` together with
         :attr:`CostMenu.q_ref` (``u_des = g(q_ref)`` per knot).
@@ -118,9 +130,10 @@ class CostMenu:
         ``set_cost_menu`` calls this). Shapes: see the module docstring."""
         lib = solver.lib
         if not bool(getattr(lib, "COST_MENU_AVAILABLE", False)):
-            raise ValueError("the cost menu is not available in this module: grid-rbd 0.5.4 emits it for "
-                             "fixed-base plants, and the contact-force variant does not carry it")
+            raise ValueError("the cost menu is not available in this module: grid-rbd 0.5.5 emits it for fixed-base "
+                             "plants and free-flyer plants with single-axis joints")
         sizes = dict(lib.COST_MENU_FIELDS)
+        tangent = bool(getattr(lib, "COST_MENU_TANGENT", False))
         N, B = int(solver.N), int(solver.batch_size)
         n_frames = int(getattr(lib, "NUM_COST_FRAMES", 0))
         terms = self.terms()
@@ -136,13 +149,14 @@ class CostMenu:
             if term is None:
                 continue
             f = _FIELDS[name]
-            size = int(sizes[f["weight"]])
+            size = int(sizes[f["weight"]])            # the weight's and the bounds' width
+            tsize = int(sizes[f["target"]])           # the target's width (the stored state on a floating base)
             kinds = _activation_table(name, term.activation, N)
             activation[:, ti] = [ACTIVATIONS[k] for k in kinds]
             eps[:, ti] = _per_knot_scalar(name + ".eps", term.eps, N)
             needs_eps = [k in EPS_KINDS for k in kinds]
             if any(needs_eps) and np.any(eps[needs_eps, ti] <= 0):
-                raise ValueError(f"{name}: eps must be positive at every knot using pseudo_huber or relaxed_log_barrier")
+                raise ValueError(f"{name}: eps must be positive at every knot using pseudo_huber, relaxed_log_barrier or smooth_hinge")
             is_barrier = [k in BARRIER_KINDS for k in kinds]
             if any(is_barrier):
                 if "lower" not in f:
@@ -160,12 +174,20 @@ class CostMenu:
                     raise ValueError("input.target must be an array or the string 'gravity'")
                 if self.q_ref is None:
                     raise ValueError("input.target == 'gravity' needs CostMenu.q_ref (N, nq): the reference configuration")
+                if tangent:
+                    raise ValueError("input.target == 'gravity' is defined for fixed-base plants only")
                 tgt = None
             else:
-                tgt, t_ps = _broadcast(name + ".target", 0.0 if term.target is None else term.target, size, N, B)
+                if name == "state" and tangent and term.target is None:
+                    raise ValueError("state: a floating-base state target is a stored state with a unit quaternion; None is not one")
+                tgt, t_ps = _broadcast(name + ".target", 0.0 if term.target is None else term.target, tsize, N, B)
             if tgt is not None:
                 if np.any(~np.isfinite(tgt)):
                     raise ValueError(f"{name}: targets must be finite")
+                if name == "state" and tangent:
+                    quat = tgt.reshape(-1, tsize)[:, 3:7]
+                    if np.any(np.abs(np.linalg.norm(quat, axis=1) - 1.0) > 1e-4):
+                        raise ValueError("state: entries 3..6 of every floating-base state target must be a unit quaternion (xyzw)")
                 uploads.append((f["target"], tgt, t_ps))
             if term.lower is not None or term.upper is not None:
                 if "lower" not in f:

@@ -1,6 +1,6 @@
 #pragma once
 // Cost-menu buffers: the per-knot data of grid_plant::tracking_cost_menu
-// (grid-rbd 0.5.4). The solver host (bsqp/cost_menu_host.cuh) owns the device
+// (grid-rbd 0.5.5). The solver host (bsqp/cost_menu_host.cuh) owns the device
 // arrays and fills this view; the setup-KKT and merit kernels read it through
 // the plant adapters (dynamics/plant.cuh, menu_cost_value / menu_cost_grad_hess)
 // when the menu is on. Every field is a per-knot array, either one copy shared
@@ -32,13 +32,22 @@ inline const char* const FIELD_NAMES[NUM_FIELDS] = {
         "Ax", "bx", "tx", "Wx", "lx_lower", "lx_upper", "Au", "bu", "tu", "Wu", "lu_lower", "lu_upper",
         "R_des", "Wo", "v_des", "Wv", "v_lower", "v_upper", "cf_des", "Wcf", "cf_lower", "cf_upper", "eps"};
 
-// per-knot element count of a field; the linear features are full-rank (MX = nx rows, MU = nu rows)
-__host__ __device__ constexpr uint32_t field_size(int f, uint32_t nx, uint32_t nu)
+// the per-knot sizes of a plant's menu: x_stored is the stored state width (NQ + NV),
+// x_tangent the state block width the weights and bounds index (2 NV on a floating
+// base, equal to x_stored on a fixed base), nu the preset's actuated input width, nlx
+// the variable width of the linear x feature (x on a fixed base, [q[7:]; qd] on a
+// floating base). gato::plant::menu_dims() fills it from the generated constants.
+struct Dims { uint32_t x_stored; uint32_t x_tangent; uint32_t nu; uint32_t nlx; };
+
+// per-knot element count of a field; the linear features are full-rank (MX = nlx rows, MU = nu rows)
+__host__ __device__ constexpr uint32_t field_size(int f, Dims d)
 {
-        return (f == X_DES || f == Q || f == X_LOWER || f == X_UPPER || f == BX || f == TX || f == WX || f == LX_LOWER || f == LX_UPPER) ? nx
-             : (f == U_DES || f == R || f == UB_LOWER || f == UB_UPPER || f == BU || f == TU || f == WU || f == LU_LOWER || f == LU_UPPER) ? nu
-             : (f == AX) ? nx * nx
-             : (f == AU) ? nu * nu
+        return (f == X_DES) ? d.x_stored
+             : (f == Q || f == X_LOWER || f == X_UPPER) ? d.x_tangent
+             : (f == BX || f == TX || f == WX || f == LX_LOWER || f == LX_UPPER) ? d.nlx
+             : (f == U_DES || f == R || f == UB_LOWER || f == UB_UPPER || f == BU || f == TU || f == WU || f == LU_LOWER || f == LU_UPPER) ? d.nu
+             : (f == AX) ? d.nlx * d.nlx
+             : (f == AU) ? d.nu * d.nu
              : (f == R_DES) ? 9u
              : (f == V_DES || f == WV || f == V_LOWER || f == V_UPPER) ? 6u
              : (f == EPS) ? static_cast<uint32_t>(NUM_TERMS)

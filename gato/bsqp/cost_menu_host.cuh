@@ -1,5 +1,5 @@
 #pragma once
-// Host side of the cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.4):
+// Host side of the cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5):
 // owns the per-knot device arrays, validates what a knot activates against
 // what is set, and hands the kernels a gato::menu::Buffers view. Fields are
 // addressed by name (gato::menu::FIELD_NAMES); each is one copy shared across
@@ -80,14 +80,28 @@ public:
         void init(uint32_t batch_size) { batch_size_ = batch_size; view_ = empty_buffers<T>(); }
 
         static constexpr bool available() { return GATO_MENU_AVAILABLE != 0; }
-        static constexpr uint32_t nx() { return static_cast<uint32_t>(gato::constants::STATE_SIZE); }
-        static constexpr uint32_t nu() { return static_cast<uint32_t>(gato::constants::ACTUATED_SIZE); }
+        static constexpr bool tangent()
+        {
+#if GATO_MENU_AVAILABLE
+                return gato::plant::MENU_TANGENT;
+#else
+                return false;
+#endif
+        }
+        static constexpr Dims dims()
+        {
+#if GATO_MENU_AVAILABLE
+                return gato::plant::menu_dims();
+#else
+                return Dims{0u, 0u, 0u, 0u};
+#endif
+        }
         static int field_index(const std::string& name)
         {
                 for (int f = 0; f < NUM_FIELDS; ++f) { if (name == FIELD_NAMES[f]) return f; }
                 throw std::invalid_argument("unknown cost-menu field '" + name + "'");
         }
-        static uint32_t per_knot_size(int f) { return field_size(f, nx(), nu()); }
+        static uint32_t per_knot_size(int f) { return field_size(f, dims()); }
 
         // one field: count = KNOT_POINTS * size (shared across the batch) or batch_size * KNOT_POINTS * size (per solve)
         void set_field(const std::string& name, const T* h, size_t count, bool per_solve)
@@ -118,7 +132,7 @@ public:
                 const size_t expected = (size_t)KNOT_POINTS * NUM_TERMS;
                 if (count != expected) { throw std::invalid_argument("cost-menu activation: expected " + std::to_string(expected) + " entries, got " + std::to_string(count)); }
                 for (size_t i = 0; i < count; ++i) {
-                        if (h[i] < -1 || h[i] > 3) { throw std::invalid_argument("cost-menu activation id out of range at entry " + std::to_string(i) + " (NONE -1, QUADRATIC 0, PSEUDO_HUBER 1, RELAXED_LOG_BARRIER 2, QUADRATIC_BARRIER 3)"); }
+                        if (h[i] < -1 || h[i] > 4) { throw std::invalid_argument("cost-menu activation id out of range at entry " + std::to_string(i) + " (NONE -1, QUADRATIC 0, PSEUDO_HUBER 1, RELAXED_LOG_BARRIER 2, QUADRATIC_BARRIER 3, SMOOTH_HINGE 4)"); }
                 }
                 h_act_.assign(h, h + count);
                 upload(d_act_, cap_act_, h, count);
@@ -139,10 +153,12 @@ public:
                 h_act_.clear();
         }
 
-        // u_des = g(q_ref) per knot (shared across the batch): count = KNOT_POINTS * NQ
+        // u_des = g(q_ref) per knot (shared across the batch): count = KNOT_POINTS * NQ. Fixed base only:
+        // on a floating base the actuated part of g(q) is not a contact-consistent equilibrium torque.
         void gravity_target(const T* h_q_ref, size_t count, const grid::robotModel<T>* d_robotModel)
         {
                 require_available();
+                if (tangent()) { throw std::invalid_argument("cost menu: the gravity target is defined for fixed-base plants only"); }
 #if GATO_MENU_AVAILABLE
                 constexpr int NQ = gato::plant::NQ;
                 constexpr int NU = gato::plant::NU;
@@ -213,7 +229,7 @@ public:
 private:
         void require_available() const
         {
-                if (!available()) { throw std::runtime_error("the cost menu is not available in this module: grid-rbd 0.5.4 emits it for fixed-base plants, and the contact-force variant does not carry it"); }
+                if (!available()) { throw std::runtime_error("the cost menu is not available in this module: grid-rbd 0.5.5 emits it for fixed-base plants and free-flyer plants with single-axis joints"); }
                 if (batch_size_ == 0) { throw std::runtime_error("cost menu used before the solver was constructed"); }
         }
         template<typename U>
