@@ -58,10 +58,15 @@ case "${PROFILE}" in
   *) echo "unknown --profile '${PROFILE}' (only: receipt)" >&2; exit 2 ;;
 esac
 
-echo "Configuring: cmake ${CMAKE_ARGS[*]}"
-cmake "${CMAKE_ARGS[@]}"
+# the venv's cmake (the cmake wheel, >= 3.24, issue #23) when the venv has one,
+# so an unactivated shell on Ubuntu 22.04 / JetPack 6 still gets arch detection
+CMAKE="$(dirname "${PY}")/cmake"
+[[ -x "${CMAKE}" ]] || CMAKE="cmake"
+
+echo "Configuring: ${CMAKE} ${CMAKE_ARGS[*]}"
+"${CMAKE}" "${CMAKE_ARGS[@]}"
 
 echo "Building (parallel ${JOBS})..."
-cmake --build "${BUILD_DIR}" --parallel "${JOBS}"
+"${CMAKE}" --build "${BUILD_DIR}" --parallel "${JOBS}"
 
 echo "Build complete — modules in python/gato/"
