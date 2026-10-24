@@ -49,6 +49,10 @@ test/test_bindings_shapes.py::test_broadcast_reference_and_f64_state_match_conti
 test/test_bindings_shapes.py::test_fortran_order_f_ext_matches_c_order
 test/test_build.py::test_build_end_to_end
 test/test_build.py::test_fresh_tree_targets_the_local_gpu
+test/test_cmake_floor.py::test_commands_exist_in_the_declared_minimum[CMakeLists.txt]
+test/test_cmake_floor.py::test_commands_exist_in_the_declared_minimum[examples/cpp/CMakeLists.txt]
+test/test_cmake_floor.py::test_cmake_executable_prefers_the_interpreter_s_own
+test/test_cmake_floor.py::test_native_arch_is_guarded_by_version
 test/test_codegen.py::test_regen_matches_vendored[indy7]
 test/test_codegen.py::test_regen_matches_vendored[iiwa14]
 test/test_codegen.py::test_regen_matches_vendored[go2]
