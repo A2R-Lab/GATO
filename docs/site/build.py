@@ -35,6 +35,8 @@ PAGES = {
     "docs/status.md": "status",
     "docs/consumer_contract.md": "consumer_contract",
     "docs/constraints.md": "constraints",
+    "docs/cost_menu.md": "cost_menu",
+    "docs/merit_timing.md": "merit_timing",
     "docs/development.md": "development",
     "docs/figure-refresh-2026-10-01.md": "figure_refresh",
     "docs/archaeology.md": "archaeology",

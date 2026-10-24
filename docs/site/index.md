@@ -45,6 +45,12 @@ receipt proves.
 Mechanisms, measured defaults and provenance for every row-group method:
 boxes, cones, collision, contact rows, the ADMM inner loop.
 :::
+:::{grid-item-card} Cost menu
+:link: cost_menu
+:link-type: doc
+Objectives beyond quadratic tracking: frame position and orientation, state,
+input, linear features, twist, under per-knot activations and barriers.
+:::
 
 :::{grid-item-card} Signed receipt
 :link: receipt
@@ -77,6 +83,8 @@ guide
 consumer_contract
 status
 constraints
+cost_menu
+merit_timing
 receipt
 api
 development
