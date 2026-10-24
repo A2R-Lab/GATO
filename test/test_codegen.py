@@ -18,7 +18,8 @@ ROBOT_KW = {
     "iiwa14": dict(ee_frame="EE"),
     "go2": dict(ee_frame="imu_joint", floating_base=True,
                 contact_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"],
-                cost_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"]),
+                cost_frames=["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"],
+                com=True),   # the centroidal families: the CoM term (0.1.5)
     "fr3": dict(ee_frame="fr3_hand_tcp_joint"),
     "gen3": dict(ee_frame="tool_frame_joint"),
     "ur5e": dict(ee_frame="tool0_joint"),

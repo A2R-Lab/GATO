@@ -4,6 +4,7 @@
       "n_spheres": 43,
       "res": 0.15
     },
+    "com": false,
     "contact_frames": [
       "fr3_hand_tcp_joint"
     ],
@@ -21,6 +22,7 @@
       "n_spheres": 14,
       "res": 0.15
     },
+    "com": false,
     "contact_frames": [
       "tool_frame_joint"
     ],
@@ -63,6 +65,7 @@
       "n_spheres": 44,
       "res": 0.15
     },
+    "com": false,
     "contact_frames": [
       "EE"
     ],
@@ -80,6 +83,7 @@
       "n_spheres": 29,
       "res": 0.15
     },
+    "com": false,
     "contact_frames": [
       "EE"
     ],
@@ -97,6 +101,7 @@
       "n_spheres": 17,
       "res": 0.15
     },
+    "com": false,
     "contact_frames": [
       "tool0_joint"
     ],

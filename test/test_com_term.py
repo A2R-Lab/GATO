@@ -72,8 +72,10 @@ def test_kkt_increment_matches_pinocchio_com_jacobian():
     Q0 = np.asarray(d0["Q"], np.float64).reshape(N, nx, nx).transpose(0, 2, 1)
     q1 = np.asarray(d1["q"], np.float64).reshape(N, nx)
     q0 = np.asarray(d0["q"], np.float64).reshape(N, nx)
-    assert np.array_equal(np.asarray(d1["R"]), np.asarray(d0["R"]))
-    assert np.array_equal(np.asarray(d1["r"]), np.asarray(d0["r"]))
+    # the control blocks over the N - 1 running slots (the terminal slot is never written)
+    nu = s.nu
+    assert np.array_equal(np.asarray(d1["R"]).ravel()[: (N - 1) * nu * nu], np.asarray(d0["R"]).ravel()[: (N - 1) * nu * nu])
+    assert np.array_equal(np.asarray(d1["r"]).ravel()[: (N - 1) * nu], np.asarray(d0["r"]).ravel()[: (N - 1) * nu])
     J = pin.jacobianCenterOfMass(model, data, x0[:nq])        # 3 x nv, tangent columns
     r = c0 - target
     g_ref = J.T @ (w * r)
