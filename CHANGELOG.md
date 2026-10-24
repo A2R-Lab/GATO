@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.1.5 — unreleased: the RK4 step, exact position curvature, the CoM term, torque enforcement
+## 0.1.5 — 2026-10-24: the RK4 step, exact position curvature, the CoM term, torque enforcement
 
 - The integrator is a module variant. `gato.build(..., integrator="rk4")` (or
   `MODULES="iiwa14:16:rk4"`) builds `bsqpN{N}_{plant}_rk4`, the classical
