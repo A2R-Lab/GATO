@@ -21,7 +21,10 @@ one-time cost. The module key hashes the robot's codegen key, N, variant, the
 native source identity (`tools/native_identity.py`, the same content hash every
 module embeds) and the toolchain (CUDA arch from `nvidia-smi`, nvcc, host
 compiler, CMake, Python ABI tag, pybind11) — any change is a cache miss, never a
-stale binary; `register_robot(..., build=True)` compiles up front; `GATO_MERIT_THREADS` (the merit
+stale binary; the cmake is the venv's (the `cmake` wheel is a dependency since
+0.1.6, issue #23) and falls back to the one on PATH; the tree's declared CMake
+floor is 3.22 (`test/test_cmake_floor.py` checks the commands statically and
+`tools/check_cmake_floor.sh` configures with a pinned 3.22); `register_robot(..., build=True)` compiles up front; `GATO_MERIT_THREADS` (the merit
 block size, for GPUs with few SMs) joins the key when set, so both sizes can live
 in one cache. The vendored
 robots are pre-registered from the bundled headers (`_cache.resolve`). Package

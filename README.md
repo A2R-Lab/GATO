@@ -23,9 +23,9 @@ Prerequisites (Linux):
 
 - an NVIDIA driver + **CUDA toolkit ≥ 12.x matching your GPU architecture**
   (e.g. RTX 50xx / sm_120 needs CUDA ≥ 12.8) with `nvcc` on `PATH`
-- `apt install build-essential cmake python3-dev python3-venv git`
-  (CMake ≥ 3.24 recommended so the build auto-detects your GPU arch; older
-  CMake requires an explicit architecture, e.g. `ARCH=120` for sm_120)
+- `apt install build-essential python3-dev python3-venv git` (CMake comes
+  into the venv from the `cmake` wheel, ≥ 3.24, so the build detects your GPU
+  architecture on Ubuntu 22.04 and JetPack 6 too; `ARCH=120` still overrides)
 - Python ≥ 3.10
 
 ### pip install
@@ -165,7 +165,7 @@ iteration). Load one with `gato.BSQP(..., variant="fc")`; list them with
 - Linux (developed on Ubuntu 22.04/24.04)
 - CUDA toolkit ≥ 12.x matching your GPU arch (sm_120 needs ≥ 12.8)
 - A C++17 host compiler (gcc 11+)
-- CMake ≥ 3.22 (≥ 3.24 recommended for automatic GPU-arch detection)
+- CMake ≥ 3.22 (a dependency installs ≥ 3.24 into the venv, which detects the GPU architecture)
 - Python ≥ 3.10
 - Docker (optional — only for the containerized build)
 

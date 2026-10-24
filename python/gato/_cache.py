@@ -64,9 +64,10 @@ def validate_merit_threads(value) -> int:
 
 
 def merit_threads() -> int | None:
-    """GATO_MERIT_THREADS: the merit kernel's block size, for GPUs with few SMs
-    (issue #19); None = the generated per-robot maximum. Compiled into the module
-    and part of its cache key, so both sizes can live in one cache."""
+    """GATO_MERIT_THREADS: the merit kernel's block size (issue #19); None = the
+    configure-time default, 64 or 32 on the Jetson family (CMakeLists.txt).
+    Compiled into the module and part of its cache key, so several sizes can
+    live in one cache."""
     raw = os.environ.get("GATO_MERIT_THREADS", "").strip()
     return validate_merit_threads(raw) if raw else None
 
@@ -105,6 +106,18 @@ def detect_arch() -> str | None:
         return None
 
 
+def cmake_executable() -> str:
+    """The cmake GATO compiles with: the one the `cmake` wheel put next to this
+    interpreter (a dependency since 0.1.6, so a venv on Ubuntu 22.04 or JetPack 6,
+    whose distribution package is 3.22, still configures and detects the GPU
+    architecture), else the first `cmake` on PATH, else the bare name so the
+    failure names the tool."""
+    here = Path(sys.executable).parent / "cmake"
+    if here.is_file() and os.access(here, os.X_OK):
+        return str(here)
+    return shutil.which("cmake") or "cmake"
+
+
 @functools.lru_cache(maxsize=None)
 def toolchain_identity(arch: str | None) -> dict:
     """Everything outside the sources that shapes a binary (memoized per process)."""
@@ -121,7 +134,7 @@ def toolchain_identity(arch: str | None) -> dict:
         "arch": arch or "native",
         "nvcc": tool(["nvcc", "--version"], -1),
         "cxx": tool(["c++", "--version"], 0),
-        "cmake": tool(["cmake", "--version"], 0),
+        "cmake": tool([cmake_executable(), "--version"], 0),
         "python_ext_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
         "pybind11": pybind11.__version__,
         "machine": platform.machine(),
@@ -319,7 +332,8 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
         build = cache / "build" / name / key
         shutil.rmtree(build, ignore_errors=True)
         out.mkdir(parents=True, exist_ok=True)
-        cfg = ["cmake", "-S", str(native_root()), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
+        cmake = cmake_executable()
+        cfg = [cmake, "-S", str(native_root()), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                "-DGATO_BUILD_DEMO=OFF", "-DGATO_RECEIPT_PROFILE=OFF",
                f"-DMODULES={name}:{N}:{variant}", f"-DGATO_PLANT_ROOT={plant_root}",
                f"-DGATO_MODULE_OUTPUT_DIR={out}", f"-DPython3_EXECUTABLE={sys.executable}",
@@ -332,7 +346,7 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
         with open(out / "build.log", "w") as logf:
             try:
                 subprocess.run(cfg, check=True, stdout=logf, stderr=subprocess.STDOUT)
-                subprocess.run(["cmake", "--build", str(build), "--parallel", str(int(jobs))],
+                subprocess.run([cmake, "--build", str(build), "--parallel", str(int(jobs))],
                                check=True, stdout=logf, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"compiling {modname} failed (exit {e.returncode}); see {out / 'build.log'}") from e

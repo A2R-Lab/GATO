@@ -69,10 +69,9 @@ else
 fi
 if command -v cmake >/dev/null 2>&1; then
   CMAKE_VER="$(cmake --version | head -1 | awk '{print $3}')"
-  echo " - cmake ${CMAKE_VER} found (>=3.24 recommended for CUDA arch 'native')"
+  echo " - cmake ${CMAKE_VER} found on PATH (the venv installs its own >= 3.24 from the cmake wheel; tools/build.sh uses the venv's)"
 else
-  echo " - ERROR: cmake not found (apt install cmake, or pip install cmake)" >&2
-  PREFLIGHT_OK=0
+  echo " - cmake not on PATH; the venv installs >= 3.24 from the cmake wheel"
 fi
 if (( ! PREFLIGHT_OK )); then
   echo "Preflight failed — fix the errors above and re-run." >&2

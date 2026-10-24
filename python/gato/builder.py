@@ -412,10 +412,11 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         joint_dynamics / friction_width: bake the URDF's <dynamics damping>
             and smooth friction into the dynamics (see codegen()); both are
             part of the codegen key.
-        merit_threads: the merit kernel's block size (a multiple of 32), for
-            GPUs with few SMs (issue #19); None reads GATO_MERIT_THREADS from
-            the environment, and unset means the generated per-robot maximum.
-            Results are bit-identical at any size.
+        merit_threads: the merit kernel's block size (a multiple of 32); None
+            reads GATO_MERIT_THREADS from the environment, and unset means the
+            measured default: 64, or 32 on the Jetson family (sm_72, sm_87),
+            chosen at configure time from the architecture (issue #19,
+            docs/merit_timing.md). Results are bit-identical at any size.
         cost_frames: extra named cost frames for the cost menu (see codegen());
             the end-effector target is always cost frame 0 on a fixed-base plant.
         com: bake the centroidal family so the module carries the CoM term

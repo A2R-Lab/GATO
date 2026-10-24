@@ -39,7 +39,7 @@ option(GATO_FAST_MATH "Compile CUDA with -use_fast_math (disable for tight-toler
 option(GATO_BUILD_DEMO "Build the bsqp C++ demo executable" ON)
 option(GATO_EXACT_HESSIAN "Compile the exact-Hessian (SO-SQP) stage-projection path; OFF keeps the device tree preprocessor-identical to the GN-only solver" OFF)
 option(GATO_CONTACT_FORCES "Append a per-knot contact wrench to the control vector (f_c extends u; a module-ABI change, so it builds as the separate _fc module variant); OFF keeps the baseline solver bit-identical" OFF)
-set(GATO_MERIT_THREADS "" CACHE STRING "Merit kernel block size (a multiple of 32, at most 1024); empty = the generated per-robot maximum. Smaller blocks suit GPUs with few SMs (issue #19); results are bit-identical")
+set(GATO_MERIT_THREADS "" CACHE STRING "Merit kernel block size (a multiple of 32, at most 1024); empty = 64, or 32 on the Jetson family (sm_72, sm_87). Results are bit-identical at any size (issue #19, docs/merit_timing.md)")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # NOTE: -G is an nvcc flag and lives in the CUDA debug flags only; ASan on a CUDA
@@ -56,6 +56,21 @@ endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(CUDAToolkit REQUIRED)
+# The merit block size by architecture: 32 threads on the Jetson family (sm_72,
+# sm_87), where Felix Mueh's Orin tables (docs/merit_timing.md) put 32 ahead of
+# 64 at batch 16 and level below it; 64 elsewhere (the kernel's own default,
+# measured on the 5090 and on the 5090 throttled to a Jetson's SM count). An
+# explicit GATO_MERIT_THREADS wins. Results are bit-identical at any size.
+if(NOT GATO_MERIT_THREADS)
+  set(_gato_arches "${CMAKE_CUDA_ARCHITECTURES}")
+  if(_gato_arches STREQUAL "native" AND DEFINED CMAKE_CUDA_ARCHITECTURES_NATIVE)
+    set(_gato_arches "${CMAKE_CUDA_ARCHITECTURES_NATIVE}")
+  endif()
+  if(_gato_arches MATCHES "^(72|87)(-real|-virtual)?$")
+    set(GATO_MERIT_THREADS 32)
+    message(STATUS "Merit block size 32 (Jetson, sm_${CMAKE_MATCH_1})")
+  endif()
+endif()
 # Headers from the pinned grid-rbd wheel: GLASS (global `glass::`, distinct from
 # grid.cuh's vendored `grid::glass`) and GRiD's collision primitives. gato._grid
 # refuses an unpinned install, so a build never silently compiles against the wrong GLASS.
@@ -188,8 +203,10 @@ foreach(pair ${GATO_MODULE_PAIRS})
       message(FATAL_ERROR "Plant '${plant}': missing ${GATO_PLANT_ROOT}/${plant}/${gen_header} "
                           "(generate it with gato.register_robot / gato.build / tools/regen_grid.py)")
     endif()
-  endforeach()
-  block()
+# One function call per module: the function scope keeps the per-module
+# variables local (block()/endblock() needs CMake 3.25; Ubuntu 22.04 and
+# JetPack 6 ship 3.22, issue #23).
+function(gato_add_module plant knot variant)
     set(VARIANT_SUFFIX "")
     if(NOT variant STREQUAL "default")
       set(VARIANT_SUFFIX "_${variant}")
@@ -231,5 +248,8 @@ foreach(pair ${GATO_MODULE_PAIRS})
       ${MODULE_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
                                 ${GATO_MODULE_OUTPUT_DIR})
     target_link_libraries(${MODULE_NAME} PRIVATE CUDA::cudart)
-  endblock()
+endfunction()
+
+  endforeach()
+  gato_add_module(${plant} ${knot} ${variant})
 endforeach()

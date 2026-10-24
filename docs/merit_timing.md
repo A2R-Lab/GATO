@@ -105,5 +105,73 @@ had room for the candidate blocks. The SM-count rule that selected it is
 removed; the path stays as `GATO_MERIT_FUSED=1` for a measurement on hardware
 that behaves differently, and the kernel gate keeps it bit-identical.
 
+## Jetson AGX Orin, October 24, 2026
+
+Felix Mueh ran the same breakdown on a Jetson AGX Orin 32 GB at 40 W (JetPack
+6.2, CUDA 12.6, GATO 0.1.5 at `4d5f8c2`, the GPU clock between 306 and 816 MHz
+during the run) and posted it on issue #19: eight SQP iterations, batch 1, 4 and
+16, ten interleaved repetitions per cell, the per-stage times from
+`SolverStats.stage_times_us`, mean and sample standard deviation in
+milliseconds per solve. The four launches are 32, 64 and 256 threads per block
+and the fused launch at 64.
+
+Warm solve (the previous solution as the seed):
+
+| launch | B | solve | merit | linsys | kkt | schur | merit share |
+|---|---|---|---|---|---|---|---|
+| 32 | 1 | 22.73 ± 1.89 | 2.73 ± 0.21 | 16.34 ± 1.46 | 1.77 | 1.28 | 12.0 % |
+| 64 | 1 | 22.76 ± 2.06 | 2.94 ± 0.28 | 16.18 ± 1.63 | 1.75 | 1.28 | 12.9 % |
+| 256 | 1 | 25.07 ± 3.35 | 6.05 ± 0.88 | 15.45 ± 2.10 | 1.67 | 1.22 | 24.1 % |
+| 64 fused | 1 | 26.23 ± 1.60 | 5.72 ± 0.29 | 16.75 ± 1.21 | 1.79 | 1.31 | 21.8 % |
+| 32 | 4 | 26.16 ± 3.82 | 5.76 ± 0.90 | 15.29 ± 2.29 | 2.89 | 1.55 | 22.0 % |
+| 64 | 4 | 26.19 ± 4.18 | 6.79 ± 1.17 | 14.52 ± 2.37 | 2.74 | 1.45 | 25.9 % |
+| 256 | 4 | 26.26 ± 3.86 | 13.07 ± 1.62 | 9.60 ± 1.61 | 1.85 | 1.00 | 50.0 % |
+| 64 fused | 4 | 27.56 ± 5.17 | 9.13 ± 1.67 | 13.77 ± 2.72 | 2.61 | 1.40 | 33.2 % |
+| 32 | 16 | 34.24 ± 0.48 | 10.30 ± 0.16 | 15.68 ± 0.22 | 5.32 | 2.31 | 30.1 % |
+| 64 | 16 | 37.97 ± 0.58 | 14.04 ± 0.26 | 15.60 ± 0.22 | 5.33 | 2.30 | 37.0 % |
+| 256 | 16 | 63.94 ± 1.32 | 40.82 ± 0.83 | 14.61 ± 0.26 | 5.08 | 2.16 | 63.9 % |
+| 64 fused | 16 | 38.08 ± 0.32 | 14.20 ± 0.18 | 15.54 ± 0.08 | 5.28 | 2.30 | 37.3 % |
+
+Cold solve (the hold-at-x seed):
+
+| launch | B | solve | merit | linsys | kkt | schur | merit share |
+|---|---|---|---|---|---|---|---|
+| 32 | 1 | 25.30 ± 0.71 | 3.11 ± 0.03 | 12.32 ± 0.01 | 2.32 | 1.36 | 12.3 % |
+| 64 | 1 | 25.32 ± 1.11 | 3.42 ± 0.04 | 12.32 ± 0.01 | 2.38 | 1.36 | 13.5 % |
+| 256 | 1 | 29.12 ± 0.86 | 7.17 ± 0.04 | 12.32 ± 0.01 | 2.24 | 1.36 | 24.6 % |
+| 64 fused | 1 | 27.77 ± 0.71 | 6.14 ± 0.05 | 12.33 ± 0.01 | 2.41 | 1.36 | 22.1 % |
+| 32 | 4 | 31.33 ± 1.41 | 7.01 ± 0.05 | 12.41 ± 0.01 | 3.73 | 1.74 | 22.4 % |
+| 64 | 4 | 32.98 ± 0.73 | 8.85 ± 0.04 | 12.41 ± 0.01 | 3.64 | 1.74 | 26.9 % |
+| 256 | 4 | 48.67 ± 1.75 | 24.64 ± 1.05 | 12.27 ± 0.35 | 3.47 | 1.74 | 50.6 % |
+| 64 fused | 4 | 36.74 ± 1.29 | 12.51 ± 0.07 | 12.42 ± 0.01 | 3.68 | 1.75 | 34.1 % |
+| 32 | 16 | 61.21 ± 5.05 | 19.08 ± 1.72 | 20.89 ± 2.41 | 10.38 | 4.58 | 31.2 % |
+| 64 | 16 | 65.40 ± 5.85 | 25.23 ± 2.25 | 19.58 ± 2.39 | 9.97 | 4.40 | 38.6 % |
+| 256 | 16 | 93.68 ± 5.76 | 60.47 ± 4.01 | 14.56 ± 0.85 | 7.80 | 3.39 | 64.5 % |
+| 64 fused | 16 | 67.90 ± 3.42 | 26.12 ± 1.50 | 20.57 ± 1.33 | 10.21 | 4.53 | 38.5 % |
+
+The Orin agrees with the throttled 5090 on the two questions above and adds a
+third answer. The merit launch at 64 threads grows 4.8 times from batch 1 to
+16 on the warm solve, against 15.75 times reported for the old default on the
+GTX 1070, and 256 threads costs two to three times the merit time of 64 at
+every batch. The fused launch gains nothing: level with the unfused launch at
+batch 16 and 15 percent slower at batch 1. The third answer is that 32 threads
+beats 64 on this GPU: level within the spread at batch 1 and 4, and at batch 16
+the merit time falls from 14.0 to 10.3 ms and the whole solve by 10 percent,
+warm and cold. The 5090 tables did not include 32 threads. From 0.1.6 the
+configure-time default is therefore 32 on the Jetson family (sm_72 and sm_87,
+`CMakeLists.txt`) and 64 elsewhere; `GATO_MERIT_THREADS` still overrides
+either, and results are bit-identical at any size.
+
+The tables also show where the time goes on this GPU once the merit launch is
+sized: the linear system. At batch 1 it is 70 percent of the solve, and it does
+not grow with the batch (0.96 from batch 1 to 16 on the warm solve); the
+cold-solve linsys time is 12.32 ms with a spread of 0.01 ms in every launch
+configuration, the signature of PCG running to its iteration cap on each SQP
+iteration rather than to its tolerance. The direct path (`SolverParams(linsys=
+"bdsv")`, the controller's choice on the floating base) is iteration-free; the
+PCG iteration counts in `SolveResult.summary()` on the Orin would settle which
+of the two the embedded default should be, and that measurement is the next
+item for this page.
+
 Times depend on the machine and the driver; they are evidence for this box and
 these conditions, not a benchmark of GATO against anything else.
