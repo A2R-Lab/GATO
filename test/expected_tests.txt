@@ -60,6 +60,11 @@ test/test_codegen.py::test_rotated_inertial_origin_matches_canonicalized
 test/test_codegen.py::test_hyphenated_frame_header_compiles
 test/test_codegen.py::test_missing_voxel_dependency_cannot_change_collision_geometry
 test/test_codegen.py::test_cost_frames_bake_a_second_frame
+test/test_com_term.py::test_refused_on_a_plant_without_the_families
+test/test_com_term.py::test_kkt_increment_matches_pinocchio_com_jacobian
+test/test_com_term.py::test_merit_increment_is_the_term_value
+test/test_com_term.py::test_per_solve_targets_and_clear
+test/test_com_term.py::test_term_on_top_of_the_cost_menu
 test/test_common.py::test_figure8_shape_and_tiling
 test/test_common.py::test_figure8_rotation_is_pure_z
 test/test_common.py::test_trajectory_reference_window_and_clamp
@@ -93,6 +98,7 @@ test/test_controller.py::test_linsys_auto_default_deterministic
 test/test_controller.py::test_defect_telemetry_and_exit
 test/test_controller.py::test_u_scale_derates_only_the_torque_box
 test/test_controller.py::test_deadline_budget
+test/test_controller.py::test_u_clip_projects_the_command_onto_the_effort_box
 test/test_controller_limits.py::test_default_installs_admm_limit_rows
 test/test_controller_limits.py::test_off_installs_nothing
 test/test_controller_limits.py::test_caller_configuration_stands

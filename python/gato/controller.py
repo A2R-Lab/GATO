@@ -31,6 +31,7 @@ class StepResult:
     fc: np.ndarray = None    # (n_fc,) the winner's first contact-wrench slots (fc variants; else empty)
     iterations: int = 0      # SQP iterations the solve ran (the batch runs them in lockstep)
     budget_hit: bool = False # the solve stopped on step(budget_s=...) rather than on max_sqp_iters/convergence
+    u_clipped: bool = False      # u_clip projected the command onto the effort box this step
     wall_s: float = 0.0      # wall time of this step() call, entry to return (host staging + solve + shift)
     admm_linsys: str = ""    # ADMM inner linsys this step ran ("pcg" | "bdsv_factor"; "" when ADMM is off)
     limits: str = ""         # limit mechanism in force ("admm" | "barrier" | "al" | "telemetry"; "" = no limit rows)
@@ -119,7 +120,11 @@ class MPCController:
         limits_kw: keyword overrides for the enable call behind ``limits``;
             the extra key ``u_scale`` (0 < s <= 1) derates the planner's torque
             box to ``s`` times the URDF effort limits after the install (the
-            actuator model is unchanged; a planning margin for saturation)
+            actuator model is unchanged; a planning margin for saturation);
+            the extra key ``u_clip`` (True) projects the applied command
+            ``StepResult.u`` onto the URDF effort box after the solve, the
+            nominal limits even under ``u_scale`` (the plan is untouched: a
+            hard clip at the command, reported in ``StepResult.u_clipped``)
             (e.g. dict(rho=0.02, eps_rel=1e-3) for "admm", dict(mu=...) for
             "barrier").
     """
@@ -185,6 +190,17 @@ class MPCController:
         self._prev_capout = False
         self._xu_where = "host"      # which copy of the warm start is current: "host" (_XU) | "device" (the solver's resident buffer)
 
+    def _clip_command(self, u):
+        """Project the applied command onto the URDF effort box when u_clip is
+        set (the nominal box, captured at install); returns (u, clipped)."""
+        box = getattr(self, "_u_box", None)
+        if box is None:
+            return u, False
+        lo, hi = box
+        v = np.asarray(u, dtype=np.float32)   # the command is a host array at this point on both step paths
+        c = np.clip(v, lo[: v.shape[-1]], hi[: v.shape[-1]])
+        return c, bool(np.any(c != v))
+
     def _install_limits(self, limits, limits_kw):
         """Install the limit rows per the ``limits`` argument; return the
         mechanism in force ("" when the solver carries no limit rows)."""
@@ -197,11 +213,20 @@ class MPCController:
                 return in_force              # the caller's configuration stands
             limits = "admm"
         if limits == "off":
+            if (limits_kw or {}).get("u_clip"):
+                raise ValueError("u_clip needs the torque box rows (limits='telemetry', 'barrier', 'al' or 'admm'), not limits='off'")
             return in_force
         kw = dict(self.LIMIT_DEFAULTS[limits])
         kw.update(limits_kw or {})
         u_scale = kw.pop("u_scale", None)
+        u_clip = bool(kw.pop("u_clip", False))
         getattr(solver, f"enable_limit_{limits}")(**kw)
+        if u_clip:
+            from .rowkinds import KIND_BOX_U
+            box = [grp for grp in solver.get_row_groups() if int(grp["kind"]) == KIND_BOX_U]
+            if not box:
+                raise ValueError("u_clip needs the torque box rows (limits='telemetry', 'barrier', 'al' or 'admm')")
+            self._u_box = (np.asarray(box[0]["lo"], dtype=np.float32).copy(), np.asarray(box[0]["hi"], dtype=np.float32).copy())
         if u_scale is not None:
             s = float(u_scale)
             if not 0.0 < s <= 1.0:
@@ -394,6 +419,7 @@ class MPCController:
 
         u_full = xu_best[self.nx : self.nx + self.nu]
         u = u_full[: self.n_actuated].copy()          # torques to apply
+        u, u_clipped = self._clip_command(u)
         fc = u_full[self.n_actuated :].copy()         # the solver's contact explanation (fc variants)
         self._x_prev = x
         self._u_prev = u_full.copy()                  # hypothesis scoring uses the full control
@@ -411,7 +437,7 @@ class MPCController:
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res,
             hypo_stats=self.hypotheses.get_stats() if self.hypotheses is not None else None,
             pred_err=pred_err, reseeded=reseeded,
-            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
+            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit, u_clipped=u_clipped,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
             limits=self.limits, row_viol=row_viol,
             defect=_winner_defect(res, best_id), defect_exit=res.stats.defect_exit,
@@ -447,6 +473,7 @@ class MPCController:
         xu_best = res.xu[best_id]
         u_full = xu_best[self.nx : self.nx + self.nu]
         u = u_full[: self.n_actuated]
+        u, u_clipped = self._clip_command(u)
         fc = u_full[self.n_actuated :]
         self._x_prev = x
         self._u_prev = u_full
@@ -459,7 +486,7 @@ class MPCController:
         return StepResult(
             u=u, best_id=best_id, fc=fc, xu_best=xu_best, solve=res, hypo_stats=None,
             pred_err=pred_err, reseeded=reseeded,
-            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit,
+            iterations=int(res.stats.sqp_iters.max()), budget_hit=res.stats.budget_hit, u_clipped=u_clipped,
             wall_s=perf_counter() - t0, admm_linsys=admm_linsys,
             limits=self.limits, row_viol=row_viol,
             defect=_winner_defect(res, best_id), defect_exit=res.stats.defect_exit,

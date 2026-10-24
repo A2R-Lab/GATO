@@ -102,8 +102,20 @@ MECHS = {
     # derated planner torque box (the actuator model is unchanged): a planning margin
     "admm-u0.9": dict(limits="admm", limits_kw=dict(u_scale=0.9), params=dict(defect_telemetry=True)),
     "admm-u0.8": dict(limits="admm", limits_kw=dict(u_scale=0.8), params=dict(defect_telemetry=True)),
+    # torque enforcement study (0.1.5): the applied command projected onto the URDF effort
+    # box (the plan untouched), a larger fixed inner budget, a tighter torque-row penalty,
+    # and the defect exit at a robot-scaled tolerance (relative to the velocity box, see
+    # run_episode) at four SQP iterations per tick
+    "admm-clip": dict(limits="admm", limits_kw=dict(u_clip=True), params=dict(defect_telemetry=True)),
+    "admm-iters40": dict(limits="admm", limits_kw=dict(iters=40, eps_rel=None), params=dict(defect_telemetry=True)),
+    "admm-u1e-4": dict(limits="admm", limits_kw=dict(rho_u=1e-4), params=dict(defect_telemetry=True)),
+    "admm-sqp4-defectrel1e-3": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit_rel=1e-3)),
+    "admm-sqp4-defectrel1e-4": dict(limits="admm", params=dict(max_sqp_iters=4, defect_exit_rel=1e-4)),
 }
+ENFORCEMENT = ["admm", "admm-clip", "admm-iters40", "admm-u1e-4", "admm-u0.8",
+               "admm-sqp4-defectrel1e-3", "admm-sqp4-defectrel1e-4"]
 SETS = {"dev": dict(seed=1, n=20, mechs=list(MECHS)),
+        "enforcement": dict(seed=1, n=20, mechs=ENFORCEMENT),   # the dev protocol, the enforcement arms
         "holdout": dict(seed=20261016, n=100, mechs=["none", "barrier", "al", "admm"])}
 PICKPLACE = dict(goal_timeout=4.0, goal_threshold=0.05, velocity_threshold=1.0, velocity_norm=2,
                  settle_time=0.1, pace_by_solve_time=False)
@@ -123,6 +135,13 @@ def run_episode(model, plant, N, sc, mech, *, audit=None):
     lim = tasks.urdf_limits(model)
     cfg = dict(MECHS[mech])
     params = cfg.pop("params", None)
+    if params and "defect_exit_rel" in params:
+        # the defect is the L1 integrator error over the tangent summed over the knots: a
+        # position error of dt times a velocity error. The robot-scaled tolerance puts the
+        # relative value against (N - 1) * dt * the sum of the URDF velocity limits.
+        params = dict(params)
+        rel = params.pop("defect_exit_rel")
+        params["defect_exit"] = float(rel) * (N - 1) * DT * float(np.sum(np.abs(model.velocityLimit[-model.nv:])))
     mpc = MPC_GATO(model, model_path=urdf_path(plant), N=N, dt=DT, batch_size=1, plant_type=plant,
                    linsys="pcg", params=params, **cfg)
     if audit is not None:

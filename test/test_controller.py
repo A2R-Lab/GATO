@@ -364,3 +364,34 @@ def test_deadline_budget(make_solver, smallest_module):
 
     with pytest.raises(ValueError, match="budget_s"):
         run(0.0)
+
+
+def test_u_clip_projects_the_command_onto_the_effort_box(make_solver, smallest_module):
+    """limits_kw={"u_clip": True} projects StepResult.u onto the URDF effort box
+    after the solve (the nominal box even under u_scale), leaves the planner's
+    rows and the plan untouched, and reports whether the clip acted. A tiny
+    box forces the clip on every joint."""
+    from gato.rowkinds import KIND_BOX_U
+    plant, N = smallest_module
+    import conftest
+    x, goals = conftest.arm_problem(plant, N)
+    base = MPCController(make_solver(plant, N), linsys="pcg", limits="admm")
+    clip = MPCController(make_solver(plant, N), linsys="pcg", limits="admm", limits_kw={"u_clip": True})
+    for g0, g1 in zip(base.solver.get_row_groups(), clip.solver.get_row_groups()):
+        np.testing.assert_array_equal(np.asarray(g0["lo"]), np.asarray(g1["lo"]))
+        np.testing.assert_array_equal(np.asarray(g0["hi"]), np.asarray(g1["hi"]))
+    box = [g for g in base.solver.get_row_groups() if int(g["kind"]) == KIND_BOX_U][0]
+    lo, hi = np.asarray(box["lo"], np.float32), np.asarray(box["hi"], np.float32)
+    base.reset(x[0]); clip.reset(x[0])
+    r0 = base.step(x[0], goals[0]); r1 = clip.step(x[0], goals[0])
+    np.testing.assert_array_equal(r0.xu_best, r1.xu_best)          # the plan is untouched
+    np.testing.assert_array_equal(r1.u, np.clip(r0.u, lo[: r0.u.shape[0]], hi[: r0.u.shape[0]]))
+    assert r1.u_clipped == bool(np.any(r1.u != r0.u)) and not r0.u_clipped
+    # a box too small to hold any command: every joint clipped, the planner's rows still nominal under u_scale
+    tiny = MPCController(make_solver(plant, N), linsys="pcg", limits="admm", limits_kw={"u_clip": True, "u_scale": 0.5})
+    tiny._u_box = (np.full_like(lo, -1e-3), np.full_like(hi, 1e-3))
+    tiny.reset(x[0])
+    r2 = tiny.step(x[0], goals[0])
+    assert r2.u_clipped and np.all(np.abs(r2.u) <= 1e-3 + 1e-7)
+    with pytest.raises(ValueError, match="u_clip"):
+        MPCController(make_solver(plant, N), linsys="pcg", limits="off", limits_kw={"u_clip": True})
