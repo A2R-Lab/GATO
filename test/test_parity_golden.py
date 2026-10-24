@@ -93,6 +93,7 @@ def _cases():
     for plant, N, variant in receipt_modules():
         if variant == "eh":
             cases.append((plant, N, variant, "bdsv"))      # exact Hessian forces the direct path
+            cases.append((plant, N, variant, "bdsv_cc"))   # + the EE position term's exact curvature (0.1.5)
             continue
         for linsys in ("pcg", "bdsv"):
             cases.append((plant, N, variant, linsys))
@@ -138,6 +139,9 @@ def test_golden(plant, N, variant, case, urdfs):
         s.set_linsys("pcg")
         s.enable_limit_admm()
         s.enable_ee_terminal_equality(np.asarray(GOAL_XYZ, dtype=np.float32), rho=10.0)
+    elif case == "bdsv_cc":
+        s.set_linsys("bdsv")
+        s.set_cost_curvature(True)
     else:
         s.set_linsys(case)
     r = s.solve(x, goals)

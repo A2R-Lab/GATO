@@ -639,6 +639,8 @@ class PyBSQP {
         bool admm_active() const { return solver_.admm_active(); }
         void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
         bool exact_hessian() const { return solver_.exact_hessian(); }
+        void set_cost_curvature(bool on) { solver_.set_cost_curvature(on); }
+        bool cost_curvature() const { return solver_.cost_curvature(); }
 
         // debug/test: KKT setup only (no solve) on the given trajectory + block readback
         py::dict debug_setup_kkt(DenseArray xu_traj_batch, T timestep, DenseArray x_s_batch, DenseArray reference_traj_batch)
@@ -906,6 +908,8 @@ class PyBSQP {
             .def("admm_active", &PyBSQP<Type>::admm_active)                                                                                                                                           \
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
             .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
+            .def("set_cost_curvature", &PyBSQP<Type>::set_cost_curvature, py::arg("on"))                                                                                                               \
+            .def("cost_curvature", &PyBSQP<Type>::cost_curvature)                                                                                                                                      \
             .def("debug_setup_kkt", &PyBSQP<Type>::debug_setup_kkt)                                                                                                                                    \
             .def("debug_contact_dynamics", &PyBSQP<Type>::debug_contact_dynamics, py::arg("q"), py::arg("qd"), py::arg("u"), py::arg("fc"))                                                             \
             .def("get_lambda", &PyBSQP<Type>::get_lambda)                                                                                                                                              \

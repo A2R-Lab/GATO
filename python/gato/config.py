@@ -116,6 +116,9 @@ class SolverParams:
     ``set_fc_cost`` / ``set_fc_ref``) and take precedence over these.
 
     ``exact_hessian``: SO-SQP stage-Hessian projection (needs an "eh" variant module).
+    ``cost_curvature``: exact curvature of the end-effector position term (the
+    residual-weighted kinematic Hessian) before the same projection; separate
+    from ``exact_hessian`` (dynamics curvature); needs an "eh" variant module.
 
     Dynamics defect (Wave D): ``defect_telemetry`` reports the returned plan's
     dynamics defect in ``SolverStats.defect``, the merit's constraint term alone
@@ -141,6 +144,7 @@ class SolverParams:
     vel_lim_cost: float = 0.0
     ctrl_lim_cost: float = 0.0
     exact_hessian: bool = False
+    cost_curvature: bool = False
     defect_telemetry: bool = False
     defect_exit: float = 0.0
 

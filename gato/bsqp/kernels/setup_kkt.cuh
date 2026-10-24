@@ -109,7 +109,9 @@ __host__ __device__ inline uint32_t setup_kkt_exact_hess_smem_ct()
 {
         const uint32_t proj_ct = (uint32_t)(glass::psd_project_scratch_bytes<T, STATE_S_CONTROL>() / sizeof(T));
         const uint32_t so_ct = gato::plant::exact_hessian_so_smem_ct<T>();
-        return STATE_S_CONTROL * STATE_S_CONTROL + (so_ct > proj_ct ? so_ct : proj_ct);
+        const uint32_t cc_ct = gato::plant::ee_curvature_smem_ct<T>();   // the cost-curvature scratch shares the union
+        const uint32_t a = so_ct > proj_ct ? so_ct : proj_ct;
+        return STATE_S_CONTROL * STATE_S_CONTROL + (a > cc_ct ? a : cc_ct);
 }
 
 // running knot: assemble P = [[Q, 0], [0, R]] (column-major, nx+nu), add the
@@ -117,8 +119,13 @@ __host__ __device__ inline uint32_t setup_kkt_exact_hess_smem_ct()
 // — fills the diagonal blocks AND the qu/qv cross blocks), project, scatter the
 // diagonal blocks back. Entry: s_Q_k/s_R_k writes barrier-visible. Exit: ends
 // on a barrier.
+// exact_hessian adds the dynamics curvature (lambda^T d2F); cost_curvature the
+// end-effector position term's residual curvature (plant.cuh
+// add_ee_position_curvature, s_ee_des / ee_w of this knot). Either one runs
+// the projection.
 template<typename T, unsigned INTEGRATOR_TYPE>
-__device__ __noinline__ void project_stage_block_exact(T* s_Q_k, T* s_R_k, const T* s_xux_k, const T* d_lambda_kp1, T dt, void* d_GRiD_mem, T* s_eh)
+__device__ __noinline__ void project_stage_block_exact(T* s_Q_k, T* s_R_k, const T* s_xux_k, const T* d_lambda_kp1, T dt, void* d_GRiD_mem, T* s_eh,
+                                                       int32_t exact_hessian, int32_t cost_curvature, const T* s_ee_des, T ee_w)
 {
         constexpr uint32_t P_DIM = STATE_S_CONTROL;
         T*                 s_P = s_eh;
@@ -134,7 +141,12 @@ __device__ __noinline__ void project_stage_block_exact(T* s_Q_k, T* s_R_k, const
                 s_P[i] = v;
         }
         __syncthreads();
-        gato::plant::exact_hessian_contraction<T, INTEGRATOR_TYPE>(s_P, s_xux_k, d_lambda_kp1, dt, s_union, d_GRiD_mem);  // ends on a barrier
+        if (exact_hessian) {
+                gato::plant::exact_hessian_contraction<T, INTEGRATOR_TYPE>(s_P, s_xux_k, d_lambda_kp1, dt, s_union, d_GRiD_mem);  // ends on a barrier
+        }
+        if (cost_curvature) {
+                gato::plant::add_ee_position_curvature<T>(s_P, (int)P_DIM, s_xux_k, s_ee_des, ee_w, s_union, (const grid::robotModel<T>*)d_GRiD_mem);  // ends on a barrier
+        }
         // eps = 1e-5 * (1 + max|diag|). ABS per the prototype's _eps_for: a
         // curvature-dominated negative diagonal must still give a POSITIVE
         // floor (a raw max went negative here and produced an indefinite
@@ -168,8 +180,11 @@ __device__ __noinline__ void project_stage_block_exact(T* s_Q_k, T* s_R_k, const
 // terminal knot: the stage block IS Q_last (no control) — project in place.
 // Entry: s_Q_last writes barrier-visible. Exit: ends on a barrier.
 template<typename T>
-__device__ __noinline__ void project_terminal_block_exact(T* s_Q_last, T* s_eh)
+__device__ __noinline__ void project_terminal_block_exact(T* s_Q_last, T* s_eh, int32_t cost_curvature, const T* s_x_last, const T* s_ee_des, T ee_w, void* d_GRiD_mem)
 {
+        if (cost_curvature) {
+                gato::plant::add_ee_position_curvature<T>(s_Q_last, (int)STATE_SIZE, s_x_last, s_ee_des, ee_w, s_eh, (const grid::robotModel<T>*)d_GRiD_mem);  // ends on a barrier
+        }
         T maxdiag = static_cast<T>(0);  // eps floor on max|diag| (see the stage helper)
         for (uint32_t j = 0; j < STATE_SIZE; j++) {
                 const T d = s_Q_last[j * STATE_SIZE + j];
@@ -222,7 +237,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
 #if USE_EXACT_HESSIAN
                                             ,
                                             int32_t                     exact_hessian,   // runtime per-TASK toggle (0 = GN path)
-                                            const T* __restrict__       d_lambda_batch   // lagged Schur multipliers (lam^T d2F term)
+                                            const T* __restrict__       d_lambda_batch,  // lagged Schur multipliers (lam^T d2F term)
+                                            int32_t                     cost_curvature   // runtime toggle: exact curvature of the EE position term
 #endif
 )
 {
@@ -264,7 +280,7 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                 s_cc = s_mem + L::temp_terminal;   // past the terminal chain: never aliases a live block
         } else {
 #if USE_EXACT_HESSIAN
-                s_cc = s_mem + setup_kkt_base_smem_ct<T, MENU>() + (exact_hessian ? setup_kkt_exact_hess_smem_ct<T>() : 0);
+                s_cc = s_mem + setup_kkt_base_smem_ct<T, MENU>() + ((exact_hessian || cost_curvature) ? setup_kkt_exact_hess_smem_ct<T>() : 0);
 #else
                 s_cc = s_mem + setup_kkt_base_smem_ct<T, MENU>();
 #endif
@@ -405,7 +421,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                         __syncthreads();
 
 #if USE_EXACT_HESSIAN
-                        if (exact_hessian) { project_terminal_block_exact<T>(s_Q_last, s_eh); }
+                        if (exact_hessian || cost_curvature) {
+                                project_terminal_block_exact<T>(s_Q_last, s_eh, MENU ? 0 : cost_curvature, s_xkp1, &s_reference_traj_k[constants::EE_POS_SIZE], ee_w_kp1, d_GRiD_mem);
+                        }
 #endif
                         glass::copy<T, STATE_SIZE_SQ>(s_Q_last, d_Q_k + STATE_SIZE_SQ);
                         glass::copy<T, STATE_SIZE>(s_q_last, d_q_k + STATE_SIZE);
@@ -430,9 +448,11 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                 }
 
 #if USE_EXACT_HESSIAN
-                if (exact_hessian) {
+                if (exact_hessian || cost_curvature) {
                         const T* d_lambda_kp1 = get_offset_state_padded<T>(d_lambda_batch, solve_idx, knot_idx + 1);
-                        project_stage_block_exact<T, INTEGRATOR_TYPE>(s_Q_k, s_R_k, s_xux_k, d_lambda_kp1, timestep, d_GRiD_mem, s_eh);
+                        // the menu instantiation composes its own terms: the cost curvature is the tracking objective's
+                        project_stage_block_exact<T, INTEGRATOR_TYPE>(s_Q_k, s_R_k, s_xux_k, d_lambda_kp1, timestep, d_GRiD_mem, s_eh,
+                                                                      exact_hessian, MENU ? 0 : cost_curvature, s_reference_traj_k, ee_w_k);
                 }
 #endif
                 glass::copy<T, STATE_SIZE_SQ>(s_Q_k, d_Q_k);
@@ -473,16 +493,17 @@ __host__ size_t get_setup_kkt_system_batched_smem_size(int exact_hessian = 0, in
 }
 
 template<typename T>
-__host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr, const gato::menu::Buffers<T>* menu = nullptr)
+__host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr, const gato::menu::Buffers<T>* menu = nullptr, int32_t cost_curvature = 0)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
         (void)d_lambda_batch;
+        (void)cost_curvature;
 #endif
         dim3   grid(KNOT_POINTS - 1, batch_size);  // kernel loop covers knots [0, K-2]; K blocks left one row idle
         dim3   block(KKT_THREADS);
         const bool use_menu = (menu != nullptr) && (menu->on != 0);
-        size_t s_mem_size = get_setup_kkt_system_batched_smem_size<T>(exact_hessian, has_collision, use_menu ? 1 : 0);
+        size_t s_mem_size = get_setup_kkt_system_batched_smem_size<T>(exact_hessian || cost_curvature, has_collision, use_menu ? 1 : 0);
         // runtime-sized (exact_hessian / has_collision): the latch re-attributes on growth
         static size_t attr_bytes = 0;
         auto kernel = setup_kkt_system_batched_kernel<T>;
@@ -538,7 +559,8 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
 #if USE_EXACT_HESSIAN
                                                                                ,
                                                                                exact_hessian,
-                                                                               d_lambda_batch
+                                                                               d_lambda_batch,
+                                                                               cost_curvature
 #endif
         );
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

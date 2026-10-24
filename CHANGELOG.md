@@ -17,6 +17,16 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   bases, goldens for `iiwa14 16 rk4` and `go2 16 rk4` in the receipt; example
   20. Four dynamics evaluations per knot: the cost per iteration is a
   quiet-window measurement and is not claimed here.
+- Exact curvature of the end-effector position term on the exact-Hessian
+  path: `SolverParams(cost_curvature=True)` / `BSQP.set_cost_curvature`
+  adds the residual-weighted kinematic Hessian of the frame position (GRiD's
+  generated `end_effector_pose_hessian`) to the Gauss-Newton block before
+  the stage-block projection, a switch of its own next to `exact_hessian`
+  (the dynamics curvature). Tracking objective only, fixed base, the eh
+  module; refused with the cost menu. Gate against central differences of
+  pinocchio's frame Jacobian; a new golden per eh module (`bdsv_cc`), the
+  existing eh goldens unchanged. [docs/constraints.md](docs/constraints.md)
+  `set_cost_curvature`.
 
 ## 0.1.4 — 2026-10-23: the cost menu, GPUs with few SMs, joint damping, topology helpers
 

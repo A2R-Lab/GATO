@@ -172,6 +172,8 @@ test/test_dynamics_fingerprint.py::test_device_dynamics_match_fingerprint[indy7-
 test/test_dynamics_fingerprint.py::test_device_dynamics_match_fingerprint[ur5e-64]
 test/test_exact_hessian.py::test_projection_matches_numpy_lambda_zero
 test/test_exact_hessian.py::test_contraction_matches_pinocchio_fd
+test/test_exact_hessian.py::test_cost_curvature_matches_pinocchio_kinematic_hessian
+test/test_exact_hessian.py::test_cost_curvature_refusals
 test/test_examples.py::test_intro_example_syntax[01_single_solve.py]
 test/test_examples.py::test_intro_example_syntax[02_batched_solve.py]
 test/test_examples.py::test_intro_example_syntax[03_mpc_loop.py]
@@ -435,7 +437,9 @@ test/test_parity_golden.py::test_golden[indy7-16-fc-bdsv]
 test/test_parity_golden.py::test_golden[iiwa14-16-fc-pcg]
 test/test_parity_golden.py::test_golden[iiwa14-16-fc-bdsv]
 test/test_parity_golden.py::test_golden[indy7-16-eh-bdsv]
+test/test_parity_golden.py::test_golden[indy7-16-eh-bdsv_cc]
 test/test_parity_golden.py::test_golden[iiwa14-16-eh-bdsv]
+test/test_parity_golden.py::test_golden[iiwa14-16-eh-bdsv_cc]
 test/test_parity_golden.py::test_golden[iiwa14-16-rk4-pcg]
 test/test_parity_golden.py::test_golden[iiwa14-16-rk4-bdsv]
 test/test_parity_golden.py::test_golden[go2-16-rk4-pcg]

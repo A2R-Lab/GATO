@@ -245,6 +245,34 @@ collision-ADMM parks iiwa14; the one healthy pairing is indy7
 collision-ADMM (parity with GN, tighter inner residual). Don't
 combine exact with ADMM row groups by default.
 
+## `set_cost_curvature(on)`
+
+Add the exact curvature of the end-effector position term before the same
+stage-block projection. The tracking cost's Hessian is Gauss-Newton,
+`w J^T J` for the term `0.5 w |p(q) - p_des|^2`; the switch adds the
+residual-weighted second derivative of the frame position, the sum over the
+three coordinates of `w (p_r - p_des_r)` times GRiD's generated kinematic
+Hessian of the frame (pinocchio's LOCAL_WORLD_ALIGNED convention; the
+position rows are `d^2 p / dq^2` on a fixed base). The term is indefinite
+in general, so it lives on the exact-Hessian path and runs the projection
+and the direct linear solver like `set_exact_hessian`; the two switches are
+independent (`exact_hessian` is the dynamics curvature `lambda^T d2F`,
+`cost_curvature` the cost's). Gate: `test_exact_hessian.py`, every Q block
+of a held trajectory against the projection of the device Gauss-Newton block
+plus the term computed from central differences of pinocchio's frame
+Jacobian, running knots at `q_cost` and the terminal knot at `N_cost`.
+
+Scope and limits: the tracking objective's end-effector position term only.
+The cost menu composes Gauss-Newton terms and refuses the switch (and the
+switch refuses a menu); the orientation term stays Gauss-Newton on both paths
+(its exact curvature needs the second derivative of the rotation through the
+log map, which GRiD does not emit); the stage block's x-u cross terms are
+still dropped after the projection. Near the target the residual is small
+and the term vanishes, which is why Gauss-Newton serves closed-loop tracking;
+the switch matters when the residual is large, a reach across the workspace
+or the first ticks after a target jump. Task-level benefit is not measured
+here: the receipt attests the numbers, a quiet window the effect.
+
 ## `enable_limit_telemetry()`
 
 Install the canonical limit row-groups (position/velocity/torque boxes

@@ -412,11 +412,14 @@ class BSQP:
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
         self._n_appended_groups = 0
         self.exact_hessian = False  # the C++ default
+        self.cost_curvature = False  # the C++ default
         self._time_budget_us = 0.0  # solve(budget_s=...) state mirrored in the C++ solver
         self._admm_linsys = "pcg"   # set_admm_linsys; the C++ default
         self._admm_exit = (0.0, 0.0, 1)   # set_admm_exit (eps_abs, eps_rel, check_every); the C++ default
         if params.exact_hessian:
             self.set_exact_hessian(True)
+        if params.cost_curvature:
+            self.set_cost_curvature(True)
         self._cost_menu = None   # the applied gato.cost_menu.CostMenu (None = the tracking objective)
 
     # ---- cost menu (gato.cost_menu) ----------------------------------------
@@ -588,6 +591,26 @@ class BSQP:
             self.solver.set_exact_hessian(on)
             self.exact_hessian = on
         self.params = self.params.replace(exact_hessian=bool(on))
+
+    def set_cost_curvature(self, on):
+        """Toggle the exact curvature of the end-effector position term for
+        subsequent solves: the residual-weighted kinematic Hessian of the frame
+        position is added to the Gauss-Newton block before the stage-block PSD
+        projection of the exact-Hessian path (needs the "eh" variant module).
+        A switch of its own: ``set_exact_hessian`` adds the dynamics curvature,
+        this one the cost's; either one runs the projection and the direct
+        linear solver. The tracking objective only; refused while a cost menu
+        is on. See docs/constraints.md (`set_cost_curvature`)."""
+        on = bool(on)
+        if on and not self.exact_hessian_available():
+            raise RuntimeError(
+                f"module {self.lib.__name__} compiled without USE_EXACT_HESSIAN: the eh variant carries the "
+                "projection path (gato.build(..., exact_hessian=True))"
+            )
+        if on != self.cost_curvature:
+            self.solver.set_cost_curvature(on)
+            self.cost_curvature = on
+        self.params = self.params.replace(cost_curvature=bool(on))
 
     def _heal_floating_warm_start(self, XU_B, xcur_B):
         """Replace warm-start knots whose base quaternion is degenerate by the

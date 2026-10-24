@@ -191,3 +191,102 @@ def test_contraction_matches_pinocchio_fd():
     kkt_ex0 = _mk(plant, N, B, exact=True).debug_setup_kkt(XU0, X, goals)
     Qe0 = np.asarray(kkt_ex0["Q"]).reshape(B, N, nx, nx)
     assert np.abs(Qe - Qe0).max() > 1e-6
+
+
+def _kinematic_position_hessian(model, data, fid, q, h=1e-6):
+    """H[r, i, j] = d^2 p_r / dq_i dq_j of the frame position by central
+    differences of the LOCAL_WORLD_ALIGNED frame Jacobian's linear rows."""
+    nv = model.nv
+    H = np.zeros((3, nv, nv))
+    for j in range(nv):
+        qp, qm = q.copy(), q.copy()
+        qp[j] += h
+        qm[j] -= h
+        Jp = pin.computeFrameJacobian(model, data, qp, fid, pin.LOCAL_WORLD_ALIGNED)[:3]
+        Jm = pin.computeFrameJacobian(model, data, qm, fid, pin.LOCAL_WORLD_ALIGNED)[:3]
+        H[:, :, j] = (Jp - Jm) / (2 * h)
+    return H
+
+
+@needs_exact
+def test_cost_curvature_matches_pinocchio_kinematic_hessian():
+    """set_cost_curvature on (exact_hessian off): every Q block of a held
+    trajectory equals the projection of the Gauss-Newton block read from the
+    device plus the residual-weighted kinematic Hessian of the end-effector
+    position (central differences of pinocchio's frame Jacobian), running
+    knots at q_cost and the terminal knot at N_cost; the R blocks and the
+    gradients are untouched. The reference is held away from the arm so the
+    residual, and with it the curvature term, is large."""
+    plant, N = COMBO
+    from conftest import URDFS
+    s = _mk(plant, N, 1, exact=False)
+    s0 = _mk(plant, N, 1, exact=False)
+    s.set_cost_curvature(True)
+    assert s.cost_curvature and not s.exact_hessian
+    model = pin.buildModelFromUrdf(str(URDFS[plant]))
+    data = model.createData()
+    fid = s.ee_frame_id
+    rng = np.random.default_rng(11)
+    q = rng.uniform(-0.8, 0.8, s.nq)
+    x0 = np.concatenate([q, rng.normal(0, 0.2, s.nq)])
+    step = s.nx + s.nu
+    xu = np.zeros(s.xu_size)
+    for k in range(N):
+        xu[k * step:k * step + s.nx] = x0
+    goals = np.zeros((1, N * 6), dtype=np.float32)
+    goals[:, 0::6], goals[:, 1::6], goals[:, 2::6] = 0.9, -0.6, 1.2
+    d_gn = s0.debug_setup_kkt(xu[None].astype(np.float32), x0[None].astype(np.float32), goals)
+    d_cc = s.debug_setup_kkt(xu[None].astype(np.float32), x0[None].astype(np.float32), goals)
+    nx, nu, nq = s.nx, s.nu, s.nq
+    Q_gn = np.asarray(d_gn["Q"], np.float64).reshape(N, nx, nx).transpose(0, 2, 1)
+    Q_cc = np.asarray(d_cc["Q"], np.float64).reshape(N, nx, nx).transpose(0, 2, 1)
+    R_gn = np.asarray(d_gn["R"], np.float64).reshape(N, nu, nu).transpose(0, 2, 1)
+    R_cc = np.asarray(d_cc["R"], np.float64).reshape(N, nu, nu).transpose(0, 2, 1)
+    assert np.array_equal(np.asarray(d_gn["q"]), np.asarray(d_cc["q"]))
+    assert np.array_equal(np.asarray(d_gn["r"]), np.asarray(d_cc["r"]))
+    pin.forwardKinematics(model, data, q)
+    pin.updateFramePlacement(model, data, fid)
+    r = np.array(data.oMf[fid].translation) - goals[0, :3].astype(np.float64)
+    H = _kinematic_position_hessian(model, data, fid, q)
+    curv = np.einsum("r,rij->ij", r, H)
+    assert np.abs(curv).max() > 1e-2, "the curvature term should be visible at this residual"
+    for k in range(N):
+        w = s.params.N_cost if k == N - 1 else s.params.q_cost
+        if k == N - 1:
+            P = Q_gn[k].copy()
+            P[:nq, :nq] += w * curv
+            expect_Q = _project(P)
+        else:
+            # the device projects the whole stage block [[Q, 0], [0, R]] (its eps
+            # floor reaches R too, as on the dynamics-curvature path) and keeps
+            # the diagonal blocks
+            P = np.zeros((nx + nu, nx + nu))
+            P[:nx, :nx] = Q_gn[k]
+            P[nx:, nx:] = R_gn[k]
+            P[:nq, :nq] += w * curv
+            Pp = _project(P)
+            expect_Q, expect_R = Pp[:nx, :nx], Pp[nx:, nx:]
+            scale = 1.0 + np.abs(expect_R).max()
+            assert np.allclose(R_cc[k], expect_R, atol=5e-4 * scale), (k, np.abs(R_cc[k] - expect_R).max())
+        scale = 1.0 + np.abs(expect_Q).max()
+        assert np.allclose(Q_cc[k], expect_Q, atol=5e-4 * scale), (k, np.abs(Q_cc[k] - expect_Q).max())
+        assert not np.allclose(Q_cc[k][:nq, :nq], Q_gn[k][:nq, :nq], atol=1e-6)
+
+
+@needs_exact
+def test_cost_curvature_refusals():
+    """The switch needs the eh module, and excludes the cost menu."""
+    plant, N = COMBO
+    from conftest import URDFS, TEST_PARAMS
+    s_default = gato.BSQP(model_path=str(URDFS[plant]), batch_size=1, N=N, dt=0.01, params=TEST_PARAMS,
+                          plant_type=plant, variant="default")
+    with pytest.raises(RuntimeError, match="eh variant"):
+        s_default.set_cost_curvature(True)
+    s = _mk(plant, N, 1, exact=False)
+    s.set_cost_curvature(True)
+    if s.cost_menu_available:
+        from gato.cost_menu import CostMenu, Term
+        with pytest.raises((RuntimeError, ValueError)):
+            s.set_cost_menu(CostMenu(frame_pos=Term(weight=1.0, target=np.zeros(3))))
+    s.set_cost_curvature(False)
+    assert not s.cost_curvature

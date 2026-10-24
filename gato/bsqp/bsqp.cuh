@@ -763,6 +763,17 @@ class BSQP {
                 exact_hessian_ = on;
         }
         bool exact_hessian() const { return exact_hessian_; }
+        // Exact curvature of the end-effector position term (the residual-weighted
+        // kinematic Hessian) added before the same stage-block projection; a
+        // switch of its own, separate from the dynamics curvature above. The
+        // tracking objective only: the cost menu composes Gauss-Newton terms.
+        void set_cost_curvature(bool on)
+        {
+                if (on && !exact_hessian_available()) { throw std::invalid_argument("set_cost_curvature: module compiled without USE_EXACT_HESSIAN (the eh variant carries the projection path)"); }
+                if (on && menu_.on()) { throw std::invalid_argument("set_cost_curvature: the cost menu is on; the curvature switch is for the tracking objective"); }
+                cost_curvature_ = on;
+        }
+        bool cost_curvature() const { return cost_curvature_; }
 
         // runtime scalar cost weights (plain members threaded into every launch)
         void set_cost_weights(T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost)
@@ -870,7 +881,11 @@ class BSQP {
         void set_cost_menu_field(const std::string& name, const T* h, size_t count, bool per_solve) { menu_.set_field(name, h, count, per_solve); }
         void clear_cost_menu_field(const std::string& name) { menu_.clear_field(name); }
         void set_cost_menu_activation(const int* h, size_t count) { menu_.set_activation(h, count); }
-        void set_cost_menu_on(bool on) { menu_.set_on(on); }
+        void set_cost_menu_on(bool on)
+        {
+                if (on && cost_curvature_) { throw std::invalid_argument("set_cost_menu_on: set_cost_curvature is on; the curvature switch is for the tracking objective"); }
+                menu_.set_on(on);
+        }
         bool cost_menu_on() const { return menu_.on(); }
         void clear_cost_menu() { menu_.clear(); }
         // u_des[k] = g(q_ref[k]) (generalized gravity at the reference configuration; KNOT_POINTS x NQ)
@@ -907,7 +922,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr());
+                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -1064,7 +1079,7 @@ class BSQP {
                         }
                         iters_started = i + 1;
                         if (collect_stats_) { stage_record(i, 0); }
-                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr());
+                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0);
                         if (collect_stats_) { stage_record(i, 1); }
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
                         if (collect_stats_) { stage_record(i, 2); }
@@ -1130,7 +1145,7 @@ class BSQP {
                                 // on the projected system f32 PCG caps out every iteration
                                 // (iiwa14 reach: 200/200 iters, |lambda| 1.3 -> 46, every line
                                 // search fails), bdsv descends normally — 2026-07-30 probe.
-                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_ || exact_hessian_;
+                                const bool use_bdsv = (linsys_mode_ == 1) || (linsys_mode_ == 2 && i == 0) || al_active_ || exact_hessian_ || cost_curvature_;
                                 direct_this_iter = use_bdsv;
                                 if (use_bdsv) {
                                         solve_bdsv_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_kkt_converged_batch_, d_pcg_iterations_);
@@ -1665,4 +1680,5 @@ class BSQP {
         int         linsys_mode_ = 0;  // 0 = pcg, 1 = bdsv, 2 = bdsv_first
         bool        admm_linsys_pcg_ = true;  // ADMM inner loop: true = warm PCG (default, 2026-08-01 A/B), false = bdsv factor-reuse
         bool        exact_hessian_ = false;  // set_exact_hessian (needs USE_EXACT_HESSIAN build)
+        bool        cost_curvature_ = false; // set_cost_curvature (eh variant; the EE position term's residual curvature)
 };

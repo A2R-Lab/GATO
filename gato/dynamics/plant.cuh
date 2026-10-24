@@ -681,6 +681,63 @@ namespace plant {
         }
 
 
+#if USE_EXACT_HESSIAN
+        // ===================================================================
+        // Exact curvature of the end-effector position term (0.1.5).
+        // The tracking cost's Hessian is Gauss-Newton: w J^T J for the term
+        // 0.5 w |p(q) - p_des|^2. Its exact Hessian adds the residual-weighted
+        // second derivative of the frame position, sum_r w (p_r - p_des_r) H_r,
+        // with H the generated end_effector_pose_hessian (d^2 pose / dv^2, the
+        // pinocchio LOCAL_WORLD_ALIGNED kinematic Hessian; rows 0..2 are the
+        // position). The term is indefinite in general, so it lives on the
+        // exact-Hessian path, before the stage-block PSD projection, behind
+        // its own runtime switch (set_cost_curvature). Fixed base only: the
+        // tangent is q and the Hessian's position rows are d^2 p / dq^2.
+        // Layout of the emitted Hessian: H[row * NV * NV + vi * NV + vj], both
+        // orders of the pair filled (the inner writes out_base + row * NV * NV).
+        template<typename T>
+        __host__ __device__ constexpr unsigned ee_curvature_smem_ct()
+        {
+                // XmatsHom | pose (6 NEE) | J (6 NV NEE) | H (6 NV NV NEE) | the inner's scratch
+                // (the generated auto-allocating count bounds it) | topology helpers
+                return (unsigned)grid::XHOM_T_COUNT + 6u * NEE + 6u * NV * NEE + 6u * NV * NV * NEE
+                     + (unsigned)grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_COUNT
+                     + topology_helpers_smem_ct<T>();
+        }
+
+        // s_P: a column-major block with leading dimension ld whose first NV
+        // rows and columns are the q block; adds the curvature term into it.
+        // s_x: the stored state (q first); s_ee_des: the 3 target coordinates;
+        // w: the end-effector weight of this knot. Ends on a barrier.
+        template<typename T>
+        __device__ __noinline__ void add_ee_position_curvature(T* s_P, int ld, const T* s_x, const T* s_ee_des, T w,
+                                                               T* s_scratch, const grid::robotModel<T>* d_robotModel)
+        {
+                T* s_XmatsHom = s_scratch;
+                T* s_pose     = s_XmatsHom + grid::XHOM_T_COUNT;
+                T* s_J        = s_pose + 6 * NEE;
+                T* s_H        = s_J + 6 * NV * NEE;
+                T* s_temp     = s_H + 6 * NV * NV * NEE;
+                int* s_topology_helpers = topology_helpers_at(s_temp + grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_COUNT);
+                grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_x, d_robotModel, s_temp);
+                __syncthreads();
+                grid::end_effector_pose_inner_EE<T, true>(s_pose, s_x, s_XmatsHom, s_topology_helpers, s_temp, nullptr);
+                __syncthreads();
+                grid::end_effector_pose_hessian_inner_EE<T, true>(s_H, s_J, s_x, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel);
+                __syncthreads();
+                for (int i = threadIdx.x; i < NV * NV; i += blockDim.x) {
+                        const int vi = i % NV, vj = i / NV;
+                        T acc = static_cast<T>(0);
+#pragma unroll
+                        for (int r = 0; r < 3; r++) {
+                                acc += w * (s_pose[r] - s_ee_des[r]) * s_H[r * NV * NV + vi * NV + vj];
+                        }
+                        s_P[vj * ld + vi] += acc;
+                }
+                __syncthreads();
+        }
+#endif  // USE_EXACT_HESSIAN
+
 #else  // !GRID_PLANT_HAS_TRACKING_COST — FLOATING BASE (CL-3 W3.4)
         // ─── FLOATING BASE: composed tracking cost ───────────────────────────
         //
