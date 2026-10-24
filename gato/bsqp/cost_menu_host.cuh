@@ -15,6 +15,7 @@
 #include "dynamics/integrator.cuh"   // the plant adapter: GATO_MENU_AVAILABLE, gato::plant::{NQ, NX, NU, MENU_CF2, GRAVITY}
 #include "dynamics/cost_menu.cuh"
 #include "utils/linalg.cuh"   // get_offset_xu
+#include "device_buffer.cuh"
 
 namespace gato {
 namespace menu {
@@ -233,20 +234,9 @@ private:
                 if (batch_size_ == 0) { throw std::runtime_error("cost menu used before the solver was constructed"); }
         }
         template<typename U>
-        static void ensure(U*& d, size_t& cap, size_t count)
-        {
-                if (cap < count) {
-                        if (d) { gpuErrchk(cudaFree(d)); d = nullptr; }
-                        gpuErrchk(cudaMalloc(&d, count * sizeof(U)));
-                        cap = count;
-                }
-        }
+        static void ensure(U*& d, size_t& cap, size_t count) { gato::device_buffer::ensure(d, cap, count); }
         template<typename U>
-        static void upload(U*& d, size_t& cap, const U* h, size_t count)
-        {
-                ensure(d, cap, count);
-                gpuErrchk(cudaMemcpy(d, h, count * sizeof(U), cudaMemcpyHostToDevice));
-        }
+        static void upload(U*& d, size_t& cap, const U* h, size_t count) { gato::device_buffer::upload(d, cap, h, count); }
         void release()
         {
                 for (int f = 0; f < NUM_FIELDS; ++f) { if (d_[f]) { cudaFree(d_[f]); d_[f] = nullptr; } cap_[f] = 0; }

@@ -72,7 +72,8 @@ zero-wrench trajectories are bitwise unchanged). Default builds are
 preprocessor-identical (bitwise). fc is a module VARIANT (`bsqpN{N}_{plant}_fc.so`,
 built side by side with the defaults: `-DMODULES="iiwa14:16:fc"` / `--variant fc` /
 `gato.build(..., contact_forces=True)`; loaded with `BSQP(..., variant="fc")`; no
-.so-swap). Python reads the module attrs CONTROL_SIZE/
+.so-swap). The other variants follow the same pattern: `_eh` (exact Hessian) and, since
+0.1.5, `_rk4` (the RK4 step on GRiD's generated integrator, `gato.build(..., integrator="rk4")`). Python reads the module attrs CONTROL_SIZE/
 ACTUATED_SIZE/FC_SIZE: `SolveResult.u0/control_at` return ACTUATED control only,
 `fc_at/fc_traj` the wrench slots; `add_fc_box` pins/caps fc slots via LIN_U rows.
 ⚠ fc_cost defaults to 1e-2 on fc builds — 0 makes fc a free wrench actuator and the
@@ -125,7 +126,7 @@ migrated to `glass::`.
   - `builder.py` — `gato.build(urdf, ..., floating_base=, contact_frames=, contact_forces=,
     exact_hessian=)` codegen+compile; `_registry.json` (tracked) holds robot metadata.
   - `common.py` — figure8 / rk4 / manifold helpers.
-- `examples/` — intro demos `01..14` + `explore.ipynb` + robot URDFs; `paper-figures/`
+- `examples/` — intro demos `01..20` + `explore.ipynb` + robot URDFs; `paper-figures/`
   (`reproduce_fig*.py`, `_common.py`, `_pickplace_runner.py`); `benchmarks/` (`_bench.py` shared
   helpers, `iiwa_fig8_shared.py`, `constraint_eval.py`, `_linsys_probe.py`/`linsys_auto_cdf.py`,
   `run_timing_night.sh`, `baselines/` incl. the opt-in `sqpcpu` submodule); `contact-task/`
@@ -161,7 +162,7 @@ from other repos' venvs. The optional `pysqpcpu` comparison baseline has a separ
 `examples/benchmarks/baselines/README.md`. It is not used to sign GATO receipts.
 
 New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_base=False,
-contact_frames=None, contact_forces=False, exact_hessian=False)` runs codegen (grid.cuh +
+contact_frames=None, contact_forces=False, exact_hessian=False, integrator=None, com=False)` runs codegen (grid.cuh +
 limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
 call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
 fixed joint, addressed by its original URDF name, including hyphens; rotated inertial origins

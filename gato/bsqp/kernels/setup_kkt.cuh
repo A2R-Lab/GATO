@@ -8,7 +8,7 @@
 #include "utils/cuda.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
 #include "dynamics/integrator.cuh"
-#include "dynamics/grid_plant_step.cuh"  // floating twins + GATO_FLOATING_STEP
+#include "dynamics/grid_plant_step.cuh"  // the grid step twins (floating base, rk4) + GATO_GRID_STEP
 #include "bsqp/rowgroups.cuh"
 
 using namespace sqp;

@@ -10,6 +10,7 @@
 #include "utils/cuda.cuh"
 #include "dynamics/integrator.cuh"   // the plant adapter: GATO_COM_AVAILABLE
 #include "dynamics/com_term.cuh"
+#include "device_buffer.cuh"
 
 namespace gato {
 namespace com {
@@ -34,12 +35,7 @@ class Host {
                                                     + (per_solve ? "per solve" : "shared across the batch") + "), got " + std::to_string(count));
                 }
                 for (size_t i = 0; i < count; ++i) { if (!std::isfinite((double)h[i])) { throw std::invalid_argument("CoM target: entry " + std::to_string(i) + " is not finite"); } }
-                if (cap_ < count) {
-                        if (d_) { gpuErrchk(cudaFree(d_)); d_ = nullptr; }
-                        gpuErrchk(cudaMalloc(&d_, count * sizeof(T)));
-                        cap_ = count;
-                }
-                gpuErrchk(cudaMemcpy(d_, h, count * sizeof(T), cudaMemcpyHostToDevice));
+                gato::device_buffer::upload(d_, cap_, h, count);
                 view_.target = d_;
                 view_.bstride = per_solve ? static_cast<uint32_t>((size_t)KNOT_POINTS * 3u) : 0u;
                 target_set_ = true;
