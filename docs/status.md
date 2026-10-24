@@ -35,6 +35,9 @@ research software, not a certified robot controller.
   The raw solver installs no limit rows. The fixed-base controller installs
   ADMM boxes by default when its solver has no row groups, but this is not a
   torque clamp or a hardware-side safety layer.
+  The [October 23 enforcement set](constraints.md#torque-enforcement-development-set-on-october-23)
+  compares a command projection (`u_clip`, opt-in), a larger ADMM budget and a
+  tighter torque penalty; the default is unchanged.
   An [experiment-only clipping comparison](constraints.md#torque-saturation-development-comparison)
   preserved goal completion under brief FR3 and UR5e saturation; Gen3 did
   not saturate in that development sample. Clipping is not enabled by default.

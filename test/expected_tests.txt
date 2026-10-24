@@ -569,6 +569,7 @@ test/test_torque_clip_ab.py::test_defect_policy_datasets_are_frozen
 test/test_torque_clip_ab.py::test_derated_planner_datasets_are_frozen
 test/test_torque_clip_ab.py::test_merit_timing_report_pairs_launches
 test/test_torque_clip_ab.py::test_merit_timing_dataset_is_frozen
+test/test_torque_clip_ab.py::test_enforcement_dev_dataset_is_frozen
 test/test_worlds.py::test_mujoco_is_the_same_robot
 test/test_worlds.py::test_probe_tip_drop_finds_contact_point
 test/test_worlds.py::test_mujoco_no_phantom_self_contacts

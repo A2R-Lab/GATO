@@ -774,6 +774,62 @@ the deployment; `u_scale` 0.8 is the setting these arms were measured at.
 Raw rows: [the development set](../examples/benchmarks/data/limits_holdout/derated_dev_20261021.jsonl)
 and [the clipped holdout](../examples/benchmarks/data/limits_holdout/derated_holdout_clipped_20261021.jsonl).
 
+### Torque enforcement development set on October 23
+
+The October 18 holdout left the default ADMM with commanded torques above
+the limit on pick-and-place (FR3 up to 1.306 of the limit, a planner
+torque-row violation of 3.774 Nm). This development set compares the ways
+of closing that gap, at the dev protocol (seed 1, 20 scenarios per task and
+arm, FR3, Gen3 and UR5e at N64, one SQP iteration per tick unless stated;
+`examples/benchmarks/limits_holdout.py --set enforcement`), source: the
+controller and the driver as committed in `a3d3437` (the rows record
+`2df782a+dirty` because the run started before that commit) on the 0.1.4
+receipt modules of the three arms; raw rows in
+[enforcement_dev_20261023.jsonl](../examples/benchmarks/data/limits_holdout/enforcement_dev_20261023.jsonl).
+The arms:
+
+- `admm-clip`: `MPCController(limits_kw={"u_clip": True})` projects the
+  applied command onto the planner's torque box after the solve, the plan
+  untouched (`StepResult.u_clipped` reports when it acted);
+- `admm-iters40`: a fixed inner budget of 40 iterations, no residual exit;
+- `admm-u1e-4`: the torque-row penalty at 1e-4 instead of 1e-5;
+- `admm-u0.8`: the derated planner box of October 21;
+- the defect exit at four SQP iterations per tick with a robot-scaled
+  tolerance (relative to `(N - 1) dt` times the sum of the velocity limits,
+  1e-3 and 1e-4).
+
+Pick-and-place, every arm reaching all three goals on every episode:
+
+| arm | FR3 commanded u / limit max, planner u-row violation max (Nm) | Gen3 | UR5e | solve ms p50 FR3 (diagnostic) |
+|---|---|---|---|---|
+| `admm` (default) | 1.064, 0.87 | 1.00, 0.093 | 0.53, 0 | 4.4 |
+| `admm-clip` | 0.999, 0.87 | 1.00, 0.093 | 0.53, 0 | 3.8 |
+| `admm-iters40` | 0.999, 0.023 | 1.00, 0.0086 | 0.61, 0 | 18.2 |
+| `admm-u1e-4` | 0.999, 0.023 | 1.00, 0 | 0.62, 0 | 4.1 |
+| `admm-u0.8` | 0.928, 1.6 | 0.83, 1.3 | 0.55, 0 | 5.3 |
+| defect exit, rel 1e-3 | 1.011, 1.0 | 1.01, 0.37 | 0.95, 0 | 4.1 |
+
+What the set says. The command excess on this set is small (FR3 1.064 at
+most, against 1.306 on the holdout), so the arms separate on the planner's
+own torque-row violation and on cost. The projection removes the command
+excess by construction and changes nothing else; the plan still overshoots
+its box, so the applied command and the plan disagree by up to that excess.
+The forty-iteration budget converges the torque rows (the FR3 violation
+falls from 0.87 to 0.023 Nm) at four times the solve time. The tighter
+torque penalty gets the same violation at no cost in time, with a small
+velocity excursion on the UR5e pick-and-place (peak 0.85 of the limit
+against 0.73) and slightly higher figure-8 velocities. The derated box
+lowers the commanded peak but the plan violates the smaller box more. The
+defect exits add nothing to enforcement; the two relative tolerances behave
+alike, so the scaling does not discriminate at these values, and the
+October 21 verdict on the defect exit stands.
+
+Rulings: the default is unchanged (one development set does not move it);
+`u_clip` ships as an opt-in for deployments that need a hard command box;
+the torque penalty at 1e-4 is the candidate for the next fresh holdout, the
+measurement that would move the default. Diagnostics only on the timing
+column: a shared GPU, not a quiet window.
+
 ## `enable_limit_al(rho)`
 
 Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:

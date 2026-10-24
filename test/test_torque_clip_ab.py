@@ -379,3 +379,26 @@ def test_merit_timing_dataset_is_frozen(repo_root):
         others = r["box"]["other_processes"]      # only the MPS server, and only under the MPS conditions
         assert all(line.endswith("nvidia-cuda-mps-server") for line in others)
         assert (len(others) > 0) == r["condition"].startswith("mps") or not others
+
+
+def test_enforcement_dev_dataset_is_frozen(repo_root):
+    """The October 23 torque-enforcement development set: seven arms (the ADMM
+    default, the command projection, the 40-iteration budget, the tighter
+    torque penalty, the derated box, two robot-scaled defect exits) on FR3,
+    Gen3 and UR5e at N64, both tasks, 20 scenarios each: digest, inventory,
+    one source, no quotable times, every pick-and-place goal reached."""
+    data = repo_root / "examples/benchmarks/data/limits_holdout"
+    path = data / "enforcement_dev_20261023.jsonl"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == "61057ff15614292d25241f4dc90eb6a352c167142f214f2e6698d416dc4c2359"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 840 and {r["seed"] for r in rows} == {1} and {r["set"] for r in rows} == {"enforcement"}
+    assert {r["mech"] for r in rows} == {"admm", "admm-clip", "admm-iters40", "admm-u1e-4", "admm-u0.8",
+                                         "admm-sqp4-defectrel1e-3", "admm-sqp4-defectrel1e-4"}
+    keys = {(r["plant"], r["task"], r["mech"], r["scenario"]) for r in rows}
+    assert len(keys) == 840 and {k[0] for k in keys} == {"fr3", "gen3", "ur5e"} and {k[1] for k in keys} == {"fig8", "pickplace"}
+    for r in rows:
+        assert r["sha"] == "2df782a+dirty" and r["quotable_times"] is False and r["N"] == 64
+        if r["task"] == "pickplace":
+            assert r["reached"] == 3
+    # the projection never commands above the planner's torque box
+    assert max(r["sim_u_ratio"] for r in rows if r["mech"] == "admm-clip") <= 1.0

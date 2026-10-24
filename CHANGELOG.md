@@ -36,6 +36,14 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   refuse it). Its own kernel instantiations, so the default kernels and the
   goldens are unchanged. Gates against Pinocchio's centre of mass and its
   Jacobian; example 19. `BSQP.com_position(q)` is the matching evaluation.
+- Torque enforcement: `MPCController(limits_kw={"u_clip": True})` projects
+  the applied command onto the planner's torque box after the solve
+  (`StepResult.u_clipped`), the plan untouched; the development set
+  comparing it with a larger ADMM budget, a tighter torque penalty and the
+  derated box is in [docs/constraints.md](docs/constraints.md) (the
+  default is unchanged; the tighter penalty is the next holdout's
+  candidate). Dataset `enforcement_dev_20261023.jsonl` with its integrity
+  test.
 
 ## 0.1.4 — 2026-10-23: the cost menu, GPUs with few SMs, joint damping, topology helpers
 
