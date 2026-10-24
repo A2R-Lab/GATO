@@ -211,7 +211,7 @@ def resolve(name: str, cache: Path | None = None) -> tuple[dict, Path] | None:
 def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=False,
                    collision_res=0.15, contact_frames=None, variant="default",
                    build=False, cache_dir_override=None, arch=None, jobs=2, force=False,
-                   joint_dynamics=False, friction_width=0.03, cost_frames=None) -> dict:
+                   joint_dynamics=False, friction_width=0.03, cost_frames=None, com=False) -> dict:
     """Generate a robot's dynamics headers into the per-host cache and record it
     in the manifest. Compiles the solver modules now only with ``build=True``;
     otherwise the first ``gato.BSQP(..., plant_type=name)`` compiles (once).
@@ -230,7 +230,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     cache = Path(cache_dir_override) if cache_dir_override else cache_dir()
     cost_frames = [str(f) for f in (cost_frames or [])]
     key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
-                       cost_frames)
+                       cost_frames, com)
     dyn = cache / "robots" / key / name
     with _locked(cache):
         if force or not (dyn / "grid.cuh").exists() or not (dyn / "limits.cuh").exists():
@@ -238,7 +238,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                 meta = codegen(urdf_path, name, ee_frame=ee_frame, out_dir=dyn, register=False,
                                collision_res=collision_res, contact_frames=contact_frames,
                                floating_base=floating_base, joint_dynamics=joint_dynamics,
-                               friction_width=friction_width, cost_frames=cost_frames)
+                               friction_width=friction_width, cost_frames=cost_frames, com=com)
             except ValueError as e:
                 if "could not be resolved" in str(e):
                     raise ValueError(
@@ -257,7 +257,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                              "contact_frames": list(contact_frames) if contact_frames else None,
                              "joint_dynamics": bool(joint_dynamics),
                              "friction_width": float(friction_width) if joint_dynamics else None,
-                             "cost_frames": cost_frames or None},
+                             "cost_frames": cost_frames or None, "com": bool(com)},
                  "N": sorted({int(n) for n in ([N] if isinstance(N, int) else N)}),
                  "variant": variant, "meta": meta, "registered": time.strftime("%Y-%m-%dT%H:%M:%S")}
         data = load_manifest(cache)

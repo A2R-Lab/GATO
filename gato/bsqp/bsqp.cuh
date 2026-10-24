@@ -26,6 +26,7 @@
 #include "kernels/sim.cuh"
 #include "kernels/contact_debug.cuh"
 #include "cost_menu_host.cuh"
+#include "com_term_host.cuh"
 #include "rowgroups.cuh"
 #include "kernels/admm.cuh"
 
@@ -888,6 +889,14 @@ class BSQP {
         }
         bool cost_menu_on() const { return menu_.on(); }
         void clear_cost_menu() { menu_.clear(); }
+        // Centre-of-mass term (dynamics/com_term.cuh): 0.5 sum W (c(q) - c_des)^2 on top of
+        // the objective in force; modules whose header bakes the centroidal families only.
+        static bool com_available() { return gato::com::Host<T>::available(); }
+        void set_com_target(const T* h, size_t count, bool per_solve) { com_.set_target(h, count, per_solve); }
+        void set_com_weight(const T* w, size_t count) { com_.set_weight(w, count); }
+        void set_com_on(bool on) { com_.set_on(on); }
+        bool com_on() const { return com_.on(); }
+        void clear_com() { com_.clear(); }
         // u_des[k] = g(q_ref[k]) (generalized gravity at the reference configuration; KNOT_POINTS x NQ)
         void set_cost_menu_gravity_target(const T* h_q_ref, size_t count) { menu_.gravity_target(h_q_ref, count, (const grid::robotModel<T>*)d_GRiD_mem_); }
         // per-term menu values along a device trajectory (batch x KNOT_POINTS x NUM_TERMS; a readout, never part of the solve)
@@ -922,7 +931,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0);
+                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr());
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -1030,7 +1039,7 @@ class BSQP {
 
                 compute_merit_batched<T, 1>(
                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, nullptr, nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
-                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr());   // one candidate: its defect IS the accepted (warm-start) value
+                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr(), com_.view_ptr());   // one candidate: its defect IS the accepted (warm-start) value
                 gpuErrchk(cudaMemcpy(d_merit_initial0_batch_, d_merit_initial_batch_, batch_size_ * sizeof(T), cudaMemcpyDeviceToDevice));
                 if (collect_stats_) { gpuErrchk(cudaEventRecord(ev_initial_merit_end_)); }
 
@@ -1079,7 +1088,7 @@ class BSQP {
                         }
                         iters_started = i + 1;
                         if (collect_stats_) { stage_record(i, 0); }
-                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0);
+                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr());
                         if (collect_stats_) { stage_record(i, 1); }
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
                         if (collect_stats_) { stage_record(i, 2); }
@@ -1200,11 +1209,11 @@ class BSQP {
                         if (admm_merit) {
                                 compute_merit_batched<T, 1>(
                                     batch_size_, /*d_kkt_converged=*/nullptr, d_knot_w, d_merit_initial_batch_, d_merit_partial_batch_, d_dz_zero_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, d_z_admm_, d_y_admm_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
-                                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr());
+                                    /*fused=*/-1, defect_telemetry_ ? d_defect_accepted_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr(), com_.view_ptr());
                         }
                         sqp_stats.merit_fused = compute_merit_batched<T, NUM_ALPHAS>(
                             batch_size_, d_kkt_converged_batch_, d_knot_w, d_merit_batch_, d_merit_partial_batch_, d_dz_batch_, d_xu_traj_batch, f_ext_ptr(), inputs, d_mu_batch_, d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, admm_merit ? d_z_admm_ : nullptr, admm_merit ? d_y_admm_ : nullptr, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_,
-                            /*fused=*/-1, defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr());
+                            /*fused=*/-1, defect_telemetry_ ? d_defect_batch_ : nullptr, defect_telemetry_ ? d_defect_partial_batch_ : nullptr, menu_.view_ptr(), com_.view_ptr());
                         if (collect_stats_) { stage_record(i, 4); }
                         // AL mode freezes the trust-region adaptation: at the AL outer
                         // fixed point every iteration "fails" the strict-decrease test
@@ -1403,6 +1412,7 @@ class BSQP {
                 // per-knot [ee,qd,u] cost-weight triples (optional override)
                 gpuErrchk(cudaMalloc(&d_knot_cost_weights_, 3 * KNOT_POINTS * sizeof(T)));
                 menu_.init(batch_size_);
+                com_.init(batch_size_);
 
                 gpuErrchk(cudaMalloc(&d_pcg_iterations_, BI));
                 gpuErrchk(cudaMalloc(&d_step_size_batch_, BT));
@@ -1580,6 +1590,7 @@ class BSQP {
         T*   d_knot_cost_weights_;
         bool use_knot_cost_weights_ = false;
         gato::menu::Host<T> menu_;   // the cost menu (bsqp/cost_menu_host.cuh); off = the tracking objective
+        gato::com::Host<T>  com_;    // the centre-of-mass term (bsqp/com_term_host.cuh); off = none
         bool collect_stats_ = true;
 
         // constraint row-groups (rowgroups.cuh; n == 0 -> layer fully inert)

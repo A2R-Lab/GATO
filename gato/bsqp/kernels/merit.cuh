@@ -23,23 +23,29 @@ using namespace gato::constants;
 // this region when it fits — s_temp is dead between those two consumers.
 // the cost-value carve: the tracking preset, or with MENU the larger of it and
 // the cost-menu adapter's (gato::plant::menu_cost_value)
-template<typename T, bool MENU>
+template<typename T, bool MENU, bool COM = false>
 __host__ __device__ constexpr size_t merit_cost_ct()
 {
+        size_t a = gato::plant::tracking_cost_value_smem_ct<T>();
 #if GATO_MENU_AVAILABLE
         if constexpr (MENU) {
-                constexpr size_t a = gato::plant::tracking_cost_value_smem_ct<T>();
                 constexpr size_t b = gato::plant::menu_cost_smem_ct<T>();
-                return a > b ? a : b;
+                a = a > b ? a : b;
         }
 #endif
-        return gato::plant::tracking_cost_value_smem_ct<T>();
+#if GATO_COM_AVAILABLE
+        if constexpr (COM) {   // the CoM term runs after the objective in the same scratch
+                constexpr size_t c = gato::plant::com_term_smem_ct<T>();
+                a = a > c ? a : c;
+        }
+#endif
+        return a;
 }
 
-template<typename T, bool MENU = false>
+template<typename T, bool MENU = false, bool COM = false>
 __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
 {
-        constexpr size_t a = merit_cost_ct<T, MENU>();
+        constexpr size_t a = merit_cost_ct<T, MENU, COM>();
 #if GATO_GRID_STEP
         // grid step (floating base, rk4): the integrator-error scratch is the
         // grid value-step arena (also covers the terminal knot's trial-x0 +
@@ -53,18 +59,18 @@ __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
 
 // merit kernel shared layout: ONE table for the kernel carve and the host sizer
 // (the collision tail carve offsets from `total`)
-template<typename T, bool MENU = false>
+template<typename T, bool MENU = false, bool COM = false>
 struct MeritSmem {
         static constexpr size_t xux_k = 0;
         static constexpr size_t reference_traj_k = xux_k + constants::XUX_SIZE;
         static constexpr size_t temp = reference_traj_k + constants::EE_POS_SIZE;
-        static constexpr size_t total = temp + compute_merit_temp_mem_ct<T, MENU>();
+        static constexpr size_t total = temp + compute_merit_temp_mem_ct<T, MENU, COM>();
 };
 
-template<typename T, bool MENU = false>
+template<typename T, bool MENU = false, bool COM = false>
 __host__ __device__ constexpr size_t compute_merit_base_smem_ct()
 {
-        return MeritSmem<T, MENU>::total;
+        return MeritSmem<T, MENU, COM>::total;
 }
 
 // Merit block size: GATO_MERIT_THREADS (settings.h) or 64, the measured default
@@ -88,7 +94,8 @@ constexpr unsigned MERIT_MIN_BLOCKS = MERIT_MIN_BLOCKS_RAW < 1u ? 1u : (MERIT_MI
 // so the two launches are bit-identical; the host picks by SM count below.
 // MENU: the cost menu replaces the tracking objective (its own instantiation, so the
 // default kernel keeps its code and register allocation; the host picks by the menu state).
-template<typename T, uint32_t NumAlphas, bool FUSED, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false, bool MENU = false>
+// COM: the centre-of-mass term on top of the objective (its own instantiations too).
+template<typename T, uint32_t NumAlphas, bool FUSED, unsigned INTEGRATOR_TYPE = gato::constants::INTEGRATOR_TYPE_DEFAULT, bool ANGLE_WRAP = false, bool MENU = false, bool COM = false>
 __global__ void __launch_bounds__(MERIT_THREADS, MERIT_MIN_BLOCKS)
 compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // per-(solve,alpha,knot) partials [merit_index * KNOT_POINTS + knot]
                                           T* __restrict__       d_defect_partial_batch,  // optional (nullable): the constraint term alone, same slots
@@ -123,7 +130,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                                           const T* __restrict__       d_y_admm_batch,                    // set_admm_merit — adds the AL-form ADMM value term)
                                           const grid_collision::Environment<T> env,                      // obstacle set (COLLISION rows; empty default = no-op)
                                           const T* __restrict__       d_admm_rho_scale_batch,            // per-solve ADMM rho adaptation scale (nullable -> 1)
-                                          const gato::menu::Buffers<T> menu)                                // cost-menu buffers (read when MENU)
+                                          const gato::menu::Buffers<T> menu,                                // cost-menu buffers (read when MENU)
+                                          const gato::com::Buffers<T>  com)                                 // centre-of-mass term (read when COM)
 {
         // launched with 3D grid (KNOT_POINTS, batch_size, FUSED ? 1 : NumAlphas)
 
@@ -134,9 +142,9 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
         T                    mu = d_mu_batch[solve_idx];
 
         extern __shared__ T s_mem[];
-        T*                  s_xux_k = s_mem + MeritSmem<T, MENU>::xux_k;  // current state, control, and next state (STORED format)
-        T*                  s_reference_traj_k = s_mem + MeritSmem<T, MENU>::reference_traj_k;
-        T*                  s_temp = s_mem + MeritSmem<T, MENU>::temp;
+        T*                  s_xux_k = s_mem + MeritSmem<T, MENU, COM>::xux_k;  // current state, control, and next state (STORED format)
+        T*                  s_reference_traj_k = s_mem + MeritSmem<T, MENU, COM>::reference_traj_k;
+        T*                  s_temp = s_mem + MeritSmem<T, MENU, COM>::temp;
 
         T* d_x_initial_k = d_x_initial_batch + solve_idx * XU_STATE_SIZE;  // STORED format
         T* d_f_ext = get_offset_wrench<T>(d_f_ext_batch, solve_idx, knot_idx);
@@ -209,6 +217,13 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                                                   /*per-knot wrench reference*/ d_fc_ref ? d_fc_ref + (size_t)knot_idx * constants::FC_SIZE : nullptr);
         }
         __syncthreads();
+        if constexpr (COM) {
+#if GATO_COM_AVAILABLE
+                cost_k += plant::com_term_value<T>(s_xux_k, com, solve_idx, knot_idx, s_temp, d_robot_model);
+#else
+                (void)com;
+#endif
+        }
 
         // row-group mechanism value terms (RB barrier / AL — must mirror setup_kkt's
         // grad/hess fold or the line search accepts against a different objective)
@@ -235,8 +250,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // fixed-base arenas) extends the host-sized launch.
                 if (gato::rows::has_coop_rows<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
-                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T, MENU>();
-                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T, MENU>();
+                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T, MENU, COM>();
+                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T, MENU, COM>();
                         __syncthreads();
                         cost_k += gato::rows::cooperative_row_cost_value<T, gato::rows::COLLISION>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, &env, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
@@ -245,8 +260,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
                 // CANDIDATE state, the same shared cooperative carve (CL-4)
                 if (gato::rows::has_coop_rows<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx)) {
                         constexpr size_t cc_ct = gato::rows::coop_rows_scratch_ct<T>();
-                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T, MENU>();
-                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T, MENU>();
+                        constexpr size_t tail_ct = compute_merit_temp_mem_ct<T, MENU, COM>();
+                        T* s_cc = (cc_ct <= tail_ct) ? s_temp : s_mem + compute_merit_base_smem_ct<T, MENU, COM>();
                         __syncthreads();
                         cost_k += gato::rows::cooperative_row_cost_value<T, gato::rows::CONTACT_POS>(d_row_groups, n_row_groups, (int32_t)knot_idx, s_xux_k, d_lam_hi, d_lam_lo, s_cc, d_robot_model, nullptr, d_z_admm, d_y_admm, admm_rho_scale);
                         __syncthreads();
@@ -335,15 +350,21 @@ __global__ void reduce_merit_partials_kernel(T* __restrict__ d_merit_batch,
 }
 
 template<typename T>
-__host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0, int menu_on = 0)
+__host__ size_t get_compute_merit_batched_smem_size(int has_collision = 0, int menu_on = 0, int com_on = 0)
 {
-        // the MENU layout only when the menu is on (the default launch is unchanged)
+        // the MENU / COM layouts only when those terms are on (the default launch is unchanged)
         size_t base_ct = compute_merit_base_smem_ct<T, false>();
         size_t tail_ct = compute_merit_temp_mem_ct<T, false>();
 #if GATO_MENU_AVAILABLE
-        if (menu_on) { base_ct = compute_merit_base_smem_ct<T, true>(); tail_ct = compute_merit_temp_mem_ct<T, true>(); }
+        if (menu_on && !com_on) { base_ct = compute_merit_base_smem_ct<T, true>(); tail_ct = compute_merit_temp_mem_ct<T, true>(); }
 #else
         (void)menu_on;
+#endif
+#if GATO_COM_AVAILABLE
+        if (com_on && !menu_on) { base_ct = compute_merit_base_smem_ct<T, false, true>(); tail_ct = compute_merit_temp_mem_ct<T, false, true>(); }
+        if (com_on && menu_on) { base_ct = compute_merit_base_smem_ct<T, true, true>(); tail_ct = compute_merit_temp_mem_ct<T, true, true>(); }
+#else
+        (void)com_on;
 #endif
         size_t size = sizeof(T) * base_ct;
         // runtime-sized: only when a COLLISION group is registered (host-known)
@@ -419,31 +440,54 @@ __host__ bool compute_merit_batched(uint32_t                    batch_size,   //
                                   int                         fused = -1,   // -1 auto (merit_fused_launch), 0/1 force
                                   T*                          d_defect_batch = nullptr,          // optional: per-(solve,alpha) constraint term
                                   T*                          d_defect_partial_batch = nullptr,  // scratch for it, same size as the merit partials
-                                  const gato::menu::Buffers<T>* menu = nullptr)      // cost menu (nullptr or off: the tracking objective)
+                                  const gato::menu::Buffers<T>* menu = nullptr,      // cost menu (nullptr or off: the tracking objective)
+                                  const gato::com::Buffers<T>*  com = nullptr)       // centre-of-mass term (nullptr or off: none)
 {
         dim3   thread_block(MERIT_THREADS);
         const bool use_menu = (menu != nullptr) && (menu->on != 0);
-        size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision, use_menu ? 1 : 0);
+        const bool use_com  = (com != nullptr) && (com->on != 0);
+        size_t s_mem_size = get_compute_merit_batched_smem_size<T>(has_collision, use_menu ? 1 : 0, use_com ? 1 : 0);
         static size_t attr_bytes = 0, attr_bytes_fused = 0;   // runtime-sized (has_collision): re-attributes on growth
-        const bool use_fused = merit_fused_launch<T, NumAlphas>(batch_size, s_mem_size, fused);
+        // the CoM instantiations are unfused only (the fused launch is an env opt-in measured slower)
+        const bool use_fused = use_com ? false : merit_fused_launch<T, NumAlphas>(batch_size, s_mem_size, fused);
         dim3   grid(KNOT_POINTS, batch_size, use_fused ? 1u : NumAlphas);
+        constexpr unsigned IT = gato::constants::INTEGRATOR_TYPE_DEFAULT;
         auto   kernel = use_fused ? compute_merit_batched_kernel<T, NumAlphas, true> : compute_merit_batched_kernel<T, NumAlphas, false>;
-        if (!use_menu) {
+        if (!use_menu && !use_com) {
                 opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, false>, s_mem_size, attr_bytes);
                 opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, true>, s_mem_size, attr_bytes_fused);
-        } else {
+        } else if (use_menu && !use_com) {
 #if GATO_MENU_AVAILABLE
                 // the MENU instantiations; the default kernels keep their code and attributes
                 static size_t attr_bytes_menu = 0, attr_bytes_menu_fused = 0;
-                opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, false, gato::constants::INTEGRATOR_TYPE_DEFAULT, false, true>, s_mem_size, attr_bytes_menu);
-                opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, true, gato::constants::INTEGRATOR_TYPE_DEFAULT, false, true>, s_mem_size, attr_bytes_menu_fused);
-                kernel = use_fused ? compute_merit_batched_kernel<T, NumAlphas, true, gato::constants::INTEGRATOR_TYPE_DEFAULT, false, true>
-                                   : compute_merit_batched_kernel<T, NumAlphas, false, gato::constants::INTEGRATOR_TYPE_DEFAULT, false, true>;
+                opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, false, IT, false, true>, s_mem_size, attr_bytes_menu);
+                opt_in_dynamic_smem(compute_merit_batched_kernel<T, NumAlphas, true, IT, false, true>, s_mem_size, attr_bytes_menu_fused);
+                kernel = use_fused ? compute_merit_batched_kernel<T, NumAlphas, true, IT, false, true>
+                                   : compute_merit_batched_kernel<T, NumAlphas, false, IT, false, true>;
 #else
                 throw std::runtime_error("cost menu requested on a module that does not carry it");
 #endif
+        } else {
+#if GATO_COM_AVAILABLE
+                // the COM instantiations (with and without the menu), unfused
+                static size_t attr_bytes_com = 0, attr_bytes_menu_com = 0;
+                if (use_menu) {
+#if GATO_MENU_AVAILABLE
+                        kernel = compute_merit_batched_kernel<T, NumAlphas, false, IT, false, true, true>;
+                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_menu_com);
+#else
+                        throw std::runtime_error("cost menu requested on a module that does not carry it");
+#endif
+                } else {
+                        kernel = compute_merit_batched_kernel<T, NumAlphas, false, IT, false, false, true>;
+                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_com);
+                }
+#else
+                throw std::runtime_error("CoM term requested on a module whose header does not bake the centroidal families");
+#endif
         }
         const gato::menu::Buffers<T> menu_args = menu ? *menu : gato::menu::empty_buffers<T>();
+        const gato::com::Buffers<T>  com_args  = com ? *com : gato::com::empty_buffers<T>();
 
         kernel<<<grid, thread_block, s_mem_size>>>(d_merit_partial_batch,
                                                                                     d_defect_partial_batch,
@@ -478,7 +522,8 @@ __host__ bool compute_merit_batched(uint32_t                    batch_size,   //
                                                                                     d_y_admm_batch,
                                                                                     env,
                                                                                     d_admm_rho_scale_batch,
-                                                                                    menu_args);
+                                                                                    menu_args,
+                                                                                    com_args);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
         const uint32_t n_slots = batch_size * NumAlphas;
         reduce_merit_partials_kernel<T><<<(n_slots + 127) / 128, 128>>>(d_merit_batch, d_merit_partial_batch, n_slots, NumAlphas, d_kkt_converged_batch,

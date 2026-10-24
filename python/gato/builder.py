@@ -200,18 +200,21 @@ GATO_ALGORITHMS = (
 )
 
 
-def algorithms_for(floating_base, cost_frames=None):
+def algorithms_for(floating_base, cost_frames=None, com=False):
     """The consumed GRiD families for a plant: the base set plus the frame_jacobian
     family the cost menu rides on (tracking_cost_menu and the frame position,
     orientation and twist residuals, grid-rbd 0.5.5). The generator bakes the
     end-effector target as cost frame 0 on both bases (the imu on the Go2) and
-    the named cost frames after it."""
+    the named cost frames after it. ``com=True`` adds the centroidal families
+    (``com``: CoM position and Jacobian; ``ccrba``: the centroidal momentum
+    matrix), the pair that emits the plant-layer com_cost the CoM term rides
+    on (0.1.5); plants without them refuse the term."""
     del floating_base, cost_frames   # one set for every plant; kept in the signature for the codegen key
-    return GATO_ALGORITHMS + ("frame_jacobian",)
+    return GATO_ALGORITHMS + ("frame_jacobian",) + (("com", "ccrba") if com else ())
 
 
 def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False, friction_width=0.03,
-                 cost_frames=None):
+                 cost_frames=None, com=False):
     """Cache key of the URDF
     bytes, the pinned grid-rbd release (the emitter: its version and bundled
     source/peer provenance), the consumed algorithm set and the codegen options.
@@ -224,7 +227,7 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
     h.update(Path(urdf_path).read_bytes())
     h.update(_grid.GRID_RBD_PIN.encode())
     h.update(json.dumps(_grid.require(), sort_keys=True).encode())
-    h.update(repr((tuple(algorithms_for(floating_base, cost_frames)), ee_frame, collision_res,
+    h.update(repr((tuple(algorithms_for(floating_base, cost_frames, com)), ee_frame, collision_res,
                    tuple(contact_frames) if contact_frames else None, bool(floating_base))).encode())
     if joint_dynamics:          # folded in only when on, so the keys of existing robots are unchanged
         h.update(f"joint_dynamics tanh {float(friction_width)!r}".encode())
@@ -236,7 +239,7 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
             floating_base=False, joint_dynamics=False, friction_width=0.03,
-            cost_frames=None):
+            cost_frames=None, com=False):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -320,7 +323,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     if algorithm_list == "all":
         kwargs["codegen_profile"] = "all"
     else:
-        kwargs["algorithm_list"] = list(algorithms_for(floating_base, cost_frames) if algorithm_list is None else algorithm_list)
+        kwargs["algorithm_list"] = list(algorithms_for(floating_base, cost_frames, com) if algorithm_list is None else algorithm_list)
     kwargs["cost_frames"] = cost_frames    # the EE target is frame 0 regardless; these follow it
     n_spheres = None
     if collision_res is not None:
@@ -373,6 +376,7 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
         meta["contact_frames"] = list(contact_frames)
     # the baked cost frames in index order (frame 0 = the end-effector target)
     meta["cost_frames"] = [f[0] for f in getattr(gen, "_cost_frames", [])]
+    meta["com"] = bool(com)   # the centroidal family (the CoM term) baked
     if register:
         _update_registry(name, meta)
     return meta
@@ -382,7 +386,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
           floating_base=False, contact_forces=False, exact_hessian=False,
           joint_dynamics=False, friction_width=0.03, merit_threads=None,
-          cost_frames=None, integrator=None):
+          cost_frames=None, integrator=None, com=False):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -414,6 +418,9 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
             Results are bit-identical at any size.
         cost_frames: extra named cost frames for the cost menu (see codegen());
             the end-effector target is always cost frame 0 on a fixed-base plant.
+        com: bake the centroidal family so the module carries the CoM term
+            (``BSQP.set_com_cost``); part of the codegen key. Off by default:
+            the vendored arms do not carry it, the vendored Go2 does.
         integrator: None keeps the base's default step (trapezoidal on a fixed
             base, semi-implicit Euler on a floating one); "rk4" builds the
             "rk4" module variant, the classical fourth-order step on the
@@ -436,7 +443,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     root = repo_root()
     key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
-                       cost_frames)
+                       cost_frames, com)
     have = load_registry().get(name, {})
     headers = [root / "gato" / "dynamics" / name / f for f in ("grid.cuh", "limits.cuh")]
     if have.get("codegen_key") == key and all(h.exists() for h in headers):
@@ -445,7 +452,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         meta = codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
                        contact_frames=contact_frames, floating_base=floating_base,
                        joint_dynamics=joint_dynamics, friction_width=friction_width,
-                       cost_frames=cost_frames)
+                       cost_frames=cost_frames, com=com)
         _update_registry(name, {**meta, "codegen_key": key})
 
     try:

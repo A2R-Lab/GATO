@@ -48,7 +48,8 @@ ROBOTS = {
                 contact_frames=["FR_foot_joint", "FL_foot_joint",
                                 "RR_foot_joint", "RL_foot_joint"],
                 cost_frames=["FR_foot_joint", "FL_foot_joint",
-                             "RR_foot_joint", "RL_foot_joint"]),
+                             "RR_foot_joint", "RL_foot_joint"],
+                com=True),   # the centroidal family: the CoM term (0.1.5)
 }
 
 
@@ -69,7 +70,7 @@ def main() -> None:
                        collision_res=spec.get("collision_res"),
                        contact_frames=spec.get("contact_frames"),
                        floating_base=spec.get("floating_base", False),
-                       cost_frames=spec.get("cost_frames"))
+                       cost_frames=spec.get("cost_frames"), com=spec.get("com", False))
         print(f"[{rid}] wrote gato/dynamics/{rid}/{{grid.cuh, limits.cuh}}  meta={meta}")
     print("Done.")
 

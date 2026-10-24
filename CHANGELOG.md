@@ -27,6 +27,15 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   pinocchio's frame Jacobian; a new golden per eh module (`bdsv_cc`), the
   existing eh goldens unchanged. [docs/constraints.md](docs/constraints.md)
   `set_cost_curvature`.
+- A centre-of-mass term: `BSQP.set_com_cost(target, weight)` adds
+  `0.5 sum_r w_r (c_r(q) - target_r)^2` over the world centre of mass to the
+  objective in force (the tracking cost or the cost menu), targets per knot,
+  shared or per solve, Gauss-Newton Hessian from GRiD's generated `com_cost`.
+  Modules whose header bakes the centroidal families carry it
+  (`gato.build(..., com=True)`; the vendored Go2 does, the arms do not and
+  refuse it). Its own kernel instantiations, so the default kernels and the
+  goldens are unchanged. Gates against Pinocchio's centre of mass and its
+  Jacobian; example 19. `BSQP.com_position(q)` is the matching evaluation.
 
 ## 0.1.4 — 2026-10-23: the cost menu, GPUs with few SMs, joint damping, topology helpers
 

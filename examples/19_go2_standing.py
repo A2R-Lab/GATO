@@ -106,3 +106,26 @@ if solver().cost_menu_available:
     heights = [base_pose(res.xu_b(0), k)[0] for k in (4, 8, 12, 15)]
     print(f"  the menu's state term at {wp:.0f} / {wo:.0f} (imu term off): heights " + " ".join(f"{h:.4f}" for h in heights)
           + f", roll {base_pose(res.xu_b(0), N - 1)[1]:+.2f} deg")
+
+# The centre-of-mass term (0.1.5; the vendored Go2 bakes GRiD's centroidal families):
+# 0.5 w |c(q) - c_des|^2 on the world CoM, on top of whichever objective is on. A target
+# shifted 3 cm toward the front-right foot at the stance pulls the planned CoM that way
+# while the posture anchor and the foot-force setpoint hold the stance; the readout is
+# the planned CoM at the last knot against the target.
+if solver().com_cost_available:
+    s = solver()
+    standing_setpoint(s)
+    s.set_q_nom(q_stand)
+    s.set_q_pos_cost(np.concatenate([[5000.0] * 3, [2000.0] * 3, [0.0], np.full(nq - 7, 50.0)]))
+    c_stand = s.com_position(q_stand)
+    c_des = c_stand + np.array([0.03, -0.03, 0.0])
+    print(f"  CoM at the stance {c_stand.round(4)}; target {c_des.round(4)} (3 cm toward the front-right foot)")
+    for w in (0.0, 1e3, 1e4, 1e5):
+        if w > 0:
+            s.set_com_cost(c_des, w)
+        res = s.solve(x0, goals)
+        xu = res.xu_b(0)
+        c_last = s.com_position(xu[(N - 1) * (nx + nu):(N - 1) * (nx + nu) + nq])
+        print(f"  CoM weight {w:8.0f}: planned CoM at the last knot {c_last.round(4)}, "
+              f"gap to the target {np.linalg.norm(c_last - c_des):.4f} m, height {base_pose(xu, N - 1)[0]:.4f} m")
+    print("  the term trades posture and foot force for the shifted CoM; it is a cost, not a balance guarantee")

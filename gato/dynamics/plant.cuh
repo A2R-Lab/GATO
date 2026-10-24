@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "utils/linalg.cuh"
 #include "cost_menu.cuh"   // gato::menu::Buffers, the cost-menu view the adapters below read
+#include "com_term.cuh"    // gato::com::Buffers, the centre-of-mass term view
 
 using namespace sqp;
 
@@ -1201,6 +1202,69 @@ namespace plant {
 #endif
         }
 #endif  // GATO_MENU_AVAILABLE
+
+        // ===================================================================
+        // Centre-of-mass term ADAPTER (dynamics/com_term.cuh, 0.1.5): the generated
+        // plant-layer com_cost (value, gradient over x, Gauss-Newton Hessian) on
+        // modules whose header bakes the centroidal families. Added on top of the
+        // objective in force (tracking cost or menu); the gradient's q block maps
+        // onto the first NV tangent slots on both bases (the generated term
+        // follows pinocchio's tangent convention).
+#ifdef GRID_PLANT_HAS_COM_COST
+#define GATO_COM_AVAILABLE 1
+#else
+#define GATO_COM_AVAILABLE 0
+#endif
+#if GATO_COM_AVAILABLE
+        template<typename T>
+        __host__ __device__ constexpr unsigned com_term_smem_ct()
+        {
+                // W (3) | target (3) | out (4, keeps the scratch 16-byte aligned) | grad (NX) | hess (NX NX) | the generated arena
+                constexpr unsigned arena = (unsigned)((grid::COM_DYNAMIC_SHARED_MEM_BYTES<T>() + sizeof(T) - 1) / sizeof(T)) + 4u;
+                return 3u + 3u + 4u + (unsigned)NX + (unsigned)(NX * NX) + arena;
+        }
+        template<typename T>
+        __device__ __forceinline__ T* com_term_arena(T* s_temp) { return s_temp + 3 + 3 + 4 + NX + NX * NX; }
+
+        // the term's value at x; s_temp >= com_term_smem_ct(). Ends on a barrier.
+        template<typename T>
+        __device__ T com_term_value(const T* s_x, const gato::com::Buffers<T>& c, uint32_t solve_idx, uint32_t knot_idx,
+                                    T* s_temp, const grid::robotModel<T>* d_robotModel)
+        {
+                T* s_W = s_temp; T* s_des = s_W + 3; T* s_out = s_des + 3;
+                const T* d_des = c.at(solve_idx, knot_idx);
+                for (int i = threadIdx.x; i < 3; i += blockDim.x) { s_W[i] = c.w[i]; s_des[i] = d_des[i]; }
+                __syncthreads();
+                T* s_arena = reinterpret_cast<T*>((reinterpret_cast<uintptr_t>(com_term_arena(s_temp)) + 15u) & ~static_cast<uintptr_t>(15u));
+                grid_plant::com_cost<T, /*ACCUMULATE=*/false>(s_out, s_x, s_des, s_W, s_arena, d_robotModel);
+                __syncthreads();
+                return s_out[0];
+        }
+
+        // gradient (into the first NV tangent slots of s_qk) and Gauss-Newton Hessian
+        // (into the NV x NV q block of s_Qk, leading dimension ts), accumulated.
+        // s_temp >= com_term_smem_ct(). Ends on a barrier.
+        template<typename T>
+        __device__ void com_term_grad_hess(const T* s_x, const gato::com::Buffers<T>& c, uint32_t solve_idx, uint32_t knot_idx,
+                                           T* s_Qk, T* s_qk, int ts, T* s_temp, const grid::robotModel<T>* d_robotModel)
+        {
+                T* s_W = s_temp; T* s_des = s_W + 3; T* s_grad = s_des + 3 + 4; T* s_hess = s_grad + NX;
+                const T* d_des = c.at(solve_idx, knot_idx);
+                for (int i = threadIdx.x; i < 3; i += blockDim.x) { s_W[i] = c.w[i]; s_des[i] = d_des[i]; }
+                __syncthreads();
+                T* s_arena = reinterpret_cast<T*>((reinterpret_cast<uintptr_t>(com_term_arena(s_temp)) + 15u) & ~static_cast<uintptr_t>(15u));
+                grid_plant::com_cost_gradient<T, /*ACCUMULATE=*/false>(s_grad, s_x, s_des, s_W, s_arena, d_robotModel);
+                __syncthreads();
+                grid_plant::com_cost_hessian<T, /*ACCUMULATE=*/false>(s_hess, s_x, s_W, s_arena, d_robotModel);
+                __syncthreads();
+                for (int i = threadIdx.x; i < NV; i += blockDim.x) { s_qk[i] += s_grad[i]; }
+                for (int i = threadIdx.x; i < NV * NV; i += blockDim.x) {
+                        const int vi = i % NV, vj = i / NV;
+                        s_Qk[vj * ts + vi] += s_hess[vj * NX + vi];
+                }
+                __syncthreads();
+        }
+#endif  // GATO_COM_AVAILABLE
 
         // ===================================================================
         // RAW EE-pose evaluators (constraint row-group layer)

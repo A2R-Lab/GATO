@@ -142,3 +142,19 @@ gate, every term against RBDReference's menu oracle in the assembled KKT
 blocks and in the per-term values, the per-solve independence of the batch,
 the setter refusal and the gravity target against Pinocchio;
 `test/test_codegen.py` the cost-frame baking.
+
+## The centre-of-mass term
+
+`BSQP.set_com_cost(target, weight)` adds `0.5 sum_r w_r (c_r(q) - target_r)^2`
+over the three world coordinates of the centre of mass to whichever
+objective is on, the tracking cost or the menu, at every knot. The target is
+`(3,)`, `(N, 3)` shared across the batch or `(B, N, 3)` per solve; the weight
+a scalar or `(3,)`. The value, gradient and Gauss-Newton Hessian are GRiD's
+generated `com_cost` over the centroidal families, so the term exists only on
+modules whose header bakes them: `gato.build(..., com=True)`, part of the
+codegen key; the vendored Go2 carries it, the vendored arms do not and refuse
+the call. `BSQP.com_position(q)` is the Pinocchio evaluation of the same
+quantity, `clear_com_cost()` removes the term. The term is a cost on the CoM
+position, not a balance condition: it says nothing about contact forces or
+the support polygon. Example 19 shifts the Go2's CoM at the stance.
+

@@ -753,6 +753,20 @@ class PyBSQP {
                 solver_.set_cost_menu_activation(static_cast<const int*>(buf.ptr), static_cast<size_t>(buf.size));
         }
         void set_cost_menu_on(bool on) { solver_.set_cost_menu_on(on); }
+        // centre-of-mass term (dynamics/com_term.cuh)
+        void set_com_target(DenseArray target, bool per_solve)
+        {
+                auto buf = target.request();
+                solver_.set_com_target(static_cast<const T*>(buf.ptr), static_cast<size_t>(buf.size), per_solve);
+        }
+        void set_com_weight(DenseArray w)
+        {
+                auto buf = w.request();
+                solver_.set_com_weight(static_cast<const T*>(buf.ptr), static_cast<size_t>(buf.size));
+        }
+        void set_com_on(bool on) { solver_.set_com_on(on); }
+        bool com_on() const { return solver_.com_on(); }
+        void clear_com() { solver_.clear_com(); }
         bool cost_menu_on() const { return solver_.cost_menu_on(); }
         void clear_cost_menu() { solver_.clear_cost_menu(); }
         void set_cost_menu_gravity_target(DenseArray q_ref)
@@ -925,6 +939,11 @@ class PyBSQP {
             .def("set_cost_menu_activation", &PyBSQP<Type>::set_cost_menu_activation, py::arg("activation"))                                                                                      \
             .def("set_cost_menu_on", &PyBSQP<Type>::set_cost_menu_on, py::arg("on"))                                                                                                              \
             .def("cost_menu_on", &PyBSQP<Type>::cost_menu_on)                                                                                                                                     \
+            .def("set_com_target", &PyBSQP<Type>::set_com_target, py::arg("target"), py::arg("per_solve"))                                                                                           \
+            .def("set_com_weight", &PyBSQP<Type>::set_com_weight, py::arg("w"))                                                                                                                      \
+            .def("set_com_on", &PyBSQP<Type>::set_com_on, py::arg("on"))                                                                                                                             \
+            .def("com_on", &PyBSQP<Type>::com_on)                                                                                                                                                   \
+            .def("clear_com", &PyBSQP<Type>::clear_com)                                                                                                                                             \
             .def("clear_cost_menu", &PyBSQP<Type>::clear_cost_menu)                                                                                                                               \
             .def("set_cost_menu_gravity_target", &PyBSQP<Type>::set_cost_menu_gravity_target, py::arg("q_ref"))                                                                                   \
             .def("cost_menu_term_values", &PyBSQP<Type>::cost_menu_term_values, py::arg("xu_traj_batch"))                                                                                         \
@@ -985,6 +1004,7 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("FLOATING_BASE") = gato::constants::FLOATING_BASE;
         // cost menu (grid_plant::tracking_cost_menu*, grid-rbd 0.5.5): fixed-base and free-flyer plants
         m.attr("COST_MENU_AVAILABLE") = bool(GATO_MENU_AVAILABLE);
+        m.attr("COM_AVAILABLE") = bool(GATO_COM_AVAILABLE);   // the centroidal families baked: the CoM term
 #if GATO_MENU_AVAILABLE
         m.attr("NUM_COST_FRAMES") = int(grid_plant::GRID_PLANT_NUM_COST_FRAMES);   // frame 0 = the end-effector target
 #else

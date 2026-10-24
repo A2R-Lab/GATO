@@ -452,6 +452,47 @@ class BSQP:
         menu.apply(self)
         self._cost_menu = menu
 
+    # ---- centre-of-mass term ------------------------------------------------
+    @property
+    def com_cost_available(self):
+        """True when the module's header bakes the centroidal families
+        (``gato.build(..., com=True)``; the vendored Go2)."""
+        return bool(getattr(self.lib, "COM_AVAILABLE", False))
+
+    def set_com_cost(self, target, weight=1.0):
+        """Add 0.5 sum_r weight_r (c_r(q) - target_r)^2 over the three centre-of-mass
+        coordinates to the objective in force (the tracking cost or the cost
+        menu), at every knot. ``target`` is (3,), (N, 3) shared across the
+        batch or (B, N, 3) per solve, in world coordinates; ``weight`` a scalar
+        or (3,), nonnegative. Gauss-Newton Hessian from GRiD's generated
+        com_cost; ``com_position`` is the matching Pinocchio evaluation."""
+        if not self.com_cost_available:
+            raise RuntimeError(f"module {self.lib.__name__} does not bake the centroidal families; "
+                               "build the plant with gato.build(..., com=True)")
+        from .cost_menu import _broadcast
+        flat, per_solve = _broadcast("CoM target", target, 3, self.N, self.batch_size)
+        w = np.asarray(weight, dtype=np.float32)
+        w = np.full((3,), float(w), dtype=np.float32) if w.ndim == 0 else w.reshape(-1)
+        if w.shape != (3,):
+            raise ValueError(f"CoM weight: expected a scalar or (3,), got {np.asarray(weight).shape}")
+        self.solver.set_com_target(flat, per_solve)
+        self.solver.set_com_weight(w)
+        self.solver.set_com_on(True)
+
+    def clear_com_cost(self):
+        """Remove the centre-of-mass term."""
+        if self.com_cost_available:
+            self.solver.clear_com()
+
+    @property
+    def com_cost_on(self):
+        return bool(self.com_cost_available and self.solver.com_on())
+
+    def com_position(self, q):
+        """World centre of mass at q (Pinocchio), the quantity the CoM term tracks."""
+        pin = _require_pin()
+        return np.array(pin.centerOfMass(self.model, self.data, np.asarray(q, dtype=np.float64)))
+
     def clear_cost_menu(self):
         """Back to the tracking objective (the menu's device buffers are kept for reuse)."""
         self.solver.clear_cost_menu()

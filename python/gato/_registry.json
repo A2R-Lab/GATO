@@ -38,6 +38,7 @@
       "n_spheres": 50,
       "res": 0.15
     },
+    "com": true,
     "contact_frames": [
       "FR_foot_joint",
       "FL_foot_joint",

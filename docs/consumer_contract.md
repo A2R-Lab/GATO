@@ -372,7 +372,7 @@ with a migration note):
 
 - `gato.SolverParams`, `gato.BSQP` (`solve`, the `set_*` cost surface, the
   `enable_limit_*` / `add_*_rows` / `enable_collision` constraint surface,
-  `ee_pos`, `sim_forward`), `SolveResult`, `SolverStats`.
+  `ee_pos`, `sim_forward`, `set_com_cost`, `com_position`), `SolveResult`, `SolverStats`.
 - `gato.MPCController` / `StepResult`, `gato.MPCPolicy` with
   `TrajectoryReference` / `GoalReference`.
 - `gato.build`, `gato.available`, `gato.robot_info`, `gato.fingerprint`,
