@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gato-mpc"           # import name: gato (PyPI's "gato" is an unrelated 2021 graph toolbox)
-version = "0.1.5"
+version = "0.1.6"
 authors = [
     { name="Alexander Du" },
     { name="Emre Adabag" },
@@ -44,6 +44,7 @@ dependencies = [
     # build the bsqpN{knot}_{plant}.so pybind11 extensions
     "pybind11>=2.13.6",
     "ninja>=1.11.1.4",
+    "cmake>=3.24",             # issue #23: Ubuntu 22.04 / JetPack 6 ship 3.22; the wheel also brings arch 'native'
 ]
 
 [project.urls]

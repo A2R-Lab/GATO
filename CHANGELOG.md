@@ -2,6 +2,32 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.1.6 — unreleased: the CMake floor, grid-rbd 0.6.0, the Jetson merit default
+
+- The build configures on CMake 3.22 again (issue #23, Felix Mueh, JetPack 6).
+  The module loop had used `block()`, a 3.25 command, under the declared
+  minimum of 3.22, so the distribution CMake of Ubuntu 22.04 failed at
+  configure time on the checkout path and on the first-use compile of an
+  installed package. The loop body is a function now, `test_cmake_floor.py`
+  checks the tree's commands against the declared minimum, and
+  `tools/check_cmake_floor.sh` configures the tree with a pinned 3.22. The
+  package also depends on the `cmake` wheel (3.24 or newer), and the module
+  compile uses the venv's cmake before the system one, so a venv on Ubuntu
+  22.04 or JetPack 6 detects the GPU architecture as well.
+- grid-rbd 0.6.0 is the pinned generator (GLASS pin unchanged). The regenerated
+  headers differ from 0.5.5 only in `grid_collision::config_free`, which gains a
+  clearance margin and a self-collision switch with unchanged defaults; GATO's
+  kernels do not call it, and the limits, the registry and every module are
+  unchanged.
+- The merit block size defaults to 32 threads on the Jetson family (sm_72 and
+  sm_87) and stays at 64 elsewhere, chosen at configure time from the CUDA
+  architecture; `GATO_MERIT_THREADS` overrides either and results are
+  bit-identical at any size. Felix Mueh's Jetson AGX Orin tables for 0.1.5 are
+  in docs/merit_timing.md: 32 threads level with 64 at batch 1 and 4 and 10
+  percent faster per solve at batch 16, the fused launch without gain, 256
+  threads two to three times the merit time, and the linear system at 70
+  percent of the batch-1 solve, the next item for an embedded default.
+
 ## 0.1.5 — 2026-10-24: the RK4 step, exact position curvature, the CoM term, torque enforcement
 
 - The integrator is a module variant. `gato.build(..., integrator="rk4")` (or
