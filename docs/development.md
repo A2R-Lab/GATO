@@ -115,7 +115,7 @@ new checkout.
 
 ## Build
 
-Modules are compiled per `(plant, knot_points[, variant])` into `python/gato/bsqpN{N}_{plant}[_fc|_eh].so`;
+Modules are compiled per `(plant, knot_points[, variant])` into `python/gato/bsqpN{N}_{plant}[_fc|_eh|_rk4].so`;
 the batch size is a runtime argument. `tools/build.sh` configures and builds incrementally
 in `build/`:
 

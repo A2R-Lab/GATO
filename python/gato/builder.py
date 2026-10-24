@@ -382,7 +382,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
           floating_base=False, contact_forces=False, exact_hessian=False,
           joint_dynamics=False, friction_width=0.03, merit_threads=None,
-          cost_frames=None):
+          cost_frames=None, integrator=None):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -414,12 +414,20 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
             Results are bit-identical at any size.
         cost_frames: extra named cost frames for the cost menu (see codegen());
             the end-effector target is always cost frame 0 on a fixed-base plant.
+        integrator: None keeps the base's default step (trapezoidal on a fixed
+            base, semi-implicit Euler on a floating one); "rk4" builds the
+            "rk4" module variant, the classical fourth-order step on the
+            generated grid integrator (four dynamics evaluations per knot),
+            loaded with BSQP(..., variant="rk4"). It cannot be combined with
+            contact_forces or exact_hessian.
     Returns: list of built (name, N) pairs.
     """
     name = name or Path(urdf_path).stem
-    if contact_forces and exact_hessian:
-        raise ValueError("contact_forces and exact_hessian are separate module variants — build one at a time")
-    variant = "fc" if contact_forces else ("eh" if exact_hessian else "default")
+    if sum(bool(v) for v in (contact_forces, exact_hessian, integrator)) > 1:
+        raise ValueError("contact_forces, exact_hessian and integrator= are separate module variants — build one at a time")
+    if integrator not in (None, "rk4"):
+        raise ValueError(f"integrator must be None (the base's default step) or 'rk4', got {integrator!r}")
+    variant = "fc" if contact_forces else ("eh" if exact_hessian else ("rk4" if integrator else "default"))
     suffix = "" if variant == "default" else f"_{variant}"
     if not name.isidentifier():
         raise ValueError(f"plant name {name!r} must be a valid identifier "

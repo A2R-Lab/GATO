@@ -32,10 +32,17 @@ namespace constants {
     // 6 base dofs (grid's plant surfaces take a full NV-sized generalized
     // force; GATO scatters the actuated slots and zeros the base rows).
     constexpr uint32_t ACTUATED_SIZE = FLOATING_BASE ? (NV - 6) : grid::NUM_JOINTS;
-    // Integrator selection (kernel template default): fixed base keeps the
-    // historic trapezoidal (2); floating base uses semi-implicit Euler (1) —
-    // the grid floating gradient path supports EULER/SI-EULER only.
+    // Integrator selection (kernel template default). Ids: 0 Euler, 1
+    // semi-implicit Euler, 2 trapezoidal (q += dt qd + dt^2 qdd / 2), 3 RK4.
+    // The fixed base keeps the historic trapezoidal (2) and the floating base
+    // semi-implicit Euler (1); a module built as the rk4 variant defines
+    // GATO_INTEGRATOR=3 and runs the generated grid step on either base
+    // (dynamics/grid_plant_step.cuh).
+#ifdef GATO_INTEGRATOR
+    constexpr uint32_t INTEGRATOR_TYPE_DEFAULT = GATO_INTEGRATOR;
+#else
     constexpr uint32_t INTEGRATOR_TYPE_DEFAULT = FLOATING_BASE ? 1u : 2u;
+#endif
 #if GATO_CONTACT_FORCES
     #ifndef GRID_HAS_CONTACT_FRAMES
         #error "GATO_CONTACT_FORCES=1 needs a grid.cuh generated with contact_frames (2b.1+)"

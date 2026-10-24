@@ -2,6 +2,22 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.1.5 — unreleased: the RK4 step, exact position curvature, the CoM term, torque enforcement
+
+- The integrator is a module variant. `gato.build(..., integrator="rk4")` (or
+  `MODULES="iiwa14:16:rk4"`) builds `bsqpN{N}_{plant}_rk4`, the classical
+  fourth-order step on GRiD's generated integrator, on the fixed and the
+  floating base; `BSQP(..., variant="rk4")` loads it and `BSQP.integrator`
+  names the step a module runs (`trapezoidal`, `semi_implicit_euler`, `rk4`).
+  The default modules keep their steps and are bit-identical (goldens). The
+  step twins that served the floating base now serve every grid-step module;
+  the exact-Hessian and contact-force variants stay on the single-stage step
+  and refuse `rk4` at build time. Gates: the device step against a Pinocchio
+  RK4, the KKT A and B blocks against central differences of the step on both
+  bases, goldens for `iiwa14 16 rk4` and `go2 16 rk4` in the receipt; example
+  20. Four dynamics evaluations per knot: the cost per iteration is a
+  quiet-window measurement and is not claimed here.
+
 ## 0.1.4 — 2026-10-23: the cost menu, GPUs with few SMs, joint damping, topology helpers
 
 0.1.3 was prepared on October 21 and never published; its items ship here.

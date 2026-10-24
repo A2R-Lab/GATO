@@ -133,7 +133,16 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   returned `xu` and mutated caller arrays in place.
 - **Module variants** are separate ABIs with their own module names:
   `bsqpN{N}_{plant}` (default), `_fc` (contact-force controls appended to u),
-  `_eh` (exact Hessian). `BSQP(..., variant="fc")`; `gato.available("fc")`.
+  `_eh` (exact Hessian), `_rk4` (the RK4 step). `BSQP(..., variant="fc")`;
+  `gato.available("fc")`.
+- **The integrator is a module property.** The default fixed-base step is the
+  trapezoidal update `q += dt qd + dt^2 qdd / 2, qd += dt qdd`; the default
+  floating-base step is semi-implicit Euler on the SE(3) retraction; the `_rk4`
+  variant is the classical fourth-order step on either base, over the same
+  generated dynamics. `BSQP.integrator` reports it; `sim_forward` and the
+  KKT linearization always use the module's own step. A simulator that
+  integrates differently is not an error of the solver: compare plans knot by
+  knot against `sim_forward`, not against the simulator's step.
   Row-group ORDER is enforced: `enable_limit_*` before any appended group
   (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`, `add_contact_pos_rows`) or
   it raises (they used to be dropped silently).
@@ -314,7 +323,7 @@ runtime/compile performance. Check which test exercises the feature you use.
   stopping criterion; do not replace it with an unrelated tolerance.
 - Pass `xu_warm=previous.xu` explicitly when repeating raw solves. For a moving
   horizon, let `MPCController` own the shift and reset policy.
-- Load `variant="fc"` or `variant="eh"` explicitly; never swap `.so` files.
+- Load `variant="fc"`, `variant="eh"` or `variant="rk4"` explicitly; never swap `.so` files.
 - Apply `StepResult.u` / `SolveResult.u0()`, not the contact-wrench tail.
 - Install canonical limit groups before appended groups; the reverse order raises.
 - A URDF handed to `gato.register_robot` / `gato.build` may have rotated inertial
@@ -367,7 +376,7 @@ with a migration note):
 - `gato.MPCController` / `StepResult`, `gato.MPCPolicy` with
   `TrajectoryReference` / `GoalReference`.
 - `gato.build`, `gato.available`, `gato.robot_info`, `gato.fingerprint`,
-  the module naming (`bsqpN{N}_{plant}[_fc|_eh]`) and `_registry.json`.
+  the module naming (`bsqpN{N}_{plant}[_fc|_eh|_rk4]`) and `_registry.json`.
 - `gato.MPC_GATO` and `gato.worlds` as the simulation drivers the paper
   figures run on (their stats dictionaries are part of the figure protocols).
 - `ForceEstimator` / `ForceHypothesisBatch` (the paper's Fig-7 sampler).

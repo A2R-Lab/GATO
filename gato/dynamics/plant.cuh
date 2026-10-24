@@ -436,6 +436,7 @@ namespace plant {
                 static_assert(exact_hessian_so_numeric_ct<T>() + topology_helpers_smem_ct<T>() <= exact_hessian_so_smem_ct<T>(),
                               "exact-Hessian SO arena must have room for the topology helpers after the numeric scratch");
                 int* s_topology_helpers = topology_helpers_at(s_so + exact_hessian_so_numeric_ct<T>());
+                static_assert(INTEGRATOR_TYPE <= 2, "the lagged-lambda contraction weights are those of the single-stage integrators (0, 1, 2)");
 
                 for (int i = threadIdx.x; i < NQ; i += blockDim.x) {
                         const T cq = (INTEGRATOR_TYPE == 0) ? static_cast<T>(0) : (INTEGRATOR_TYPE == 1 ? dt * dt : static_cast<T>(0.5) * dt * dt);

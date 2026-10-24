@@ -389,7 +389,7 @@ def available_cached(cache: Path | None = None) -> dict:
         built_ns = robot.get("N") or sorted({int(p.name.split("_")[0][5:]) for d in (cache / "modules" / name).glob("*")
                                              for p in d.glob("bsqpN*.so")} if (cache / "modules" / name).exists() else [])
         for n in built_ns:
-            for variant in ("default", "fc", "eh"):
+            for variant in ("default", "fc", "eh", "rk4"):
                 key, _ = module_key(robot, n, variant, plant_root, arch)
                 sos = _module_glob(cache / "modules" / name / key, name, n, variant)
                 if sos:

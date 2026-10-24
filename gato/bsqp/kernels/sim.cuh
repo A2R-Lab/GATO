@@ -25,8 +25,8 @@ struct SimSmem {
     static constexpr size_t xk = xkp1 + XU_STATE_SIZE;
     static constexpr size_t uk = xk + XU_STATE_SIZE;
     static constexpr size_t temp = uk + CONTROL_SIZE;
-#if GATO_FLOATING_STEP
-    static constexpr size_t temp_ct = gato::plant::step_value_floating_smem_ct<T>();
+#if GATO_GRID_STEP
+    static constexpr size_t temp_ct = gato::plant::step_value_grid_smem_ct<T>();
 #else
     static constexpr size_t temp_ct = gato::plant::sim_step_smem_ct<T>();   // qdd prefix + adapter arena
 #endif
@@ -59,9 +59,9 @@ void sim_forward_batched_kernel(
     glass::copy<T, XU_STATE_SIZE>(d_xk, s_xk);
     glass::copy<T, CONTROL_SIZE>(d_uk, s_uk);
 
-#if GATO_FLOATING_STEP
+#if GATO_GRID_STEP
     __syncthreads();  // the twin reads s_xk/s_uk from a different thread mapping
-    gato::plant::sim_step_floating<T, INTEGRATOR_TYPE>(s_xkp1, s_xk, s_uk, s_temp, d_GRiD_mem, dt, d_f_ext);
+    gato::plant::sim_step_grid<T, INTEGRATOR_TYPE>(s_xkp1, s_xk, s_uk, s_temp, d_GRiD_mem, dt, d_f_ext);
 #else
     gato::plant::sim_step<T, INTEGRATOR_TYPE, ANGLE_WRAP>(
         s_xkp1,

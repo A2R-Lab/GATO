@@ -40,9 +40,9 @@ __host__ __device__ constexpr uint32_t kkt_cost_ct()
 template<typename T, bool MENU = false>
 __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
 {
-#if GATO_FLOATING_STEP
-        // floating: the linearization scratch is the grid step-gradient arena
-        constexpr uint32_t dyn_ct = gato::plant::step_grad_floating_smem_ct<T>();
+#if GATO_GRID_STEP
+        // grid step (floating base, rk4): the linearization scratch is the grid step-gradient arena
+        constexpr uint32_t dyn_ct = gato::plant::step_grad_grid_smem_ct<T>();
 #else
         constexpr uint32_t dyn_ct = gato::plant::linearized_dynamics_smem_ct<T>();   // qdd|dqdd prefix + adapter arena
 #endif
@@ -300,9 +300,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                 glass::copy<T, 2 * constants::EE_POS_SIZE>(d_reference_traj_k, s_reference_traj_k);
                 __syncthreads();
 
-#if GATO_FLOATING_STEP
-                // tangent A|B over grid_plant (SE(3) dIntegrate blocks); c = traj ⊟ pred
-                gato::plant::compute_linearized_dynamics_floating<T, INTEGRATOR_TYPE>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+#if GATO_GRID_STEP
+                // A|B over grid_plant (tangent on the floating base); c = traj ⊟ pred
+                gato::plant::compute_linearized_dynamics_grid<T, INTEGRATOR_TYPE>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
 #else
                 gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
 #endif

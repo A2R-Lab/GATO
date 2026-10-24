@@ -40,11 +40,11 @@ template<typename T, bool MENU = false>
 __host__ __device__ constexpr size_t compute_merit_temp_mem_ct()
 {
         constexpr size_t a = merit_cost_ct<T, MENU>();
-#if GATO_FLOATING_STEP
-        // floating: the integrator-error scratch is the grid value-step arena
-        // (also covers the terminal knot's trial-x0 + tangent-gap carve:
-        // XU_STATE_SIZE + STATE_SIZE << the arena)
-        constexpr size_t b = gato::plant::step_value_floating_smem_ct<T>();
+#if GATO_GRID_STEP
+        // grid step (floating base, rk4): the integrator-error scratch is the
+        // grid value-step arena (also covers the terminal knot's trial-x0 +
+        // tangent-gap carve: XU_STATE_SIZE + STATE_SIZE << the arena)
+        constexpr size_t b = gato::plant::step_value_grid_smem_ct<T>();
 #else
         constexpr size_t b = gato::plant::integrator_error_smem_ct<T>();   // qdd|err prefix + adapter arena
 #endif
@@ -255,8 +255,8 @@ compute_merit_batched_kernel(T* __restrict__       d_merit_partial_batch,  // pe
 
         // constraint error
         if (knot_idx < KNOT_POINTS - 1) {  // not last knot
-#if GATO_FLOATING_STEP
-                constraint_k = gato::plant::compute_integrator_error_floating<T, INTEGRATOR_TYPE>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
+#if GATO_GRID_STEP
+                constraint_k = gato::plant::compute_integrator_error_grid<T, INTEGRATOR_TYPE>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
 #else
                 constraint_k = gato::plant::compute_integrator_error<T, INTEGRATOR_TYPE, ANGLE_WRAP>(s_xux_k, s_xux_k + XU_KNOT_STRIDE, s_temp, d_robot_model, timestep, d_f_ext);
 #endif

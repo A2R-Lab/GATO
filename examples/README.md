@@ -38,7 +38,8 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`16_cost_menu.py`](16_cost_menu.py) | The cost menu: the tracking objective spelled as a menu and checked against it, then per-solve goals, a pseudo-Huber posture term, targets that move from tick to tick, the per-term readout; [the page](../docs/cost_menu.md). |
 | [`17_tool_pose_and_posture.py`](17_tool_pose_and_posture.py) | A tool pose: an orientation target (the log-map residual), a linear feature holding the elbow, an input cost measured against the gravity torque at a reference configuration; the cost split per term along the horizon. |
 | [`18_robust_reference.py`](18_robust_reference.py) | A reference with corrupted knots: the quadratic and the pseudo-Huber tracking term on the same problem, the planned end-effector path against the clean reference and the outliers. |
-| [`19_go2_standing.py`](19_go2_standing.py) | A standing reference for the Go2 through the posture anchor's base-pose weights (the floating-base menu is the next GRiD batch): a lowered and rolled base returns to the stance. |
+| [`19_go2_standing.py`](19_go2_standing.py) | A standing reference for the Go2 through the posture anchor's base-pose weights and, on the contact-force variant, the floating-base cost menu: a lowered and rolled base returns to the stance. |
+| [`20_integrators.py`](20_integrators.py) | The trapezoidal and the RK4 module on the same arm: one-step error against a fine reference as the step grows, an open-loop swing under gravity, and the cost of the extra dynamics evaluations in solve iterations. |
 
 ```bash
 python examples/01_single_solve.py
@@ -61,6 +62,7 @@ python examples/16_cost_menu.py
 python examples/17_tool_pose_and_posture.py   # needs pinocchio
 python examples/18_robust_reference.py        # needs pinocchio
 python examples/19_go2_standing.py            # needs bsqpN16_go2 and pinocchio
+python examples/20_integrators.py             # needs bsqpN16_iiwa14 and bsqpN16_iiwa14_rk4, pinocchio
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or

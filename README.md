@@ -152,9 +152,13 @@ cmake --build build --parallel 2                                # RAM-bound: rou
 Built Python modules are written to `python/gato/` as `bsqpN{N}_{plant}[_{variant}].so`.
 **Variants** are separate ABIs that live side by side: `_fc` (contact-force
 controls appended to `u`; `-DGATO_CONTACT_FORCES=ON`, `./tools/build.sh --variant fc`,
-`gato.build(..., contact_forces=True)`, `-DMODULES="iiwa14:16:fc"`) and `_eh`
-(exact-Hessian SO-SQP; `GATO_EXACT_HESSIAN`). Load one with
-`gato.BSQP(..., variant="fc")`; list them with `gato.available("fc")`.
+`gato.build(..., contact_forces=True)`, `-DMODULES="iiwa14:16:fc"`), `_eh`
+(exact-Hessian SO-SQP; `GATO_EXACT_HESSIAN`) and `_rk4` (the classical
+fourth-order step on the generated grid integrator instead of the default
+trapezoidal step; `gato.build(..., integrator="rk4")`, `-DMODULES="iiwa14:16:rk4"`;
+four dynamics evaluations per knot, so a wider stable step at a higher cost per
+iteration). Load one with `gato.BSQP(..., variant="fc")`; list them with
+`gato.available("fc")`; `BSQP.integrator` names the step a module runs.
 
 ### Requirements
 
@@ -272,7 +276,7 @@ a tuned entry in `linsys_tuning.json` (written at runtime next to the registry, 
 ### Floating base (quadruped)
 
 `go2` is vendored as a floating-base plant (quaternion free-flyer root, SE(3)
-step/linearization from GRiD's `grid_plant`, SI-Euler integrator, tangent-space
+step/linearization from GRiD's `grid_plant`, semi-implicit Euler integrator (RK4 as the `_rk4` variant), tangent-space
 state cost; N16-only module). The stored state is `[p(3); quat xyzw(4); q_j; qd]`
 and every knot's tangent is `[v_lin; omega; Δq_j; Δqd]` (2·nv); `gato.common.state_difference`
 / `check_floating_state` are the manifold helpers, `gato.worlds.MuJoCoWorld(floating=True)`

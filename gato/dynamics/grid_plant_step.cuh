@@ -5,12 +5,15 @@
 #include "settings.h"
 #include "dynamics/manifold.cuh"
 
-// ─── Floating-base step/linearization twins over grid_plant:: (CL-3 W3.3) ────
+// ─── Step/linearization twins over grid_plant:: (CL-3 W3.3; rk4 variant 0.1.5) ─
 //
-// The hand-rolled integrator.cuh is vector-space only; floating base consumes
-// the generated grid_plant:: surfaces instead (SE(3) retract step, tangent
-// A|B via the dIntegrate blocks). These twins mirror the fixed-base entry
-// points' call shape so the kernels branch with one #if.
+// The hand-rolled integrator.cuh is the single-stage vector-space path of the
+// fixed-base default modules. Two module kinds consume the generated
+// grid_plant:: step instead: the floating base (SE(3) retract step, tangent
+// A|B via the dIntegrate blocks) and the multi-stage integrators (RK4), which
+// integrator.cuh never had on either base. These twins mirror the fixed-base
+// entry points' call shape so the kernels branch with one #if
+// (GATO_GRID_STEP); the fixed-base default stays preprocessor-identical.
 //
 // Scratch: the grid inner surfaces are caller-scratch, and since 2026-08-13
 // the per-piece arena layout comes from the EMITTED carve structs
@@ -72,28 +75,51 @@
 #else
 #define GATO_FLOATING_STEP 0
 #endif
+// GATO_INTEGRATOR is the module's integrator id (constants.h); 3 = RK4, the
+// multi-stage kind that only the generated step provides.
+#if defined(GATO_INTEGRATOR) && (GATO_INTEGRATOR >= 3)
+#define GATO_MULTISTAGE_STEP 1
+#else
+#define GATO_MULTISTAGE_STEP 0
+#endif
+#if GATO_FLOATING_STEP || GATO_MULTISTAGE_STEP
+#define GATO_GRID_STEP 1
+#else
+#define GATO_GRID_STEP 0
+#endif
+
+#if GATO_GRID_STEP
 
 #if GATO_FLOATING_STEP
-
 static_assert(gato::constants::FLOATING_BASE,
               "GRID_PLANT_HAS_TANGENT_STATE_COST emitted but grid constants say fixed base — stale headers, regen");
+#endif
 #if USE_EXACT_HESSIAN
-#error "exact-Hessian (SO-SQP) is fixed-base only for now: fdsva_so's stage-block contraction is not manifold-aware (CL-3 later wave)"
+#error "exact-Hessian (SO-SQP) runs the fixed-base single-stage step only: fdsva_so's stage-block contraction is neither manifold-aware nor multi-stage"
+#endif
+#if GATO_CONTACT_FORCES && GATO_MULTISTAGE_STEP
+#error "contact-force controls run the single-stage step: the fc Jacobian composition reads the XImats the step loaded for q_k, which a multi-stage step leaves at its last stage point"
 #endif
 
 namespace gato::plant {
 
-// GATO settings.h integrator id -> grid enum. The grid floating gradient path
-// supports EULER / SEMI_IMPLICIT_EULER only (GATO's default trapezoidal is
-// fixed-base-only); the go2 module build must set INTEGRATOR_TYPE 0 or 1.
+// GATO integrator id -> grid enum. 2 (GATO's trapezoidal update) is grid's
+// CONSTANT_ACCELERATION and is fixed-base only; the floating base runs 0, 1
+// or 3.
 template<unsigned INTEGRATOR_TYPE>
 __host__ __device__ constexpr grid::IntegratorType grid_integrator()
 {
-        static_assert(INTEGRATOR_TYPE <= 1,
-                      "floating base supports INTEGRATOR_TYPE 0 (euler) / 1 (semi-implicit) only");
+        static_assert(INTEGRATOR_TYPE <= 3,
+                      "integrator ids: 0 euler, 1 semi-implicit euler, 2 trapezoidal, 3 rk4");
+        static_assert(!(gato::constants::FLOATING_BASE && INTEGRATOR_TYPE == 2),
+                      "floating base: the trapezoidal update is fixed-base only (use 0, 1 or 3)");
         return INTEGRATOR_TYPE == 0 ? grid::IntegratorType::EULER
-                                    : grid::IntegratorType::SEMI_IMPLICIT_EULER;
+             : INTEGRATOR_TYPE == 1 ? grid::IntegratorType::SEMI_IMPLICIT_EULER
+             : INTEGRATOR_TYPE == 2 ? grid::IntegratorType::CONSTANT_ACCELERATION
+                                    : grid::IntegratorType::RK4;
 }
+// the free-flyer's six unactuated slots at the head of grid's full generalized force
+constexpr int GRID_STEP_BASE = gato::constants::FLOATING_BASE ? 6 : 0;
 
 // ─── fc scratch layout (appended after the emitted arenas) ──────────────────
 namespace fc_floating {
@@ -142,33 +168,35 @@ __device__ __forceinline__ void check_fc_pool(const T* s_pool, const int* s_afte
 // structs' GRID_CUDA_DEBUG_LAYOUT asserts pin them against the layouts. fc
 // builds append their scratch after the arena (fc_floating above).
 template<typename T>
-__host__ __device__ constexpr uint32_t step_grad_floating_smem_ct()
+__host__ __device__ constexpr uint32_t step_grad_grid_smem_ct()
 {
         return (uint32_t)grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_COUNT + (uint32_t)fc_floating::GRAD_COUNT;
 }
 
 template<typename T>
-__host__ __device__ constexpr uint32_t step_value_floating_smem_ct()
+__host__ __device__ constexpr uint32_t step_value_grid_smem_ct()
 {
         return (uint32_t)grid::INTEGRATOR_DYNAMIC_SHARED_MEM_COUNT + (uint32_t)fc_floating::VALUE_COUNT;
 }
 
 // build [x(NQ+NV); pad; u_full(NV)] in the arena's q_qd_u slot: grid takes a
 // FULL generalized force (tangent order [base 6; joints]); GATO's control is
-// the ACTUATED tail, so the 6 base slots are zeroed. u slot at 2*NQ mirrors
-// the generated kernels' q/qd/u packing. No trailing sync — callers barrier.
-// s_u is the CONTROL_SIZE-wide control slice; only its actuated head is read
-// here (the fc tail goes through f_ext, below).
+// the ACTUATED tail, so the base slots (six on the floating base, none on the
+// fixed) are zeroed. u slot at 2*NQ mirrors the generated kernels' q/qd/u
+// packing. No trailing sync — callers barrier. s_u is the CONTROL_SIZE-wide
+// control slice; only its actuated head is read here (the fc tail goes
+// through f_ext, below).
 template<typename T>
 __device__ __forceinline__ void load_state_and_full_control(T* s_q_qd_u, const T* s_x, const T* s_u)
 {
         constexpr int NXi = (int)gato::constants::XU_STATE_SIZE;  // NQ+NV
         constexpr int NUi = (int)gato::constants::ACTUATED_SIZE;
+        constexpr int B   = GRID_STEP_BASE;
         T* s_u_full = s_q_qd_u + 2 * grid::NUM_POS;
-        for (int i = (int)threadIdx.x; i < NXi + 6 + NUi; i += (int)blockDim.x) {
+        for (int i = (int)threadIdx.x; i < NXi + B + NUi; i += (int)blockDim.x) {
                 if (i < NXi)          s_q_qd_u[i] = s_x[i];
-                else if (i < NXi + 6) s_u_full[i - NXi] = static_cast<T>(0);
-                else                  s_u_full[i - NXi] = s_u[i - NXi - 6];
+                else if (i < NXi + B) s_u_full[i - NXi] = static_cast<T>(0);
+                else                  s_u_full[i - NXi] = s_u[i - NXi - B];
         }
 }
 
@@ -206,7 +234,7 @@ __device__ void build_contact_fext_floating(T* s_fext, const T* s_fc, const T* s
 // integrator_error's traj - pred). Ends UNSYNCED like the fixed twin — the
 // caller barriers before reading.
 template<typename T, unsigned INTEGRATOR_TYPE>
-__device__ __forceinline__ void compute_linearized_dynamics_floating(
+__device__ __forceinline__ void compute_linearized_dynamics_grid(
     const T* s_xux, T* s_Ak, T* s_Bk, T* s_ck, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
         using gato::constants::STATE_SIZE;      // 2*NV (tangent)
@@ -235,9 +263,15 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
         d_f_ext = s_fext;
 #endif
 
+        // the floating-base wrapper carries a MUJOCO_OUTPUT parameter the fixed-base one does not
+#if GATO_FLOATING_STEP
         grid_plant::plant_step_gradient_and_value<T, grid_integrator<INTEGRATOR_TYPE>(),
                                                   /*SCRATCH_IN_SMEM=*/true, /*USE_DA_DF_SPILL=*/false,
                                                   /*MUJOCO_OUTPUT=*/false>(
+#else
+        grid_plant::plant_step_gradient_and_value<T, grid_integrator<INTEGRATOR_TYPE>(),
+                                                  /*SCRATCH_IN_SMEM=*/true, /*USE_DA_DF_SPILL=*/false>(
+#endif
             a.s_dAB, a.s_x_kp1, a.s_q_qd_u, a.s_q_qd_u + 2 * grid::NUM_POS,
             a.s_df_du, a.s_dc_du, a.s_vaf,
             a.s_Minv, a.s_qdd, a.s_q_orig,
@@ -248,12 +282,12 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
         __syncthreads();
 
         // A = the first 2NV columns (contiguous col-major); B = the ACTUATED
-        // columns 6..6+NU-1 of grid's full-force B block.
+        // columns of grid's full-force B block (past the base slots).
         for (int i = (int)threadIdx.x; i < TS * TS; i += (int)blockDim.x)
                 s_Ak[i] = a.s_dAB[i];
         for (int i = (int)threadIdx.x; i < TS * NUi; i += (int)blockDim.x) {
                 const int r = i % TS, j = i / TS;
-                s_Bk[i] = a.s_dAB[(TS + 6 + j) * TS + r];
+                s_Bk[i] = a.s_dAB[(TS + GRID_STEP_BASE + j) * TS + r];
         }
 
 #if GATO_CONTACT_FORCES
@@ -317,7 +351,7 @@ __device__ __forceinline__ void compute_linearized_dynamics_floating(
 // s_u is the CONTROL_SIZE-wide control slice ([tau; fc] on fc builds).
 // Caller-scratch composition (load XImats + integrator_inner); ends UNSYNCED.
 template<typename T, unsigned INTEGRATOR_TYPE>
-__device__ __forceinline__ void sim_step_floating(
+__device__ __forceinline__ void sim_step_grid(
     T* s_xkp1, const T* s_x, const T* s_u, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
         const auto a = grid::integrator_arena<T>::carve(s_temp);
@@ -349,17 +383,18 @@ __device__ __forceinline__ void sim_step_floating(
 // state. Returns the block-reduced scalar (ends on a barrier like the fixed
 // twin's reduce).
 template<typename T, unsigned INTEGRATOR_TYPE>
-__device__ T compute_integrator_error_floating(
+__device__ T compute_integrator_error_grid(
     const T* s_xuk, const T* s_xkp1_traj, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
 {
         using gato::constants::STATE_SIZE;
         using gato::constants::XU_STATE_SIZE;
         const auto a = grid::integrator_arena<T>::carve(s_temp);
         T* s_xkp1  = a.s_x_kp1;
-        T* s_err   = a.s_stage_point;  // stages are dead post-step; 111 >= 2*NV
+        T* s_err   = a.s_stage_point;  // stages are dead post-step; the stage points span >= 2*NV
+        static_assert(grid::INTEGRATOR_DYNAMIC_SHARED_MEM_COUNT > 0, "grid value-step arena");
 
-        sim_step_floating<T, INTEGRATOR_TYPE>(s_xkp1, s_xuk, s_xuk + XU_STATE_SIZE,
-                                              s_temp, d_dynMem_const, dt, d_f_ext);
+        sim_step_grid<T, INTEGRATOR_TYPE>(s_xkp1, s_xuk, s_xuk + XU_STATE_SIZE,
+                                          s_temp, d_dynMem_const, dt, d_f_ext);
         __syncthreads();
         state_difference<T>(s_err, /*from=*/s_xkp1, /*to=*/s_xkp1_traj);
         __syncthreads();
@@ -373,4 +408,4 @@ __device__ T compute_integrator_error_floating(
 
 }  // namespace gato::plant
 
-#endif  // GATO_FLOATING_STEP
+#endif  // GATO_GRID_STEP

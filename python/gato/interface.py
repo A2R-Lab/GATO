@@ -13,9 +13,10 @@ from .config import SolverParams, COST_FIELDS
 from .linsys_autotune import resolve_linsys
 
 
-VARIANTS = ("default", "fc", "eh")   # module ABI variants: base / contact forces / exact Hessian
+VARIANTS = ("default", "fc", "eh", "rk4")   # module variants: base / contact forces / exact Hessian / RK4 step
+INTEGRATORS = {"default": None, "fc": None, "eh": None, "rk4": "rk4"}   # the step a variant compiles in (None = the base's default)
 # plant names are identifiers (underscores allowed); the variant suffix is split off lazily
-_MODULE_RE = re.compile(r"bsqpN(\d+)_([A-Za-z0-9_]+?)(?:_(fc|eh))?\.")
+_MODULE_RE = re.compile(r"bsqpN(\d+)_([A-Za-z0-9_]+?)(?:_(fc|eh|rk4))?\.")
 
 
 def module_name(plant, N, variant=None):
@@ -29,9 +30,9 @@ def module_name(plant, N, variant=None):
 def available(variant="default"):
     """Discover built solver modules in this package.
 
-    variant="default" (the plain solver), "fc" (contact-force controls) or
-    "eh" (exact Hessian) -> {(plant, N): filename} for that variant;
-    variant="all" -> {(plant, N, variant): filename}."""
+    variant="default" (the plain solver), "fc" (contact-force controls),
+    "eh" (exact Hessian) or "rk4" (the RK4 step) -> {(plant, N): filename}
+    for that variant; variant="all" -> {(plant, N, variant): filename}."""
     here = os.path.dirname(os.path.abspath(__file__))
     found = {}
     entries = []
@@ -245,7 +246,9 @@ class BSQP:
         plant_type: plant name; None auto-detects from model_path against the
             built modules / registry.
         variant: "default" | "fc" (contact-force controls appended to u) |
-            "eh" (exact-Hessian SO-SQP). Variant modules are separate ABIs.
+            "eh" (exact-Hessian SO-SQP) | "rk4" (the classical fourth-order
+            step on the default ABI; see ``integrator``). Variant modules are
+            separate compiled modules.
         rho_batch / mu_batch / pcg_tol_batch: optional per-solve (B,) overrides.
 
     Construction needs numpy and the module only. pinocchio is loaded lazily
@@ -302,7 +305,8 @@ class BSQP:
             from . import _cache
             base = _cache.load_module(plant_type, N, self.variant)
             if base is None:
-                flag = {"fc": " contact_forces=True", "eh": " exact_hessian=True", "default": ""}[self.variant]
+                flag = {"fc": " contact_forces=True", "eh": " exact_hessian=True",
+                        "rk4": " integrator='rk4'", "default": ""}[self.variant]
                 raise ValueError(
                     f"No compiled module for plant={plant_type!r}, N={N}, variant={self.variant!r} "
                     f"(could not import gato.{mod}): {e}\n"
@@ -320,6 +324,9 @@ class BSQP:
                 f"solver modules (old per-batch-size builds are incompatible)"
             )
         self.lib = base
+        # the step the module integrates with: "euler", "semi_implicit_euler",
+        # "trapezoidal" (the fixed-base default) or "rk4" (the rk4 variant)
+        self.integrator = getattr(base, "INTEGRATOR_NAME", "semi_implicit_euler" if getattr(base, "FLOATING_BASE", False) else "trapezoidal")
         self.solver_class = getattr(base, class_name)
         self.plant_type = plant_type
         # Body-major external-force buffer width is 6*NUM_BODIES per solve (the GPU

@@ -7,7 +7,8 @@
 #   PLANT=indy7 KNOTS=32 ./tools/build.sh    # subset of the module matrix
 #   MODULES="indy7:8,16;go2:16" ./tools/build.sh   # explicit per-plant horizons
 #   ./tools/build.sh --profile receipt       # exactly test/receipt_modules.txt (what the receipt attests)
-#   ./tools/build.sh --variant fc            # fc (contact-force) or eh (exact-Hessian) variant modules
+#   ./tools/build.sh --variant fc            # fc (contact-force) or eh (exact-Hessian) variant modules;
+#                                            #  rk4 (the RK4 step) through MODULES="iiwa14:16:rk4"
 #                                            #  (bsqpN{N}_{plant}_fc.so, side by side with the defaults)
 #   ARCH=86 ./tools/build.sh                 # override CUDA arch (default: native)
 #   JOBS=6  ./tools/build.sh                 # parallel jobs (default 4 — each TU
@@ -48,6 +49,7 @@ case "${VARIANT}" in
   "")  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=OFF -DGATO_EXACT_HESSIAN=OFF) ;;
   fc)  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=ON -DGATO_EXACT_HESSIAN=OFF) ;;
   eh)  CMAKE_ARGS+=(-DGATO_CONTACT_FORCES=OFF -DGATO_EXACT_HESSIAN=ON) ;;
+  rk4) echo "--variant rk4: list it per module instead, MODULES=\"plant:N:rk4\" (it is a per-target variant, not a global option)" >&2; exit 2 ;;
   *) echo "unknown --variant '${VARIANT}' (fc|eh)" >&2; exit 2 ;;
 esac
 case "${PROFILE}" in

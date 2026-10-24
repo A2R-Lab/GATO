@@ -8,7 +8,7 @@
 #   python/gato/ — a missing module turns its tests into skips, which prove nothing.
 #
 # Module VARIANTS (third column; omitted = default): fc = contact-force
-# controls, eh = exact Hessian. They are separate ABIs with their own module
+# controls, eh = exact Hessian, rk4 = the RK4 step. They are separate modules with their own
 # names (bsqpN16_indy7_fc.so) and live side by side in python/gato/ — the
 # receipt attests them too, so their gates never skip on the attested run.
 indy7 8
@@ -33,3 +33,6 @@ indy7 16 fc
 iiwa14 16 fc
 indy7 16 eh
 iiwa14 16 eh
+# rk4 = the RK4 step on the default ABI (0.1.5): one arm and the quadruped
+iiwa14 16 rk4
+go2 16 rk4

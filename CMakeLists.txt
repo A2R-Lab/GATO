@@ -113,7 +113,8 @@ set(PLANT "${PLANT_DEFAULT}" CACHE STRING "Semicolon-separated plant targets (e.
 set(MODULES "" CACHE STRING "Explicit module list 'indy7:8,16;go2:16;indy7:16:fc' = plant:knots[:variant] (overrides PLANT x KNOTS)")
 # Module VARIANTS are separate ABIs with their own module names (plan 2.A,
 # 2026-09-20): bsqpN{N}_{plant} (default) | _fc (GATO_CONTACT_FORCES: contact-
-# force controls appended to u) | _eh (GATO_EXACT_HESSIAN: SO-SQP path). They
+# force controls appended to u) | _eh (GATO_EXACT_HESSIAN: SO-SQP path) | _rk4
+# (GATO_INTEGRATOR=3: the RK4 step on the default ABI, 0.1.5). They
 # all land in GATO_MODULE_OUTPUT_DIR side by side — no more .so-swap. The
 # global options set the variant for a PLANT x KNOTS cross-product; an explicit
 # MODULES / receipt-profile entry carries its own variant per target.
@@ -140,7 +141,7 @@ set(GATO_MODULE_PAIRS "")
 if(GATO_RECEIPT_PROFILE)
   file(STRINGS "${CMAKE_SOURCE_DIR}/test/receipt_modules.txt" _receipt_lines REGEX "^[a-z0-9_]+[ \t]+[0-9]+")
   foreach(_line ${_receipt_lines})
-    string(REGEX MATCH "^([a-z0-9_]+)[ \t]+([0-9]+)[ \t]*([a-z]*)" _m "${_line}")
+    string(REGEX MATCH "^([a-z0-9_]+)[ \t]+([0-9]+)[ \t]*([a-z0-9]*)" _m "${_line}")
     set(_var "${CMAKE_MATCH_3}")
     if(NOT _var)
       set(_var "default")
@@ -151,7 +152,7 @@ if(GATO_RECEIPT_PROFILE)
 elseif(MODULES)
   string(REPLACE " " ";" _entries "${MODULES}")
   foreach(_entry ${_entries})
-    string(REGEX MATCH "^([a-z0-9_]+):([0-9,]+)(:([a-z]+))?$" _m "${_entry}")
+    string(REGEX MATCH "^([a-z0-9_]+):([0-9,]+)(:([a-z0-9]+))?$" _m "${_entry}")
     if(NOT _m)
       message(FATAL_ERROR "MODULES entry '${_entry}' is not 'plant:N,N[:variant]'")
     endif()
@@ -179,8 +180,8 @@ foreach(pair ${GATO_MODULE_PAIRS})
   list(GET _pk 0 plant)
   list(GET _pk 1 knot)
   list(GET _pk 2 variant)
-  if(NOT variant MATCHES "^(default|fc|eh)$")
-    message(FATAL_ERROR "module ${pair}: variant must be default|fc|eh")
+  if(NOT variant MATCHES "^(default|fc|eh|rk4)$")
+    message(FATAL_ERROR "module ${pair}: variant must be default|fc|eh|rk4")
   endif()
   foreach(gen_header grid.cuh limits.cuh)
     if(NOT EXISTS "${GATO_PLANT_ROOT}/${plant}/${gen_header}")
@@ -219,6 +220,8 @@ foreach(pair ${GATO_MODULE_PAIRS})
       target_compile_definitions(${MODULE_NAME} PRIVATE USE_EXACT_HESSIAN=1)
     elseif(variant STREQUAL "fc")
       target_compile_definitions(${MODULE_NAME} PRIVATE GATO_CONTACT_FORCES=1)
+    elseif(variant STREQUAL "rk4")
+      target_compile_definitions(${MODULE_NAME} PRIVATE GATO_INTEGRATOR=3)
     endif()
     if(GATO_MERIT_THREADS)
       target_compile_definitions(${MODULE_NAME} PRIVATE GATO_MERIT_THREADS=${GATO_MERIT_THREADS})

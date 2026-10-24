@@ -959,6 +959,11 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)
         m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)
         m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
+        // the step this module integrates with (0 euler, 1 semi-implicit euler, 2 trapezoidal, 3 rk4)
+        m.attr("INTEGRATOR") = int(gato::constants::INTEGRATOR_TYPE_DEFAULT);
+        m.attr("INTEGRATOR_NAME") = (gato::constants::INTEGRATOR_TYPE_DEFAULT == 0 ? "euler"
+                                   : gato::constants::INTEGRATOR_TYPE_DEFAULT == 1 ? "semi_implicit_euler"
+                                   : gato::constants::INTEGRATOR_TYPE_DEFAULT == 2 ? "trapezoidal" : "rk4");
         // control layout (CL-3a): CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE; FC_SIZE > 0
         // only on GATO_CONTACT_FORCES builds (fc wrench slots appended after torques)
         m.attr("CONTROL_SIZE") = gato::constants::CONTROL_SIZE;
