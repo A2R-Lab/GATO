@@ -34645,6 +34645,7 @@ namespace grid {
          *
          * Notes:
          *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
+         *   A hit iff any raw clearance is below T margin (exact contact at the margin is free); verdict-identical to the zero-margin rule at margin 0; collision_distance and the cost derivatives are untouched.
          *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
          *   Block-parallel (G4, 2026-10-04): thread-per-self-range + thread-per-sphere env checks OR-ed into a
          *   shared flag; every thread returns the same verdict; thread-count invariant; single block.
@@ -34655,24 +34656,28 @@ namespace grid {
          * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (smem for small N, global for many)
          * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
          * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         * @param margin is the clearance below which a sphere counts as a hit (metres, default 0): robot radii are tested at r + margin
+         * @param check_self = false skips the baked self-pair ranges (environment only; default true)
          */
         template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
         __device__
-        bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+        bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr, T margin = static_cast<T>(0), bool check_self = true) {
             __shared__ int s_cc_hit;
             if (threadIdx.x == 0 && threadIdx.y == 0) s_cc_hit = 0;   // published by the extractor's barriers
             grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
             load_collision_radii<T>(s_sphere_r);
             __syncthreads();
-            for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
-                const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
-                const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i];
-                for (int j = j0; j <= j1; ++j) {
-                    if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { atomicExch(&s_cc_hit, 1); break; }
+            if (check_self) {
+                for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
+                    const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                    const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i] + margin;
+                    for (int j = j0; j <= j1; ++j) {
+                        if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { atomicExch(&s_cc_hit, 1); break; }
+                    }
                 }
             }
             for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
-                if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) atomicExch(&s_cc_hit, 1);
+                if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i] + margin)) atomicExch(&s_cc_hit, 1);
             }
             __syncthreads();
             const bool is_free = (s_cc_hit == 0);
@@ -34694,8 +34699,21 @@ namespace grid {
         namespace warp {
             constexpr unsigned FULL_MASK = 0xffffffffu;
             constexpr int W_SCRATCH_FLOATS = 3*NUM_SPHERES;
+            /**
+             * config_free: warp-uniform collision-free verdict from caller-held joint world transforms
+             *
+             * Notes:
+             *   A hit iff any raw clearance is below float margin (exact contact at the margin is free); verdict-identical to the zero-margin rule at margin 0; collision_distance and the cost derivatives are untouched.
+             *   check_self = false skips the baked self-pair ranges (environment only); identical verdict at true.
+             *
+             * @param s_Xworld is the column-major 4x4 world transform per movable joint
+             * @param env is the runtime obstacle set (float)
+             * @param w_scratch is the per-warp float scratch of W_SCRATCH_FLOATS
+             * @param margin is the clearance below which a sphere counts as a hit (metres, default 0)
+             * @param check_self = false skips the self-pair ranges (default true)
+             */
             template <typename T>
-            __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch) {
+            __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch, float margin = 0.0f, bool check_self = true) {
                 const int lane = threadIdx.x & 31;
                 float *w_pos = w_scratch;
                 bool hit = false;
@@ -34707,14 +34725,16 @@ namespace grid {
                     w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
                 }
                 for (int s = lane; s < NUM_SPHERES; s += 32) {
-                    hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s]);
+                    hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s] + margin);
                 }
                 __syncwarp(FULL_MASK);
-                for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
-                    const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
-                    const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i];
-                    for (int j = j0; j <= j1 && !hit; ++j) {
-                        hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
+                if (check_self) {
+                    for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
+                        const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                        const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i] + margin;
+                        for (int j = j0; j <= j1 && !hit; ++j) {
+                            hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
+                        }
                     }
                 }
                 const bool any_hit = __any_sync(FULL_MASK, hit);
