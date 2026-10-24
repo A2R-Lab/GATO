@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.1.6 — unreleased: the CMake floor, grid-rbd 0.6.0, the Jetson merit default
+## 0.1.6 — 2026-10-24: the CMake floor, grid-rbd 0.6.0, the Jetson merit default
 
 - The build configures on CMake 3.22 again (issue #23, Felix Mueh, JetPack 6).
   The module loop had used `block()`, a 3.25 command, under the declared
