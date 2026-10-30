@@ -842,7 +842,7 @@ constexpr uint32_t ROWGROUP_THREADS = 128;
 constexpr uint32_t TELEMETRY_MAX_ROWS = ct_max((uint32_t)gato::plant::NCC, MAX_ROWS_PER_GROUP);
 
 template<typename T>
-__global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_kernel(T* __restrict__                      d_telemetry,
+__global__ __launch_bounds__(ROWGROUP_THREADS) void row_group_telemetry_batched_kernel(T* d_telemetry,
                                                                                    const RowGroupDesc<T>* __restrict__ d_groups,
                                                                                    int32_t                              n_groups,
                                                                                    const T* __restrict__                d_xu_traj_batch,
@@ -959,7 +959,7 @@ constexpr float AL_FEAS_TOL = 1e-5f;       // feasible -> always accept
 // next stance fresh). Soft (sigma > 0): elastic multiplier bound |lam| <= sigma.
 template<typename T>
 __device__ __forceinline__ void al_row_dual_update(const RowGroupDesc<T>& grp, int32_t bi, uint32_t idx, T g, bool on,
-                                                   T* __restrict__ d_lam_hi, T* __restrict__ d_lam_lo)
+                                                   T* d_lam_hi, T* d_lam_lo)
 {
         if (!on) {
                 d_lam_hi[idx] = static_cast<T>(0);
@@ -991,9 +991,9 @@ __device__ __forceinline__ void al_row_dual_update(const RowGroupDesc<T>& grp, i
 }
 
 template<typename T>
-__global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kernel(T* __restrict__ d_lam_hi_batch,
-                                                                              T* __restrict__ d_lam_lo_batch,
-                                                                              T* __restrict__ d_prev_viol_batch,
+__global__ __launch_bounds__(ROWGROUP_THREADS) void al_dual_update_batched_kernel(T* d_lam_hi_batch,
+                                                                              T* d_lam_lo_batch,
+                                                                              T* d_prev_viol_batch,
                                                                               const T* __restrict__ d_telemetry,
                                                                               const T* __restrict__ d_xu_traj_batch,
                                                                               const RowGroupDesc<T>* __restrict__ d_groups,

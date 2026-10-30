@@ -13,6 +13,14 @@ using namespace sqp;
 using namespace gato;
 using namespace gato::constants;
 
+// No __restrict__ on these kernels' parameters. The solution vector is seeded by
+// the kernel's own threads and then solved in place by GLASS's block trsv, which
+// re-reads each pivot after a barrier; under a __restrict__ parameter the code
+// generator for sm_87 and sm_75 forwards a thread's own stale store across that
+// barrier and the sweep returns the seed (issue #19 on the Orin, October 2026;
+// reproduced on the 5090 with -arch=compute_87, test_kernel_gates.py). The sm_120
+// generator does not, which is why the receipt never saw it.
+
 // ---- shared tails (monolithic solve + factor/solve split stay byte-for-byte) ----
 // Factor the strips in place; on a non-PD pivot scrub the factor's NaN smem
 // staging (persists on the SM) and report failure. All threads; ends synced.
@@ -58,12 +66,12 @@ __device__ __forceinline__ void bdsv_seed_and_solve(const T* d_S_matrix, const T
 //   - successful direct solve → iterations = 1.
 //   - non-PD pivot → iterations = 2, λ UNTOUCHED (see below).
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_batched_kernel(uint32_t* __restrict__      d_iterations,
-                                                                       T* __restrict__             d_x_batch,
-                                                                       T* __restrict__             d_A_batch,
-                                                                       const T* __restrict__       d_M_inv_batch,
-                                                                       const T* __restrict__       d_b_batch,
-                                                                       const int32_t* __restrict__ d_kkt_converged_batch)
+__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_batched_kernel(uint32_t* d_iterations,
+                                                                       T* d_x_batch,
+                                                                       T* d_A_batch,
+                                                                       const T* d_M_inv_batch,
+                                                                       const T* d_b_batch,
+                                                                       const int32_t* d_kkt_converged_batch)
 {
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t rank = threadIdx.x;
@@ -179,9 +187,9 @@ constexpr int32_t SKIPPED = 2;  // solve was converged: strips still hold UN-fac
 }  // namespace bdsv_status
 
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void factor_bdsv_batched_kernel(int32_t* __restrict__       d_factor_status,
-                                                                        T* __restrict__             d_A_batch,
-                                                                        const int32_t* __restrict__ d_kkt_converged_batch)
+__global__ __launch_bounds__(BDSV_THREADS) void factor_bdsv_batched_kernel(int32_t* d_factor_status,
+                                                                        T* d_A_batch,
+                                                                        const int32_t* d_kkt_converged_batch)
 {
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t rank = threadIdx.x;
@@ -211,12 +219,12 @@ __global__ __launch_bounds__(BDSV_THREADS) void factor_bdsv_batched_kernel(int32
 }
 
 template<typename T>
-__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_factored_batched_kernel(uint32_t* __restrict__      d_iterations,
-                                                                               T* __restrict__             d_x_batch,
-                                                                               const T* __restrict__       d_A_batch,  // factored strips (read-only)
-                                                                               const T* __restrict__       d_rhs_batch,
-                                                                               const int32_t* __restrict__ d_factor_status,
-                                                                               const int32_t* __restrict__ d_skip_batch = nullptr)
+__global__ __launch_bounds__(BDSV_THREADS) void solve_bdsv_factored_batched_kernel(uint32_t* d_iterations,
+                                                                               T* d_x_batch,
+                                                                               const T* d_A_batch,  // factored strips (read-only)
+                                                                               const T* d_rhs_batch,
+                                                                               const int32_t* d_factor_status,
+                                                                               const int32_t* d_skip_batch = nullptr)
 {
         const uint32_t solve_idx = blockIdx.x;
         const uint32_t rank = threadIdx.x;

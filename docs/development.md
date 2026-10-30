@@ -171,7 +171,9 @@ pytest                        # + slow: codegen diff for every robot, gato.build
   `GATO_GOLDEN_REBASELINE=1 pytest test/test_parity_golden.py -k <case>` and say why in the
   commit message.
 - `test/test_kernel_gates.py` builds and runs the five standalone harnesses in `test/cuda/`
-  with `nvcc -DNDEBUG -arch=native` (slow). Shared-memory changes also get
+  with `nvcc -DNDEBUG -arch=native`, and `bdsv_factor_solve` a second time for `compute_87`
+  through the JIT, the pre-Blackwell code generation on which the direct solve returned its
+  seed under `__restrict__` parameters before 0.1.7 (slow). Shared-memory changes also get
   `compute-sanitizer --tool racecheck build/bsqp` (the C++ demo, built by default).
 - A missing dependency is a broken environment, never a skip: `test/expected_skips.txt` is
   empty and CI fails on any host-tier skip.
@@ -179,7 +181,7 @@ pytest                        # + slow: codegen diff for every robot, gato.build
 ## Signed receipt
 
 GPU CI is a signed [pytest-gpu-proof](https://github.com/A2R-Lab/pytest-gpu-proof) receipt
-(`gpu-proof.json` at the repo root, schema 3, plugin 0.4.1) produced on the lab GPU and
+(`gpu-proof.json` at the repo root, schema 3, plugin 0.5.0) produced on the lab GPU and
 verified CPU-only by the `verify-gpu-proof` workflow against the signer's GitHub keys.
 The receipt attests the full suite on exactly the `test/receipt_modules.txt` module set;
 the fingerprint covers native sources and bindings, Python, tests, examples,

@@ -8,8 +8,9 @@ cmake_minimum_required(VERSION 3.22)
 # only for that architecture. This must run BEFORE project() enables CUDA: enabling
 # the language sets CMAKE_CUDA_ARCHITECTURES to the compiler default (sm_75 with
 # CUDA 12/13), after which "NOT DEFINED" is false and a fresh tree silently built
-# sm_75 modules that ran on the 5090 through JIT with other GLASS dispatch variants
-# (found 2026-10-24: PCG shifted by ulps and the bdsv path returned a zero step). On older CMake (e.g. 3.22 on Ubuntu 22.04), fall
+# sm_75 modules that ran on the 5090 through JIT (found 2026-10-24: PCG shifted by
+# ulps, and the bdsv path returned a zero step, which 0.1.7 traced to __restrict__
+# on the bdsv kernels, not to the JIT). On older CMake (e.g. 3.22 on Ubuntu 22.04), fall
 # back to a broad list of recent arches. Override at configure time with: cmake
 # -DCMAKE_CUDA_ARCHITECTURES="75;86;87;89;100;120" ..
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)

@@ -2,10 +2,11 @@
 and run from pytest (plan 2.D — they used to be orphaned: documented nvcc lines,
 never executed for the receipt). Each harness exits non-zero on any FAIL.
 
--DNDEBUG is required (gpuAssert ODR: CLAUDE.md) and -arch=native is REQUIRED
-for the real-kernel harnesses (default-arch PTX JIT miscompiled GATO's bdsv
-kernels on CUDA 13.2 / RTX 5090 — see the bdsv_factor_solve.cu header). No
-fast-math: the tolerances are meaningful. ~30-60 s of nvcc per harness -> slow.
+-DNDEBUG is required (gpuAssert ODR: CLAUDE.md). The harnesses build for the
+local GPU (-arch=native); bdsv_factor_solve also builds for compute_87 and runs
+through the JIT, the pre-Blackwell code generation on which the direct solve
+returned its seed under __restrict__ parameters (issue #19, the Orin, 0.1.7).
+No fast-math: the tolerances are meaningful. ~30-60 s of nvcc per harness -> slow.
 """
 import shutil
 import subprocess
@@ -19,7 +20,10 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 from gato import _grid
 
-COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-arch=native", "-I", str(_grid.glass_dir())]
+COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-I", str(_grid.glass_dir())]
+# (source harness, nvcc -arch): native = the local GPU's machine code; compute_87 =
+# PTX for the Jetson AGX Orin's architecture, run through the driver's JIT here.
+ARCHES = {"bdsv_factor_solve": ("native", "compute_87")}
 HARNESSES = {
     "pcg_vs_cpu": [],
     "bdsv_vs_pcg": [],
@@ -36,13 +40,16 @@ HARNESSES = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(HARNESSES))
-def test_kernel_gate(name, tmp_path):
+CASES = [(n, a) for n in sorted(HARNESSES) for a in ARCHES.get(n, ("native",))]
+
+
+@pytest.mark.parametrize("name,arch", CASES, ids=[f"{n}-{a}" for n, a in CASES])
+def test_kernel_gate(name, arch, tmp_path):
     if shutil.which("nvcc") is None:
         pytest.fail("nvcc not on PATH — the kernel gates need the CUDA toolkit")
     exe = tmp_path / name
     src = HERE / "cuda" / f"{name}.cu"
-    build = subprocess.run(["nvcc", *COMMON, *HARNESSES[name], str(src), "-o", str(exe)],
+    build = subprocess.run(["nvcc", *COMMON, f"-arch={arch}", *HARNESSES[name], str(src), "-o", str(exe)],
                            capture_output=True, text=True, cwd=REPO)
     assert build.returncode == 0, f"{name} failed to compile:\n{build.stderr[-4000:]}"
     run = subprocess.run([str(exe)], capture_output=True, text=True, cwd=tmp_path, timeout=600)

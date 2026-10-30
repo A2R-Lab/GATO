@@ -26,13 +26,13 @@
 //   ./build/bdsv_factor_solve
 //
 // -DNDEBUG is required (see CLAUDE.md: gpuAssert ODR gotcha); no fast-math.
-// -arch=native (or sm_120) is REQUIRED: without it (default-arch PTX + JIT,
-// observed on CUDA 13.2 / RTX 5090) these kernels produce deterministic,
-// sanitizer-clean, thread-invariant WRONG solves (rel err ~7) while a
-// launch_bounds/restrict-free mirror of the same sequence in the same TU is
-// correct — a JIT codegen artifact, not a kernel bug. The ship modules always
-// compile with CMAKE_CUDA_ARCHITECTURES=120, so they are unaffected; just
-// never benchmark or gate GATO kernels from a default-arch nvcc line.
+// test_kernel_gates.py builds this harness twice: -arch=native and
+// -arch=compute_87 (PTX run through the JIT). Before 0.1.7 the compute_87 and
+// default compute_75 builds returned deterministic, sanitizer-clean, wrong
+// solves (rel err ~7) because the kernels' __restrict__ parameters let the
+// pre-Blackwell code generator forward a stale seed across GLASS's pivot
+// barrier; the sm_120 build hid it. The qualifiers are gone and the
+// compute_87 build is the gate for the class (issue #19, the Orin).
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>

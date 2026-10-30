@@ -121,7 +121,7 @@ __device__ __forceinline__ T eval_row_stepped(const RowGroupDesc<T>& grp, const 
 // and the |primal| / |dual| residual pair. w = linearized row value, z = the
 // projected auxiliary. Same statements as the four former inline copies.
 template<typename T>
-__device__ __forceinline__ void admm_commit_row(T w, T z, uint32_t idx, T rho, T* __restrict__ d_z, T* __restrict__ d_y, T& dp, T& dd)
+__device__ __forceinline__ void admm_commit_row(T w, T z, uint32_t idx, T rho, T* d_z, T* d_y, T& dp, T& dd)
 {
         const T z_prev = d_z[idx];
         d_y[idx] += rho * (w - z);
@@ -205,8 +205,8 @@ __device__ __forceinline__ void cooperative_admm_project(const RowGroupDesc<T>& 
 }
 
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T* __restrict__ d_z_batch,
-                                                                           T* __restrict__ d_y_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T* d_z_batch,
+                                                                           T* d_y_batch,
                                                                            const T* __restrict__ d_xu_traj_batch,
                                                                            const RowGroupDesc<T>* __restrict__ d_groups,
                                                                            int32_t n_groups,
@@ -285,8 +285,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_init_state_batched_kernel(T
 // q/r <- base + scatter of (y - rho*(z - sel(x))) onto the row targets.
 // (z - sel(x)) is the RELATIVE auxiliary the OSQP form penalizes; see header.
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* __restrict__ d_q_batch,
-                                                                          T* __restrict__ d_r_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_gradient_batched_kernel(T* d_q_batch,
+                                                                          T* d_r_batch,
                                                                           const T* __restrict__ d_q_base_batch,
                                                                           const T* __restrict__ d_r_base_batch,
                                                                           const T* __restrict__ d_xu_traj_batch,
@@ -394,14 +394,14 @@ __device__ __forceinline__ T block_max_all(T v, T* s_red)
 // report is 1 solved / 2 non-PD). eps_abs == eps_rel == 0 disables the test.
 // d_admm_iters / d_admm_linsys_iters (nullable): per-solve accumulators.
 template<typename T>
-__global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel(T* __restrict__ d_z_batch,
-                                                                             T* __restrict__ d_y_batch,
-                                                                             T* __restrict__ d_resid_batch,
+__global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel(T* d_z_batch,
+                                                                             T* d_y_batch,
+                                                                             T* d_resid_batch,
                                                                              const T* __restrict__ d_xu_traj_batch,
                                                                              const T* __restrict__ d_dz_batch,
                                                                              const RowGroupDesc<T>* __restrict__ d_groups,
                                                                              int32_t n_groups,
-                                                                             int32_t* __restrict__ d_skip_batch,
+                                                                             int32_t* d_skip_batch,
                                                                              const grid::robotModel<T>* __restrict__ d_robot_model,
                                                                              const grid_collision::Environment<T> env,
                                                                              const T* __restrict__ d_rho_scale_batch,
@@ -409,8 +409,8 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_project_dual_batched_kernel
                                                                              uint32_t max_pcg_iters,
                                                                              T eps_abs,
                                                                              T eps_rel,
-                                                                             int32_t* __restrict__ d_admm_iters,
-                                                                             int32_t* __restrict__ d_admm_linsys_iters)
+                                                                             int32_t* d_admm_iters,
+                                                                             int32_t* d_admm_linsys_iters)
 {
         const uint32_t solve_idx = blockIdx.x;
         if (d_skip_batch[solve_idx]) return;
@@ -591,7 +591,7 @@ __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_
 // NO y-rescaling; the rho*G^T*G fold refreshes in the next setup_kkt.
 // One thread per solve — trivially deterministic.
 template<typename T>
-__global__ void admm_adapt_rho_scale_batched_kernel(T* __restrict__ d_scale_batch,
+__global__ void admm_adapt_rho_scale_batched_kernel(T* d_scale_batch,
                                                const T* __restrict__ d_resid_batch,
                                                const int32_t* __restrict__ d_kkt_converged_batch,
                                                uint32_t batch_size)

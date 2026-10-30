@@ -197,6 +197,12 @@ the URDFs or dynamics semantics change — the pytest gate enforces staleness).
   (`bsqp.cuh` includes them all), so a plant directive leaks `plant::` symbols across headers (it
   caused an `EE_POS_SIZE` ambiguity). Qualify plant calls explicitly.
 - **`glass::` L1 ops take `T*` (not `const T*`)** — `const_cast` device-const inputs at the call.
+- **No `__restrict__` on a global buffer the kernel's own threads write and then hand to an
+  in-place GLASS block routine (or re-read after a barrier).** Under the qualifier the code
+  generator for sm_87 and sm_75 forwarded a thread's stale store across the barrier and the
+  direct solve returned its seed (issue #19, the Orin; 0.1.7). sm_120 hides it, so the kernel
+  gates also build `bdsv_factor_solve` for `compute_87` and run it through the JIT. `const
+  __restrict__` on buffers the kernel never writes is fine.
 - **Schur matrix inversion uses the augmented `[A | I]` convention** (each buffer is `2·dim·dim`;
   `loadIdentity` sets the right half; the inverse lands there). `glass::invertMatrix` (single +
   fused 2-/3-matrix) all follow it.
