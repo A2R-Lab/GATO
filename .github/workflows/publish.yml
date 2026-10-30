@@ -29,7 +29,7 @@ jobs:
           python-version: '3.12'
       - name: Verify the release receipt
         run: |
-          pip install "pytest-gpu-proof==0.4.1" pyyaml
+          pip install "pytest-gpu-proof==0.5.0" pyyaml
           gpu-proof verify --receipt gpu-proof.json --repo . \
             --policy test/gpu-proof-policy.yaml \
             --expected-skips test/expected_skips.txt --require-gpu

@@ -2,6 +2,32 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.1.7 — unreleased: the direct solve on every GPU
+
+- The direct linear solve (`linsys="bdsv"`, `bdsv_first`, the `auto` policy on
+  cold steps, the ADMM `bdsv_factor` arm, and every path that forces it: the
+  floating-base controller default, augmented-Lagrangian rows, the `eh` variant
+  and `set_cost_curvature`) returned its seed on every target other than sm_120
+  (Felix Mueh, issue #19, Jetson AGX Orin). The kernels in `bdsv.cuh` carried
+  `__restrict__` on parameters whose buffers the kernel's own threads write and
+  GLASS's block triangular solve then re-reads in place after a barrier; the
+  code generator for sm_87 and sm_75 forwarded the stale value across the
+  barrier, the sm_120 generator did not, and the receipt runs on sm_120. The
+  qualifiers are gone from the bdsv kernels and from every buffer the ADMM and
+  augmented-Lagrangian kernels write; results on sm_120 are bit-identical (the
+  goldens). `test_kernel_gates.py` now also builds the bdsv harness for
+  `compute_87` and runs it through the JIT, which reproduces the defect on the
+  5090 in a minute; the other five harnesses pass that build unchanged. GLASS
+  fixed its side independently (`9a24f37`, volatile handoff loads), which
+  reaches GATO with the next grid-rbd release.
+- Felix Mueh's October 26 Orin sweep is in docs/merit_timing.md: 32 merit
+  threads faster than 64 in every cell from N64 to N512 (the 0.1.6 default
+  holds), PCG not at its iteration cap (fixed counts per problem), and the
+  linear system from 72 percent of the warm batch-1 solve at N32 to 96 percent
+  at N512.
+- pytest-gpu-proof 0.5.0 (Python 3.10, a signed `nvcc_version` in the receipt);
+  the policy and the receipt schema are unchanged.
+
 ## 0.1.6 — 2026-10-24: the CMake floor, grid-rbd 0.6.0, the Jetson merit default
 
 - The build configures on CMake 3.22 again (issue #23, Felix Mueh, JetPack 6).

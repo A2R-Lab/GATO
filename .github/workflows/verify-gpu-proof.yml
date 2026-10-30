@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install pytest-gpu-proof (PyPI)
-        run: pip install "pytest-gpu-proof==0.4.1" pyyaml  # pinned: schema/policy/verifier move together
+        run: pip install "pytest-gpu-proof==0.5.0" pyyaml  # pinned: schema/policy/verifier move together
 
       - name: Verify receipt
         run: |

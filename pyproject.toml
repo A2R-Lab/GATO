@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gato-mpc"           # import name: gato (PyPI's "gato" is an unrelated 2021 graph toolbox)
-version = "0.1.6"
+version = "0.1.7"
 authors = [
     { name="Alexander Du" },
     { name="Emre Adabag" },
@@ -77,7 +77,7 @@ dev = [
     "pytest",
     "pytest-xdist",
     "build>=1.0",              # test_distribution_artifacts runs `python -m build` (sdist/wheel gates)
-    "pytest-gpu-proof==0.4.1", # signed GPU-CI receipts (schema 3; pinned, see test/gpu-proof-policy.yaml)
+    "pytest-gpu-proof==0.5.0", # signed GPU-CI receipts (schema 3; pinned, see test/gpu-proof-policy.yaml)
     "pyyaml",                  # test/gpu-proof-policy.yaml
 ]
 # Everything the FULL test suite needs beyond dev, without the heavy example
