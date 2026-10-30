@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## 0.1.7 — unreleased: the direct solve on every GPU
+## 0.1.7 — 2026-10-29: the direct solve on every GPU
 
 - The direct linear solve (`linsys="bdsv"`, `bdsv_first`, the `auto` policy on
   cold steps, the ADMM `bdsv_factor` arm, and every path that forces it: the
