@@ -166,12 +166,64 @@ The tables also show where the time goes on this GPU once the merit launch is
 sized: the linear system. At batch 1 it is 70 percent of the solve, and it does
 not grow with the batch (0.96 from batch 1 to 16 on the warm solve); the
 cold-solve linsys time is 12.32 ms with a spread of 0.01 ms in every launch
-configuration, the signature of PCG running to its iteration cap on each SQP
-iteration rather than to its tolerance. The direct path (`SolverParams(linsys=
-"bdsv")`, the controller's choice on the floating base) is iteration-free; the
-PCG iteration counts in `SolveResult.summary()` on the Orin would settle which
-of the two the embedded default should be, and that measurement is the next
-item for this page.
+configuration. The October 26 sweep below shows that this is a fixed PCG
+iteration count per problem, not the iteration cap.
 
-Times depend on the machine and the driver; they are evidence for this box and
-these conditions, not a benchmark of GATO against anything else.
+## Jetson AGX Orin, October 26, 2026: longer horizons
+
+Felix Mueh ran a second sweep on the same Orin at GATO 0.1.6 (the build picked
+32 merit threads on sm_87 on its own; JetPack 6.2.1, CUDA 12.6, the GPU clock
+between 306 and 816 MHz, ten interleaved repetitions, each run in its own
+process; scripts on his fork under `issue19/`). Example 15's problem on the
+Indy7, dt 0.01, eight SQP iterations, cold then warm.
+
+Merit block size 32 against 64 at longer horizons, warm solve, mean and sample
+standard deviation in milliseconds; the plans are bit-identical between the two
+block sizes, and the cold solves show the same ratios (1.16 to 1.44):
+
+| N | B | merit, 32 | merit, 64 | merit 64 / 32 | solve 64 / 32 |
+|---|---|---|---|---|---|
+| 64 | 1 | 2.49 ± 0.42 | 3.14 ± 0.39 | 1.26 | 1.09 |
+| 64 | 4 | 6.39 ± 1.77 | 7.48 ± 0.64 | 1.17 | 0.98 |
+| 64 | 16 | 17.98 ± 0.55 | 24.66 ± 0.89 | 1.37 | 1.12 |
+| 128 | 1 | 3.10 ± 0.19 | 3.87 ± 0.21 | 1.25 | 0.98 |
+| 128 | 4 | 9.59 ± 0.49 | 13.01 ± 0.57 | 1.36 | 1.07 |
+| 128 | 16 | 33.19 ± 0.42 | 45.13 ± 0.28 | 1.36 | 1.09 |
+| 256 | 1 | 4.92 ± 0.10 | 6.48 ± 0.11 | 1.32 | 1.02 |
+| 256 | 4 | 16.83 ± 0.24 | 23.14 ± 0.21 | 1.38 | 1.07 |
+| 256 | 16 | 66.07 ± 0.58 | 90.46 ± 0.82 | 1.37 | 1.09 |
+| 512 | 1 | 9.04 ± 0.11 | 12.15 ± 0.13 | 1.34 | 1.01 |
+| 512 | 4 | 33.28 ± 0.36 | 44.93 ± 0.43 | 1.35 | 1.02 |
+| 512 | 16 | 130.35 ± 1.36 | 173.78 ± 0.98 | 1.33 | 1.03 |
+
+The merit launch is faster at 32 threads in all 24 cells; the whole solve gains
+up to 12 percent at N64 and batch 16 and 1 to 3 percent at N512, where the
+linear system dominates (the ratios below 1 are within the spread). The sm_87
+default of 0.1.6 holds at every horizon tried.
+
+PCG iterations per SQP iteration at the library default `max_pcg_iters = 200`,
+identical in all ten runs and at batch 1, 4 and 16:
+
+| N | cold | warm |
+|---|---|---|
+| 32 | 27, 29, 32, 34, 50, 50, 56, 54 | 59, 59, 60, 60, 60, 61, 60, 58 |
+| 64 | 30, 44, 53, 56, 85, 88, 58, 57 | 89, 30, 85, 29, 86, 55, 29, 30 |
+| 128 | 30, 79, 85, 92, 99, 98, 89, 90 | 85, 77, 76, 47, 89, 82, 60, 84 |
+| 256 | 30, 131, 120, 132, 132, 131, 128, 150 | 111, 101, 93, 88, 84, 39, 44, 97 |
+| 512 | 31, 144, 118, 128, 130, 159, 152, 200 | 127, 126, 192, 115, 112, 105, 103, 96 |
+
+One SQP iteration in the whole sweep reaches the cap (N512, cold, the last
+one). The 12.32 ms of the October 24 cold solve is therefore a fixed iteration
+count, and the warm solve at N32 runs more PCG iterations than the cold one
+(477 against 332), which is why its linear system took longer in the first
+tables. The linear system's share of the warm batch-1 solve grows with the
+horizon: 72 percent at N32, 78 at N64, 85 at N128, 89 at N256 and 96 at N512
+(13.9, 17.2, 32.3, 69.6 and 427.1 ms); from N256 to N512 the PCG time grows
+6.1 times for 1.5 times the iterations.
+
+The same sweep found that the direct path returned its seed on the Orin on
+every horizon (every line search failed; `bdsv_first` then ran PCG to the cap
+on each later iteration). That was a GATO defect on every target other than
+sm_120, fixed in 0.1.7 (CHANGELOG); the bdsv timings of the sweep measured
+solves that did no work and are not reported. Which of the two paths the
+embedded default should be is the next measurement for this page, on 0.1.7.
