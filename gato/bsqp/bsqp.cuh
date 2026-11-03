@@ -723,6 +723,7 @@ class BSQP {
         T        admm_eps_abs() const { return admm_eps_abs_; }
         T        admm_eps_rel() const { return admm_eps_rel_; }
         uint32_t admm_check_every() const { return admm_check_every_; }
+        uint32_t admm_iters() const { return admm_iters_; }   // the inner budget (enable_limit_admm, the group adds)
 
         // OSQP-style ADMM rho adaptation (P4.3, opt-in): ONE per-solve scalar
         // multiplier on top of the bound per-group rho baselines (grp.mu — the

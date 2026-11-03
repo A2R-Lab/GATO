@@ -30,7 +30,7 @@ def test_default_installs_admm_limit_rows(make_solver, smallest_module):
     kinds = [g["kind"] for g in solver.get_row_groups()]
     assert kinds == [KIND_BOX_Q, KIND_BOX_QD, KIND_BOX_U]
     # the measured defaults: cap 10 with the residual exit at eps_rel 1e-2, per-box rho
-    assert solver.admm_eps_rel == pytest.approx(1e-2) and solver.admm_eps_abs == 0.0
+    assert solver.admm_eps_rel == pytest.approx(1e-2) and solver.admm_eps_abs == 0.0 and solver.admm_iters == 10
     rhos = {g["kind"]: g["rho"] for g in solver.get_row_groups()}
     assert rhos == pytest.approx({KIND_BOX_Q: 0.1, KIND_BOX_QD: 0.03, KIND_BOX_U: 1e-5})
     # the inner linear solver follows the horizon unless tuned or pinned
@@ -70,6 +70,7 @@ def test_explicit_mechanisms_and_overrides(make_solver, smallest_module):
     solver = make_solver(plant, N, batch_size=1)
     ctrl = MPCController(solver, linsys="pcg", limits="admm", limits_kw=dict(eps_rel=None, iters=4))
     assert ctrl.limits == "admm" and solver.admm_eps_rel == 0.0     # fixed budget, no exit
+    assert solver.admm_iters == 4
     r = _tick(ctrl, solver)
     assert int(r.solve.stats.admm_iters.max()) == 4 * int(r.iterations)
     for mech in ("al", "telemetry", "barrier"):

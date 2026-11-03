@@ -562,6 +562,13 @@ class BSQP:
         self._admm_exit = (float(eps_abs), float(eps_rel), int(check_every))
 
     @property
+    def admm_iters(self):
+        """ADMM inner-iteration budget per SQP iteration (the cap once the residual exit
+        is on): enable_limit_admm's ``iters``, or the latest positive ``admm_iters`` of an
+        ADMM group add; ``stats.admm_iters`` reports what ran."""
+        return int(self.solver.admm_iters())
+
+    @property
     def admm_eps_abs(self):
         """Absolute tolerance of the ADMM residual exit (0 with the exit off)."""
         return self._admm_exit[0]

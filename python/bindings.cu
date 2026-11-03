@@ -637,6 +637,7 @@ class PyBSQP {
         void set_admm_linsys_pcg(bool on) { solver_.set_admm_linsys_pcg(on); }
         void set_admm_exit(T eps_abs, T eps_rel, uint32_t check_every) { solver_.set_admm_exit(eps_abs, eps_rel, check_every); }
         bool admm_active() const { return solver_.admm_active(); }
+        uint32_t admm_iters() const { return solver_.admm_iters(); }
         void set_exact_hessian(bool on) { solver_.set_exact_hessian(on); }
         bool exact_hessian() const { return solver_.exact_hessian(); }
         void set_cost_curvature(bool on) { solver_.set_cost_curvature(on); }
@@ -920,6 +921,7 @@ class PyBSQP {
             .def("set_admm_linsys_pcg", &PyBSQP<Type>::set_admm_linsys_pcg, py::arg("on"))                                                                                                             \
             .def("set_admm_exit", &PyBSQP<Type>::set_admm_exit, py::arg("eps_abs"), py::arg("eps_rel"), py::arg("check_every"))                                                                       \
             .def("admm_active", &PyBSQP<Type>::admm_active)                                                                                                                                           \
+            .def("admm_iters", &PyBSQP<Type>::admm_iters)                                                                                                                                             \
             .def("set_exact_hessian", &PyBSQP<Type>::set_exact_hessian, py::arg("on"))                                                                                                                 \
             .def("exact_hessian", &PyBSQP<Type>::exact_hessian)                                                                                                                                        \
             .def("set_cost_curvature", &PyBSQP<Type>::set_cost_curvature, py::arg("on"))                                                                                                               \
