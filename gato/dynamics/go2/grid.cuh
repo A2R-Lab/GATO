@@ -648,6 +648,9 @@ namespace grid {
     template <typename T, bool TEMP_IN_SMEM = true> __host__ __device__ constexpr size_t CRBA_INNER_WORKSPACE_BYTES() { return TEMP_IN_SMEM ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(612); }
     template <int TIER> __host__ __device__ constexpr bool CRBA_TEMP_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool CRBA_M_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
+    // EE pose scratch query begins.
+    template <typename T> __host__ __device__ constexpr size_t EE_POSE_INNER_SCRATCH_BYTES() { return sizeof(T) * static_cast<size_t>(128); }
+    // EE pose scratch query ends.
     // --- end_effector_pose_gradient_inner (chain workspace) ---
     template <typename T, bool TEMP_IN_SMEM = true> __host__ __device__ constexpr size_t EE_GRAD_INNER_SMEM_BYTES() { return TEMP_IN_SMEM ? sizeof(T) * static_cast<size_t>(1120) : static_cast<size_t>(0); }
     template <typename T, bool TEMP_IN_SMEM = true> __host__ __device__ constexpr size_t EE_GRAD_INNER_WORKSPACE_BYTES() { return TEMP_IN_SMEM ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(1120); }
@@ -829,7 +832,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 9e57178ca146fa1cecae7e27c22260603b993aa6
+    // Pinned commit: 6a823209322705dfaaf1918b9d0f1ad92d99bf48
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -892,6 +895,22 @@ namespace grid {
         __device__ __forceinline__ uint32_t size() const { return 1u; }
         __device__ __forceinline__ void sync() const { }
     };
+    
+    // Reload a value published by a different cooperating thread. Under an
+    // inlined caller's __restrict__ pointer, nvcc can reuse this thread's old
+    // value even across a barrier. Volatile applies only to the handoff load;
+    // it does NOT replace synchronization or make an unsynchronized access safe.
+    // ThreadBarrier has no peer writers and keeps ordinary register-friendly loads.
+    namespace cooperative_detail {
+        template <typename Bar, typename T>
+        __device__ __forceinline__ T load(Bar, const T* p) {
+            return *static_cast<const volatile T*>(p);
+        }
+        template <typename T>
+        __device__ __forceinline__ T load(ThreadBarrier, const T* p) {
+            return *p;
+        }
+    }
     
     // Flat block rank/size — THE prologue for every public block-face op. One
     // definition instead of the hand-written threadIdx arithmetic at each site
@@ -1269,7 +1288,7 @@ namespace grid {
             if (rank == 0) s_scratch[0] = val;
         }
         __syncthreads();
-        T total = s_scratch[0];
+        T total = cooperative_detail::load(BlockBarrier{}, s_scratch);   // lane 0's handoff
         if constexpr (TRAILING_SYNC) __syncthreads();
         return total;
     }
@@ -1317,7 +1336,7 @@ namespace grid {
             if (rank == 0) s_scratch[0] = val;
         }
         __syncthreads();
-        T total = s_scratch[0];
+        T total = cooperative_detail::load(BlockBarrier{}, s_scratch);   // lane 0's handoff
         if constexpr (TRAILING_SYNC) __syncthreads();
         return total;
     }
@@ -2858,22 +2877,23 @@ namespace grid {
         constexpr bool UNIT  = (DIAG == Diag::Unit);
         // op(A) lower-triangular ⇒ forward elimination over pivots k = 0..n-1.
         constexpr bool FORWARD = (LOWER != TRANSPOSE);
+        // Pivot and update ownership changes between steps; reload peer writes.
         for (uint32_t step = 0; step < n; step++) {
             uint32_t k = FORWARD ? step : (n - 1 - step);
-            // resolve pivot x[k] = x[k] / op(A)[k][k]   (diag is A[k+k*n])
+            // Resolve pivot x[k] /= op(A)[k][k] (diagonal is A[k+k*n]).
             if (!UNIT) {
-                if (rank == 0) x[k] = x[k] / A[k + k * n];
+                if (rank == 0) x[k] = cooperative_detail::load(Bar{}, x + k) / A[k + k * n];
                 Bar{}.sync();              // all threads read the resolved pivot
             }
-            T xk = x[k];
+            T xk = cooperative_detail::load(Bar{}, x + k);
             // subtract x[k] * op(A)[i][k] from the trailing/leading unknowns:
             //   op(A)[i][k] = TRANSPOSE ? A[k + i*n] : A[i + k*n]
             if (FORWARD) {
                 for (uint32_t i = rank + k + 1; i < n; i += size)
-                    x[i] -= (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * xk;
+                    x[i] = cooperative_detail::load(Bar{}, x + i) - (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * xk;
             } else {
                 for (uint32_t i = rank; i < k; i += size)
-                    x[i] -= (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * xk;
+                    x[i] = cooperative_detail::load(Bar{}, x + i) - (TRANSPOSE ? A[k + i * n] : A[i + k * n]) * xk;
             }
             // Mid-loop this barrier is mandatory (pivot column consumed before the
             // next step); on the FINAL step it is the separable publish barrier.
@@ -3153,8 +3173,11 @@ namespace grid {
     // threads own 4-row register tiles of a C column (B value reused across 4 FMAs,
     // contiguous A rows vector-loaded when aligned) — same per-element ascending-k
     // accumulation order, so results stay bit-identical across thread counts.
-    // A, B, C must not alias each other (C is written while A/B are read; declared
-    // __restrict__). A and B may point to the SAME data (both are read-only).
+    // A, B, C must not alias each other (C is written while A/B are read). A and B
+    // may point to the SAME data (both are read-only). No parameter carries
+    // `__restrict__`: GLASS declares none on its own interfaces (see
+    // docs/agent_debugging_guide.md §1i), while callers may still pass restricted
+    // pointers.
     //
     // Row-major operands need no separate path: a row-major M×K matrix is exactly a
     // column-major K×M matrix, so pass it with the matching TRANSPOSE flag (see
@@ -3235,9 +3258,9 @@ namespace grid {
     template <typename T, bool TRANSPOSE_B, bool HAS_BETA, bool VEC>
     __device__ __forceinline__ void gemm_tile4_loop(uint32_t rank, uint32_t size,
                                                     uint32_t m_, uint32_t n_, uint32_t k_,
-                                                    T alpha, const T *__restrict__ A,
-                                                    const T *__restrict__ B,
-                                                    T beta, T *__restrict__ C)
+                                                    T alpha, const T *A,
+                                                    const T *B,
+                                                    T beta, T *C)
     {
         const uint32_t tpc    = (m_ + 3u) / 4u;   // 4-row tiles per column of C
         const uint32_t ntiles = tpc * n_;
@@ -3258,7 +3281,7 @@ namespace grid {
                     }
                     acc0 += a0 * b; acc1 += a1 * b; acc2 += a2 * b; acc3 += a3 * b;
                 }
-                T *__restrict__ c = C + (r + n*m_);
+                T *c = C + (r + n*m_);
                 if constexpr (HAS_BETA) {
                     c[0] = beta_blend(alpha*acc0, beta, c[0]);
                     c[1] = beta_blend(alpha*acc1, beta, c[1]);
@@ -3285,8 +3308,8 @@ namespace grid {
     template <typename T, bool TRANSPOSE_B, bool HAS_BETA>
     __device__ void gemm_tile4(uint32_t rank, uint32_t size,
                                uint32_t m_, uint32_t n_, uint32_t k_,
-                               T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                               T beta, T *__restrict__ C)
+                               T alpha, const T *A, const T *B,
+                               T beta, T *C)
     {
         if constexpr (tile4_has_vec<T>::value) {
             if ((m_ % 4u == 0u) && tile4_aligned(A)) {
@@ -3301,9 +3324,9 @@ namespace grid {
     // unrolled k loop; M%4 tail statically absent when M is a multiple of 4).
     template <typename T, uint32_t M, uint32_t N, uint32_t K, bool TRANSPOSE_B, bool HAS_BETA, bool VEC>
     __device__ __forceinline__ void gemm_tile4_loop_ct(uint32_t rank, uint32_t size,
-                                                       T alpha, const T *__restrict__ A,
-                                                       const T *__restrict__ B,
-                                                       T beta, T *__restrict__ C)
+                                                       T alpha, const T *A,
+                                                       const T *B,
+                                                       T beta, T *C)
     {
         constexpr uint32_t TPC    = (M + 3u) / 4u;   // 4-row tiles per column of C
         constexpr uint32_t NTILES = TPC * N;
@@ -3324,7 +3347,7 @@ namespace grid {
                     }
                     acc0 += a0 * b; acc1 += a1 * b; acc2 += a2 * b; acc3 += a3 * b;
                 }
-                T *__restrict__ c = C + (r + n*M);
+                T *c = C + (r + n*M);
                 if constexpr (HAS_BETA) {
                     c[0] = beta_blend(alpha*acc0, beta, c[0]);
                     c[1] = beta_blend(alpha*acc1, beta, c[1]);
@@ -3350,8 +3373,8 @@ namespace grid {
     
     template <typename T, uint32_t M, uint32_t N, uint32_t K, bool TRANSPOSE_B, bool HAS_BETA>
     __device__ void gemm_tile4_ct(uint32_t rank, uint32_t size,
-                                  T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                                  T beta, T *__restrict__ C)
+                                  T alpha, const T *A, const T *B,
+                                  T beta, T *C)
     {
         if constexpr (tile4_has_vec<T>::value && (M % 4u == 0u)) {
             if (tile4_aligned(A)) {
@@ -3373,8 +3396,8 @@ namespace grid {
     template <typename T, bool TRANSPOSE_A, bool TRANSPOSE_B, bool ROW_MAJOR_C>
     __device__ void gemm_impl(uint32_t rank, uint32_t size,
                               uint32_t m_, uint32_t n_, uint32_t k_,
-                              T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                              T beta, T *__restrict__ C)
+                              T alpha, const T *A, const T *B,
+                              T beta, T *C)
     {
         if constexpr (!TRANSPOSE_A && !ROW_MAJOR_C) {
             if (tile4_profitable(m_)) {
@@ -3399,8 +3422,8 @@ namespace grid {
     template <typename T, bool TRANSPOSE_A, bool TRANSPOSE_B, bool ROW_MAJOR_C>
     __device__ void gemm_impl(uint32_t rank, uint32_t size,
                               uint32_t m_, uint32_t n_, uint32_t k_,
-                              T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                              T *__restrict__ C)
+                              T alpha, const T *A, const T *B,
+                              T *C)
     {
         if constexpr (!TRANSPOSE_A && !ROW_MAJOR_C) {
             if (tile4_profitable(m_)) {
@@ -3428,8 +3451,8 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_A, bool TRANSPOSE_B, bool ROW_MAJOR_C>
     __device__ void gemm_impl_ct(uint32_t rank, uint32_t size,
-                                 T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                                 T beta, T *__restrict__ C)
+                                 T alpha, const T *A, const T *B,
+                                 T beta, T *C)
     {
         if constexpr (!TRANSPOSE_A && !ROW_MAJOR_C && tile4_profitable(M)) {
             gemm_tile4_ct<T, M, N, K, TRANSPOSE_B, true>(rank, size, alpha, A, B, beta, C);
@@ -3452,8 +3475,8 @@ namespace grid {
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_A, bool TRANSPOSE_B, bool ROW_MAJOR_C>
     __device__ void gemm_impl_ct(uint32_t rank, uint32_t size,
-                                 T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                                 T *__restrict__ C)
+                                 T alpha, const T *A, const T *B,
+                                 T *C)
     {
         if constexpr (!TRANSPOSE_A && !ROW_MAJOR_C && tile4_profitable(M)) {
             gemm_tile4_ct<T, M, N, K, TRANSPOSE_B, false>(rank, size, alpha, A, B, static_cast<T>(0), C);
@@ -3495,8 +3518,8 @@ namespace grid {
      */
     template <typename T, bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm(uint32_t m, uint32_t n, uint32_t k,
-                         T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                         T beta, T *__restrict__ C)
+                         T alpha, const T *A, const T *B,
+                         T beta, T *C)
     {
         uint32_t rank = flat_rank();
         uint32_t size = flat_size();
@@ -3521,8 +3544,8 @@ namespace grid {
      */
     template <typename T, bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
     __device__ void gemm(uint32_t m, uint32_t n, uint32_t k,
-                         T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                         T *__restrict__ C)
+                         T alpha, const T *A, const T *B,
+                         T *C)
     {
         uint32_t rank = flat_rank();
         uint32_t size = flat_size();
@@ -3553,7 +3576,7 @@ namespace grid {
      */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
-    __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
+    __device__ void gemm(T alpha, const T *A, const T *B, T beta, T *C)
     {
         uint32_t rank = flat_rank();
         uint32_t size = flat_size();
@@ -3578,7 +3601,7 @@ namespace grid {
      */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
               bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
-    __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
+    __device__ void gemm(T alpha, const T *A, const T *B, T *C)
     {
         uint32_t rank = flat_rank();
         uint32_t size = flat_size();
@@ -3610,8 +3633,8 @@ namespace grid {
      */
     template <typename T, int TILE = 8>
     __device__ void gemm_tiled(uint32_t m, uint32_t n, uint32_t k,
-                                T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                                T beta, T *__restrict__ C,
+                                T alpha, const T *A, const T *B,
+                                T beta, T *C,
                                 T *s_A, T *s_B)
     {
         uint32_t rank = flat_rank();
@@ -3666,8 +3689,8 @@ namespace grid {
      */
     template <typename T, int TILE = 8>
     __device__ void gemm_dispatch(uint32_t m, uint32_t n, uint32_t k,
-                                   T alpha, const T *__restrict__ A, const T *__restrict__ B,
-                                   T beta, T *__restrict__ C,
+                                   T alpha, const T *A, const T *B,
+                                   T beta, T *C,
                                    T *s_A = nullptr, T *s_B = nullptr)
     {
         uint32_t size = flat_size();
@@ -3703,7 +3726,7 @@ namespace grid {
          */
         template <typename T, uint32_t M, uint32_t N, uint32_t K,
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
+        __device__ void gemm(T alpha, const T *A, const T *B, T beta, T *C)
         {
             uint32_t lane = (flat_rank()) & 31;
             gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, beta, C);
@@ -3726,7 +3749,7 @@ namespace grid {
          */
         template <typename T, uint32_t M, uint32_t N, uint32_t K,
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
+        __device__ void gemm(T alpha, const T *A, const T *B, T *C)
         {
             uint32_t lane = (flat_rank()) & 31;
             gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(lane, 32u, alpha, A, B, C);
@@ -3763,7 +3786,7 @@ namespace grid {
          */
         template <typename T, uint32_t M, uint32_t N, uint32_t K,
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T beta, T *__restrict__ C)
+        __device__ void gemm(T alpha, const T *A, const T *B, T beta, T *C)
         {
             gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, beta, C);
         }
@@ -3785,7 +3808,7 @@ namespace grid {
          */
         template <typename T, uint32_t M, uint32_t N, uint32_t K,
                   bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false>
-        __device__ void gemm(T alpha, const T *__restrict__ A, const T *__restrict__ B, T *__restrict__ C)
+        __device__ void gemm(T alpha, const T *A, const T *B, T *C)
         {
             gemm_impl_ct<T, M, N, K, TRANSPOSE_A, TRANSPOSE_B, ROW_MAJOR_C>(0u, 1u, alpha, A, B, C);
         }
@@ -4694,7 +4717,7 @@ namespace grid {
                 s_piv[0] = static_cast<T>((idx == UINT32_MAX) ? pivRC : idx);
             }
             __syncthreads();
-            unsigned pivRow = static_cast<unsigned>(s_piv[0]);
+            unsigned pivRow = static_cast<unsigned>(cooperative_detail::load(BlockBarrier{}, s_piv));
     
             // ── Swap rows pivRC and pivRow across the full augmented width [A|I]. ──
             if (pivRow != pivRC) {
@@ -6983,7 +7006,8 @@ namespace grid {
                         s_ctrl[0] = c; s_ctrl[1] = s;
                     }
                     __syncthreads();                 // (c, s) visible to the block
-                    T c = s_ctrl[0], s = s_ctrl[1];
+                    T c = cooperative_detail::load(BlockBarrier{}, s_ctrl);
+                    T s = cooperative_detail::load(BlockBarrier{}, s_ctrl + 1);
                     if (s != static_cast<T>(0)) {    // uniform branch: same shared values everywhere
                         // Rotate rows/cols p,q of B. Index k owns entries
                         // {(k,p),(k,q),(p,k),(q,k)} — mirror writes keep B exactly
@@ -7035,7 +7059,7 @@ namespace grid {
                 s_ctrl[2] = (off2 <= tol_off*tol_off) ? static_cast<T>(1) : static_cast<T>(0);
             }
             __syncthreads();                         // flag visible to the block
-            bool done = (s_ctrl[2] != static_cast<T>(0));
+            bool done = (cooperative_detail::load(BlockBarrier{}, s_ctrl + 2) != static_cast<T>(0));
             __syncthreads();                         // all reads done before rank 0 rewrites s_ctrl
             if (done) break;                         // uniform: same shared value everywhere
         }
@@ -27321,6 +27345,9 @@ namespace grid {
     const int NUM_TARGET_EES = 1;
     #define GRID_EE_FIXED_TARGET_NAME "imu_joint"
     
+    // EE target pose scratch query begins.
+    template <typename T> __host__ __device__ constexpr size_t EE_TARGET_POSE_INNER_SCRATCH_BYTES() { return sizeof(T) * size_t(32); }
+    // EE target pose scratch query ends.
     template <typename T, bool TEMP_IN_SMEM = true, typename... Args>
     __device__ __forceinline__
     void end_effector_pose_target_inner(Args... args) { end_effector_pose_inner_imu_joint<T, TEMP_IN_SMEM>(args...); }
@@ -27329,6 +27356,9 @@ namespace grid {
     __device__ __forceinline__
     void end_effector_pose_target_device(Args... args) { end_effector_pose_device_imu_joint<T>(args...); }
     
+    // EE target gradient scratch query begins.
+    template <typename T> __host__ __device__ constexpr size_t EE_TARGET_GRAD_INNER_SCRATCH_BYTES() { return sizeof(T) * size_t(784); }
+    // EE target gradient scratch query ends.
     template <typename T, bool TEMP_IN_SMEM = true, typename... Args>
     __device__ __forceinline__
     void end_effector_pose_gradient_target_inner(Args... args) { end_effector_pose_gradient_inner_imu_joint<T, TEMP_IN_SMEM>(args...); }
@@ -38069,7 +38099,7 @@ namespace grid {
             a.s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(int) * static_cast<size_t>(115);
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset <= INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            assert((s_arena_offset <= INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>()));
             #endif
             (void)s_arena_offset;
             return a;
@@ -41331,7 +41361,7 @@ namespace grid {
             a.s_topology_helpers = grid_arena_ptr<int>(s_arena, s_arena_offset);
             s_arena_offset += sizeof(int) * static_cast<size_t>(115);
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset <= INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>());
+            assert((s_arena_offset <= INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>()));
             #endif
             (void)s_arena_offset;
             return a;
@@ -50505,6 +50535,39 @@ namespace grid_plant {
     const int GRID_PLANT_MENU_TANGENT = 1;  // 1: the preset is in the tangent layout (gradient 2*NUM_VEL, Hessian 2*NUM_VEL square, input NUM_VEL - 6)
     const int GRID_PLANT_MENU_NU = 12;  // the input width of the preset
     const int GRID_PLANT_MENU_NLX = 30;  // the variable width of the linear x feature ([q[7:]; qd] on a floating base, x on a fixed base)
+    // Cost menu workspace begins.
+    template <typename T, int MX = 0, int MU = 0>
+    struct tracking_cost_menu_arena {
+        static_assert(MX >= 0 && MU >= 0, "feature row counts must be nonnegative");
+        static_assert(sizeof(T) == 4 || sizeof(T) == 8, "float or double storage required");
+        T *s_frame; T *s_scratch;
+        static __host__ __device__ constexpr size_t alignment() { return 16; }
+        static __host__ __device__ constexpr size_t scratch_offset() {
+            return grid::grid_align_up(sizeof(T) * GRID_PLANT_FRAME_SCRATCH_COUNT, alignment());
+        }
+        static __host__ __device__ constexpr size_t scratch_bytes() {
+            constexpr size_t rows = MX > MU ? MX : MU;
+            constexpr size_t terms = sizeof(T) * (rows > 126 ? rows : 126);
+            constexpr size_t frame = FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES<T>();
+            return terms > frame ? terms : frame;
+        }
+        static __host__ __device__ constexpr size_t bytes() {
+            return grid::grid_align_up(scratch_offset() + scratch_bytes(), alignment());
+        }
+        // Views only: no allocation, initialization, barrier or device admission.
+        // Unchecked hot path: preparation must establish alignment and capacity.
+        static __host__ __device__ tracking_cost_menu_arena carve(void *base) {
+            tracking_cost_menu_arena a;
+            a.s_frame = reinterpret_cast<T *>(base);
+            a.s_scratch = reinterpret_cast<T *>(reinterpret_cast<unsigned char *>(base) + scratch_offset());
+            return a;
+        }
+        static __host__ __device__ bool bind(void *base, size_t capacity, tracking_cost_menu_arena &out) {
+            if (!base || capacity < bytes() || reinterpret_cast<uintptr_t>(base) % alignment()) return false;
+            out = carve(base); return true;
+        }
+    };
+    // Cost menu workspace ends.
     /**
      * cost_menu_params: the per-knot buffers of tracking_cost_menu (every pointer a runtime buffer; a term whose activation is GRID_PLANT_ACTIVATION_NONE is skipped)
      *
@@ -51256,8 +51319,15 @@ namespace grid_plant {
         }
     }
 
+    // Full-shared plant layout, NOT the tier-selected integrator allocation.
+    template <typename T> __host__ __device__ constexpr size_t PLANT_STEP_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() {
+        return grid::grid_shared_arena_bytes<T>(18578, 115);
+    }
+    template <typename T> __host__ inline cudaError_t plant_step_gradient_check_shared_memory() {
+        return grid::grid_check_dynamic_shared_memory_bytes("plant_step_gradient (full shared; use tiered integrator_gradient if unsupported)", PLANT_STEP_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+    }
     /**
-     * plant_step_gradient_arena: carve struct mirroring plant_step_gradient_kernel's full-smem scratch layout; members map 1:1 onto plant_step_gradient's caller-placed buffer arguments. Allocate INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, TIER_SHARED>() bytes and call carve(base).
+     * plant_step_gradient_arena: carve struct mirroring plant_step_gradient_kernel's full-smem scratch layout; members map 1:1 onto plant_step_gradient's caller-placed buffer arguments. Allocate PLANT_STEP_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() bytes and call carve(base). No spill support: check device admission before launch; composed callers must also budget their own static/dynamic storage.
      *
      */
     template <typename T>
@@ -51279,63 +51349,88 @@ namespace grid_plant {
         T *s_XImats;
         T *s_temp;
         int *s_topology_helpers;
-        static __device__ plant_step_gradient_arena<T> carve(void *base) {
+        // Checked arena interface begins.
+        static constexpr size_t s_x_count = 37;
+        static constexpr size_t s_u_count = 18;
+        static constexpr size_t s_dAB_count = 1944;
+        static constexpr size_t s_df_du_count = 648;
+        static constexpr size_t s_dc_du_count = 648;
+        static constexpr size_t s_vaf_count = 324;
+        static constexpr size_t s_Minv_count = 324;
+        static constexpr size_t s_qdd_count = 18;
+        static constexpr size_t s_q_orig_count = 19;
+        static constexpr size_t s_qd_orig_count = 18;
+        static constexpr size_t s_stage_grad_qdd_count = 72;
+        static constexpr size_t s_D_qdd_stage_count = 3888;
+        static constexpr size_t s_dInt_q_6x6_count = 36;
+        static constexpr size_t s_dInt_v_6x6_count = 36;
+        static constexpr size_t s_temp_count = 9612;
+        static constexpr size_t s_XImats_count = 936;
+        static constexpr size_t s_topology_helpers_count = 115;
+        static __host__ __device__ constexpr size_t bytes() { return PLANT_STEP_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(); }
+        static __host__ __device__ constexpr size_t alignment() { return 16; }
+        static __host__ __device__ bool bind(void *base, size_t capacity, plant_step_gradient_arena &out) {
+            if (!base || capacity < bytes() || reinterpret_cast<uintptr_t>(base) % alignment()) return false;
+            out = carve(base); return true;
+        }
+        // Checked arena interface ends.
+        static __host__ __device__ plant_step_gradient_arena<T> carve(void *base) {
             unsigned char *s_arena = reinterpret_cast<unsigned char *>(base);
             size_t s_arena_offset = 0;
             plant_step_gradient_arena<T> a;
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_x = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_x = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(37);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_u = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_u = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(18);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_dAB = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_dAB = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(1944);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_df_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_df_du = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(648);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_dc_du = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_dc_du = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(648);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_vaf = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_vaf = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(324);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_Minv = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_Minv = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(324);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_qdd = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(18);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_q_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_q_orig = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(19);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_qd_orig = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_qd_orig = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(18);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_stage_grad_qdd = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_stage_grad_qdd = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(72);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_D_qdd_stage = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_D_qdd_stage = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(3888);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_dInt_q_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_dInt_q_6x6 = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(36);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_dInt_v_6x6 = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_dInt_v_6x6 = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(36);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_XImats = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_XImats = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(936);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(T));
-            a.s_temp = grid::grid_arena_ptr<T>(s_arena, s_arena_offset);
+            a.s_temp = reinterpret_cast<T *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(T) * static_cast<size_t>(9612);
             s_arena_offset = grid::grid_align_up(s_arena_offset, alignof(int));
-            a.s_topology_helpers = grid::grid_arena_ptr<int>(s_arena, s_arena_offset);
+            a.s_topology_helpers = reinterpret_cast<int *>(s_arena + s_arena_offset);
             s_arena_offset += sizeof(int) * static_cast<size_t>(115);
             #ifdef GRID_CUDA_DEBUG_LAYOUT
-            assert(s_arena_offset <= grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_SHARED>());
+            assert((s_arena_offset <= PLANT_STEP_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()));
             #endif
             (void)s_arena_offset;
             return a;
@@ -51446,6 +51541,10 @@ namespace grid_plant {
 
     template <typename T, int TIER = grid::GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == grid::TIER_SHARED) ? grid::grid_shared_arena_bytes<T>(1981, grid::TOPOLOGY_HELPERS_COUNT) : (TIER == grid::TIER_LITE) ? grid::grid_shared_arena_bytes<T>(1981, grid::TOPOLOGY_HELPERS_COUNT) : grid::grid_shared_arena_bytes<T>(1981, grid::TOPOLOGY_HELPERS_COUNT); }
     static const int GRID_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER = 1;
+    // Plant Hessian workspace begins.
+    #define GRID_PLANT_HAS_HESSIAN_ARENA 0
+    // Composed Hessian views currently require fixed-base nq == nv > 0. Existing kernel support is unchanged.
+    // Plant Hessian workspace ends.
     #define GRID_PLANT_HAS_STEP_HESSIAN 1
     /**
      * ee_pos_cost_kernel: value + grad_x + GN hess_x per timestep (EE=0)
@@ -51570,7 +51669,7 @@ namespace grid_collision {
      *
      * Notes:
      *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
-     *   A hit iff any raw clearance is below T margin (exact contact at the margin is free); verdict-identical to the zero-margin rule at margin 0; collision_distance and the cost derivatives are untouched.
+     *   A hit iff raw clearance is below its corresponding margin (exact contact is free). Both values must be finite and nonnegative; make_collision_margins validates on the host. Self pairs inflate only one member; collision_distance and cost derivatives are untouched.
      *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
      *   Block-parallel (G4, 2026-10-04): thread-per-self-range + thread-per-sphere env checks OR-ed into a
      *   shared flag; every thread returns the same verdict; thread-count invariant; single block.
@@ -51581,12 +51680,12 @@ namespace grid_collision {
      * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (smem for small N, global for many)
      * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
      * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
-     * @param margin is the clearance below which a sphere counts as a hit (metres, default 0): robot radii are tested at r + margin
+     * @param margins supplies environment_margin and self_margin in metres; a scalar applies to both (default 0)
      * @param check_self = false skips the baked self-pair ranges (environment only; default true)
      */
     template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __device__
-    bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr, T margin = static_cast<T>(0), bool check_self = true) {
+    bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr, typename CollisionMargins<T>::type margins = {}, bool check_self = true) {
         __shared__ int s_cc_hit;
         if (threadIdx.x == 0 && threadIdx.y == 0) s_cc_hit = 0;   // published by the extractor's barriers
         grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
@@ -51595,14 +51694,14 @@ namespace grid_collision {
         if (check_self) {
             for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
                 const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
-                const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i] + margin;
+                const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i] + margins.self_margin;
                 for (int j = j0; j <= j1; ++j) {
                     if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { atomicExch(&s_cc_hit, 1); break; }
                 }
             }
         }
         for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
-            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i] + margin)) atomicExch(&s_cc_hit, 1);
+            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i] + margins.environment_margin)) atomicExch(&s_cc_hit, 1);
         }
         __syncthreads();
         const bool is_free = (s_cc_hit == 0);
@@ -51628,17 +51727,17 @@ namespace grid_collision {
          * config_free: warp-uniform collision-free verdict from caller-held joint world transforms
          *
          * Notes:
-         *   A hit iff any raw clearance is below float margin (exact contact at the margin is free); verdict-identical to the zero-margin rule at margin 0; collision_distance and the cost derivatives are untouched.
+         *   A hit iff raw clearance is below its corresponding margin (exact contact is free). Both values must be finite and nonnegative; make_collision_margins validates on the host. Self pairs inflate only one member; collision_distance and cost derivatives are untouched.
          *   check_self = false skips the baked self-pair ranges (environment only); identical verdict at true.
          *
          * @param s_Xworld is the column-major 4x4 world transform per movable joint
          * @param env is the runtime obstacle set (float)
          * @param w_scratch is the per-warp float scratch of W_SCRATCH_FLOATS
-         * @param margin is the clearance below which a sphere counts as a hit (metres, default 0)
+         * @param margins supplies environment_margin and self_margin in metres; a scalar applies to both (default 0); warp margins use float
          * @param check_self = false skips the self-pair ranges (default true)
          */
         template <typename T>
-        __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch, float margin = 0.0f, bool check_self = true) {
+        __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch, CollisionMargins<float> margins = {}, bool check_self = true) {
             const int lane = threadIdx.x & 31;
             float *w_pos = w_scratch;
             bool hit = false;
@@ -51650,13 +51749,13 @@ namespace grid_collision {
                 w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
             }
             for (int s = lane; s < NUM_SPHERES; s += 32) {
-                hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s] + margin);
+                hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s] + margins.environment_margin);
             }
             __syncwarp(FULL_MASK);
             if (check_self) {
                 for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
                     const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
-                    const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i] + margin;
+                    const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i] + margins.self_margin;
                     for (int j = j0; j <= j1 && !hit; ++j) {
                         hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
                     }
@@ -52089,6 +52188,848 @@ namespace grid_collision {
     }
 
 }
+// Model descriptor begins (schema 1).
+// Model-coordinate metadata; not a complete physical-model identity.
+namespace grid { namespace model {
+enum class joint_kind { revolute, continuous, prismatic, helical, screw, spherical, floating };
+enum class frame_kind { root, joint, fixed_joint };
+inline constexpr int schema_version = 1;
+inline constexpr int nq = 19, nv = 18, nb = 13, nj = 13;
+inline constexpr int frame_count = 43;
+inline constexpr bool runtime_transform = false;
+inline constexpr char descriptor_id[] = "20e81227a9afb1823964179c555114951623b5f2d1ba42f8ad2204ccfa795e5a";
+inline constexpr char descriptor_json[] = "{\042schema_version\042:1,\042model_name\042:\042go2_description\042,\042descriptor_id\042:\04220e81227a9afb1823964179c555114951623b5f2d1ba42f8ad2204ccfa795e5a\042,\042nq\042:19,\042nv\042:18,\042nb\042:13,\042nj\042:13,\042floating_base\042:true,\042runtime_transform\042:false,\042coordinate_convention\042:\042grid-xyzw-local-v1\042,\042joints\042:[{\042id\042:0,\042name\042:\042floating_base_joint\042,\042kind\042:\042floating\042,\042parent_body\042:-1,\042child_body\042:0,\042local_nq\042:7,\042local_nv\042:6,\042q_start\042:0,\042v_start\042:0,\042owns_coordinates\042:true,\042axis\042:null,\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:null,\042velocity\042:null,\042effort\042:null}},{\042id\042:1,\042name\042:\042FL_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:1,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:7,\042v_start\042:6,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.1934],[0.0,1.0,-0.0,0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:2,\042name\042:\042FL_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:1,\042child_body\042:2,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:8,\042v_start\042:7,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.5708,3.4907],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:3,\042name\042:\042FL_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:2,\042child_body\042:3,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:9,\042v_start\042:8,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:4,\042name\042:\042FR_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:4,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:10,\042v_start\042:9,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.1934],[0.0,1.0,-0.0,-0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:5,\042name\042:\042FR_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:4,\042child_body\042:5,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:11,\042v_start\042:10,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.5708,3.4907],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:6,\042name\042:\042FR_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:5,\042child_body\042:6,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:12,\042v_start\042:11,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:7,\042name\042:\042RL_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:7,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:13,\042v_start\042:12,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,-0.1934],[0.0,1.0,-0.0,0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:8,\042name\042:\042RL_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:7,\042child_body\042:8,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:14,\042v_start\042:13,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-0.5236,4.5379],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:9,\042name\042:\042RL_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:8,\042child_body\042:9,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:15,\042v_start\042:14,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:10,\042name\042:\042RR_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:10,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:16,\042v_start\042:15,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,-0.1934],[0.0,1.0,-0.0,-0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:11,\042name\042:\042RR_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:10,\042child_body\042:11,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:17,\042v_start\042:16,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-0.5236,4.5379],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:12,\042name\042:\042RR_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:11,\042child_body\042:12,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:18,\042v_start\042:17,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}}],\042bodies\042:[{\042id\042:0,\042name\042:\042base\042,\042parent_body\042:-1,\042joint_id\042:0},{\042id\042:1,\042name\042:\042FL_hip\042,\042parent_body\042:0,\042joint_id\042:1},{\042id\042:2,\042name\042:\042FL_thigh\042,\042parent_body\042:1,\042joint_id\042:2},{\042id\042:3,\042name\042:\042FL_calf\042,\042parent_body\042:2,\042joint_id\042:3},{\042id\042:4,\042name\042:\042FR_hip\042,\042parent_body\042:0,\042joint_id\042:4},{\042id\042:5,\042name\042:\042FR_thigh\042,\042parent_body\042:4,\042joint_id\042:5},{\042id\042:6,\042name\042:\042FR_calf\042,\042parent_body\042:5,\042joint_id\042:6},{\042id\042:7,\042name\042:\042RL_hip\042,\042parent_body\042:0,\042joint_id\042:7},{\042id\042:8,\042name\042:\042RL_thigh\042,\042parent_body\042:7,\042joint_id\042:8},{\042id\042:9,\042name\042:\042RL_calf\042,\042parent_body\042:8,\042joint_id\042:9},{\042id\042:10,\042name\042:\042RR_hip\042,\042parent_body\042:0,\042joint_id\042:10},{\042id\042:11,\042name\042:\042RR_thigh\042,\042parent_body\042:10,\042joint_id\042:11},{\042id\042:12,\042name\042:\042RR_calf\042,\042parent_body\042:11,\042joint_id\042:12}],\042configuration_layout\042:[{\042kind\042:\042floating\042,\042q_start\042:0,\042v_start\042:0,\042nq\042:7,\042nv\042:6},{\042kind\042:\042euclidean\042,\042q_start\042:7,\042v_start\042:6,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:8,\042v_start\042:7,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:9,\042v_start\042:8,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:10,\042v_start\042:9,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:11,\042v_start\042:10,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:12,\042v_start\042:11,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:13,\042v_start\042:12,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:14,\042v_start\042:13,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:15,\042v_start\042:14,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:16,\042v_start\042:15,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:17,\042v_start\042:16,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:18,\042v_start\042:17,\042nq\042:1,\042nv\042:1}],\042frames\042:[{\042id\042:0,\042name\042:\042root\042,\042kind\042:\042root\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:1,\042name\042:\042floating_base_joint\042,\042kind\042:\042joint\042,\042attached_body\042:0,\042joint_id\042:0,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:2,\042name\042:\042FL_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:1,\042joint_id\042:1,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:3,\042name\042:\042FL_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:2,\042joint_id\042:2,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:4,\042name\042:\042FL_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:3,\042joint_id\042:3,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:5,\042name\042:\042FR_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:4,\042joint_id\042:4,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:6,\042name\042:\042FR_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:5,\042joint_id\042:5,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:7,\042name\042:\042FR_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:6,\042joint_id\042:6,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:8,\042name\042:\042RL_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:7,\042joint_id\042:7,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:9,\042name\042:\042RL_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:8,\042joint_id\042:8,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:10,\042name\042:\042RL_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:9,\042joint_id\042:9,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:11,\042name\042:\042RR_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:10,\042joint_id\042:10,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:12,\042name\042:\042RR_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:11,\042joint_id\042:11,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:13,\042name\042:\042RR_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:12,\042joint_id\042:12,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:14,\042name\042:\042radar_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[-0.9655122329338992,0.0,0.2603576925212619,0.28945],[0.0,1.0,0.0,0.0],[-0.2603576925212619,0.0,-0.9655122329338992,-0.046825],[0.0,0.0,0.0,1.0]]},{\042id\042:15,\042name\042:\042imu_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.02557],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.04232],[0.0,0.0,0.0,1.0]]},{\042id\042:16,\042name\042:\042front_camera_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.32715],[0.0,1.0,0.0,-3e-05],[0.0,0.0,1.0,0.04297],[0.0,0.0,0.0,1.0]]},{\042id\042:17,\042name\042:\042RR_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.11215],[0.0,1.0,0.0,-0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:18,\042name\042:\042RR_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:10,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:19,\042name\042:\042RR_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:11,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:20,\042name\042:\042RR_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:21,\042name\042:\042RR_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:22,\042name\042:\042RR_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:23,\042name\042:\042RL_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.11215],[0.0,1.0,0.0,0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:24,\042name\042:\042RL_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:7,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:25,\042name\042:\042RL_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:8,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:26,\042name\042:\042RL_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:27,\042name\042:\042RL_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:28,\042name\042:\042RL_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:29,\042name\042:\042Head_lower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.293],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.060000000000000005],[0.0,0.0,0.0,1.0]]},{\042id\042:30,\042name\042:\042Head_upper_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.285],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.01],[0.0,0.0,0.0,1.0]]},{\042id\042:31,\042name\042:\042FR_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.11215],[0.0,1.0,0.0,-0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:32,\042name\042:\042FR_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:4,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:33,\042name\042:\042FR_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:5,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:34,\042name\042:\042FR_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:35,\042name\042:\042FR_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:36,\042name\042:\042FR_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:37,\042name\042:\042FL_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.11215],[0.0,1.0,0.0,0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:38,\042name\042:\042FL_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:39,\042name\042:\042FL_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:2,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:40,\042name\042:\042FL_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:41,\042name\042:\042FL_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:42,\042name\042:\042FL_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]}]}";
+struct joint_record {
+  int id, parent_body, child_body, q_start, v_start, local_nq, local_nv;
+  joint_kind kind; bool owns_coordinates, has_axis, has_pitch, has_mimic;
+  int leader_joint; double multiplier, offset, axis[3], pitch, T_parent_joint_zero[16];
+  bool has_position_limit[2], has_velocity_limit, has_effort_limit;
+  double position_limit[2], velocity_limit, effort_limit;
+};
+struct frame_record {
+  int id, attached_body, joint_id; frame_kind kind; double T_body_frame[16];
+};
+__host__ __device__ constexpr bool joint(int id, joint_record &out) {
+  switch(id) {
+  case 0: out = joint_record{0,-1,0,0,0,7,6,joint_kind::floating,true,false,false,false,-1,1.0,0.0,{0.0,0.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0},{false,false},false,false,{0.0,0.0},0.0,0.0}; return true;
+  case 1: out = joint_record{1,0,1,7,6,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{1.0,0.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.1934,0.0465,0.0,1.0},{true,true},true,true,{-1.0472,1.0472},30.1,23.7}; return true;
+  case 2: out = joint_record{2,1,2,8,7,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0955,0.0,1.0},{true,true},true,true,{-1.5708,3.4907},30.1,23.7}; return true;
+  case 3: out = joint_record{3,2,3,9,8,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0},{true,true},true,true,{-2.7227,-0.83776},15.7,45.43}; return true;
+  case 4: out = joint_record{4,0,4,10,9,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{1.0,0.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.1934,-0.0465,0.0,1.0},{true,true},true,true,{-1.0472,1.0472},30.1,23.7}; return true;
+  case 5: out = joint_record{5,4,5,11,10,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.0955,0.0,1.0},{true,true},true,true,{-1.5708,3.4907},30.1,23.7}; return true;
+  case 6: out = joint_record{6,5,6,12,11,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0},{true,true},true,true,{-2.7227,-0.83776},15.7,45.43}; return true;
+  case 7: out = joint_record{7,0,7,13,12,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{1.0,0.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,-0.1934,0.0465,0.0,1.0},{true,true},true,true,{-1.0472,1.0472},30.1,23.7}; return true;
+  case 8: out = joint_record{8,7,8,14,13,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0955,0.0,1.0},{true,true},true,true,{-0.5236,4.5379},30.1,23.7}; return true;
+  case 9: out = joint_record{9,8,9,15,14,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0},{true,true},true,true,{-2.7227,-0.83776},15.7,45.43}; return true;
+  case 10: out = joint_record{10,0,10,16,15,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{1.0,0.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,-0.1934,-0.0465,0.0,1.0},{true,true},true,true,{-1.0472,1.0472},30.1,23.7}; return true;
+  case 11: out = joint_record{11,10,11,17,16,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.0955,0.0,1.0},{true,true},true,true,{-0.5236,4.5379},30.1,23.7}; return true;
+  case 12: out = joint_record{12,11,12,18,17,1,1,joint_kind::revolute,true,true,false,false,-1,1.0,0.0,{0.0,1.0,0.0},0.0,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0},{true,true},true,true,{-2.7227,-0.83776},15.7,45.43}; return true;
+  default: return false;
+  }
+}
+__host__ __device__ constexpr bool frame(int id, frame_record &out) {
+  switch(id) {
+  case 0: out = frame_record{0,-1,-1,frame_kind::root,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 1: out = frame_record{1,0,0,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 2: out = frame_record{2,1,1,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 3: out = frame_record{3,2,2,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 4: out = frame_record{4,3,3,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 5: out = frame_record{5,4,4,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 6: out = frame_record{6,5,5,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 7: out = frame_record{7,6,6,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 8: out = frame_record{8,7,7,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 9: out = frame_record{9,8,8,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 10: out = frame_record{10,9,9,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 11: out = frame_record{11,10,10,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 12: out = frame_record{12,11,11,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 13: out = frame_record{13,12,12,frame_kind::joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0}}; return true;
+  case 14: out = frame_record{14,0,-1,frame_kind::fixed_joint,{-0.9655122329338992,0.0,-0.2603576925212619,0.0,0.0,1.0,0.0,0.0,0.2603576925212619,0.0,-0.9655122329338992,0.0,0.28945,0.0,-0.046825,1.0}}; return true;
+  case 15: out = frame_record{15,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,-0.02557,0.0,0.04232,1.0}}; return true;
+  case 16: out = frame_record{16,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.32715,-3e-05,0.04297,1.0}}; return true;
+  case 17: out = frame_record{17,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,-0.11215,-0.04675,0.0,1.0}}; return true;
+  case 18: out = frame_record{18,10,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.00015,0.0,1.0}}; return true;
+  case 19: out = frame_record{19,11,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.03235,0.0,1.0}}; return true;
+  case 20: out = frame_record{20,12,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0}}; return true;
+  case 21: out = frame_record{21,12,-1,frame_kind::fixed_joint,{0.862807070514761,0.0,-0.5055333412048469,0.0,0.0,1.0,0.0,0.0,0.5055333412048469,0.0,0.862807070514761,0.0,0.008013330625223204,0.0,-0.18745021872309187,1.0}}; return true;
+  case 22: out = frame_record{22,12,-1,frame_kind::fixed_joint,{0.9987502603949663,0.0,-0.04997916927067833,0.0,0.0,1.0,0.0,0.0,0.04997916927067833,0.0,0.9987502603949663,0.0,0.02,0.0,-0.148,1.0}}; return true;
+  case 23: out = frame_record{23,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,-0.11215,0.04675,0.0,1.0}}; return true;
+  case 24: out = frame_record{24,7,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.00015,0.0,1.0}}; return true;
+  case 25: out = frame_record{25,8,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.03235,0.0,1.0}}; return true;
+  case 26: out = frame_record{26,9,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0}}; return true;
+  case 27: out = frame_record{27,9,-1,frame_kind::fixed_joint,{0.862807070514761,0.0,-0.5055333412048469,0.0,0.0,1.0,0.0,0.0,0.5055333412048469,0.0,0.862807070514761,0.0,0.008013330625223204,0.0,-0.18745021872309187,1.0}}; return true;
+  case 28: out = frame_record{28,9,-1,frame_kind::fixed_joint,{0.9987502603949663,0.0,-0.04997916927067833,0.0,0.0,1.0,0.0,0.0,0.04997916927067833,0.0,0.9987502603949663,0.0,0.02,0.0,-0.148,1.0}}; return true;
+  case 29: out = frame_record{29,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.293,0.0,-0.060000000000000005,1.0}}; return true;
+  case 30: out = frame_record{30,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.285,0.0,0.01,1.0}}; return true;
+  case 31: out = frame_record{31,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.11215,-0.04675,0.0,1.0}}; return true;
+  case 32: out = frame_record{32,4,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.00015,0.0,1.0}}; return true;
+  case 33: out = frame_record{33,5,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.03235,0.0,1.0}}; return true;
+  case 34: out = frame_record{34,6,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0}}; return true;
+  case 35: out = frame_record{35,6,-1,frame_kind::fixed_joint,{0.862807070514761,0.0,-0.5055333412048469,0.0,0.0,1.0,0.0,0.0,0.5055333412048469,0.0,0.862807070514761,0.0,0.008013330625223204,0.0,-0.18745021872309187,1.0}}; return true;
+  case 36: out = frame_record{36,6,-1,frame_kind::fixed_joint,{0.9987502603949663,0.0,-0.04997916927067833,0.0,0.0,1.0,0.0,0.0,0.04997916927067833,0.0,0.9987502603949663,0.0,0.02,0.0,-0.148,1.0}}; return true;
+  case 37: out = frame_record{37,0,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.11215,0.04675,0.0,1.0}}; return true;
+  case 38: out = frame_record{38,1,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.00015,0.0,1.0}}; return true;
+  case 39: out = frame_record{39,2,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,-0.03235,0.0,1.0}}; return true;
+  case 40: out = frame_record{40,3,-1,frame_kind::fixed_joint,{1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-0.213,1.0}}; return true;
+  case 41: out = frame_record{41,3,-1,frame_kind::fixed_joint,{0.862807070514761,0.0,-0.5055333412048469,0.0,0.0,1.0,0.0,0.0,0.5055333412048469,0.0,0.862807070514761,0.0,0.008013330625223204,0.0,-0.18745021872309187,1.0}}; return true;
+  case 42: out = frame_record{42,3,-1,frame_kind::fixed_joint,{0.9987502603949663,0.0,-0.04997916927067833,0.0,0.0,1.0,0.0,0.0,0.04997916927067833,0.0,0.9987502603949663,0.0,0.02,0.0,-0.148,1.0}}; return true;
+  default: return false;
+  }
+}
+__host__ constexpr const char *joint_name(int id) {
+  switch(id) {
+  case 0: return "floating_base_joint";
+  case 1: return "FL_hip_joint";
+  case 2: return "FL_thigh_joint";
+  case 3: return "FL_calf_joint";
+  case 4: return "FR_hip_joint";
+  case 5: return "FR_thigh_joint";
+  case 6: return "FR_calf_joint";
+  case 7: return "RL_hip_joint";
+  case 8: return "RL_thigh_joint";
+  case 9: return "RL_calf_joint";
+  case 10: return "RR_hip_joint";
+  case 11: return "RR_thigh_joint";
+  case 12: return "RR_calf_joint";
+  default: return nullptr;
+  }
+}
+__host__ constexpr const char *frame_name(int id) {
+  switch(id) {
+  case 0: return "root";
+  case 1: return "floating_base_joint";
+  case 2: return "FL_hip_joint";
+  case 3: return "FL_thigh_joint";
+  case 4: return "FL_calf_joint";
+  case 5: return "FR_hip_joint";
+  case 6: return "FR_thigh_joint";
+  case 7: return "FR_calf_joint";
+  case 8: return "RL_hip_joint";
+  case 9: return "RL_thigh_joint";
+  case 10: return "RL_calf_joint";
+  case 11: return "RR_hip_joint";
+  case 12: return "RR_thigh_joint";
+  case 13: return "RR_calf_joint";
+  case 14: return "radar_joint";
+  case 15: return "imu_joint";
+  case 16: return "front_camera_joint";
+  case 17: return "RR_hip_rotor_joint";
+  case 18: return "RR_thigh_rotor_joint";
+  case 19: return "RR_calf_rotor_joint";
+  case 20: return "RR_foot_joint";
+  case 21: return "RR_calflower1_joint";
+  case 22: return "RR_calflower_joint";
+  case 23: return "RL_hip_rotor_joint";
+  case 24: return "RL_thigh_rotor_joint";
+  case 25: return "RL_calf_rotor_joint";
+  case 26: return "RL_foot_joint";
+  case 27: return "RL_calflower1_joint";
+  case 28: return "RL_calflower_joint";
+  case 29: return "Head_lower_joint";
+  case 30: return "Head_upper_joint";
+  case 31: return "FR_hip_rotor_joint";
+  case 32: return "FR_thigh_rotor_joint";
+  case 33: return "FR_calf_rotor_joint";
+  case 34: return "FR_foot_joint";
+  case 35: return "FR_calflower1_joint";
+  case 36: return "FR_calflower_joint";
+  case 37: return "FL_hip_rotor_joint";
+  case 38: return "FL_thigh_rotor_joint";
+  case 39: return "FL_calf_rotor_joint";
+  case 40: return "FL_foot_joint";
+  case 41: return "FL_calflower1_joint";
+  case 42: return "FL_calflower_joint";
+  default: return nullptr;
+  }
+}
+// Thread-scope composition; distinct 16-element input/output, no implicit fences.
+// Failure leaves output untouched. Root attachment expects the root world pose.
+template<class T> __host__ __device__ inline bool compose_frame_from_body(
+    int frame_id, int body_id, const T *world_body, T *world_frame) {
+  frame_record f{};
+  if (runtime_transform || !world_body || !world_frame || world_body == world_frame
+      || !frame(frame_id, f) || f.attached_body != body_id) return false;
+  for (int c=0;c<4;++c) for (int r=0;r<4;++r) {
+    T value = T(0);
+    for (int k=0;k<4;++k) value += world_body[r+4*k]*T(f.T_body_frame[k+4*c]);
+    world_frame[r+4*c] = value;
+  }
+  return true;
+}
+} } // namespace model
+// Model thread primitives begin.
+namespace grid { namespace model {
+// Thread scope, all 16 column-major cells written; disjoint output.
+// Invalid IDs/modes leave output untouched. Unit xyzw inputs required.
+template<class T> __device__ __forceinline__ bool joint_transform(
+    int joint_id, const T *s_q, T *out) {
+  if (runtime_transform) return false;
+  switch(joint_id) {
+  case 0: {
+    out[0]=static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+    out[1]=static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[2]=static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[5]=static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+    out[6]=static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[9]=static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[10]=static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(s_q[0]);
+    out[13]=static_cast<T>(s_q[1]);
+    out[14]=static_cast<T>(s_q[2]);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 1: {
+    const T theta=s_q[7];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0.19339999999999999);
+    out[13]=static_cast<T>(0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 2: {
+    const T theta=s_q[8];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 3: {
+    const T theta=s_q[9];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 4: {
+    const T theta=s_q[10];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0.19339999999999999);
+    out[13]=static_cast<T>(-0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 5: {
+    const T theta=s_q[11];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(-0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 6: {
+    const T theta=s_q[12];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 7: {
+    const T theta=s_q[13];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(-0.19339999999999999);
+    out[13]=static_cast<T>(0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 8: {
+    const T theta=s_q[14];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 9: {
+    const T theta=s_q[15];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 10: {
+    const T theta=s_q[16];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(-0.19339999999999999);
+    out[13]=static_cast<T>(-0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 11: {
+    const T theta=s_q[17];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(-0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 12: {
+    const T theta=s_q[18];
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  default: return false;
+  }
+  return true;
+}
+template<class T> __device__ __forceinline__ bool joint_transform_scalar(
+    int joint_id, T coordinate, T *out) {
+  if (runtime_transform) return false;
+  switch(joint_id) {
+  case 1: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0.19339999999999999);
+    out[13]=static_cast<T>(0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 2: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 3: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 4: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0.19339999999999999);
+    out[13]=static_cast<T>(-0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 5: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(-0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 6: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 7: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(-0.19339999999999999);
+    out[13]=static_cast<T>(0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 8: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 9: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 10: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(1.0);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(0);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(c);
+    out[6]=static_cast<T>(s);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(0);
+    out[9]=static_cast<T>(-s);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(-0.19339999999999999);
+    out[13]=static_cast<T>(-0.0465);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 11: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(-0.095500000000000002);
+    out[14]=static_cast<T>(0);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  case 12: {
+    const T theta=coordinate;
+    const T s=sin(theta), c=cos(theta);
+    (void)s; (void)c;
+    out[0]=static_cast<T>(c);
+    out[1]=static_cast<T>(0);
+    out[2]=static_cast<T>(-s);
+    out[3]=static_cast<T>(0);
+    out[4]=static_cast<T>(0);
+    out[5]=static_cast<T>(1.0);
+    out[6]=static_cast<T>(0);
+    out[7]=static_cast<T>(0);
+    out[8]=static_cast<T>(s);
+    out[9]=static_cast<T>(0);
+    out[10]=static_cast<T>(c);
+    out[11]=static_cast<T>(0);
+    out[12]=static_cast<T>(0);
+    out[13]=static_cast<T>(0);
+    out[14]=static_cast<T>(-0.21299999999999999);
+    out[15]=static_cast<T>(1.0);
+    break;
+  }
+  default: return false;
+  }
+  return true;
+}
+} } // namespace model
+namespace grid {
+namespace model {
+enum class coordinate_kind { euclidean, spherical, floating };
+struct coordinate_block_record { coordinate_kind kind; int q_start, v_start, nq, nv; };
+inline constexpr int coordinate_block_count=13;
+__host__ __device__ constexpr bool coordinate_block(int id, coordinate_block_record &out) {
+  switch(id) {
+  case 0: out=coordinate_block_record{coordinate_kind::floating,0,0,7,6}; return true;
+  case 1: out=coordinate_block_record{coordinate_kind::euclidean,7,6,1,1}; return true;
+  case 2: out=coordinate_block_record{coordinate_kind::euclidean,8,7,1,1}; return true;
+  case 3: out=coordinate_block_record{coordinate_kind::euclidean,9,8,1,1}; return true;
+  case 4: out=coordinate_block_record{coordinate_kind::euclidean,10,9,1,1}; return true;
+  case 5: out=coordinate_block_record{coordinate_kind::euclidean,11,10,1,1}; return true;
+  case 6: out=coordinate_block_record{coordinate_kind::euclidean,12,11,1,1}; return true;
+  case 7: out=coordinate_block_record{coordinate_kind::euclidean,13,12,1,1}; return true;
+  case 8: out=coordinate_block_record{coordinate_kind::euclidean,14,13,1,1}; return true;
+  case 9: out=coordinate_block_record{coordinate_kind::euclidean,15,14,1,1}; return true;
+  case 10: out=coordinate_block_record{coordinate_kind::euclidean,16,15,1,1}; return true;
+  case 11: out=coordinate_block_record{coordinate_kind::euclidean,17,16,1,1}; return true;
+  case 12: out=coordinate_block_record{coordinate_kind::euclidean,18,17,1,1}; return true;
+  default: return false;
+  }
+}
+} // namespace model
+namespace configuration_detail {
+// Reference-first differences; independent quaternion sign representatives.
+template<class T> __device__ inline void block_difference(
+    const model::coordinate_block_record &b, const T *from, const T *to, double *e) {
+    if(b.kind==model::coordinate_kind::euclidean) { e[0]=double(to[b.q_start])-double(from[b.q_start]); return; }
+    double a[7],z[7];
+    for(int k=0;k<b.nq;++k) { a[k]=double(from[b.q_start+k]); z[k]=double(to[b.q_start+k]); }
+    if(b.kind==model::coordinate_kind::floating) {
+        glass::thread::se3_difference<double>(a,z,e,e+3);
+    } else {
+        double conjugate[4],relative[4];
+        glass::thread::quat_conj<double>(a,conjugate);
+        glass::thread::quat_mul<double>(conjugate,z,relative);
+        glass::thread::quat_log<double>(relative,e);
+    }
+}
+// One nonlinear evaluation body prevents caller-dependent FMA contraction
+// from making dense and compact representations disagree in their last bits.
+template<class T> __device__ __noinline__ void nonlinear_block_jacobians(
+    const model::coordinate_block_record &b, const T *from, const T *to, T *J1, T *J2) {
+    double e[6]; block_difference(b,from,to,e);
+    if(b.kind==model::coordinate_kind::spherical) {
+        double A[9],B[9];
+        glass::thread::so3_left_jacobian_inv<double>(e,A);
+        glass::thread::so3_right_jacobian_inv<double>(e,B);
+        for(int k=0;k<9;++k) { J1[k]=T(-A[k]); J2[k]=T(B[k]); }
+        return;
+    }
+    // Invert the upper-triangular SE(3) Jr: [A,Q;0,A]^-1.
+    double A[9],Q[9],AQ[9],C[9],inverse[36],base[36];
+    glass::thread::so3_right_jacobian_inv<double>(e+3,A);
+    glass::thread::se3_Q_block<double>(e,e+3,Q);
+    glass::thread::gemm<double,3,3,3>(1.,A,Q,0.,AQ);
+    glass::thread::gemm<double,3,3,3>(-1.,AQ,A,0.,C);
+    for(int c=0;c<6;++c) for(int r=0;r<6;++r)
+        inverse[c*6+r]=(r<3 && c<3)?A[c*3+r]:
+            ((r>=3 && c>=3)?A[(c-3)*3+r-3]:((r<3 && c>=3)?C[(c-3)*3+r]:0.));
+    glass::thread::se3_retract_jacobian_q<double>(e,e+3,base);
+    for(int c=0;c<6;++c) for(int r=0;r<6;++r) {
+        double v=0.; for(int k=0;k<6;++k) v-=inverse[k*6+r]*base[c*6+k];
+        J1[c*6+r]=T(v); J2[c*6+r]=T(inverse[c*6+r]);
+    }
+}
+template<class T> __device__ inline void block_jacobians(
+    const model::coordinate_block_record &b, const T *from, const T *to, T *J1, T *J2) {
+    if(b.kind==model::coordinate_kind::euclidean) { J1[0]=T(-1); J2[0]=T(1); return; }
+    nonlinear_block_jacobians(b,from,to,J1,J2);
+}
+} // namespace configuration_detail
+// Capacity is the number of T elements in EACH disjoint output, not bytes.
+// False leaves both outputs untouched. Inputs may coincide; valid unit quaternions required.
+template<class T> __device__ inline bool configuration_difference_jacobian_block(
+    int block_id, const T *from, const T *to, T *J_from, T *J_to, size_t capacity) {
+    model::coordinate_block_record b{};
+    if(!model::coordinate_block(block_id,b) || capacity<size_t(b.nv*b.nv)) return false;
+    configuration_detail::block_jacobians(b,from,to,J_from,J_to);
+    return true;
+}
+// Thread scope; complete writes, no allocation, launch, mutation or collective.
+template<class T> __device__ inline void configuration_difference(
+    const T *from, const T *to, T *delta) {
+    for(int k=0;k<model::coordinate_block_count;++k) {
+        model::coordinate_block_record b{}; model::coordinate_block(k,b);
+        double e[6]; configuration_detail::block_difference(b,from,to,e);
+        for(int i=0;i<b.nv;++i) delta[b.v_start+i]=T(e[i]);
+    }
+}
+template<class T> __device__ inline void configuration_difference_jacobians(
+    const T *from, const T *to, T *J_from, T *J_to) {
+    for(int k=0;k<model::nv*model::nv;++k) { J_from[k]=T(0); J_to[k]=T(0); }
+    for(int k=0;k<model::coordinate_block_count;++k) {
+        model::coordinate_block_record b{}; model::coordinate_block(k,b);
+        T A[36],B[36]; configuration_detail::block_jacobians(b,from,to,A,B);
+        for(int c=0;c<b.nv;++c) for(int r=0;r<b.nv;++r) {
+            int i=(b.v_start+c)*model::nv+b.v_start+r;
+            J_from[i]=A[c*b.nv+r]; J_to[i]=B[c*b.nv+r];
+        }
+    }
+}
+} // namespace grid
+// Model thread primitives end.
+// Model descriptor ends.
 
 // Suggested thread counts: per algorithm, the smallest multiple of 32 that covers the
 // widest block-parallel loop reachable from its kernel, read from the emitted code at

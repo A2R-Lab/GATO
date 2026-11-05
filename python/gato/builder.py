@@ -329,22 +329,15 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     if collision_res is not None:
         from grid_codegen.algorithms._collision import (
             collision_spec_from_urdf, normalize_collision_tiers)
-        # FAIL LOUD on silent coverage loss: GRiD's spherizer warns + SKIPs a
-        # link whose collision mesh can't be resolved/loaded — but the sphere
-        # set IS the clearance row set, so a skipped link silently vanishes
-        # from collision checking. Also reject voxelization fallbacks: even
-        # conservative bounding boxes change the constraint geometry depending
-        # on installed dependencies (the lean install once omitted scipy).
-        import warnings as _warnings
-        with _warnings.catch_warnings():
-            _warnings.filterwarnings("error", message=r".*SKIPPING.*")
-            # Warning wording is not an API: upstream removed "mesh" from
-            # its voxelization warning. Reject all spherizer fallbacks rather
-            # than silently accepting a different constraint model.
-            _warnings.filterwarnings("error", category=UserWarning,
-                                     module=r"grid_codegen\.algorithms\._spherize")
+        # The sphere set is the clearance row set, so a link the spherizer cannot
+        # cover must stop the generation rather than shrink the rows or swap in a
+        # bounding-box cover; grid-rbd 0.7.0 raises on both under strict=True.
+        try:
             spec = collision_spec_from_urdf(robot, str(urdf_path),
-                                            resolution=float(collision_res))
+                                            resolution=float(collision_res), strict=True)
+        except ValueError as exc:
+            raise ValueError(f"{name}: collision model refused; the sphere set is the clearance "
+                             f"row set, so a link without a cover cannot be skipped ({exc})") from exc
         n_spheres = int(normalize_collision_tiers(spec)[-1]["n"])
         kwargs["collision_spec"] = spec
     if contact_frames is None:

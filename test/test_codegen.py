@@ -135,8 +135,10 @@ def test_hyphenated_frame_header_compiles(tmp_path):
 
 
 def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, urdfs, tmp_path):
-    """A lean install used to succeed with a different, fallback sphere set.
-    Inject the underlying failure instead of uninstalling shared dependencies."""
+    """A lean install used to succeed with a different, fallback sphere set; since
+    grid-rbd 0.7.0 the spherizer raises under strict=True and the builder passes the
+    error through with GATO's reason. Inject the underlying failure instead of
+    uninstalling shared dependencies."""
     import trimesh
 
     def unavailable(*args, **kwargs):
@@ -144,7 +146,7 @@ def test_missing_voxel_dependency_cannot_change_collision_geometry(monkeypatch, 
 
     monkeypatch.setattr(trimesh.Trimesh, 'voxelized', unavailable)
     out = tmp_path / 'indy7'
-    with pytest.raises(UserWarning, match='voxelization failed|SKIPPING'):
+    with pytest.raises(ValueError, match='clearance row set.*voxelization failed'):
         codegen(urdfs['indy7'], 'indy7', out_dir=out, register=False)
     assert not (out / 'grid.cuh').exists()
 
