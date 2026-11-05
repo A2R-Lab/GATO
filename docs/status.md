@@ -67,7 +67,10 @@ multi-stage second derivative.
   torque clamp or a hardware-side safety layer.
   The [October 23 enforcement set](constraints.md#torque-enforcement-development-set-on-october-23)
   compares a command projection (`u_clip`, opt-in), a larger ADMM budget and a
-  tighter torque penalty; the default is unchanged.
+  tighter torque penalty; the default is unchanged. The
+  [November 4 holdout](constraints.md#the-rho_u-1e-4-candidate-on-a-fresh-holdout-november-4-2026)
+  closes the `rho_u = 1e-4` candidate on a fresh draw: lower peak torque, worse
+  velocity tails, the default kept.
   An [experiment-only clipping comparison](constraints.md#torque-saturation-development-comparison)
   preserved goal completion under brief FR3 and UR5e saturation; Gen3 did
   not saturate in that development sample. Clipping is not enabled by default.

@@ -443,6 +443,49 @@ published as run):
 | pickplace | iiwa14 N64 | al | 0.99 / 1.23 / 1.56 | 2.0 % | 0.91 | 2.73 of 3, 2.30 s | 2.6e-01 / 2.0e+00 |
 | pickplace | iiwa14 N64 | admm (default) | 0.94 / 0.97 / 1.00 | 0.0 % | 0.96 | 2.73 of 3, 2.28 s | 1.2e-02 / 8.8e-02 |
 
+### The rho_u 1e-4 candidate on a fresh holdout (November 4, 2026)
+
+The enforcement candidate `rho_u = 1e-4` (the torque rows' ADMM weight ten
+times the default's 1e-5, which the development set of October 16 showed
+brings the control bias back) was run once against the frozen default on a
+fresh draw: `--set holdout --seed 20261104 --mechs admm,admm-u1e-4`, 100
+scenarios per task and arm, N32 and N64, 1600 fixed-pacing episodes, no
+retuning (`examples/benchmarks/data/limits_holdout/holdout_rho_u_1e-4_20261104.jsonl`).
+Simulated peaks over the URDF limits, p50 / p90 / max, ticks over the velocity
+limit, the planner's own velocity violation (p50 / max), and the task metric:
+
+| task | arm, N | rho_u | sim qd / limit | ticks over | sim u / limit p50 / max | plan viol qd | tracking p50 / p90 (m) or goals, time (s) |
+|---|---|---|---|---|---|---|---|
+| fig8 | iiwa14 N32 | 1e-5 | 0.79 / 0.92 / 0.93 | 0.0 % | 0.21 / 0.23 | 0.0e+00 / 8.8e-03 | 0.0370 / 0.0473 |
+| fig8 | iiwa14 N32 | 1e-4 | 0.86 / 0.92 / 0.93 | 0.0 % | 0.24 / 0.27 | 0.0e+00 / 2.6e-02 | 0.0370 / 0.0476 |
+| fig8 | iiwa14 N64 | 1e-5 | 0.79 / 0.92 / 0.93 | 0.0 % | 0.21 / 0.36 | 0.0e+00 / 1.0e-02 | 0.0431 / 0.0572 |
+| fig8 | iiwa14 N64 | 1e-4 | 0.87 / 0.92 / 0.93 | 0.0 % | 0.24 / 0.35 | 0.0e+00 / 2.4e-02 | 0.0432 / 0.0574 |
+| fig8 | indy7 N32 | 1e-5 | 0.67 / 0.89 / 0.96 | 0.0 % | 0.24 / 0.35 | 0.0e+00 / 7.7e-03 | 0.0631 / 0.0993 |
+| fig8 | indy7 N32 | 1e-4 | 0.68 / 0.93 / 0.96 | 0.0 % | 0.25 / 0.34 | 0.0e+00 / 7.9e-03 | 0.0656 / 0.1017 |
+| fig8 | indy7 N64 | 1e-5 | 0.63 / 0.84 / 0.92 | 0.0 % | 0.23 / 0.32 | 0.0e+00 / 0.0e+00 | 0.0713 / 0.1021 |
+| fig8 | indy7 N64 | 1e-4 | 0.66 / 0.89 / 0.95 | 0.0 % | 0.23 / 0.31 | 0.0e+00 / 0.0e+00 | 0.0723 / 0.1032 |
+| pickplace | iiwa14 N32 | 1e-5 | 0.95 / 1.00 / 1.08 | 0.1 % | 0.32 / 1.00 | 1.3e-02 / 1.8e-01 | 2.98 of 3, 2.12 s |
+| pickplace | iiwa14 N32 | 1e-4 | 0.95 / 1.07 / 1.19 | 0.5 % | 0.34 / 0.79 | 2.8e-02 / 3.7e-01 | 2.98 of 3, 2.10 s |
+| pickplace | iiwa14 N64 | 1e-5 | 0.95 / 0.98 / 1.01 | 0.0 % | 0.31 / 0.83 | 1.3e-02 / 7.0e-02 | 2.88 of 3, 2.16 s |
+| pickplace | iiwa14 N64 | 1e-4 | 0.96 / 1.04 / 1.13 | 0.2 % | 0.31 / 0.69 | 4.9e-02 / 2.4e-01 | 2.88 of 3, 2.16 s |
+| pickplace | indy7 N32 | 1e-5 | 0.73 / 0.98 / 1.45 | 0.0 % | 0.20 / 0.86 | 0.0e+00 / 7.9e-02 | 3.00 of 3, 1.89 s |
+| pickplace | indy7 N32 | 1e-4 | 0.72 / 0.99 / 1.28 | 0.1 % | 0.18 / 0.67 | 0.0e+00 / 3.1e-01 | 3.00 of 3, 1.89 s |
+| pickplace | indy7 N64 | 1e-5 | 0.72 / 1.01 / 1.02 | 0.1 % | 0.21 / 0.87 | 0.0e+00 / 6.7e-02 | 3.00 of 3, 1.88 s |
+| pickplace | indy7 N64 | 1e-4 | 0.70 / 0.98 / 1.03 | 0.1 % | 0.21 / 0.68 | 0.0e+00 / 2.5e-01 | 3.00 of 3, 1.88 s |
+
+The holdout repeats the development set. The larger torque weight lowers the
+peak commanded torque on the pick-and-place (1.00 to 0.79 and 0.86 to 0.67 of
+the limit at N32) and leaves tracking, goals and task time unchanged, but it
+loses velocity enforcement where the box binds: on the iiwa14 pick-and-place
+the simulated velocity p90 rises from 1.00 to 1.07 and 0.98 to 1.04 of the
+limit, the maximum from 1.08 to 1.19 and 1.01 to 1.13, the ticks over the
+limit from 0.1 to 0.5 percent, and the planner's own velocity violation two to
+three times; on the figure-eight the iiwa14's velocity p50 rises from 0.79 to
+0.86. The torque rows regularizing again is the control bias the development
+set described. The candidate is closed; the default stays rho 0.1 / 0.03 /
+1e-5 with the residual exit at 1e-2. The solve times in the file are
+diagnostics recorded under other load and are not quotable.
+
 Reading. On the figure-8 the default tracks within 1 % of the unconstrained
 controller on both arms at N64 (0.0770 against 0.0762 m; 0.0422 against
 0.0417), 9 % at N32 on the Indy7 and equal on the iiwa14, with the planner
