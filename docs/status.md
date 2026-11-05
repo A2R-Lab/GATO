@@ -16,6 +16,36 @@ research software, not a certified robot controller.
 | Gait schedule, foot masks and swing targets | Solver-level foot-lift and programmer-plumbing tests | Schedule is supplied, not discovered; closed-loop S2 weight shift / S3 lift remain in development |
 | Runtime and task performance | [Figure refresh](figure-refresh-2026-10-01.md): seed A/B, Fig-3 (iiwa14 and Indy7), Fig-4, Fig-5, Fig-7 at their recorded revisions | Those ratios are not the paper's speedups or measurements of the latest controller defaults; Fig-7 is reported on two task settings |
 
+## Variants and features
+
+The receipt attests four module variants: `default`, `fc` (contact-force
+controls), `eh` (the exact Hessian) and `rk4` (the fourth-order step). A
+feature a module does not carry is refused with the message in the last
+column; `test/test_refusals.py` holds each refusal.
+
+| Feature | default | fc | eh | rk4 | Refusal where unsupported |
+|---|---|---|---|---|---|
+| Floating base (Go2) | yes | yes | no | yes | `gato.build(..., exact_hessian=True, floating_base=True)` raises `ValueError` before compiling |
+| Two variants in one module | | | | | `gato.build` raises `ValueError` ("separate module variants"); `fc` with `rk4` or `eh` with `rk4` are also compile-time errors |
+| Cost menu | yes | yes | yes | yes | `set_cost_menu` raises `ValueError` on a module without the emitted menu (none of the shipped ones) |
+| Cost-menu gravity target | fixed base | fixed base | fixed base | fixed base | `ValueError` on a floating base |
+| Second cost frame (`frame_pos_2`) | plants built with `cost_frames` (the Go2) | same | same | same | `ValueError` ("needs a second baked cost frame") |
+| Centre-of-mass term | plants built with `com=True` (the Go2) | same | same | same | `set_com_cost` raises `RuntimeError` ("does not bake the centroidal families") |
+| Contact-force slots (`fc_slots`, `set_fc_ref`, `add_fc_box`) | no | yes | no | no | `RuntimeError` ("needs a GATO_CONTACT_FORCES build") |
+| Contact-position rows | plants built with contact frames (all shipped) | same | same | same | `RuntimeError` ("bakes no contact frames") |
+| Collision rows | yes | yes | yes | yes | `ValueError` at code generation when a link has no sphere cover |
+| Exact Hessian (`set_exact_hessian`, `set_cost_curvature`) | no | no | yes | no | `RuntimeError` ("compiled without USE_EXACT_HESSIAN") |
+| `get_lambda`, `debug_setup_kkt`, row telemetry | yes | yes | yes | yes | |
+
+The exact Hessian of the `eh` variant is the dynamics' second derivative
+contracted with the lagged multipliers (the qq, qv, vv and uq blocks of the
+stage Hessian, from GRiD's `fdsva_so`) plus, under `set_cost_curvature`, the
+end-effector position term's residual-weighted curvature, followed by the
+stage-block PSD projection. It runs the fixed-base single-stage step with the
+external wrench held at zero in the second-order term; it does not carry the
+cost menu's cross blocks between state and control, nor a floating-base or
+multi-stage second derivative.
+
 ## Important operating limits
 
 - **Go2 locomotion:** the next design work is base position/orientation/velocity

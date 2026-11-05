@@ -101,6 +101,12 @@ class SolverStats:
     """Per-solve solver statistics (batch-shaped numpy arrays)."""
     solve_time_us: int
     sqp_iters: np.ndarray       # (B,) int32
+    # 1 when the SQP loop stopped because the Schur system's initial residual was
+    # already below the linear solver's tolerance (PCG took no step at that iterate;
+    # the direct path reports the same guard): a stationarity test of the LINEARIZED
+    # problem at pcg_tol on the warm-body path, off under ADMM's fixed budget. It is
+    # not a KKT certificate of the nonlinear problem: it tests neither the defect
+    # nor the row violations (gato.certificate reports those from the trajectory).
     kkt_converged: np.ndarray   # (B,) int32
     final_merit: np.ndarray     # (B,) float32 — merit of the returned trajectory
     initial_merit: np.ndarray   # (B,) float32 — merit before the first iteration

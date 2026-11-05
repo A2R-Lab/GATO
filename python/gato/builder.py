@@ -428,6 +428,9 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         raise ValueError("contact_forces, exact_hessian and integrator= are separate module variants — build one at a time")
     if integrator not in (None, "rk4"):
         raise ValueError(f"integrator must be None (the base's default step) or 'rk4', got {integrator!r}")
+    if exact_hessian and floating_base:
+        raise ValueError("exact_hessian runs the fixed-base single-stage step only: the second-order contraction "
+                         "is neither manifold-aware nor multi-stage (a floating-base module compiles without it)")
     variant = "fc" if contact_forces else ("eh" if exact_hessian else ("rk4" if integrator else "default"))
     suffix = "" if variant == "default" else f"_{variant}"
     if not name.isidentifier():

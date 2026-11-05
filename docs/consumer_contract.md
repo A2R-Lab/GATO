@@ -148,6 +148,16 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   Row-group ORDER is enforced: `enable_limit_*` before any appended group
   (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`, `add_contact_pos_rows`) or
   it raises (they used to be dropped silently).
+- **What `converged` means.** `SolverStats.kkt_converged` (and
+  `SolveResult.converged`) is 1 when the SQP loop stopped because the Schur
+  system's initial residual at that iterate was already below the linear
+  solver's tolerance, PCG taking no step (the direct path reports the same
+  guard; under ADMM's fixed budget the test is off). That is a stationarity
+  test of the linearized problem at `pcg_tol`, reported with PCG residuals of
+  order 1e-2 on the Go2 in the October 30 probe. It is not a certificate for
+  the nonlinear problem: it tests neither the defect nor the row violations.
+  Read `SolveResult.stats.defect` (with defect telemetry on),
+  `row_max_violation`, and `gato.certificate` for the trajectory's residuals.
 - **Floating-base defect and multipliers (0.2).** The dynamics row at knot k is
   linearized at the actual anchors: with `y = step(x_k, u_k)` and `s = x_{k+1}`
   the defect is `c = D_x(y, s)` (GRiD's reference-first state difference: the

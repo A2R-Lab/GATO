@@ -13,7 +13,9 @@ trajectory row, and reports the same residual set:
 CL-0 solves carry no row multipliers (telemetry / relaxed-barrier modes), so
 ``duals=None`` reports primal + n_active and leaves the dual axes None. The
 ADMM / AL bindings pass their per-row dual state to activate them.
-Numpy-only — usable as a pytest gate and from notebooks.
+Numpy-only, usable as a pytest gate and from notebooks. This is the
+certificate; ``SolverStats.kkt_converged`` is not (it is the linearized
+problem's stationarity test at the linear solver's tolerance).
 """
 import numpy as np
 
