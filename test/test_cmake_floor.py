@@ -65,24 +65,6 @@ def test_commands_exist_in_the_declared_minimum(cmakelists):
     assert not too_new, f"{cmakelists} declares {floor[0]}.{floor[1]} but uses:\n" + "\n".join(too_new)
 
 
-def test_cmake_executable_prefers_the_interpreter_s_own(tmp_path, monkeypatch):
-    """The cmake wheel installs next to the interpreter; that binary wins over PATH."""
-    import os
-    import sys
-    from gato import _cache
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    (fake_bin / "python").write_text("")
-    monkeypatch.setattr(sys, "executable", str(fake_bin / "python"))
-    monkeypatch.setenv("PATH", str(tmp_path / "elsewhere"))
-    assert _cache.cmake_executable() == "cmake"            # nothing anywhere: the bare name
-    venv_cmake = fake_bin / "cmake"
-    venv_cmake.write_text("#!/bin/sh\n")
-    venv_cmake.chmod(0o755)
-    assert _cache.cmake_executable() == str(venv_cmake)
-    assert os.access(_cache.cmake_executable(), os.X_OK)
-
-
 def test_native_arch_is_guarded_by_version():
     """CMAKE_CUDA_ARCHITECTURES=native is a 3.24 feature behind an explicit version check."""
     text = (REPO / "CMakeLists.txt").read_text()

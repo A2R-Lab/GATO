@@ -111,18 +111,6 @@ def detect_arch() -> str | None:
         return None
 
 
-def cmake_executable() -> str:
-    """The cmake the checkout's tools/build.sh and the C++ example configure with: the one
-    the `cmake` wheel put next to this interpreter (a dependency since 0.1.6, so a venv on
-    Ubuntu 22.04 or JetPack 6, whose distribution package is 3.22, still configures and
-    detects the GPU architecture), else the first `cmake` on PATH, else the bare name so
-    the failure names the tool. The pip path (ensure_module) does not use it since 0.2."""
-    here = Path(sys.executable).parent / "cmake"
-    if here.is_file() and os.access(here, os.X_OK):
-        return str(here)
-    return shutil.which("cmake") or "cmake"
-
-
 @functools.lru_cache(maxsize=None)
 def toolchain_identity(arch: str | None) -> dict:
     """Everything outside the sources that shapes a binary (memoized per process)."""

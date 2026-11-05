@@ -10,6 +10,7 @@ needed by your example; the full receipt profile is for validation and research.
 | Question | Reference |
 |---|---|
 | What works, and what is experimental? | [Feature status and limitations](status.md); [API stability](consumer_contract.md#9-api-stability) |
+| Which module variant carries which feature, and what does an unsupported call raise? | [Variants and features](status.md#variants-and-features) |
 | How do I use the Python API or migrate old code? | [Consumer contract and migration notes](consumer_contract.md) |
 | How do I add limits, cones, collision or foot rows? | [Constraint mechanisms and conventions](constraints.md) |
 | How do I install from a wheel and use my own URDF? | [register_robot and the per-host cache](development.md#installing-from-a-wheel-register_robot-and-the-per-host-cache), [example 05](../examples/05_build_your_robot.py) |
@@ -19,12 +20,15 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I build, test, sign a receipt or time a change? | [Development and validation](development.md) |
 | What block size and launch does the merit kernel run at, and why? | [Merit launch timing](merit_timing.md) |
 | How do I set an orientation target, a robust tracking term, a cost on any linear feature or a centre-of-mass target? | [The cost menu](cost_menu.md) |
+| How do I move a tracking target every control step without re-applying the menu? | [`update_cost_menu`](cost_menu.md) |
+| Which linear solver runs by default, and why the direct solve from 256 knots? | [Consumer contract: linsys](consumer_contract.md#4-solve-interface), [the Orin sweep](merit_timing.md#jetson-agx-orin-october-30-2026-the-direct-solve-against-pcg-on-017) |
+| What does the solver's `converged` flag mean? | [Consumer contract: what converged means](consumer_contract.md#4-solve-interface), [`gato.certificate`](consumer_contract.md#4-solve-interface) |
 | Which integrator does a module run, and how do I get the RK4 step? | [Consumer contract: the integrator is a module property](consumer_contract.md#4-solve-interface), [example 20](../examples/20_integrators.py) |
 | When does Gauss-Newton fall short, and what does the exact-Hessian path add? | [`set_exact_hessian`](constraints.md#set_exact_hessianon) and [`set_cost_curvature`](constraints.md#set_cost_curvatureon) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |
 | What do the current-code figures show? | [Figure refresh, October 2026](figure-refresh-2026-10-01.md) |
 | How is the project page updated? | [Website](website.md) |
-| Where did historical datasets come from? | [Dated archaeology](archaeology.md) — history, not current API guidance |
+| Where did historical datasets come from? | [Dated archaeology](archaeology.md), history rather than current API guidance |
 
 The [project website](https://a2r-lab.org/GATO/) presents the published experiments and the
 latest current-code results, each labeled. It is not a live benchmark dashboard. A green correctness receipt does not

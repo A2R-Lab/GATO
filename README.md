@@ -49,12 +49,12 @@ solver = gato.BSQP(gato.robot_urdf("indy7"), batch_size=8, N=32, dt=0.01, plant_
 `gato.robot_urdf(name)` returns the bundled description of a vendored robot
 (URDF + collision meshes), which you can copy and edit as a starting point.
 The first solver constructed for a (robot, horizon) on this machine compiles
-its CUDA module — a one-time build of a few minutes that is logged when it
-starts — into `~/.cache/gato` (`GATO_CACHE_DIR` to move it); every later
+its CUDA module, a one-time build of a few minutes that is logged when it
+starts, into `~/.cache/gato` (`GATO_CACHE_DIR` to move it); every later
 process loads it from there. `gato.register_robot(..., build=True)` compiles
 up front. Solver modules are specific to your GPU architecture, CUDA toolkit
 and Python; the cache key covers all of them, so nothing stale is ever loaded.
-Inputs may be numpy, torch or JAX arrays — see [Usage](#usage).
+Inputs may be numpy, torch or JAX arrays. See [Usage](#usage).
 
 ### From a checkout (development, the receipt profile, the paper figures)
 
@@ -74,7 +74,7 @@ the cache on first use). Each demo reports solve results; printed durations on
 a shared GPU are not benchmark measurements.
 
 GATO installs host-native into a project-local `.venv`, using only the Python
-standard-library `venv` + `pip` — no Docker, no `uv` (same lightweight model as
+standard-library `venv` + `pip`, no Docker, no `uv` (same lightweight model as
 GRiD's `base_install.sh`). The install script runs a preflight check (nvcc,
 GPU, cmake) and tells you exactly what's missing. Optional install choices
 (pick the extras you need; there is no need to run every line):
@@ -92,13 +92,13 @@ come from one released wheel, [`grid-rbd`](https://pypi.org/project/grid-rbd/),
 pinned to an exact version in `pyproject.toml`; no submodule is needed to build.
 (The paper's CPU baseline, `examples/benchmarks/baselines/sqpcpu`, is the one
 optional submodule; `examples/benchmarks/baselines/build_cpu_baseline.sh` fetches
-and compiles it — osqp and osqp-eigen into a local prefix — only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
+and compiles it, osqp and osqp-eigen into a local prefix, only when you reproduce Fig-3.) The lean default is all you need to generate code, build the solver, and run
 `gato.BSQP` (runtime: numpy + the built module). The lean installer also supplies
 trimesh and SciPy for collision-mesh code generation. Missing voxelization
 dependencies must not silently substitute a different collision geometry.
 Pinocchio and MuJoCo are needed only by
 the simulation worlds (`gato.worlds`), the FK helpers, the examples and the full
-test suite — `--test` pulls exactly those in; `--examples` adds torch and the
+test suite: `--test` pulls exactly those in; `--examples` adds torch and the
 viz stack. To run the fixed-pacing MPC and gym demos, add the test runtime:
 
 ```sh
@@ -107,8 +107,8 @@ python examples/03_mpc_loop.py
 python examples/04_gym_mpc.py
 ```
 
-Docker (`./tools/docker.sh`) is an **optional prerequisites image** — CUDA
-toolkit, CMake, Python — that drops you into a shell with the repo mounted; you
+Docker (`./tools/docker.sh`) is an **optional prerequisites image** (CUDA
+toolkit, CMake, Python) that drops you into a shell with the repo mounted; you
 then run the same `tools/install.sh` + `tools/build.sh` inside it. It does not
 build GATO for you.
 
@@ -133,7 +133,7 @@ cmake --build build --parallel 2                                # RAM-bound: rou
 ```
 
 - `PLANT`: semicolon-separated plant targets (`indy7`, `iiwa14`, `fr3`, `gen3`, `ur5e`, `go2`).
-- `KNOTS`: semicolon-separated horizon lengths — crossed with EVERY plant, so
+- `KNOTS`: semicolon-separated horizon lengths, crossed with EVERY plant, so
   use `MODULES` when plants differ (go2 is **N16-only**; longer floating-base
   horizons are compile blowups).
 - `./tools/build.sh --profile receipt` builds the set the signed GPU receipt
@@ -169,7 +169,7 @@ iteration). Load one with `gato.BSQP(..., variant="fc")`; list them with
 - A C++17 host compiler (gcc 11+)
 - CMake ≥ 3.22 (a dependency installs ≥ 3.24 into the venv, which detects the GPU architecture)
 - Python ≥ 3.10
-- Docker (optional — only for the containerized build)
+- Docker (optional, only for the containerized build)
 
 ## Usage
 
@@ -250,7 +250,7 @@ cmake --build build-cpp && ./build-cpp/batched_solve   # B figure-8 solves + a w
 from a wheel or a checkout. Plant, horizon and variant are compile-time
 (`KNOT_POINTS`, `GATO_PLANT_NAME`, `GATO_PLANT_HEADER`, plus
 `GATO_CONTACT_FORCES=1` / `USE_EXACT_HESSIAN=1`), so one binary is one
-(robot, N, variant) — exactly how the Python modules are built.
+(robot, N, variant), exactly how the Python modules are built.
 
 ### Python API at a glance
 
@@ -260,7 +260,7 @@ from a wheel or a checkout. Plant, horizon and variant are compile-time
 | `gato.BSQP` | one compiled module + its device buffers; **stateless in the trajectory**, stateful in duals / adapted rho | `solve(x, ref, xu_warm=None)`, the `set_*` cost/constraint surface, `ee_pos`, `sim_forward` |
 | `gato.MPCController` | the warm-start buffer (shift/hold), the per-step linsys policy, hypothesis batches, re-seeding, the URDF limit rows (ADMM by default on arms without existing rows; `limits="off"` adds no rows and preserves existing ones) | `reset(x0)`, `warmup`, `step(x, ref, budget_s=None) -> StepResult` (`u` = ACTUATED control to apply; `limits` / `row_viol` = the mechanism in force and the plan's violation per row group; a budget limits SQP work at iteration boundaries but can overrun) |
 | `gato.MPCPolicy` + `TrajectoryReference` / `GoalReference` | the clock and reference window | `policy(obs) -> action` in any gym-style loop |
-| `gato.MPC_GATO` | the paper's closed-loop SIMULATION driver (pinocchio-RK4 / MuJoCo world, pacing, task loops) | `run_mpc_fig8`, `run_mpc_goals` — not a controller |
+| `gato.MPC_GATO` | the paper's closed-loop SIMULATION driver (pinocchio-RK4 / MuJoCo world, pacing, task loops) | `run_mpc_fig8`, `run_mpc_goals`, not a controller |
 | `gato.worlds.{PinocchioWorld, MuJoCoWorld}` | an independent simulator to close the loop against | contact / disturbance experiments |
 | `gato.ForceHypothesisBatch` + `ForceEstimator` / `CEMForceEstimator` | the batch-as-identity disturbance layer | each batch entry solves under its own wrench hypothesis; reality picks the winner |
 | `gato.build` / `gato.available` / `gato.robot_info` / `gato.fingerprint` (a submodule: `import gato.fingerprint as fp`) | codegen + compile, module discovery, registry, the dynamics fingerprint | adding robots, checking that an external simulator is the same robot |
@@ -274,7 +274,7 @@ bdsv floating base); `MPCController(linsys="auto", bdsv_threshold=0.1)` (the
 fixed-base default) picks per step from warm-startedness: a cold step (large
 `‖x_measured − x_predicted‖`, or a PCG cap-out) takes one exact solve. The
 threshold is per-workload: `tools/autotune_linsys.py` probes a task and persists
-a tuned entry in `linsys_tuning.json` (written at runtime next to the registry, gitignored; timing runs — quiet box only).
+a tuned entry in `linsys_tuning.json` (written at runtime next to the registry, gitignored; timing runs on a quiet box only).
 
 ### Floating base (quadruped)
 
@@ -291,10 +291,10 @@ baked foot frame to every control (`FC_SIZE = 24`; `solver.contact_frames`,
 `solver.fc_slots(frame, "n"|"f")`). The wrenches are the solver's contact
 EXPLANATION, not commands to the world: a standing loop with `fc_ref = mg/4` up per
 foot and the moment rows pinned (`add_fc_box(0, 0, slots=..., mech="al")`) holds
-the stance height on MuJoCo with each foot carrying mg/4 — the contactless model
+the stance height on MuJoCo with each foot carrying mg/4; the contactless model
 collapses from the same start (`test_floating_worlds.py`). Two traps: the standing
-keyframe (base z 0.35) has the feet 8.5 cm in the air — derive the stance pose from
-FK (feet touch at z ≈ 0.287); and an asymmetric `fc_ref` does NOT shift weight — the
+keyframe (base z 0.35) has the feet 8.5 cm in the air; derive the stance pose from
+FK (feet touch at z ≈ 0.287); and an asymmetric `fc_ref` does NOT shift weight; the
 world's split follows the centre of mass, so the solver plans for an imagined split
 and can tip over. Weight shift / foot lift also need a base-tracking cost and
 a pre-liftoff support plan; contact rows alone do not establish walking.
@@ -302,16 +302,16 @@ a pre-liftoff support plan; contact rows alone do not establish walking.
 
 **Foot position rows and the gait oracle** (CL-4): `add_contact_pos_rows` puts
 per-knot residual rows `p_f(q_k) - tgt_k` on every baked contact frame (on-device
-FK over GRiD's `contact_frame_positions` surface) — an equality per knot pins a
+FK over GRiD's `contact_frame_positions` surface); an equality per knot pins a
 stance foot where it touched down, a one-sided z row is a swing clearance, and a
 per-knot target table (`set_row_group_targets`) tracks a swing curve. The gait is
 GIVEN, never discovered: `gato.gait.GaitSchedule` (trot/bound/pace/walk/stand,
 period, duty, phase offsets) rolls the stance mask over the horizon and
-`GaitProgrammer` writes it into the solver every tick — swing-foot wrench pins,
+`GaitProgrammer` writes it into the solver every tick: swing-foot wrench pins,
 per-knot normal-force reference, stance-masked friction cones (`install_cones`) and,
 with `install_foot_rows`, the stance/swing foot rows (`apply(t, q)`). Operating
 point: the rows fold onto the Q block against the standing costs, so solver-level
-enforcement needs AL rho ~1e3 (ADMM ~1e2; rho 10 is dominated) — verified solver-only
+enforcement needs AL rho ~1e3 (ADMM ~1e2; rho 10 is dominated), verified solver-only
 (feet held < 1 mm, a 3 cm foot lift in the horizon, `test_contact_rows.py`). In the
 closed loop, static standing with AL stance rows now passes its regression gate
 after non-PD factor recovery and measured-foot target re-anchoring. Moving targets
@@ -322,7 +322,7 @@ slip. S2 weight shift and S3 foot lift remain open work; see
 ### Same robot? The dynamics fingerprint
 
 Before comparing controllers across simulators, run
-`import gato.fingerprint as fp; fp.check(my_qdd_fn, "iiwa14")` — per-joint inertia-response
+`import gato.fingerprint as fp; fp.check(my_qdd_fn, "iiwa14")`, per-joint inertia-response
 ratios against `test/dynamics_fingerprint.json` (pinned URDF sha + probes).
 A ratio away from 1 is a model mismatch, not a solver bug
 ([docs/consumer_contract.md](docs/consumer_contract.md)).
@@ -336,10 +336,10 @@ controls. Groups bind to one of four mechanisms:
 
 | mechanism | call | character |
 |---|---|---|
-| telemetry | `enable_limit_telemetry()` | report-only — violation stats every solve, solver path untouched (bit-identical) |
+| telemetry | `enable_limit_telemetry()` | report-only: violation stats every solve, solver path untouched (bit-identical) |
 | relaxed barrier | `enable_limit_barrier(mu, delta)` | soft interior penalty, infeasible-start safe |
 | ADMM projection | `enable_limit_admm(rho, iters, eps_rel=...)` | inner splitting loop per SQP step, tight transients; `set_admm_exit` stops the loop on its residuals |
-| augmented Lagrangian | `enable_limit_al(rho)` | PHR outer duals — exact at convergence, made for warm-started MPC |
+| augmented Lagrangian | `enable_limit_al(rho)` | PHR outer duals, exact at convergence, made for warm-started MPC |
 
 ```python
 solver.enable_limit_al(rho=1.0)              # boxes from the URDF limit tables
@@ -349,7 +349,7 @@ res.stats.row_max_violation                  # (group, batch) telemetry, always 
 # EE terminal-position equality on top of the boxes (reach-to-point)
 solver.enable_ee_terminal_equality(target_xyz, rho=10.0)
 
-# cone on a mapped control quantity g = C @ u + d — e.g. an EE contact-force
+# cone on a mapped control quantity g = C @ u + d, e.g. an EE contact-force
 # friction cone with C = S @ pinv(J(q).T), frozen at the contact config q
 solver.enable_u_cone(C, d, mech="admm", rho=0.01)       # exact second-order cone
 solver.enable_u_cone(C, d, form="pyramid", facets=8)    # linear-facet approximation
@@ -368,7 +368,7 @@ down: `add_lin_u_rows(C, d, lo=..., hi=...)` appends interval rows
 Mechanisms mix across groups (e.g. AL boxes + an ADMM cone). Two rules:
 call `add_lin_u_rows`/`enable_u_cone` **after** `enable_limit_*` (mechanism
 enables reinstall the canonical groups and therefore reject that ordering), and when the
-map `C` is large, scale `rho` down by `‖C‖²` — the fold lands `rho * CᵀC` on
+map `C` is large, scale `rho` down by `‖C‖²`: the fold lands `rho * CᵀC` on
 the control Hessian block. Per-solve duals and ADMM state are inspectable via
 `get_row_duals()` / `get_admm_state()`; `set_row_group_soft(g, sigma)` turns a
 hard group into a slack-penalized one. The full parameter surface is in the
@@ -450,7 +450,7 @@ quiet-window timing rule) is [docs/development.md](docs/development.md).
 
 Committed scripts that regenerate the data and figures from
 [the paper](https://arxiv.org/abs/2510.07625) live in
-**[examples/paper-figures/](examples/paper-figures/)** — one `reproduce_figN_*.py` per figure. Fig-4/5/7
+**[examples/paper-figures/](examples/paper-figures/)**: one `reproduce_figN_*.py` per figure. Fig-4/5/7
 regenerate their data on the GPU **by default**, re-render from saved/recovered data with `--replot`,
 and run a fast smoke with `--quick`; Fig-3 assembles the table and plots from the committed sweep CSVs
 (no GPU) and re-runs a lane only on request (`--run-gato`, `--run-bt`; MPCGPU cells via `--mpcgpu-timing-dir`). Run from the repo root:
@@ -474,7 +474,7 @@ every paper horizon + go2 N16 + the fc/eh variants).
 See [examples/paper-figures/README.md](examples/paper-figures/README.md) for the full build matrix,
 reproducibility tiers, hardware/config delta, and caveats (MPCGPU/CPU baselines). Fig-6 (sim
 snapshot) and Fig-8 / Table-II (hardware) are not reproducible in software. Timing legs are
-QUIET-BOX runs — never on a shared machine. Provenance for every recovered dataset is in
+QUIET-BOX runs, never on a shared machine. Provenance for every recovered dataset is in
 [docs/archaeology.md](docs/archaeology.md) (a dated 2026-06 snapshot).
 
 ## Related

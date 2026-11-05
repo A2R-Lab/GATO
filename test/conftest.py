@@ -242,3 +242,15 @@ def test_params():
 def go2_model():
     import pinocchio as pin
     return pin.buildModelFromUrdf(str(GO2_URDF), pin.JointModelFreeFlyer())
+
+
+def fd_columns(fn, width, eps):
+    """Central finite differences of ``fn`` over the unit directions of a ``width``-vector,
+    one column per direction (the derivative gates' common helper)."""
+    import numpy as np
+
+    cols = []
+    for j in range(width):
+        e = np.zeros(width); e[j] = eps
+        cols.append((fn(e) - fn(-e)) / (2 * eps))
+    return np.column_stack(cols)

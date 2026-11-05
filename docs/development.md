@@ -17,7 +17,8 @@ platform user cache, e.g. `~/.cache/gato`): `robots/<codegen_key>/<name>/` holds
 grid-rbd's consumer artifact store (`grid_rbd.build_artifact`, 0.7.0): GRiD
 generates the robot's header for the registered options, compiles GATO's
 bindings translation unit against it with nvcc (the same defines and flags as
-`CMakeLists.txt`, the module's `limits.cuh` as the only GATO-side plant file)
+`CMakeLists.txt`, the module's `limits.cuh` as the only GATO-side plant file,
+the `host` launch-configuration profile that the vendored headers also bake)
 and links the extension as a declared Python extension bound to the model
 descriptor; `modules/<name>/<module_key>/` holds a link to the artifact and
 `meta.json` (inputs, seconds, the store's content key), the store under
@@ -45,7 +46,7 @@ gate (its slow tier compiles into a temporary cache).
 publishing, OIDC; no token is stored anywhere). It builds the universal wheel
 and sdist, installs the wheel outside the checkout and runs
 `tools/check_installed_package.py` without a GPU, then uploads to TestPyPI and,
-for a `v*` tag, to PyPI — each upload behind a protected environment whose
+for a `v*` tag, to PyPI, each upload behind a protected environment whose
 reviewer approves by hand. One-time set-up, by a maintainer:
 
 1. On pypi.org and test.pypi.org, add a *pending* trusted publisher for the
@@ -111,13 +112,13 @@ matching input/source hashes, parity, raw samples and recorded box state.
 
 GRiD and GLASS are developed in their own repositories; GATO consumes both through
 the released `grid-rbd` wheel, pinned to an exact version in `pyproject.toml` and
-`python/gato/_grid.py` (which also pins the GLASS commit the wheel must bundle —
+`python/gato/_grid.py` (which also pins the GLASS commit the wheel must bundle;
 `gato._grid.require()` refuses any other install, at codegen, configure and test
 time). The wheel supplies the code generator, URDFParser, the global `glass::`
 headers and `grid_collision_geometry.cuh`; CMake asks `python/gato/_grid.py` for
 the include directories. After a grid-rbd bump run `.venv/bin/python tools/regen_grid.py`
 and `pytest test/test_codegen.py` (the vendored `gato/dynamics/<robot>/grid.cuh` must
-regenerate byte-identically — never edit it by hand). A dependency update requires
+regenerate byte-identically; never edit it by hand). A dependency update requires
 rebuilding the receipt profile (every module embeds a content identity of the
 dependency headers it was built from) and passing the existing numerical goldens.
 Previously collected timings remain evidence for their recorded pins, not the
@@ -138,7 +139,7 @@ MODULES="indy7:8,16;go2:16:fc" JOBS=1 ./tools/build.sh   # explicit plant:N[:var
 
 `PLANT`, `KNOTS`, `ARCH` and `JOBS` (default 4) are environment overrides. `ARCH` is the CUDA
 architecture (default `native`); set it explicitly, e.g. `ARCH=120` on the lab box, whenever
-native detection could pick another target (worktree builds) — the symptom of a wrong
+native detection could pick another target (worktree builds); the symptom of a wrong
 architecture is frozen solves, not a build error. Every translation unit pulls the whole generated
 `grid.cuh`, so one go2 compile peaks near 7 GB of RAM; `gato.build(...)` reconfigures
 `build/` for its own module request, so re-run your usual configure afterwards

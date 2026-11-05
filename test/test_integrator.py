@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 import gato
-from conftest import ARM_START, GO2_DT, GO2_TEST_PARAMS, GO2_URDF, TEST_PARAMS, URDFS, arm_problem, go2_goals_at, go2_standing_x
+from conftest import (ARM_START, GO2_DT, GO2_TEST_PARAMS, GO2_URDF, TEST_PARAMS, URDFS, arm_problem, fd_columns,
+                      go2_goals_at, go2_standing_x)
 
 PLANT, N = "iiwa14", 16
 
@@ -209,17 +210,9 @@ def test_floating_base_rk4_step_and_linearization():
     # of the device step through the manifold retraction and difference.
     eps = 1e-3
     y, succ = f(x0, u), x0
-
-    def fd(fn, width):
-        cols = []
-        for i in range(width):
-            e = np.zeros(width); e[i] = eps
-            cols.append((fn(e) - fn(-e)) / (2 * eps))
-        return np.column_stack(cols)
-
-    j2 = fd(lambda d: state_difference(y, retract(succ, d), nq, nv), ts)
-    cx = fd(lambda d: state_difference(f(retract(x0, d), u), succ, nq, nv), ts)
-    cu = fd(lambda d: state_difference(f(x0, u + d), succ, nq, nv), s.nu)
+    j2 = fd_columns(lambda d: state_difference(y, retract(succ, d), nq, nv), ts, eps)
+    cx = fd_columns(lambda d: state_difference(f(retract(x0, d), u), succ, nq, nv), ts, eps)
+    cu = fd_columns(lambda d: state_difference(f(x0, u + d), succ, nq, nv), s.nu, eps)
     A_fd = -np.linalg.solve(j2, cx)
     B_fd = -np.linalg.solve(j2, cu)
     assert np.abs(A - A_fd).max() < 5e-3, np.abs(A - A_fd).max()

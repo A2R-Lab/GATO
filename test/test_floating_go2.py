@@ -32,7 +32,7 @@ def mod():
 
 from conftest import (GO2_URDF as URDF, GO2_N as N, GO2_DT as DT, GO2_NQ as NQ, GO2_NV as NV,  # noqa: E402
                       GO2_NU as NU, GO2_NX as NX, GO2_XU_STRIDE as XU_STRIDE, go2_standing_q as _standing_q,
-                      go2_solver)
+                      go2_solver, fd_columns as _fd)
 
 TS = 2 * NV           # tangent state
 
@@ -139,15 +139,6 @@ def _rand_traj(rng, model):
             xu[base + NX:base + XU_STRIDE] = rng.normal(0, 1.0, NU)
     return xu
 
-
-
-def _fd(fn, width, eps):
-    """Central finite differences of fn over the unit directions (columns)."""
-    cols = []
-    for j in range(width):
-        e = np.zeros(width); e[j] = eps
-        cols.append((fn(e) - fn(-e)) / (2 * eps))
-    return np.column_stack(cols)
 
 
 def _check_normalized_linearization(model, step, A, B, c, xu, stride, nu, knots, rng):

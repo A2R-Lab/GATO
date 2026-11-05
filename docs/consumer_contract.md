@@ -1,4 +1,4 @@
-# GATO consumer contract — conventions external integrations depend on
+# GATO consumer contract: the conventions external integrations depend on
 
 Audience: anyone driving GATO from outside this repo (closed-loop harnesses,
 other lab solvers, hardware pipelines, comparison benchmarks). Updated 2026-09-26.
@@ -18,7 +18,7 @@ print(fp.report(res))                  # per-joint inertia-response ratios
 ```
 
 A per-joint ratio away from 1.0 on the `inertia_j` probes means your model and
-ours disagree about that joint's effective inertia — and every closed loop
+ours disagree about that joint's effective inertia, and every closed loop
 built across that disagreement has a mis-designed gain. Provenance: a ×2.6–3.2
 mismatch on iiwa14 joint 7 (MuJoCo harness vs URDF) presented as a "solver
 instability" and took five debugging rounds to name (PDDP round-5). The
@@ -28,7 +28,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 ## 1. Frames and kinematics
 
 - **EE frame**: the device FK (tracking cost and EE row-groups) targets the
-  URDF `ee_frame` via named-target `*_EE` codegen — this INCLUDES the terminal
+  URDF `ee_frame` via named-target `*_EE` codegen; this INCLUDES the terminal
   fixed-joint origin. `BSQP.ee_pos(q)` is the same frame to f32 precision.
   Provenance: before 2026-07-30 the device frame dropped the terminal fixed
   joint (≈40 mm on iiwa14); any calibration captured against the old convention
@@ -38,14 +38,14 @@ disagreement isolated to the `coriolis` probe points at damping instead.
 
 ## 2. Limits and barriers
 
-- **`JOINT_LIMIT_MARGIN` = −0.1** (plant.cuh; units per table — rad, rad/s, N·m): the baked barrier limits are
+- **`JOINT_LIMIT_MARGIN` = −0.1** (plant.cuh; units per table: rad, rad/s, N·m): the baked barrier limits are
   the URDF limits SHRUNK by 0.1 rad on each side (position AND torque tables).
   A reference that is "in-limit" by the URDF can still sit past the barrier's
   effective limit. Provenance: this explained an entire experiment matrix of
   "barrier-on always diverges" (PDDP round-2).
 - Barrier weights (`q_lim_cost`, `vel_lim_cost`, `ctrl_lim_cost`) default to
   {0.01, 0, 0} (`gato.SolverParams`): **torque limits are NOT enforced by
-  default** — either enable
+  default**: either enable
   `ctrl_lim_cost`, add box rows, or clamp applied torque driver-side (do the
   last one anyway if your plant is real hardware).
 
@@ -57,11 +57,11 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   posture anchor is on.
 - **Posture anchor** (`set_q_pos_cost` + `set_q_nom`): adds
   0.5·w·‖q − q_nom‖² per knot. Two non-obvious consequences: (a) the +w·I
-  Hessian term applies at ZERO posture error too — it regularizes the rank-3
+  Hessian term applies at ZERO posture error too; it regularizes the rank-3
   GN EE Hessian, so anchored solves legitimately converge deeper and command
   larger (honest) torques; "inert at q == q_nom" is true of the value and
   gradient only. (b) It closes position feedback on previously-uncontrolled
-  nullspace joints — if your sim disagrees with our model there (see §0), the
+  nullspace joints; if your sim disagrees with our model there (see §0), the
   anchor is what exposes it.
 - **Per-joint weights**: `set_u_cost_vec([...])` requires `n_actuated` entries
   (Go2: 12), excluding base coordinates and contact-wrench slots.
@@ -69,7 +69,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   Both default and contact-force Go2 variants have dedicated effort-vector KKT
   gates in `test/test_anchor.py`. On an arm, vector weights price one joint's
   channel without changing the others.
-- Weights land literally on the KKT diagonals — `debug_setup_kkt` exposes the
+- Weights land literally on the KKT diagonals; `debug_setup_kkt` exposes the
   blocks, and `test/test_anchor.py` shows the pattern for verifying any cost
   claim directly instead of arguing from solve outcomes.
 - **The cost menu** (0.1.4, [cost_menu.md](cost_menu.md)) replaces everything
@@ -93,14 +93,14 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   baseline, NOT every paper experiment's configuration (max_sqp_iters=1; mu=10, rho=0.01,
   qd_cost=1e-2, u_cost=2e-6, q_lim_cost=0.01, pcg_tol=1e-4, max_pcg_iters=200).
   Provenance: until 2026-09-20 the constructor carried a SECOND default set
-  (mu=1, rho=1e-3, max_sqp_iters=10, ...) that no harness ever ran — if you
+  (mu=1, rho=1e-3, max_sqp_iters=10, ...) that no harness ever ran; if you
   copied constructor defaults, re-check against `SolverParams()`. `kkt_tol`
   is gone (it never terminated anything; convergence is merit/step based).
   `solver.params` records configuration fields; setters for those fields update
   it. Row groups, vector weights and target tables have their own state and are
   not a complete replay configuration in `SolverParams` alone.
 - **linsys**: `SolverParams.linsys` None = the wired static default (pcg on a
-  fixed base below 256 knots, bdsv from 256 and on a floating base) — the
+  fixed base below 256 knots, bdsv from 256 and on a floating base), the
   static arm of `MPCController`'s per-step policy ("auto" = pcg warm /
   bdsv_first cold, same resolver: `gato.linsys_autotune.resolve_linsys`). The
   horizon rule is Felix Mueh's Orin measurement of October 30 (docs/merit_timing.md);
@@ -109,7 +109,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   return the same kind. CUDA tensors (torch on a CUDA device, JAX on a GPU)
   use the device path: inputs are read in place through their device pointer
   (float32 + contiguous; converted on the device otherwise) and `xu` comes
-  back on the device through DLPack — no host round trip, bit-identical to the
+  back on the device through DLPack, no host round trip, bit-identical to the
   host path. A device `xu_warm` must live on the same device and is used as
   given (knot-0 states replaced by `xcur_B`; no floating-base quaternion
   healing). CPU tensors take the host path. Native calls use the default CUDA
@@ -123,10 +123,10 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   the device, the same plan as the host path bit for bit; host and device
   calls may alternate. Otherwise the controller runs the host path and
   returns `u` in the caller's kind.
-- `solve(xcur_B, eepos_goals_B, xu_warm=None)` — ALL batch-dim arrays; xu layout
+- `solve(xcur_B, eepos_goals_B, xu_warm=None)`: ALL batch-dim arrays; xu layout
   is `[x_0, u_0, x_1, u_1, ..., x_{N-1}]`, row length `N*(nx+nu) − nu`.
   **Stateless in the trajectory**: `xu_warm=None` seeds a hold at `xcur_B`
-  (a cold start — NOT the previous solution); pass the last `SolveResult.xu`
+  (a cold start, NOT the previous solution); pass the last `SolveResult.xu`
   to warm-start. Your array is never modified; `SolveResult.xu` is a fresh
   array. AL/ADMM outer iteration = warm-started repeat solves, so thread
   `xu_warm` explicitly in such loops. The solver IS stateful in duals, ADMM
@@ -175,21 +175,21 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   them against central finite differences of the pinocchio residual.
 - **Control width is a MODULE property**: `nu = CONTROL_SIZE` from the module
   (on `GATO_CONTACT_FORCES` builds, `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE`).
-  Use `SolveResult.u0()/control_at(k)` for the APPLIED (actuated) control —
+  Use `SolveResult.u0()/control_at(k)` for the APPLIED (actuated) control;
   never slice xu by pinocchio's nv.
 - **fc slots are per baked contact frame**: `BSQP.contact_frames` lists the
   frames in codegen order (`_registry.json`), `BSQP.fc_slots(frame, part=None|"n"|"f")`
   gives the 6-wide `[n; f]` block (world-aligned, about the frame origin) or
-  its moment/force half — feed it to `add_fc_box`, `set_fc_ref`, `fc_at`.
+  its moment/force half; feed it to `add_fc_box`, `set_fc_ref`, `fc_at`.
   Arms bake one frame (the EE); go2 bakes the four `*_foot_joint` frames
   (`FC_SIZE = 24`, module attr `NUM_CONTACT_FRAMES = 4`). Floating base
   consumes fc through the grid step: the fc columns of B and the dfext/dq
   chain term are composed from the full-force B block, gated against
   pinocchio FD (`test_floating_go2.py`). `add_fc_box` rows are TELEMETRY unless
-  a mechanism is chosen (`mech="al"` / `enable_limit_*` first) — a pin that
+  a mechanism is chosen (`mech="al"` / `enable_limit_*` first); a pin that
   does not pin is the default-mech trap.
 - `MuJoCoWorld.last_contact["fn_by_body"]` splits the normal force per robot
-  link (URDF link name) — the per-foot signal the standing gates read.
+  link (URDF link name), the per-foot signal the standing gates read.
 - **`MPCController.step()` contract.** One call = one solve from the measured
   state, warm-started from the previous tick's shifted plan, of up to
   `SolverParams.max_sqp_iters` SQP iterations (each with its PCG/ADMM budget);
@@ -241,7 +241,7 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   budgeted solve is deterministic in its result given the iteration count it
   reached, but that count depends on the clock.
 - The measured state enters as a hard initial-state constraint (x_0 is data;
-  don't put state limits at knot 0 — they'd be unsatisfiable under violation).
+  don't put state limits at knot 0; they'd be unsatisfiable under violation).
 
 ### Controller call timing on October 19
 
@@ -334,7 +334,7 @@ These measurements do not replace the paper figures or earlier dated results.
 The signed receipt (`gpu-proof.json`, verified in CI) attests the recorded tests
 at the fingerprinted sources and pinned dependencies, using the modules in
 [`test/receipt_modules.txt`](../test/receipt_modules.txt). This includes default,
-contact-force (`fc`) and exact-Hessian (`eh`) variants—not just default builds.
+contact-force (`fc`) and exact-Hessian (`eh`) variants, not just default builds.
 [`test/expected_skips.txt`](../test/expected_skips.txt) is an EMPTY allow-list:
 any skipped test fails receipt verification.
 
@@ -370,7 +370,7 @@ Open a GitHub issue with the URDF, the module name (`gato.module_name(plant, N, 
 ## 8. C++/CUDA interface
 
 `BSQP<T>` (`gato/bsqp/bsqp.cuh`, header-only; `T` = float from `settings.h`)
-is the solver the Python class wraps — same constructor arguments as
+is the solver the Python class wraps, with the same constructor arguments as
 `gato.SolverParams` (batch, SQP/PCG budgets, `pcg_tol`, `solve_ratio`, `mu`,
 cost weights, `rho`), same `enable_limit_*` / `add_*` / `set_*` surface on host
 pointers, and `solve(T* d_xu_traj_batch, ProblemInputs<T>)` on device pointers

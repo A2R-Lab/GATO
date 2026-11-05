@@ -86,7 +86,7 @@ Internal solver time per batched solve at N = 64:
 - Collection: the table is the October 3 11:48 run in an exclusive window (`a2rlab-timing-chain`
   run `20261003-114755`). Two earlier runs on a shared box (23:18 and 00:32, with another agent's
   test suite in the background) agreed with it within 2.7% on every GATO cell; the CPU lane moved
-  by up to 17% between runs, the same spread the iiwa14 lane shows — single runs of the CPU
+  by up to 17% between runs, the same spread the iiwa14 lane shows; single runs of the CPU
   baseline carry that much noise, so read its ratios to ±15%.
 
 ## Fig-7 / Table I: pick-and-place with an unmodelled 15 kg payload (October 3)
@@ -106,8 +106,8 @@ and `--task pass-through`; `--success-plot` draws `fig7_success_vs_batch.png`.
 
 | Task | Hypothesis sampler | B = 1 | 8 | 32 | 128 | Mean completion of successes (s) |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| **Stop at each goal** — reference ramps to the next goal over 1.5 s (minimum jerk), gates must hold 100 ms | paper's exploration sampler (`fe`) | 15% | **100%** | **99%** | **98%** | 11.1 / 9.4 / 8.7 / 8.7 |
-| **Pass through each goal** — the paper's protocol: step reference, instantaneous gate | identified weight + exploration (`wid`) | 26% | 83% | **97%** | **95%** | 11.9 / 6.8 / 5.7 / 5.2 |
+| **Stop at each goal**: reference ramps to the next goal over 1.5 s (minimum jerk), gates must hold 100 ms | paper's exploration sampler (`fe`) | 15% | **100%** | **99%** | **98%** | 11.1 / 9.4 / 8.7 / 8.7 |
+| **Pass through each goal**: the paper's protocol, step reference, instantaneous gate | identified weight + exploration (`wid`) | 26% | 83% | **97%** | **95%** | 11.9 / 6.8 / 5.7 / 5.2 |
 
 Batching improves success in both tested settings: at B = 8 the stop task reaches
 100% and the pass-through task 83%; the latter improves further to 97% at B = 32.
@@ -122,7 +122,7 @@ observed behavior differs between these settings:
   gate: on this task the identified-weight sampler reaches 1 / 4 / 3 / 11% at 15 kg and
   40 / 68 / 81 / 59% at 5 kg. A planner check with a constant known force
   confirms the compensation itself is right (exact hypothesis holds the goal at 3 cm, zero
-  hypothesis sags 5–8 cm) — the loss is the swing it provokes.
+  hypothesis sags 5–8 cm); the loss is the swing it provokes.
 - When the arm flies through the goals, speed is what the gate rewards and knowing the load pays:
   the identified-weight sampler lifts the paper's sampler's 6 / 62 / 84 / 82% to 26 / 83 / 97 / 95%
   (paired wins/losses at B = 1/8/32/128: 25/5, 30/9, 15/2, 16/3;

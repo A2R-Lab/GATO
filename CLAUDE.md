@@ -95,7 +95,8 @@ migrated to `glass::`.
 - `gato/dynamics/` — `plant.cuh` (ONE shared robot-agnostic adapter: dimension aliases from
   `grid::` constants, dynamics + tracking-cost wrappers over `grid_plant::`), `integrator.cuh`,
   `grid_plant_step.cuh` (floating-base step/linearization via the emitted arena carves),
-  `manifold.cuh` (SE(3) retract/difference) + per-robot `<name>/{grid.cuh, limits.cuh}` (both
+  `manifold.cuh` (SE(3) retract/difference), `model_dims.cuh` (the actuated width and the
+  floating block from GRiD's model descriptor, 0.2) + per-robot `<name>/{grid.cuh, limits.cuh}` (both
   generated; `indy7`, `iiwa14`, `go2`, and since 0.1.2 `fr3`, `gen3`, `ur5e` from
   `examples/<robot>_description`, whose README records the source and the edits). CMake injects `-DGATO_PLANT_HEADER="dynamics/plant.cuh"`
   and puts the robot dir on the include path. Regen emits only the consumed GRiD families
@@ -120,7 +121,11 @@ migrated to `glass::`.
   - `policy.py` / `envs.py` — `MPCPolicy` + reference providers (numpy-only) / gymnasium
     `ArmTrackEnv` (lazy import).
   - `worlds.py` — `PinocchioWorld` / `MuJoCoWorld` simulators; `certificate.py` (KKT certificate);
-    `linsys_autotune.py` (resolve_linsys + the tuned-entry table); `fingerprint.py`.
+    `linsys_autotune.py` (resolve_linsys + the tuned-entry table; the fixed-base default is
+    the direct solve from `BDSV_HORIZON` = 256 knots since 0.2); `fingerprint.py`;
+    `cost_menu.py` (`CostMenu`, `update_cost_menu` for moving targets); `_cache.py` (the per-host
+    cache of registered robots; since 0.2 the pip path compiles modules through grid-rbd's
+    consumer artifact store, nvcc only, no CMake).
   - `mpc_gato.py` — `MPC_GATO`, the closed-loop SIM DRIVER (`run_mpc_fig8`; `run_mpc_goals`
     with the optional `settle_time` dwell and `goal_ramp` minimum-jerk reference).
   - `builder.py` — `gato.build(urdf, ..., floating_base=, contact_frames=, contact_forces=,

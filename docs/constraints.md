@@ -1,4 +1,4 @@
-# GATO constraint layer — mechanisms, measured defaults, provenance
+# GATO constraint layer: mechanisms, measured defaults, provenance
 
 Reference for the row-group constraint API on `gato.BSQP`.
 The code docstrings carry the CONTRACT (what each call does); this page keeps
@@ -7,12 +7,12 @@ to live inline; the docstrings carry a one-line summary and point here.
 
 Ordering rule (enforced, raises): `enable_limit_*` FIRST, then appended groups
 (`add_lin_u_rows` / `enable_u_cone` / `add_fc_box` / `add_fc_cone` / `add_contact_pos_rows` / `enable_ee_terminal_equality`
-/ `enable_collision`) — a mechanism enable reinstalls the canonical limit groups.
+/ `enable_collision`); a mechanism enable reinstalls the canonical limit groups.
 
 Mechanisms: `telemetry` (report only) · `barrier` (relaxed log barrier, soft)
 · `admm` (OSQP-style projection inner loop with PCG or reused BDSV factor,
 approximately hard) · `al` (PHR augmented Lagrangian, outer loop = warm-started
-repeat solves — pass `xu_warm` explicitly).
+repeat solves; pass `xu_warm` explicitly).
 
 Since 0.1.4 the cost menu ([cost_menu.md](cost_menu.md)) offers barrier
 activations (a relaxed log barrier and a quadratic barrier on any term's
@@ -56,7 +56,7 @@ Default BOUND "pcg" by the 2026-08-01 quiet-box A/B: 1.4-2.5x faster
 per solve at identical tracking on every ADMM family (box fig8
 16.5->6.6 ms indy7 / 18.9->9.7 ms iiwa14; cone 2.4x/2.2x; collision
 1.6x/1.4x). The trade: PCG's looser inner residual leaves transient
-box violations ~2-3x higher (same order, still enforced — e.g.
+box violations ~2-3x higher (same order, still enforced, e.g.
 3.7e-2 -> 1.0e-1 on fig8 boxes). Pick "bdsv_factor" when tightest
 transient enforcement matters more than speed.
 
@@ -279,14 +279,14 @@ Install the canonical limit row-groups (position/velocity/torque boxes
 from the URDF limit tables) in TELEMETRY mode: every solve() reports each
 group's true violation of the returned trajectory in
 ``stats.row_{max,sum}_violation`` (group order BOX_Q, BOX_QD, BOX_U).
-Telemetry never touches the solver path — trajectories are bit-identical
+Telemetry never touches the solver path; trajectories are bit-identical
 with it on or off. Part of the constraint row-group layer (CL-0).
 
 ## `enable_limit_barrier(mu, delta)`
 
 Bind the limit row-groups to the RELAXED log-barrier mechanism: a
 C² barrier with bounded Hessian (quadratic extension within ``delta``
-of a bound) folded into the KKT cost and merit — infeasible-start safe,
+of a bound) folded into the KKT cost and merit; infeasible-start safe,
 the constraint layer's soft prior mode. Additive to grid_plant's own
 clamped log barriers; zero q_lim/vel_lim/ctrl_lim_cost for a clean
 comparison. Telemetry (stats.row_*_violation) stays on.
@@ -305,12 +305,12 @@ the fixed budget and telemetry.
 
 Bind the limit row-groups to the ADMM-projection mechanism: an
 OSQP-style inner loop per SQP iteration (warm PCG by default;
-optionally a reused direct BDSV factorization) — the constraint layer's
+optionally a reused direct BDSV factorization); the constraint layer's
 "approximately hard" mode. ``rho`` is the ADMM penalty (fixed within
 a solve; adapt it between solves), ``iters`` the inner budget: fixed by
 default, a cap once the residual exit is on (`set_admm_exit`, or the
 ``eps_abs`` / ``eps_rel`` keywords here).
-R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale —
+R1 default rho=0.01: the penalty must ride the COST-HESSIAN scale:
 rho >= 1 swamps the u-block (natural scale u_cost=1e-6), freezing
 controls at the warm start (closed-loop MPC parks); the measured
 pocket is ~0.005-0.02.
@@ -513,7 +513,7 @@ or establish continuous-time feasibility.
 iters=10 BOUND by R2: 2/5 park the feasible
 cone cell; box cells saturate by 10 (20 = marginal viol gains at 2x
 inner cost).
-Duals warm-start across solves (reset_dual() reinitializes) —
+Duals warm-start across solves (reset_dual() reinitializes);
 EXCEPT equality rows (lo == hi, e.g. enable_ee_terminal_equality),
 whose (z, y) reinit every solve: a warm-started dual on a row the
 primal may not reach is an unbounded violation integrator (measured).
@@ -879,7 +879,7 @@ Bind the limit row-groups to the PHR augmented-Lagrangian mechanism:
 hinge-activated grad/GN-Hessian and C¹ AL value folded into the KKT
 cost and merit, with the outer dual update
 ``lam <- max(0, lam + rho*violation)`` run ONCE per solve on the final
-trajectory (equality rows ``lo == hi`` always active) — warm-started
+trajectory (equality rows ``lo == hi`` always active); warm-started
 repeat solves are the outer loop, so feasibility converges across MPC
 steps. The update is gated on TRUE-violation acceptance (feasible or
 strictly improved), so a stalled primal freezes the duals instead of
@@ -887,33 +887,33 @@ drifting. ``rho`` is fixed per enable; duals persist across solves
 (reset_dual() zeroes them). Violation is honestly telemetry-reported;
 ``get_row_duals()`` exposes the multipliers. While active, solves use
 the direct (bdsv) linear solver and freeze trust-region rho
-adaptation — both required for outer convergence (measured; see
+adaptation, both required for outer convergence (measured; see
 bsqp.cuh dispatch comments). REQUIRES the trust-region floor
 (constructor rho > 0, the default): f32 bdsv on an unregularized
-Schur system returns garbage steps (R1). R1 default rho=1.0 — the
+Schur system returns garbage steps (R1). R1 default rho=1.0: the
 fold lands rho on ACTIVE rows whose natural Hessian scale is tiny
 (qd rows ~1e-4): rho >= 10 makes the f32 factor error large enough
 that closed-loop MPC destabilizes on tight-limit plants (measured:
 iiwa14 pickplace spins at 100 rad/s at rho=100, final 5mm at
-rho=1). Higher rho = tighter transients — raise it only within the
+rho=1). Higher rho = tighter transients; raise it only within the
 f32 ceiling (rho ~ 1e4 x the block's natural Hessian scale).
 
 ## `enable_ee_terminal_equality(target, rho)`
 
 Append an EE terminal-position equality row-group: the returned
 trajectory's final-knot EE position is constrained to ``target`` (xyz,
-``lo == hi``). The first non-selection row kind — evaluated by
-on-device FK, in the SOLVER's EE frame (``ee_pos(q, frame="solver")``
-— the same frame the tracking cost optimizes; see ee_pos for the
+``lo == hi``). The first non-selection row kind, evaluated by
+on-device FK, in the SOLVER's EE frame (``ee_pos(q, frame="solver")``,
+the same frame the tracking cost optimizes; see ee_pos for the
 frame-offset caveat). Mechanism follows the current mode: AL when
 enable_limit_al() is active (always-active equality, signed
 multiplier in lam_hi), ADMM when enable_limit_admm() is active
 (linearized inner-loop projection: z pins to target, y accumulates
 the equality multiplier), telemetry-only reporting otherwise. Call
-AFTER enable_limit_* — mechanism enables reinstall the canonical
+AFTER enable_limit_*; mechanism enables reinstall the canonical
 groups and drop appended ones. R1 binding ruling: ADMM binding measured
 best for closed-loop MPC (2mm finals at rho=10); AL binding works at
-SOFT rho (al rho=1, ee rho=1: ~5mm finals) — at rho=100 the equality
+SOFT rho (al rho=1, ee rho=1: ~5mm finals); at rho=100 the equality
 multiplier winds up through the f32 factor error and diverges.
 
 ## `set_row_group_bounds(g, lo, hi)`
@@ -925,11 +925,11 @@ auxiliary state reinitializes on the next solve (re-clip).
 ## `set_row_group_soft(g, sigma)`
 
 Soft/slack toggle (TurboMPC delta_xi) for group ``g``: sigma > 0
-makes its rows ELASTIC — transient violation is traded against the
-elastic weight instead of forced to zero. AL: L1 slack — the
+makes its rows ELASTIC: transient violation is traded against the
+elastic weight instead of forced to zero. AL: L1 slack, the
 effective multiplier saturates at sigma (the outer update caps
 |lam| <= sigma; the principled lambda-cap for conflict regimes).
-ADMM: quadratic slack — smoothed z-projection (slope
+ADMM: quadratic slack, smoothed z-projection (slope
 rho/(rho+sigma) past a bound; sigma -> inf recovers the hard clamp).
 sigma = 0 restores the exact hard path. Telemetry always reports
 the TRUE violation, slack notwithstanding.
@@ -940,7 +940,7 @@ R1 ablation toggle: include the AL-form ADMM constraint value
 y'(g - z) + (rho/2)|g - z|^2 (current row state) in the line-search
 merit. v1 ADMM's merit is tracking-only, so the line search rejects
 steps that trade tracking for feasibility (measured: closed-loop MPC
-parks in conservative basins). Off by default — the exact v1
+parks in conservative basins). Off by default; the exact v1
 semantics; only read while ADMM mode is active.
 
 ⚠ R2 measured (2026-07-30): ON + a CONFLICTED cone group DIVERGES
@@ -952,8 +952,8 @@ constraint set is known feasible-along-the-path.
 
 OSQP-style ADMM rho adaptation (opt-in; default OFF = bitwise
 pre-adaptation path). One per-solve SCALAR multiplier on top of every
-ADMM group's rho baseline (the bound per-group ratios — cone u-block
-0.01 vs collision Q-block 1.0+ — are preserved), updated once per SQP
+ADMM group's rho baseline (the bound per-group ratios, cone u-block
+0.01 vs collision Q-block 1.0+, are preserved), updated once per SQP
 iteration from the inner loop's final residuals: adapt when
 r_prim/r_dual is imbalanced by >5x, step by sqrt(ratio), clamp to
 [1e-2, 1e2] (OSQP's rule). The dual form is unscaled, so rho changes
@@ -962,7 +962,7 @@ The scale persists across solves (warm rho, like the (z, y) dual warm
 start); toggling resets it to 1. Telemetry: get_admm_rho_scale().
 
 MEASURED (2026-08-01 recovery cells, both plants): a clear WIN on
-collision/Q-block rows — pillars at the bound cc_rho=1.0 tightens
+collision/Q-block rows: pillars at the bound cc_rho=1.0 tightens
 iiwa14 cc_viol_max 0.021 -> 0.0031 (beats even the static 5.0
 binding's 0.0099) and halves indy7's mean violation at flat tracking,
 inner residual ~5x tighter. Do NOT enable on CONFLICTED cone cells:
@@ -976,7 +976,7 @@ constraint fights the task.
 ## `add_lin_u_rows(C, d, lo, hi, mech, rho, delta, sigma, cone, knot_lo, knot_hi, admm_iters, equilibrate, normalize)`
 
 Append a LIN_U row-group: m rows ``g = C @ u + d`` on the control
-block (C shape (m, nu), FROZEN at a host-chosen configuration — the
+block (C shape (m, nu), FROZEN at a host-chosen configuration; the
 cross-term audit's contact-frame rule for config-dependent maps).
 
 ``cone=True`` binds SECOND-ORDER-CONE semantics to the row vector
@@ -984,34 +984,34 @@ cross-term audit's contact-frame rule for config-dependent maps).
 lo/hi unused): ADMM z-update = SOC projection (``admm_soc``), AL =
 conic PHR (dual vector projected onto K each outer update; hard-only),
 barrier = relaxed barrier on the margin t - ||x-bar||. ``cone=False``
-keeps interval semantics on the mapped rows (lo/hi required) — the
+keeps interval semantics on the mapped rows (lo/hi required); the
 pyramid-facet path.
 
 ``mech`` is "telemetry" | "barrier" | "admm" | "al" (None = follow the
 active enable_limit_* mode). Mixing mechanisms across groups composes
-(e.g. AL boxes + ADMM cone). Call AFTER enable_limit_* — mechanism
+(e.g. AL boxes + ADMM cone). Call AFTER enable_limit_*; mechanism
 enables reinstall the canonical groups and drop appended ones.
 ``rho`` defaults per mechanism, BOUND by the R2 round (2026-07-30,
 measured): admm 0.01 (sharp optimum on
-the feasible cone cell — 0.002 and 0.05 both park the closed loop),
+the feasible cone cell; 0.002 and 0.05 both park the closed loop),
 al 1.0 (enforces in the stationary/hard regime; NO al rho tracks AND
-enforces on transient cells — prefer admm there), barrier 3e-3 (soft
+enforces on transient cells; prefer admm there), barrier 3e-3 (soft
 fallback; 1e-2 parks). The rho-scale law applies: the fold lands
 rho * C^T C on the R block, so scale rho DOWN by ||C||^2 when the map
 is large. Telemetry reports the cone margin violation
 max(0, ||x-bar|| - t) (interval rows: interval violation).
 
 ``equilibrate=True`` (interval rows only) rescales each row of
-(C, d, lo, hi) by 1/||C_i||_2 at enable time — an exact
+(C, d, lo, hi) by 1/||C_i||_2 at enable time, an exact
 reformulation (same feasible set) that puts the group's rho on
 unit-norm rows (the TinyMPC-style normalization; the manual
 rho-scale-law correction becomes automatic). Rejected for cone
 rows: an SOC couples its rows, so per-row scaling would change
-the cone — cone rows are instead normalized as a WHOLE map (below).
+the cone; cone rows are instead normalized as a WHOLE map (below).
 
 ``normalize=True`` (cone rows only): scale the whole (C, d) uniformly
 by 1/||C||_2 before install. An SOC is invariant under uniform positive
-scaling, so the feasible set is untouched — but the admm/al fold lands
+scaling, so the feasible set is untouched, but the admm/al fold lands
 rho * C^T C on the R block, so a large map (e.g. pinv(J^T) with
 ||C|| ~ 1/sigma_min(J) ~ 6) silently over-regularizes the controls at
 the bound-default rho (measured 2026-08-09: 2x tracking loss on the
@@ -1031,7 +1031,7 @@ multi-contact plants address a frame's block with
 ``solver.contact_frames``; go2 bakes the four ``*_foot_joint`` frames).
 Extra kwargs go to add_lin_u_rows (mech/rho/knot range/...). ⚠ Like every
 appended row group the default mechanism is TELEMETRY (unless an
-``enable_limit_*`` set one) — pass ``mech="al"`` (or "admm") for an
+``enable_limit_*`` set one); pass ``mech="al"`` (or "admm") for an
 enforced pin; the standing gates pin the moment rows with AL.
 
 ## `enable_u_cone(C, d, mech, rho, form, facets, facet_scale)`
@@ -1054,10 +1054,10 @@ Upload the runtime obstacle set for the COLLISION clearance rows
 (CL-2). Lists of tuples, one per obstacle (all in world frame, meters):
 
 - spheres: (x, y, z, r)
-- capsules: (ax, ay, az, bx, by, bz, r) — segment endpoints + radius
+- capsules: (ax, ay, az, bx, by, bz, r): segment endpoints + radius
 - cuboids: (cx, cy, cz, ux, uy, uz, hu, vx, vy, vz, hv, wx, wy, wz, hw)
-  — oriented box: center, then 3 (unit axis, half-extent) pairs
-- planes: (nx, ny, nz, d) — half-space n·p >= d, n a UNIT normal
+  an oriented box: center, then 3 (unit axis, half-extent) pairs
+- planes: (nx, ny, nz, d): half-space n·p >= d, n a UNIT normal
   pointing into FREE space (ground floor at z0: (0, 0, 1, z0))
 
 Deep-copied to the device; callable between solves. An empty
@@ -1066,27 +1066,27 @@ environment makes every clearance +1e30 (rows inert).
 ## `enable_collision(mech, margin, rho, delta, sigma, knot_lo, admm_iters)`
 
 Append THE collision clearance group (one max): per-sphere rows
-d_i(q_k) >= margin over knots [knot_lo, N] — d_i = signed clearance of
+d_i(q_k) >= margin over knots [knot_lo, N], d_i the signed clearance of
 collision sphere i (baked at codegen, ``collision_res``) to the
 nearest obstacle from set_collision_environment (call that FIRST).
 The covering spheres are already conservative (inflated by the
 spherizer), so margin is extra safety on top.
 
-``mech``: "admm" (linearized one-sided intervals in the inner loop —
+``mech``: "admm" (linearized one-sided intervals in the inner loop;
 the transient/MPC recommendation, mirroring the R2 cone verdict; AL
 under-enforces on transient avoidance even at rho 5), "al" (PHR
 hinge; +L1 elastic via sigma>0), "barrier" (soft), or "telemetry"
 (report-only). None follows the active enable_limit_* mode.
 
-rho defaults: admm 1.0 — BOUND by the 2b pillars round (2026-07-30):
+rho defaults: admm 1.0, BOUND by the 2b pillars round (2026-07-30):
 clearance rows fold onto the Q block (natural scale O(q_cost)), so
 the admm rho pocket is WIDE AND FLAT, unlike the cone's sharp
-u-block pocket at 0.01 — violation drops monotonically over rho
+u-block pocket at 0.01; violation drops monotonically over rho
 0.01..5.0 at flat tracking cost (indy7 2.7mm / iiwa14 21mm sphere-
 margin violation at 1.0; 5.0 strictly clears both). Raise toward 5
 for strict clearance; the rho-scale law applies per target block.
 al 1.0 / barrier 3e-3 as elsewhere.
-knot_lo >= 1 always: x_0 is data — a start pose in collision would
+knot_lo >= 1 always: x_0 is data; a start pose in collision would
 make knot-0 rows unsatisfiable (the R1 windup lesson).
 
 Telemetry group slot: the clearance group's {max, sum} true violation
@@ -1098,7 +1098,7 @@ groups, dropping appended ones).
 
 CONTACT_POS row-group (CL-4 §1.3, 2026-09-26): for every baked contact frame f
 (`contact_frames`: the go2 feet, an arm's EE) and every knot k of
-`[knot_lo, knot_hi)` three rows `g = p_f(q_k) - tgt_k[f]` — the world position
+`[knot_lo, knot_hi)` three rows `g = p_f(q_k) - tgt_k[f]`, the world position
 of the contact ORIGIN (the point the fc wrench acts about) from on-device FK
 over GRiD's `contact_frame_positions[_gradient]` surface, with the interval
 `lo <= g <= hi` on the RESIDUAL. Defaults `lo = hi = 0` pin the frames to their
@@ -1110,7 +1110,7 @@ position). Unlike the terminal-only EE row, these fold at EVERY active knot
 rows; ADMM linearizes per knot in its inner loop). The per-knot target table
 (`get_row_groups()[g]["tgt"]`, `set_row_group_targets`) lets one group hold a
 different point per knot: a foothold frozen at touchdown, a swing curve.
-Mask (knot, foot) rows with `set_row_group_mask` — knot 0 is the measured state,
+Mask (knot, foot) rows with `set_row_group_mask`; knot 0 is the measured state,
 so leave it masked off unless the target IS the measured foot position (the
 AL multiplier would otherwise wind up on rows no step can change, the
 limit-box lesson). Mechanism defaults follow `enable_collision` (the rows fold
@@ -1118,7 +1118,7 @@ onto the Q block: admm rho 1.0, al rho 1.0; the go2 foot gates run AL rho 1e3, G
 Returns the group index.
 
 Measured (2026-09-26). The AL outer loop converges/freezes after the first
-solve on these rows, so they act as PENALTIES — rho sets the residual: on the
+solve on these rows, so they act as PENALTIES; rho sets the residual: on the
 gentle indy7 scenario (tracking = stay, target 2 cm up) |p - tgt| is 2.3 cm at
 rho 10, 1.3 cm at rho 100, 0.8 mm at rho 1e3 (the terminal `EE_POS` AL row does
 not move the EE at all there); ADMM projects per inner iteration and reaches the
@@ -1128,13 +1128,13 @@ imu goal and a solver-only foot lift (FR +3 cm from knot 4, wrench pinned, fn on
 three feet) reaches ~3 cm at AL rho 1e3 with the stance feet held < 1 cm. The
 merit's row term is exact against the duals and residuals (zero-dual and dual
 checks agree to 1e-6). CLOSED LOOP (open work): the stiffness the rows
-need to hold feet within mm breaks the loop's SQP — on the static stand with
+need to hold feet within mm breaks the loop's SQP; on the static stand with
 stance rows AL rho 1e3 rejects every line-search step on 26/150 ticks and the base
 sags 4 cm, every ADMM variant collapses, AL rho 100 keeps the stand with a 1.8 cm
 residual. Two fixes landed since: the solver bumps the trust-region rho x100 on a
 non-PD direct factor (the f32 Cholesky failure the stiff rows cause; settings.h
 `NON_PD_RHO_FACTOR`), and the programmer re-anchors stance targets to the measured feet
-every tick — the static stand with stance rows now holds (`test_fc_mpc_stands_with_foot_rows`).
+every tick; the static stand with stance rows now holds (`test_fc_mpc_stands_with_foot_rows`).
 These are horizon-local targets: the measured feet may accumulate world-frame
 drift while the model's residual stays small. The standing gate separately bounds
 measured horizontal drift to 3 cm; it does not establish a no-slip locomotion gate.
