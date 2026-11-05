@@ -308,7 +308,9 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     # ("KUKAiiwa14"/"indy" ≠ stem), so wiring the id for fixed base would
     # change their baked launch tables — a perf re-baseline, not a correctness
     # fix; queued for a timing window.
-    gen_kwargs = dict(DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid",
+    # no printMat helpers: nothing in gato/ uses them, and without them the vendored header
+    # is the one grid-rbd's artifact store generates for the same options (0.2)
+    gen_kwargs = dict(DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid",
                       USE_JOINT_DYNAMICS=bool(joint_dynamics))
     if joint_dynamics:
         gen_kwargs.update(FRICTION_MODEL="tanh", FRICTION_WIDTH=float(friction_width))

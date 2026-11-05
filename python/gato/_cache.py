@@ -7,16 +7,21 @@
 Layout (``GATO_CACHE_DIR`` or platformdirs' user cache, e.g. ~/.cache/gato):
     manifest.json                 name -> robot entry (urdf hash, options, codegen key, meta)
     robots/<codegen_key>/<name>/  grid.cuh, limits.cuh (one dir per URDF+options+generator)
-    modules/<name>/<module_key>/  bsqpN{N}_{name}[_variant].so + meta.json
-    build/<name>/<module_key>/    CMake tree while compiling (removed on success)
+    modules/<name>/<module_key>/  bsqpN{N}_{name}[_variant].so (a link into the store) + meta.json
+    store/                        grid-rbd's consumer artifact store: artifacts, headers, logs
 
-A module key hashes everything that shapes the binary: the robot's codegen key
-(URDF bytes, options, grid-rbd provenance), N and variant, the content identity
-of GATO's native sources plus the dependency headers (tools/native_identity.py,
-the same identity every module embeds), and the toolchain (CUDA arch, nvcc,
-host compiler, Python ABI, pybind11). Unchanged inputs never recompile; any
-change is a miss, never a stale binary. The checkout's modules in python/gato/
-(the receipt profile) take precedence over the cache when both exist.
+Modules compile through ``grid_rbd.build_artifact`` (grid-rbd 0.7.0): GRiD
+generates the robot's header, compiles GATO's bindings translation unit against
+it with nvcc and links the extension; no CMake on this path. A module key hashes
+everything that shapes the binary: the robot's codegen key (URDF bytes, options,
+grid-rbd provenance), N and variant, the content identity of GATO's native
+sources plus the dependency headers (tools/native_identity.py, the same identity
+every module embeds), and the toolchain (CUDA arch, nvcc, host compiler, Python
+ABI, pybind11). Unchanged inputs never recompile; any change is a miss, never a
+stale binary; the store's own content key (sources, headers found by nvcc's
+dependency pass, defines, flags, toolchain) dedupes the builds underneath. The
+checkout's modules in python/gato/ (the receipt profile) take precedence over
+the cache when both exist.
 """
 from __future__ import annotations
 
@@ -107,11 +112,11 @@ def detect_arch() -> str | None:
 
 
 def cmake_executable() -> str:
-    """The cmake GATO compiles with: the one the `cmake` wheel put next to this
-    interpreter (a dependency since 0.1.6, so a venv on Ubuntu 22.04 or JetPack 6,
-    whose distribution package is 3.22, still configures and detects the GPU
-    architecture), else the first `cmake` on PATH, else the bare name so the
-    failure names the tool."""
+    """The cmake the checkout's tools/build.sh and the C++ example configure with: the one
+    the `cmake` wheel put next to this interpreter (a dependency since 0.1.6, so a venv on
+    Ubuntu 22.04 or JetPack 6, whose distribution package is 3.22, still configures and
+    detects the GPU architecture), else the first `cmake` on PATH, else the bare name so
+    the failure names the tool. The pip path (ensure_module) does not use it since 0.2."""
     here = Path(sys.executable).parent / "cmake"
     if here.is_file() and os.access(here, os.X_OK):
         return str(here)
@@ -134,7 +139,6 @@ def toolchain_identity(arch: str | None) -> dict:
         "arch": arch or "native",
         "nvcc": tool(["nvcc", "--version"], -1),
         "cxx": tool(["c++", "--version"], 0),
-        "cmake": tool([cmake_executable(), "--version"], 0),
         "python_ext_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
         "pybind11": pybind11.__version__,
         "machine": platform.machine(),
@@ -304,9 +308,58 @@ def find_module(name: str, N: int, variant: str = "default", cache: Path | None 
     return sos[0] if sos else None
 
 
+VARIANT_DEFINES = {"default": [], "fc": ["GATO_CONTACT_FORCES=1"], "eh": ["USE_EXACT_HESSIAN=1"], "rk4": ["GATO_INTEGRATOR=3"]}
+EXTRA_FLAGS = ("-O3", "-use_fast_math", "-std=c++17", "-Xcompiler=-fvisibility=hidden")   # CMakeLists.txt Release + pybind11's visibility
+
+
+def store_dir(cache: Path) -> Path:
+    """grid-rbd's consumer store under GATO's cache (build_artifact's cache_dir)."""
+    return cache / "store"
+
+
+def _codegen_request(robot: dict) -> dict:
+    """build_artifact's codegen keywords for a robot entry (register_robot's options, or the
+    vendored registry meta): the options gato.builder.codegen bakes, so the store's header is
+    the one the vendored path generates."""
+    from .builder import algorithms_for
+
+    opts = robot.get("options") or {}
+    meta = robot.get("meta") or {}
+    floating = bool(opts.get("floating_base", meta.get("floating_base", False)))
+    ee = opts.get("ee_frame") or meta.get("ee_frame") or "EE"
+    cost_frames = list(opts.get("cost_frames") or (meta.get("cost_frames") or [ee])[1:])
+    contact = opts.get("contact_frames") or meta.get("contact_frames") or [ee]
+    com = bool(opts.get("com", meta.get("com", False)))
+    req = dict(floating_base=floating, ee_joint_names=[ee], contact_frames=list(contact), cost_frames=cost_frames,
+               algorithm_list=list(algorithms_for(floating, cost_frames, com)), launch_config_profile="host",
+               strict_collision=True)
+    res = opts.get("collision_res", (meta.get("collision") or {}).get("res"))
+    if res is not None:
+        req.update(collision=True, collision_res=float(res))
+    if opts.get("joint_dynamics", meta.get("joint_dynamics", False)):
+        req.update(use_joint_dynamics=True, friction_model="tanh",
+                   friction_width=float(opts.get("friction_width") or meta.get("friction_width")))
+    return req
+
+
+def _robot_urdf(robot: dict) -> Path:
+    """The URDF the store generates from: the registered path, or the vendored robot's copy
+    (the checkout's examples/ tree, or the wheel's bundled description with its collision
+    meshes)."""
+    raw = robot.get("urdf")
+    p = Path(raw) if raw else None
+    if p is not None and not p.is_absolute():
+        p = native_root() / p
+    if p is None or not p.exists():
+        raise RuntimeError(f"robot {robot['name']!r}: its URDF ({p}) is not available to compile a solver module; "
+                           "register the robot from its URDF (gato.register_robot)")
+    return p
+
+
 def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | None = None,
                   arch: str | None = None, jobs: int = 2, quiet: bool = False) -> Path:
-    """Return the cached module for (name, N, variant), compiling it once if missing."""
+    """Return the cached module for (name, N, variant), compiling it once if missing through
+    grid-rbd's artifact store (one translation unit; ``jobs`` is kept for callers and unused)."""
     cache = cache or cache_dir()
     resolved = resolve(name, cache)
     if resolved is None:
@@ -325,41 +378,47 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
         if existing:
             return existing[0]
         if not quiet:
-            log.warning("gato: compiling %s for sm_%s — a one-time build (typically 2–6 minutes on a "
-                        "desktop GPU, longer on Jetson); the result is cached in %s", modname, arch or "native", cache)
+            log.warning("gato: compiling %s for sm_%s through grid-rbd's artifact store, a one-time build (typically "
+                        "1 to 3 minutes on a desktop GPU, longer on Jetson); the result is cached in %s", modname, arch or "native", cache)
         import pybind11
+        import grid_rbd
 
-        build = cache / "build" / name / key
-        shutil.rmtree(build, ignore_errors=True)
+        root = native_root()
+        urdf = _robot_urdf(robot)
         out.mkdir(parents=True, exist_ok=True)
-        cmake = cmake_executable()
-        cfg = [cmake, "-S", str(native_root()), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
-               "-DGATO_BUILD_DEMO=OFF", "-DGATO_RECEIPT_PROFILE=OFF",
-               f"-DMODULES={name}:{N}:{variant}", f"-DGATO_PLANT_ROOT={plant_root}",
-               f"-DGATO_MODULE_OUTPUT_DIR={out}", f"-DPython3_EXECUTABLE={sys.executable}",
-               f"-Dpybind11_DIR={pybind11.get_cmake_dir()}"]
-        if arch:
-            cfg.append(f"-DCMAKE_CUDA_ARCHITECTURES={arch}")
-        if "merit_threads" in inputs:
-            cfg.append(f"-DGATO_MERIT_THREADS={inputs['merit_threads']}")
+        include = out / "include"             # limits.cuh alone: the store's generated grid.cuh must not be shadowed
+        include.mkdir(exist_ok=True)
+        shutil.copyfile(plant_root / name / "limits.cuh", include / "limits.cuh")
+        defines = [f"KNOT_POINTS={int(N)}", f"GATO_PLANT_NAME={name}", f"GATO_MODULE_VARIANT={suffix}",
+                   'GATO_PLANT_HEADER="dynamics/plant.cuh"', f'GATO_NATIVE_SOURCE_ID="{inputs["native_source_id"]}"', "NDEBUG",
+                   *VARIANT_DEFINES[variant]]
+        threads = inputs.get("merit_threads") or (32 if arch in ("72", "87") else None)   # CMakeLists.txt's Jetson default
+        if threads:
+            defines.append(f"GATO_MERIT_THREADS={int(threads)}")
+        req = _codegen_request(robot)
+        model = grid_rbd.describe_model(urdf, floating_base=req["floating_base"])
         t0 = time.time()
-        with open(out / "build.log", "w") as logf:
-            try:
-                subprocess.run(cfg, check=True, stdout=logf, stderr=subprocess.STDOUT)
-                subprocess.run([cmake, "--build", str(build), "--parallel", str(int(jobs))],
-                               check=True, stdout=logf, stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"compiling {modname} failed (exit {e.returncode}); see {out / 'build.log'}") from e
-        built = _module_glob(out, name, N, variant)
-        if not built:
-            raise RuntimeError(f"build reported success but {modname}.so did not land in {out}")
-        (out / "meta.json").write_text(json.dumps({"inputs": inputs, "seconds": round(time.time() - t0, 1),
-                                                   "module": built[0].name}, indent=2, sort_keys=True) + "\n")
-        shutil.rmtree(build, ignore_errors=True)
+        try:
+            art = grid_rbd.build_artifact(
+                "gato", modname, urdf, sources=[root / "python" / "bindings.cu"], headers=[include / "limits.cuh"],
+                include_dirs=[root / "gato", include, pybind11.get_include(), sysconfig.get_path("include")],
+                defines=defines, extra_flags=list(EXTRA_FLAGS), artifact_name=modname + sysconfig.get_config_var("EXT_SUFFIX"),
+                python_extension=True, expected_descriptor_id=model["descriptor_id"], cache_dir=store_dir(cache),
+                cuda_arch=int(arch) if arch else None, **req)
+        except Exception as e:
+            raise RuntimeError(f"compiling {modname} failed: {e}") from e
+        so = out / Path(art.path).name
+        if so.is_symlink() or so.exists():
+            so.unlink()
+        so.symlink_to(art.path)
+        (out / "meta.json").write_text(json.dumps({"inputs": inputs, "seconds": round(time.time() - t0, 1), "module": so.name,
+                                                   "content_key": art.content_key, "store": str(art.store_dir),
+                                                   "compiled": bool(art.compiled)}, indent=2, sort_keys=True) + "\n")
         _native_source_id.cache_clear()   # a later source edit in an editable checkout must re-key
         if not quiet:
-            log.warning("gato: %s compiled in %.0f s and cached", modname, time.time() - t0)
-        return built[0]
+            log.warning("gato: %s %s in %.0f s and cached", modname, "compiled" if art.compiled else "reused from the store",
+                        time.time() - t0)
+        return so
 
 
 def load_module(name: str, N: int, variant: str = "default", *, cache: Path | None = None,

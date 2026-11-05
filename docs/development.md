@@ -13,19 +13,26 @@ sources under `gato/_native` and no compiled module. `gato.register_robot(name,
 urdf, N=[...])` runs codegen into the cache (`GATO_CACHE_DIR`, default the
 platform user cache, e.g. `~/.cache/gato`): `robots/<codegen_key>/<name>/` holds
 `grid.cuh` + `limits.cuh`, `manifest.json` maps names to entries. The first
-`BSQP(..., plant_type=name)` for a horizon compiles `bsqpN{N}_{name}` into
-`modules/<name>/<module_key>/` (CMake on the bundled tree with
-`GATO_PLANT_ROOT` pointing at the cache, `GATO_MODULE_OUTPUT_DIR` at the entry;
-build tree removed on success; `build.log` and `meta.json` kept) and logs the
-one-time cost. The module key hashes the robot's codegen key, N, variant, the
-native source identity (`tools/native_identity.py`, the same content hash every
-module embeds) and the toolchain (CUDA arch from `nvidia-smi`, nvcc, host
-compiler, CMake, Python ABI tag, pybind11) — any change is a cache miss, never a
-stale binary; the cmake is the venv's (the `cmake` wheel is a dependency since
-0.1.6, issue #23) and falls back to the one on PATH; the tree's declared CMake
-floor is 3.22 (`test/test_cmake_floor.py` checks the commands statically and
-`tools/check_cmake_floor.sh` configures with a pinned 3.22); `register_robot(..., build=True)` compiles up front; `GATO_MERIT_THREADS` (the merit
-block size, for GPUs with few SMs) joins the key when set, so both sizes can live
+`BSQP(..., plant_type=name)` for a horizon compiles `bsqpN{N}_{name}` through
+grid-rbd's consumer artifact store (`grid_rbd.build_artifact`, 0.7.0): GRiD
+generates the robot's header for the registered options, compiles GATO's
+bindings translation unit against it with nvcc (the same defines and flags as
+`CMakeLists.txt`, the module's `limits.cuh` as the only GATO-side plant file)
+and links the extension as a declared Python extension bound to the model
+descriptor; `modules/<name>/<module_key>/` holds a link to the artifact and
+`meta.json` (inputs, seconds, the store's content key), the store under
+`store/` keeps the artifact, its header, manifest and build log, and the
+one-time cost is logged. No CMake runs on this path (issue #23's class of
+failure is gone for pip users; the `cmake` wheel stays a dependency for the
+checkout's `tools/build.sh`). The module key hashes the robot's codegen key, N,
+variant, the native source identity (`tools/native_identity.py`, the same
+content hash every module embeds) and the toolchain (CUDA arch from
+`nvidia-smi`, nvcc, host compiler, Python ABI tag, pybind11); any change is a
+cache miss, never a stale binary, and the store's content key (which also
+covers every header nvcc's dependency pass finds) dedupes the builds
+underneath. `register_robot(..., build=True)` compiles up front;
+`GATO_MERIT_THREADS` (the merit block size, for GPUs with few SMs) joins the
+key when set, so both sizes can live
 in one cache. The vendored
 robots are pre-registered from the bundled headers (`_cache.resolve`). Package
 modules in `python/gato/` (the receipt profile) win over cache modules with the

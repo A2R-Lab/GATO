@@ -158,24 +158,6 @@ __host__ inline void grid_legacy_check(cudaError_t e, const char *op, const char
     if (e != cudaSuccess) { fprintf(stderr, "GRiD: %s failed: ", op ? op : "initialization"); gpuAssert(e, file, line); }
 }
 
-template <typename T, int M, int N>
-__host__ __device__
-void printMat(T *A, int lda){
-    for(int i=0; i<M; i++){
-        for(int j=0; j<N; j++){printf("%.4f ",A[i + lda*j]);}
-        printf("\n");
-    }
-}
-
-template <typename T, int M, int N>
-__host__ __device__
-void printMat(const T *A, int lda){
-    for(int i=0; i<M; i++){
-        for(int j=0; j<N; j++){printf("%.4f ",A[i + lda*j]);}
-        printf("\n");
-    }
-}
-
 #define GRID_HAS_IDSVA_SO_BODY_FRAME 1
 #define GRID_HAS_FDSVA_SO 1
 #define GRID_HAS_IDSVA_SO_WORLD_FRAME 0

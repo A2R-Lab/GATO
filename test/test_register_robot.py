@@ -4,6 +4,7 @@ later constructions hit the cache (gpu/slow tier). Every test uses its own
 cache directory via GATO_CACHE_DIR."""
 import json
 import logging
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -95,6 +96,39 @@ def test_first_solver_compiles_once_then_hits_cache(cache, urdfs, caplog):
     with caplog.at_level(logging.WARNING, logger="gato"):
         gato.BSQP(urdf, batch_size=1, N=8, dt=0.01, plant_type=NAME)
     assert not [r for r in caplog.records if "compiling" in r.getMessage()], "second construction must hit the cache"
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_module_is_a_store_artifact_loadable_without_a_toolchain(cache, urdfs, tmp_path):
+    """The cached module is grid-rbd's consumer artifact (a declared Python extension bound
+    to the model descriptor): a fresh process with no nvcc on PATH loads it through
+    load_artifact with the expected descriptor identity and gets the same native identity."""
+    import os
+    import subprocess
+    import sys
+
+    import grid_rbd
+
+    urdf = str(urdfs["indy7"])
+    gato.register_robot(NAME, urdf, N=[8])
+    so = _cache.ensure_module(NAME, 8, cache=cache, quiet=True)
+    assert so.is_symlink() and so.resolve().is_relative_to(_cache.store_dir(cache))
+    meta = json.loads((so.parent / "meta.json").read_text())
+    assert meta["content_key"] and meta["compiled"] is True and not (cache / "build").exists()
+    descriptor = grid_rbd.describe_model(urdf)["descriptor_id"]
+    script = (
+        "import importlib.util, shutil, sys, grid_rbd\n"
+        "assert shutil.which('nvcc') is None\n"
+        "art = grid_rbd.load_artifact('gato', sys.argv[1], cache_dir=sys.argv[2], expected_descriptor_id=sys.argv[3])\n"
+        "assert not art.compiled and art.content_key == sys.argv[4]\n"
+        "spec = importlib.util.spec_from_file_location(sys.argv[1], art.path)\n"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+        "print(m.NATIVE_SOURCE_ID)\n")
+    path = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if not (Path(p) / "nvcc").exists())
+    out = subprocess.run([sys.executable, "-c", script, f"bsqpN8_{NAME}", str(_cache.store_dir(cache)), descriptor, meta["content_key"]],
+                         check=True, capture_output=True, text=True, env={**os.environ, "PATH": path, "GATO_CACHE_DIR": str(cache)}).stdout.strip()
+    assert out == meta["inputs"]["native_source_id"]
 
 
 @pytest.mark.gpu

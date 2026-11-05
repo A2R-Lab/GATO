@@ -115,7 +115,9 @@ build GATO for you.
 **Distribution:** both the wheel and a Git checkout support local CUDA builds.
 The universal wheel carries Python, GATO's native sources and bundled robot
 descriptions, but no compiled solver modules; these are GPU-arch/CUDA/ABI-specific
-CMake products built locally. The sdist also contains the build sources.
+binaries built locally: with nvcc through grid-rbd's artifact store on the pip
+path (`gato.register_robot`, first use), with CMake in a checkout. The sdist also
+contains the build sources.
 Both paths obtain the GRiD code generator and GLASS/collision headers from the
 pinned `grid-rbd` wheel.
 
