@@ -2,13 +2,73 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## Unreleased
+## 0.2.0 — 2026-11-05: grid-rbd 0.7.0, the floating defect, the artifact store
 
-- `BSQP.admm_iters` reads the ADMM inner-iteration budget per SQP iteration from
-  the native solver, beside `admm_eps_abs`, `admm_eps_rel` and `admm_check_every`:
-  `enable_limit_admm`'s `iters`, or the latest positive `admm_iters` of an ADMM
-  group add (`add_lin_u_rows`, `enable_collision`, `add_contact_pos_rows`), which
-  sets the budget of every ADMM group.
+- grid-rbd 0.7.0 is the pinned generator, bundling GLASS 6a82320 (the
+  no-restrict interfaces that carried the 0.1.7 direct-solve fix upstream).
+  The regenerated headers add the cost-menu and plant-Hessian arenas, the
+  model descriptor and the collision margins, and no longer carry the print
+  helpers; the 48 fixed-base parity goldens are unchanged. Modules rebuild on
+  the new pin.
+- Floating base: the dynamics rows are linearized at the actual anchors and
+  normalized by the successor difference Jacobian, as GRiD's integration
+  conventions specify (`A = -solve(D_2, D_1 Gx)`, `B = -solve(D_2, D_1 Gu)`,
+  `c = solve(D_2, c)`). 0.1.x used the raw step gradient with an implicit
+  identity successor block, wrong by up to 0.23 in `A` at a simultaneous
+  translation and rotation defect (the package-4 consumer probe of October 30).
+  The eight Go2 parity goldens are re-baselined; fixed-base results are
+  unchanged. The finite-difference gates now check the normalized rows at
+  large defects.
+- `BSQP.get_lambda()` returns `(B, N+2, 2 nv)`, one row per constraint row in
+  the tangent layout; it reshaped the stored width on a floating base and
+  failed on the Go2. The docstring and the consumer contract give the row
+  coordinates and the raw-defect covector.
+- The pip path compiles solver modules through grid-rbd's consumer artifact
+  store: `register_robot` and the first `BSQP(..., plant_type=...)` build the
+  module with nvcc as a declared Python extension bound to the model
+  descriptor, with no CMake on that path (the failure class of issue #23 is
+  gone for pip users); the store's content key dedupes builds, and a prepared
+  module loads without a toolchain. The checkout and the receipt keep CMake.
+- The actuated torque width and the floating block come from the generated
+  model descriptor (`gato/dynamics/model_dims.cuh`) instead of a rule in the
+  adapter, and the cost-menu scratch is carved by GRiD's emitted
+  `tracking_cost_menu_arena`; the adapter's own sizer is gone. No numerical
+  change.
+- Collision code generation refuses a link the spherizer cannot cover (0.7.0
+  raises under strict mode where 0.6.0 warned); the builder passes the error
+  through with the reason, the sphere set being the clearance row set.
+- `BSQP.update_cost_menu(frame_pos=..., orientation=..., ...)` moves the
+  targets of the menu in force with one upload per term and nothing else, for
+  references that move every control step (issue #26); the result is bitwise
+  that of applying the menu with the new targets.
+- ADMM collision rows: the clearances and their Jacobians are evaluated once
+  per SQP iteration into a per-solve buffer instead of in every inner
+  iteration; results are bitwise identical and solves with large environments
+  run up to six times faster (Felix Mueh, #25). The row-group telemetry
+  evaluates the clearances once per knot in parallel at the returned
+  trajectory, for any collision mechanism; the reported violations are
+  unchanged and now part of the collision goldens.
+- `BSQP.admm_iters` reads the ADMM inner-iteration budget from the native
+  solver, beside the residual-exit getters (Felix Mueh, #24).
+- The fixed-base linear-solver default follows the horizon: the per-step
+  policy below 256 knots and the direct solve from 256
+  (`gato.linsys_autotune.BDSV_HORIZON`), where it is faster at every batch
+  size and ends at the lower merit on the Jetson AGX Orin (Felix Mueh, issue
+  #19; `docs/merit_timing.md`, October 30, which also records `bdsv_first` as
+  a loss on that GPU). The RTX 5090 row of that table is still to be measured.
+- `docs/status.md` gains the variant table (which module variant carries which
+  feature and what an unsupported call raises; `test/test_refusals.py` holds
+  each refusal) and states what the `eh` variant's exact Hessian covers;
+  `gato.build(..., exact_hessian=True, floating_base=True)` is refused before
+  compiling.
+- `SolverStats.kkt_converged` is documented for what it is: the linearized
+  problem's stationarity test at the linear solver's tolerance, not a KKT
+  certificate (`gato.certificate` reports the trajectory's residuals).
+- The `rho_u = 1e-4` enforcement candidate is closed on a fresh holdout
+  (`docs/constraints.md`, November 4): lower peak torque, worse velocity tails,
+  the default kept.
+- User-facing documentation in the papers' voice; the dead CMake lookup of the
+  pip path removed.
 
 ## 0.1.7 — 2026-10-29: the direct solve on every GPU
 
