@@ -20,6 +20,20 @@ namespace plant {
                 }
                 return n;
         }
+        // The floating coordinate block (-1 on a fixed base) and its first tangent row.
+        __host__ __device__ constexpr int floating_block()
+        {
+                for (int k = 0; k < grid::model::coordinate_block_count; ++k) {
+                        grid::model::coordinate_block_record b{};
+                        if (grid::model::coordinate_block(k, b) && b.kind == grid::model::coordinate_kind::floating) return k;
+                }
+                return -1;
+        }
+        __host__ __device__ constexpr int floating_block_v_start()
+        {
+                grid::model::coordinate_block_record b{};
+                return floating_block() >= 0 && grid::model::coordinate_block(floating_block(), b) ? b.v_start : 0;
+        }
         static_assert(grid::model::nv == grid::NUM_VEL, "the model descriptor and the generated constants must agree on the tangent size");
         static_assert(actuated_width() > 0 && actuated_width() <= grid::NUM_VEL, "the actuated width is the tangent size less the floating block");
 }  // namespace plant

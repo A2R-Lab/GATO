@@ -345,6 +345,52 @@ __device__ __forceinline__ void compute_linearized_dynamics_grid(
         }
 #endif
         state_difference<T>(s_ck, /*from=*/a.s_x_kp1, /*to=*/s_xux + XU_KNOT_STRIDE);
+#if GATO_FLOATING_STEP
+        // Row normalization of the floating defect (GRiD integration_conventions, "First
+        // derivatives and defect composition"). With c = D_x(y, s), y the predicted and s the
+        // stored successor, the KKT row is A = -solve(D_2, D_1 Gx), B = -solve(D_2, D_1 Gu),
+        // c = solve(D_2, c). The velocity rows have D_1 = -I and D_2 = +I and the scalar
+        // coordinates reduce to the same, so only the floating block's six configuration rows
+        // transform. The step's D_qdd stage block is dead once the gradient is formed; it holds
+        // the compact Jacobians, GLASS's augmented inverse buffer [D_2 | I] and its scratch.
+        {
+                constexpr int FB = floating_block(), R0 = floating_block_v_start();
+                constexpr int NC = (int)gato::constants::CONTROL_SIZE;
+                static_assert(FB >= 0, "a floating step needs a floating coordinate block in the descriptor");
+                static_assert(grid_plant::plant_step_gradient_arena<T>::s_D_qdd_stage_count >= 36 + 72 + 36 + 6 + 19,
+                              "the D_qdd stage block (the gradient arena mirrors the integrator_du layout) holds the transport scratch");
+                T* s_J1  = a.s_D_qdd_stage;   // D_1, 6 x 6 column-major
+                T* s_J2  = s_J1 + 36;         // [D_2 | I]: GLASS inverts in place, the right half becomes D_2^-1
+                T* s_J2i = s_J2 + 36;
+                T* s_M   = s_J2i + 36;        // -D_2^-1 D_1
+                T* s_gap = s_M + 36;
+                T* s_inv = s_gap + 6;         // inv_pivoted scratch, 3 * 6 + 1
+                __syncthreads();              // A, B and c complete before the transport reads them
+                if (threadIdx.x == 0) {
+                        grid::configuration_difference_jacobian_block<T>(FB, a.s_x_kp1, s_xux + XU_KNOT_STRIDE, s_J1, s_J2, 36);
+                        for (int r = 0; r < 6; ++r) s_gap[r] = s_ck[R0 + r];
+                }
+                glass::set_identity<T, 6>(s_J2i);                                  // ends on a barrier: publishes J1, J2, gap
+                glass::inv_pivoted<T, 6>(s_J2, s_inv);                             // ends synced
+                glass::gemm<T, 6, 6, 6>(static_cast<T>(-1), s_J2i, s_J1, s_M);     // ends synced
+                for (int j = (int)threadIdx.x; j < TS + NC; j += (int)blockDim.x) {
+                        T* col = j < TS ? s_Ak + j * TS : s_Bk + (j - TS) * TS;
+                        T old[6];
+                        for (int k = 0; k < 6; ++k) old[k] = col[R0 + k];
+                        for (int r = 0; r < 6; ++r) {
+                                T v = static_cast<T>(0);
+                                for (int k = 0; k < 6; ++k) v += s_M[k * 6 + r] * old[k];
+                                col[R0 + r] = v;
+                        }
+                }
+                if (threadIdx.x < 6) {
+                        T v = static_cast<T>(0);
+                        for (int k = 0; k < 6; ++k) v += s_J2i[k * 6 + (int)threadIdx.x] * s_gap[k];
+                        s_ck[R0 + (int)threadIdx.x] = v;
+                }
+                // ends unsynced like the fixed twin; the caller barriers before reading
+        }
+#endif
 }
 
 // Value step twin: x_{k+1} = grid integrator(x, u, dt), stored format out.

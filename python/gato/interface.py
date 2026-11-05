@@ -602,8 +602,13 @@ class BSQP:
         self.solver.set_drho_batch(d, bool(set_as_reset_default))
 
     def get_lambda(self):
-        """(B, N+2, nx) lagged KKT multipliers λ from the last solve (padded layout)."""
-        return np.asarray(self.solver.get_lambda()).reshape(self.batch_size, self.N + 2, self.nx)
+        """(B, N+2, 2 nv) lagged multipliers of the last linearization, in the solver's
+        constraint-row coordinates (the tangent rows; padded layout, rows 0 and N+1 unused).
+        They belong to the last linearization, not necessarily to the returned trajectory.
+        On a floating base the dynamics rows are normalized by the successor difference
+        Jacobian D_2, so the covector of the raw defect D_x(y, s) is -solve(D_2.T, lambda)
+        at the same anchors (the KKT recovers dz with q - C^T lambda, hence the sign)."""
+        return np.asarray(self.solver.get_lambda()).reshape(self.batch_size, self.N + 2, 2 * self.nv)
 
     def debug_setup_kkt(self, xu_B, xcur_B, eepos_goals_B):
         """Run setup_kkt ONLY on a trajectory and return the assembled KKT blocks

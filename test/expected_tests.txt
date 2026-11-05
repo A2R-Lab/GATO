@@ -244,6 +244,7 @@ test/test_fig7_validation.py::test_fig7_instrumentation_preserves_unclipped_traj
 test/test_fig7_validation.py::test_fig7_identifier_observes_clamped_torque
 test/test_floating_go2.py::test_module_dims
 test/test_floating_go2.py::test_interface_shapes
+test/test_floating_go2.py::test_get_lambda_rows_are_tangent
 test/test_floating_go2.py::test_sim_forward_vs_pinocchio
 test/test_floating_go2.py::test_linearization_vs_pin_fd
 test/test_floating_go2.py::test_c0_is_manifold_gap

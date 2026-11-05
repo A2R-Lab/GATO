@@ -146,6 +146,21 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   Row-group ORDER is enforced: `enable_limit_*` before any appended group
   (`add_lin_u_rows`, `enable_ee_terminal_equality`, `enable_collision`, `add_contact_pos_rows`) or
   it raises (they used to be dropped silently).
+- **Floating-base defect and multipliers (0.2).** The dynamics row at knot k is
+  linearized at the actual anchors: with `y = step(x_k, u_k)` and `s = x_{k+1}`
+  the defect is `c = D_x(y, s)` (GRiD's reference-first state difference: the
+  SE(3) logarithm on the base, subtraction elsewhere) and the row is normalized
+  by the successor difference Jacobian, `A = -solve(D_2, D_1 Gx)`,
+  `B = -solve(D_2, D_1 Gu)`, `c = solve(D_2, c)`, as GRiD's integration
+  conventions specify. Only the base's six configuration rows differ from the
+  raw step gradient; a fixed base is unchanged. The earlier release used the
+  raw gradient with an implicit identity successor block, wrong by up to 0.23
+  in `A` at a simultaneous translation and rotation defect. The initial row's
+  gap `x_0 ⊟ x_s` needs no normalization. `BSQP.get_lambda()` returns
+  `(B, N+2, 2 nv)` in these row coordinates, from the last linearization; the
+  covector of the raw defect is `-solve(D_2.T, lambda)` at the same anchors.
+  `debug_setup_kkt` exposes the normalized blocks; `test_floating_go2.py` gates
+  them against central finite differences of the pinocchio residual.
 - **Control width is a MODULE property**: `nu = CONTROL_SIZE` from the module
   (on `GATO_CONTACT_FORCES` builds, `CONTROL_SIZE = ACTUATED_SIZE + FC_SIZE`).
   Use `SolveResult.u0()/control_at(k)` for the APPLIED (actuated) control —

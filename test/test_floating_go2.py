@@ -89,6 +89,17 @@ def test_interface_shapes(model):
     assert s.xu_size == N * XU_STRIDE - NU
 
 
+def test_get_lambda_rows_are_tangent(model):
+    """The lagged multipliers come back one per constraint row in the tangent
+    layout, (B, N+2, 2 nv) on a floating base (the stored width nq + nv is not a
+    row count), finite after a solve."""
+    s = _solver(2)
+    x = np.tile(_rand_state(np.random.default_rng(3)).astype(np.float32), (2, 1))
+    s.solve(x, np.zeros((2, N * 6), dtype=np.float32))
+    lam = s.get_lambda()
+    assert lam.shape == (2, N + 2, 2 * NV) and np.isfinite(lam).all()
+
+
 def test_sim_forward_vs_pinocchio(model):
     """One device SI-EULER step == the pinocchio oracle (f32 tolerance),
     quaternion stays unit-norm."""
@@ -129,43 +140,91 @@ def _rand_traj(rng, model):
     return xu
 
 
+
+def _fd(fn, width, eps):
+    """Central finite differences of fn over the unit directions (columns)."""
+    cols = []
+    for j in range(width):
+        e = np.zeros(width); e[j] = eps
+        cols.append((fn(e) - fn(-e)) / (2 * eps))
+    return np.column_stack(cols)
+
+
+def _check_normalized_linearization(model, step, A, B, c, xu, stride, nu, knots, rng):
+    """The device rows against GRiD's defect composition (integration_conventions):
+    with c = D_x(y, s), y = step(x_k, u_k) and s = x_{k+1}, the normalized row is
+    A = -solve(D_2, D_1 Gx), B = -solve(D_2, D_1 Gu), c = solve(D_2, c), every factor
+    taken by central FD of the pinocchio residual at the actual anchors. The base
+    rows carry the transport, so they get the tight tolerance; the whole-state
+    tolerance alone would not reject an untransported small B column."""
+    for k in knots:
+        x = xu[k * stride:k * stride + NX].astype(float)
+        u = xu[k * stride + NX:(k + 1) * stride].astype(float)
+        z = xu[(k + 1) * stride:(k + 1) * stride + NX].astype(float)
+        y = step(x, u)
+        raw = _diff(model, y, z)
+        for eps in (1e-4, 1e-5):
+            j2 = _fd(lambda d: _diff(model, y, _retract(model, z, d)), TS, eps)
+            cx = _fd(lambda d: _diff(model, step(_retract(model, x, d), u), z), TS, eps)
+            cu = _fd(lambda d: _diff(model, step(x, u + d), z), nu, eps)
+            want_A = -np.linalg.solve(j2, cx)
+            want_B = -np.linalg.solve(j2, cu)
+            want_c = np.linalg.solve(j2, raw)
+            np.testing.assert_allclose(A[k], want_A, atol=5e-3, rtol=5e-3)
+            np.testing.assert_allclose(B[k], want_B, atol=5e-3, rtol=5e-3)
+            np.testing.assert_allclose(A[k, :6], want_A[:6], atol=3e-5, rtol=3e-4)
+            np.testing.assert_allclose(B[k, :6], want_B[:6], atol=3e-5, rtol=3e-4)
+            np.testing.assert_allclose(c[k + 1], want_c, atol=1e-3, rtol=1e-3)
+            # the normalized row is the raw row up to D_2 (row equivalence), and the
+            # raw-residual covector of a normalized multiplier mu is solve(D_2.T, mu)
+            d = rng.normal(0, 0.05, 2 * TS + nu)
+            dx, du, ds = d[:TS], d[TS:TS + nu], d[TS + nu:]
+            linear = raw + cx @ dx + cu @ du + j2 @ ds
+            normalized = want_c - want_A @ dx - want_B @ du + ds
+            np.testing.assert_allclose(j2 @ normalized, linear, atol=1e-11, rtol=1e-10)
+            mu = rng.normal(size=TS)
+            np.testing.assert_allclose(np.linalg.solve(j2.T, mu) @ linear, mu @ normalized, atol=1e-11, rtol=1e-10)
+
+
+def _traj_with_large_defects(rng, model, step, stride, nu, u_scale=0.4, fc=None):
+    """A random trajectory whose successors at knots 0, 5 and 14 sit a large pose
+    defect away from the step (the old identity-transport linearization is off by
+    up to 0.23 there), with an initial state displaced from x_0."""
+    xu = np.zeros(N * stride - nu, dtype=np.float64)
+    for k in range(N):
+        xu[k * stride:k * stride + NX] = _rand_state(rng, 0.035, 0.035)
+        if k < N - 1:
+            u = rng.normal(0, u_scale, nu)
+            if fc is not None:
+                u[NU:] = fc(rng)
+            xu[k * stride + NX:(k + 1) * stride] = u
+    for k in (0, 5, 14):
+        x = xu[k * stride:k * stride + NX]
+        u = xu[k * stride + NX:(k + 1) * stride]
+        e = np.zeros(TS); e[:6] = [0.06, -0.04, 0.08, 0.22, -0.17, 0.13]; e[NV:] = rng.normal(0, 0.03, NV)
+        xu[(k + 1) * stride:(k + 1) * stride + NX] = _retract(model, step(x, u), e)
+    x_s = _retract(model, xu[:NX], np.r_[[0.03, -0.02, 0.01, -0.11, 0.08, 0.09], np.zeros(TS - 6)])
+    return xu, x_s
+
+
 def test_linearization_vs_pin_fd(model):
-    """Device tangent A|B + defect c against central-FD of the pinocchio step
-    map at several knots."""
+    """Device tangent A|B and defect c against the normalized defect composition,
+    by central FD of the pinocchio step map at nonzero pose defects (knots 0, 5,
+    14); the initial row's gap is the stored-to-initial difference itself."""
     rng = np.random.default_rng(7)
     data = model.createData()
     s = _solver(1)
-    xu = _rand_traj(rng, model)
-    x_s = xu[:NX].copy()
+    step = lambda x, u: _si_euler(model, data, x, u, DT)
+    xu, x_s = _traj_with_large_defects(rng, model, step, XU_STRIDE, NU)
     A, B, c = _kkt_blocks(s, xu, x_s)
-
-    eps = 1e-4
-    for k in (0, 5, N - 2):
-        base = k * XU_STRIDE
-        x_k = xu[base:base + NX]
-        u_k = xu[base + NX:base + XU_STRIDE]
-        x_kp1 = xu[base + XU_STRIDE:base + XU_STRIDE + NX]
-        pred = _si_euler(model, data, x_k, u_k, DT)
-
-        # defect: c_{k+1} = x_{k+1}^traj ⊟ pred
-        np.testing.assert_allclose(c[k + 1], _diff(model, pred, x_kp1),
-                                   rtol=1e-3, atol=1e-3)
-
-        A_fd = np.zeros((TS, TS))
-        for j in range(TS):
-            e = np.zeros(TS); e[j] = eps
-            fp = _si_euler(model, data, _retract(model, x_k, e), u_k, DT)
-            fm = _si_euler(model, data, _retract(model, x_k, -e), u_k, DT)
-            A_fd[:, j] = _diff(model, fm, fp) / (2 * eps)
-        np.testing.assert_allclose(A[k], A_fd, rtol=5e-3, atol=5e-3)
-
-        B_fd = np.zeros((TS, NU))
-        for j in range(NU):
-            e = np.zeros(NU); e[j] = eps
-            fp = _si_euler(model, data, x_k, u_k + e, DT)
-            fm = _si_euler(model, data, x_k, u_k - e, DT)
-            B_fd[:, j] = _diff(model, fm, fp) / (2 * eps)
-        np.testing.assert_allclose(B[k], B_fd, rtol=5e-3, atol=5e-3)
+    np.testing.assert_allclose(c[0], _diff(model, x_s, xu[:NX]), atol=1e-5, rtol=1e-4)
+    _check_normalized_linearization(model, step, A, B, c, xu, XU_STRIDE, NU, (0, 5, 14), rng)
+    # the same inputs after a different trajectory reproduce the rows exactly (no stale scratch)
+    altered = xu.copy(); altered[0] += 0.013
+    _kkt_blocks(s, altered, x_s)
+    A2, B2, c2 = _kkt_blocks(s, xu, x_s)
+    for a, b in ((A, A2), (B, B2), (c, c2)):
+        np.testing.assert_array_equal(a, b)
 
 
 def test_c0_is_manifold_gap(model):
@@ -342,43 +401,18 @@ def test_fc_zero_wrench_sim_is_bitwise_default(model):
 
 
 def test_fc_linearization_vs_pin_fd(model):
-    """Device tangent A|B under nonzero foot wrenches vs central FD of the
-    pinocchio step map: the fc columns of B (B_full·(-dτ/dfext·dfext/dfc)) and
-    the A-block's dfext/dq chain term (the world wrench rotates with the body)
-    — both at a wrench large enough that the chain term is not cosmetic."""
+    """The same gate on the fc module under nonzero foot wrenches: the fc columns
+    of B and the A-block's dfext/dq chain term are composed before the transport,
+    so both arrive normalized."""
     rng = np.random.default_rng(23)
     data = model.createData()
     s = _fc_solver(1)
-    xu = _rand_traj_fc(rng, model, fc_scale=25.0)
-    x_s = xu[:NX].copy()
+    step = lambda x, u: _si_euler_fc(model, data, x, u, DT)
+    xu, x_s = _traj_with_large_defects(rng, model, step, XU_STRIDE_FC, CS, fc=lambda r: _rand_fc(r, scale=2.0))
     A, B, c = _kkt_blocks_fc(s, xu, x_s)
-
-    eps = 1e-4
-    for k in (0, 6, N - 2):
-        base = k * XU_STRIDE_FC
-        x_k = xu[base:base + NX]
-        u_k = xu[base + NX:base + XU_STRIDE_FC]
-        x_kp1 = xu[base + XU_STRIDE_FC:base + XU_STRIDE_FC + NX]
-        pred = _si_euler_fc(model, data, x_k, u_k, DT)
-        np.testing.assert_allclose(c[k + 1], _diff(model, pred, x_kp1), rtol=1e-3, atol=1e-3)
-
-        A_fd = np.zeros((TS, TS))
-        for j in range(TS):
-            e = np.zeros(TS); e[j] = eps
-            fp = _si_euler_fc(model, data, _retract(model, x_k, e), u_k, DT)
-            fm = _si_euler_fc(model, data, _retract(model, x_k, -e), u_k, DT)
-            A_fd[:, j] = _diff(model, fm, fp) / (2 * eps)
-        np.testing.assert_allclose(A[k], A_fd, rtol=5e-3, atol=5e-3)
-
-        B_fd = np.zeros((TS, CS))
-        for j in range(CS):
-            e = np.zeros(CS); e[j] = eps
-            fp = _si_euler_fc(model, data, x_k, u_k + e, DT)
-            fm = _si_euler_fc(model, data, x_k, u_k - e, DT)
-            B_fd[:, j] = _diff(model, fm, fp) / (2 * eps)
-        np.testing.assert_allclose(B[k], B_fd, rtol=5e-3, atol=5e-3)
-        # the fc columns are live (a dropped composition would be all-zero)
-        assert np.abs(B[k][:, NU:]).max() > 1e-3
+    _check_normalized_linearization(model, step, A, B, c, xu, XU_STRIDE_FC, CS, (0, 5, 14), rng)
+    for k in (0, 5, 14):
+        assert np.abs(B[k][:, NU:]).max() > 1e-3   # the fc columns are live
 
 
 def test_fc_chain_term_is_real(model):

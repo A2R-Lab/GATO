@@ -40,7 +40,7 @@ def test_solve_result_accessors(solver, smallest_module):
     assert r.fc_at(0).shape == (0,) and r.fc_traj(0).shape == (N - 1, 0)
     assert r.diverged.shape == (3,) and not r.diverged.any()
     lam = solver.get_lambda()
-    assert lam.shape == (3, N + 2, solver.nx) and np.isfinite(lam).all()
+    assert lam.shape == (3, N + 2, 2 * solver.nv) and np.isfinite(lam).all()   # the tangent rows
 
 
 def test_per_batch_hyperparameter_setters(solver, smallest_module):

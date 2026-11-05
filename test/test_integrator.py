@@ -203,13 +203,24 @@ def test_floating_base_rk4_step_and_linearization():
     def retract(x, dx):
         return np.concatenate([pin.integrate(model, x[:nq], dx[:nv]), x[nq:] + dx[nv:]])
 
+    # Every successor is x0, a nonzero defect from the step, so the device row is the
+    # normalized one (grid_plant_step.cuh): with y = f(x0, u) and the successor s = x0,
+    # A = -solve(D_2, D_1 Gx), B = -solve(D_2, D_1 Gu), each factor by central differences
+    # of the device step through the manifold retraction and difference.
     eps = 1e-3
-    A_fd = np.zeros((ts, ts)); B_fd = np.zeros((ts, s.nu))
-    for i in range(ts):
-        e = np.zeros(ts); e[i] = eps
-        A_fd[:, i] = state_difference(f(retract(x0, -e), u), f(retract(x0, e), u), nq, nv) / (2 * eps)
-    for j in range(s.nu):
-        e = np.zeros(s.nu); e[j] = eps
-        B_fd[:, j] = state_difference(f(x0, u - e), f(x0, u + e), nq, nv) / (2 * eps)
+    y, succ = f(x0, u), x0
+
+    def fd(fn, width):
+        cols = []
+        for i in range(width):
+            e = np.zeros(width); e[i] = eps
+            cols.append((fn(e) - fn(-e)) / (2 * eps))
+        return np.column_stack(cols)
+
+    j2 = fd(lambda d: state_difference(y, retract(succ, d), nq, nv), ts)
+    cx = fd(lambda d: state_difference(f(retract(x0, d), u), succ, nq, nv), ts)
+    cu = fd(lambda d: state_difference(f(x0, u + d), succ, nq, nv), s.nu)
+    A_fd = -np.linalg.solve(j2, cx)
+    B_fd = -np.linalg.solve(j2, cu)
     assert np.abs(A - A_fd).max() < 5e-3, np.abs(A - A_fd).max()
     assert np.abs(B - B_fd).max() < 5e-3, np.abs(B - B_fd).max()
