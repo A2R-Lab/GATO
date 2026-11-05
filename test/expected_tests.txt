@@ -6,6 +6,10 @@ test/test_admm_exit.py::test_exit_off_is_the_fixed_budget_bitwise
 test/test_admm_exit.py::test_admm_iters_reads_the_native_budget
 test/test_admm_exit.py::test_exit_stops_early_and_keeps_feasibility
 test/test_admm_exit.py::test_exit_is_deterministic_and_batch_independent
+test/test_admm_exit.py::test_collision_exit_is_batch_independent[pcg-all-knots]
+test/test_admm_exit.py::test_collision_exit_is_batch_independent[pcg-masked-knots]
+test/test_admm_exit.py::test_collision_exit_is_batch_independent[bdsv_factor-all-knots]
+test/test_admm_exit.py::test_collision_exit_is_batch_independent[bdsv_factor-masked-knots]
 test/test_admm_exit.py::test_host_check_period_does_not_change_the_iterates
 test/test_admm_exit.py::test_exit_requires_a_converged_inner_solve
 test/test_admm_exit.py::test_pcg_and_factor_arms_agree_at_exit

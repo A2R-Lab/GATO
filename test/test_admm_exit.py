@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import gato
-from conftest import TEST_PARAMS, URDFS, arm_problem
+from conftest import ARM_GOAL, TEST_PARAMS, URDFS, arm_problem
 from gato.controller import MPCController
 from gato.policy import GoalReference
 
@@ -135,6 +135,41 @@ def test_exit_is_deterministic_and_batch_independent(make_solver, smallest_modul
         rb = run(1, X[b:b + 1], goals[b:b + 1])
         np.testing.assert_array_equal(r.xu[b], rb.xu[0])
         assert r.stats.admm_iters[b] == rb.stats.admm_iters[0]
+
+
+@pytest.mark.parametrize("masked", [False, True], ids=["all-knots", "masked-knots"])
+@pytest.mark.parametrize("linsys", ["pcg", "bdsv_factor"])
+def test_collision_exit_is_batch_independent(make_solver, smallest_module, linsys, masked):
+    """COLLISION rows under ADMM read (g, J) from a per-solve buffer filled once
+    per SQP iteration (kernels/admm.cuh): with binding rows and entries that exit
+    at their own iteration, the batched solve equals each entry solved alone (bitwise)."""
+    plant, N = smallest_module
+    B = 3
+    X, goals = _inputs(plant, N, B)
+
+    def run(Xb, gb):
+        s = _admm(make_solver, plant, N, len(Xb), linsys=linsys)
+        s.set_admm_exit(5e-2, 5e-2, 1)   # loose enough to exit early (on the pcg arm at different iterations per entry)
+        ee = np.asarray(s.ee_pos(X[0, :s.nq], frame="solver"))[:3]
+        s.set_collision_environment(spheres=[(*(ee + 0.5 * (np.asarray(ARM_GOAL) - ee)), 0.08)])   # on the reach path: the rows bind
+        s.enable_collision(mech="admm", margin=0.02, rho=1.0)
+        if masked:
+            mask = np.ones(N, dtype=bool)
+            mask[N // 3:N // 2 + 1] = False
+            s.set_row_group_mask(len(s.get_row_groups()) - 1, mask)
+        first = s.solve(Xb, gb)
+        out = [(first, s.get_collision_admm_state())]
+        second = s.solve(Xb, gb, first.xu)   # warm repeat (dual + trajectory warm start)
+        return out + [(second, s.get_collision_admm_state())]
+
+    batched = run(X, goals)
+    assert all((np.abs(st["y"]) > 0).any(axis=(1, 2)).all() for _, st in batched)   # every entry has active collision duals
+    assert all((r.stats.admm_iters < ITERS * r.stats.sqp_iters).all() for r, _ in batched)   # the residual exit fires
+    for b in range(B):
+        for (r, st), (rb, stb) in zip(batched, run(X[b:b + 1], goals[b:b + 1])):
+            np.testing.assert_array_equal(r.xu[b], rb.xu[0])
+            assert r.stats.admm_iters[b] == rb.stats.admm_iters[0]
+            np.testing.assert_array_equal(st["y"][b], stb["y"][0])
 
 
 def test_host_check_period_does_not_change_the_iterates(make_solver, smallest_module):

@@ -265,6 +265,7 @@ class BSQP {
                 al_active_ = false;
                 admm_has_eq_rows_ = false;
                 has_collision_ = false;  // env stays uploaded (re-enable is cheap)
+                admm_collision_ = false;
                 has_contact_rows_ = false;
         }
         // the shared cooperative carve (setup_kkt / merit) is sized when a
@@ -505,6 +506,9 @@ class BSQP {
                         admm_active_ = true;
                         admm_needs_init_ = true;
                         if (admm_iters > 0) admm_iters_ = admm_iters;
+                        // (g, J) evaluated once per SQP iteration for the inner loop (kernels/admm.cuh)
+                        if (!d_coll_cache_) { gpuErrchk(cudaMalloc(&d_coll_cache_, (size_t)rows::CollisionCache<T>::SIZE * batch_size_ * sizeof(T))); }
+                        admm_collision_ = true;
                 }
                 if (mech == rows::MECH_AL) {
                         if (!al_active_) {
@@ -1111,8 +1115,11 @@ class BSQP {
                                 // (set_admm_exit) and every inner kernel skips it from then on
                                 const bool admm_exit = (admm_eps_abs_ > static_cast<T>(0)) || (admm_eps_rel_ > static_cast<T>(0));
                                 gpuErrchk(cudaMemcpyAsync(d_admm_skip_batch_, d_kkt_converged_batch_, batch_size_ * sizeof(int32_t), cudaMemcpyDeviceToDevice));
+                                // collision rows' (g, J) at this linearization point, read by every inner iteration
+                                T* coll_cache = admm_collision_ ? d_coll_cache_ : nullptr;
+                                if (coll_cache) { rows::admm_collision_cache_batched<T>(batch_size_, coll_cache, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_); }
                                 for (uint32_t k = 0; k < admm_iters_; k++) {
-                                        rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr());
+                                        rows::admm_gradient_batched<T>(batch_size_, kkt_system_batch_.d_q_batch, kkt_system_batch_.d_r_batch, d_q_base_, d_r_base_, d_xu_traj_batch, d_z_admm_, d_y_admm_, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr(), coll_cache);
                                         compute_gamma_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_admm_skip_batch_);
                                         if (admm_linsys_pcg_) {
                                                 solve_pcg_batched<T>(batch_size_, d_lambda_batch_, schur_system_batch_, d_pcg_tol_batch_, max_pcg_iters_, d_admm_skip_batch_, d_pcg_iterations_);
@@ -1121,7 +1128,7 @@ class BSQP {
                                         }
                                         compute_dz_batched<T>(batch_size_, d_dz_batch_, d_lambda_batch_, kkt_system_batch_, d_admm_skip_batch_);
                                         rows::admm_project_dual_batched<T>(batch_size_, d_z_admm_, d_y_admm_, d_admm_resid_, d_xu_traj_batch, d_dz_batch_, d_row_groups_, n_row_groups_, d_admm_skip_batch_, d_GRiD_mem_, h_env_, admm_rho_scale_ptr(),
-                                                                           d_pcg_iterations_, admm_linsys_pcg_ ? max_pcg_iters_ : 0u, admm_eps_abs_, admm_eps_rel_, d_admm_iters_batch_, d_admm_linsys_iters_batch_);
+                                                                           d_pcg_iterations_, admm_linsys_pcg_ ? max_pcg_iters_ : 0u, admm_eps_abs_, admm_eps_rel_, d_admm_iters_batch_, d_admm_linsys_iters_batch_, coll_cache);
                                         if (admm_exit && admm_check_every_ > 0 && k + 1 < admm_iters_ && (k + 1) % admm_check_every_ == 0) {
                                                 // every solve exited (or was already converged): the remaining
                                                 // launches would be empty — break here
@@ -1539,6 +1546,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_admm_skip_batch_));
                 gpuErrchk(cudaFree(d_admm_iters_batch_));
                 gpuErrchk(cudaFree(d_admm_linsys_iters_batch_));
+                if (d_coll_cache_) { gpuErrchk(cudaFree(d_coll_cache_)); d_coll_cache_ = nullptr; }
                 gpuErrchk(cudaFreeHost(h_admm_skip_));
 
                 gpuErrchk(cudaFreeHost(h_kkt_converged_batch_));
@@ -1636,6 +1644,8 @@ class BSQP {
         T*   d_env_cuboids_ = nullptr;
         T*   d_env_planes_ = nullptr;
         bool has_collision_ = false;
+        T*   d_coll_cache_ = nullptr;     // ADMM collision (g, J) per solve: rows::CollisionCache<T>::SIZE (allocated by enable_collision(MECH_ADMM))
+        bool admm_collision_ = false;     // the collision group is MECH_ADMM: fill and read d_coll_cache_
         bool has_contact_rows_ = false;   // a CONTACT_POS group is registered (CL-4)
 
         void free_collision_environment()
