@@ -197,6 +197,73 @@ def test_menu_reproduces_tracking_objective(make_solver, smallest_module):
     np.testing.assert_allclose(b.xu, a.xu, rtol=1e-3, atol=1e-3)
 
 
+def test_update_uploads_the_named_targets_only():
+    """CostMenu.update: one field upload per named term, the stored target
+    replaced, the menu untouched otherwise; unknown and absent terms, the
+    gravity string and bad shapes are refused."""
+    s = _stub(N=4, B=2)
+    menu = CostMenu(frame_pos=Term(weight=1.0, target=[0.1, 0.2, 0.3]),
+                    input=Term(weight=1.0, target=0.0),
+                    orientation=Term(weight=1.0, target=np.eye(3)))
+    menu.apply(s)
+    raw = s.solver
+    raw.fields.clear()
+    raw.activation = None
+    tgt = np.arange(2 * 4 * 3, dtype=np.float32).reshape(2, 4, 3)
+    menu.update(s, frame_pos=tgt)
+    assert set(raw.fields) == {"ee_des"} and raw.activation is None
+    ee, per_solve = raw.fields["ee_des"]
+    assert per_solve is True and np.array_equal(ee, tgt.reshape(-1))
+    assert menu.frame_pos.target is tgt
+    raw.fields.clear()
+    R = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    menu.update(s, orientation=R, input=np.ones(s.nu))
+    assert set(raw.fields) == {"R_des", "u_des"}
+    with pytest.raises(ValueError, match="unknown term"):
+        menu.update(s, posture=0.0)
+    with pytest.raises(ValueError, match="not on this menu"):
+        menu.update(s, state=0.0)
+    with pytest.raises(ValueError, match="gravity"):
+        menu.update(s, input="gravity")
+    with pytest.raises(ValueError, match="expected shape"):
+        menu.update(s, frame_pos=np.zeros((3, 3)))
+    with pytest.raises(ValueError, match="rotation matrix"):
+        menu.update(s, orientation=np.ones((3, 3)))
+
+
+@pytest.mark.gpu
+def test_update_cost_menu_equals_a_full_application(make_solver, smallest_module):
+    """A target update on the menu in force solves bitwise like applying a menu
+    carrying the new targets; the menu stays on; a solver without a menu refuses."""
+    plant, N = smallest_module
+    p = TEST_PARAMS
+    x0, ref, _ = _trajectory(make_solver(plant, N), plant)
+    X = np.tile(x0, (2, 1))
+    goal_b = np.asarray(ARM_GOAL, dtype=np.float32) + np.array([0.05, -0.04, 0.03], dtype=np.float32)
+    moved = np.stack([np.tile(ARM_GOAL, (N, 1)), np.tile(goal_b, (N, 1))]).astype(np.float32)   # per solve
+    a = make_solver(plant, N, batch_size=2)
+    a.set_cost_menu(_equivalent_menu(a, p))
+    a.solve(X, ref.ravel()[None].repeat(2, 0))
+    a.update_cost_menu(frame_pos=moved, input=np.zeros(a.nu, dtype=np.float32))
+    assert a.solver.cost_menu_on()
+    ra = a.solve(X, ref.ravel()[None].repeat(2, 0))
+    # the same history on the other arm (a prior solve adapts the trust region), then a
+    # full application carrying the new targets
+    b = make_solver(plant, N, batch_size=2)
+    b.set_cost_menu(_equivalent_menu(b, p))
+    b.solve(X, ref.ravel()[None].repeat(2, 0))
+    menu = _equivalent_menu(b, p)
+    menu.frame_pos.target = moved
+    menu.input.target = np.zeros(b.nu, dtype=np.float32)
+    b.set_cost_menu(menu)
+    rb = b.solve(X, ref.ravel()[None].repeat(2, 0))
+    np.testing.assert_array_equal(ra.xu, rb.xu)
+    np.testing.assert_array_equal(ra.stats.final_merit, rb.stats.final_merit)
+    assert not np.array_equal(ra.xu[0], ra.xu[1])   # the per-solve targets took effect
+    with pytest.raises(RuntimeError, match="set_cost_menu first"):
+        make_solver(plant, N).update_cost_menu(frame_pos=ARM_GOAL)
+
+
 def _oracle(plant):
     from URDFParser import URDFParser
     from RBDReference import RBDReference

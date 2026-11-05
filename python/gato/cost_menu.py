@@ -42,9 +42,10 @@ under the menu with the plant's limit tables. The terminal knot has no
 control: ``input`` and ``linear_u`` are off there.
 
 The menu is runtime data like the constraint row groups: build it, apply it
-with :meth:`gato.BSQP.set_cost_menu`, update targets by applying again (no
-allocation after the first application for the same shapes), and remove it
-with :meth:`gato.BSQP.clear_cost_menu`. The solver's ``solve(x, ref, ...)``
+with :meth:`gato.BSQP.set_cost_menu`, move targets with
+:meth:`gato.BSQP.update_cost_menu` (one upload per term, nothing else), change
+anything else by applying again (no allocation after the first application for
+the same shapes), and remove it with :meth:`gato.BSQP.clear_cost_menu`. The solver's ``solve(x, ref, ...)``
 still takes the EE reference argument; the menu does not read it.
 """
 from __future__ import annotations
@@ -223,6 +224,46 @@ class CostMenu:
                 raise ValueError(f"q_ref: expected shape ({nq},) or ({N}, {nq}), got {q_ref.shape}")
             raw.set_cost_menu_gravity_target(np.ascontiguousarray(q_ref).reshape(-1))
         raw.set_cost_menu_on(True)
+
+    # ---- target update -----------------------------------------------------
+    def update(self, solver, **targets) -> None:
+        """Move the targets of terms already on ``solver`` (the solver's
+        ``update_cost_menu`` calls this): one upload per named term and nothing
+        else, so a reference that moves every control step costs microseconds
+        rather than the full application's validation, broadcasting and uploads
+        of every field (issue #26). Keywords are term names with the new target
+        in the shapes :meth:`apply` accepts; the term's stored target is replaced
+        so a later :meth:`apply` carries it. Weights, bounds, activations and the
+        gravity target change through :meth:`apply`."""
+        lib = solver.lib
+        sizes = dict(lib.COST_MENU_FIELDS)
+        tangent = bool(getattr(lib, "COST_MENU_TANGENT", False))
+        N, B = int(solver.N), int(solver.batch_size)
+        raw = solver.solver
+        for name, value in targets.items():
+            if name not in TERMS:
+                raise ValueError(f"update: unknown term {name!r}; one of {TERMS}")
+            term = getattr(self, name)
+            if term is None:
+                raise ValueError(f"update: {name} is not on this menu (apply a menu with the term first)")
+            f = _FIELDS[name]
+            if name == "orientation":
+                tgt, per_solve = _rotations(name + ".target", value, N, B)
+            elif isinstance(value, str):
+                raise ValueError(f"{name}: the gravity target needs a full application (set_cost_menu with CostMenu.q_ref)")
+            else:
+                if name == "state" and tangent and value is None:
+                    raise ValueError("state: a floating-base state target is a stored state with a unit quaternion; None is not one")
+                tsize = int(sizes[f["target"]])
+                tgt, per_solve = _broadcast(name + ".target", 0.0 if value is None else value, tsize, N, B)
+                if name == "state" and tangent:
+                    quat = tgt.reshape(-1, tsize)[:, 3:7]
+                    if np.any(np.abs(np.linalg.norm(quat, axis=1) - 1.0) > 1e-4):
+                        raise ValueError("state: entries 3..6 of every floating-base state target must be a unit quaternion (xyzw)")
+            if np.any(~np.isfinite(tgt)):
+                raise ValueError(f"{name}: targets must be finite")
+            raw.set_cost_menu_field(f["target"], np.ascontiguousarray(tgt, dtype=np.float32).reshape(-1), bool(per_solve))
+            term.target = value
 
 
 # ---- shape helpers ---------------------------------------------------------

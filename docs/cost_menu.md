@@ -6,8 +6,16 @@ per-knot weight triples, the posture anchor and the end-effector reference)
 with up to eight terms, each a residual under an activation, evaluated by
 GRiD's generated `grid_plant::tracking_cost_menu` (grid-rbd 0.5.5). The menu
 is runtime data, like the constraint row groups: it is built in Python, applied
-to a solver, updated by applying it again, and cleared. The solver's
-`solve(x, ref, ...)` keeps its reference argument; the menu does not read it.
+to a solver, updated and cleared. The solver's `solve(x, ref, ...)` keeps its
+reference argument; the menu does not read it.
+
+Targets that move every control step, a tracked reference for instance, go
+through `BSQP.update_cost_menu(frame_pos=..., orientation=...)`: one upload per
+named term and nothing else, so the update costs microseconds where a full
+application validates, broadcasts and uploads every field of every term
+(about 0.2 ms in Python for a seven-joint arm at 32 knots, issue #26). The
+result equals applying the menu with the new targets. Weights, bounds,
+activations and the gravity target change by applying the menu again.
 
 ## Terms
 

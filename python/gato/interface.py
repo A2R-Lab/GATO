@@ -452,6 +452,20 @@ class BSQP:
         menu.apply(self)
         self._cost_menu = menu
 
+    def update_cost_menu(self, **targets):
+        """Move the targets of terms on the menu in force without applying it
+        again: one upload per named term (``frame_pos=``, ``orientation=``,
+        ``state=``, ``input=``, ``velocity=``, ``frame_pos_2=``, ``linear_x=``,
+        ``linear_u=``), no validation of the untouched fields, no weight or
+        activation upload, the menu stays on. Shapes as on the term: ``(size,)``,
+        ``(N, size)`` or ``(B, N, size)``; orientation targets are rotation
+        matrices. The result is the same as applying the menu with the new
+        targets. Weights, bounds, activations and the gravity target change
+        through :meth:`set_cost_menu`."""
+        if self._cost_menu is None:
+            raise RuntimeError("update_cost_menu: no cost menu is on this solver (set_cost_menu first)")
+        self._cost_menu.update(self, **targets)
+
     # ---- centre-of-mass term ------------------------------------------------
     @property
     def com_cost_available(self):
