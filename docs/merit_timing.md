@@ -227,3 +227,76 @@ on each later iteration). That was a GATO defect on every target other than
 sm_120, fixed in 0.1.7 (CHANGELOG); the bdsv timings of the sweep measured
 solves that did no work and are not reported. Which of the two paths the
 embedded default should be is the next measurement for this page, on 0.1.7.
+
+## Jetson AGX Orin, October 30, 2026: the direct solve against PCG on 0.1.7
+
+Felix Mueh reran the linear-system half of the sweep on GATO 0.1.7, which
+fixed the direct path on every target other than sm_120 (CHANGELOG 0.1.7).
+Same Orin at 40 W without `jetson_clocks` (GPU clock samples 306 to 816 MHz),
+example 15's Indy7 problem, eight SQP iterations, ten runs per cell, each in
+its own process; scripts on his fork under `issue19/`, logs on issue #19.
+
+The direct path now takes a step in every iteration. On the golden problem at
+batch 1 (`issue19/bdsv_golden_check.py`) it lands near the committed goldens,
+where 0.1.6 had returned its seed:
+
+| N | linsys | initial merit | final merit, 0.1.6 | final merit, 0.1.7 | golden |
+|---|---|---|---|---|---|
+| 32 | pcg | 63.55 | 26.43 | 26.43 | 26.83 |
+| 32 | bdsv | 63.55 | 63.55 | 5.03 | 4.00 |
+| 64 | pcg | 108.22 | 33.89 | 33.89 | 34.10 |
+| 64 | bdsv | 108.22 | 108.22 | 5.11 | 4.40 |
+| 128 | pcg | 197.55 | 42.15 | 42.15 | 49.80 |
+| 128 | bdsv | 197.55 | 197.55 | 2.97 | 3.66 |
+
+Wall time per solve, mean and sample standard deviation in milliseconds, and
+the ratio of the direct solve to PCG:
+
+| N | B | warm pcg | warm bdsv | ratio | cold pcg | cold bdsv | ratio |
+|---|---|---|---|---|---|---|---|
+| 32 | 1 | 18.63 ± 3.61 | 19.55 ± 4.29 | 1.05 | 20.35 ± 3.88 | 26.55 ± 5.10 | 1.30 |
+| 32 | 4 | 21.47 ± 2.49 | 23.45 ± 5.62 | 1.09 | 25.69 ± 4.34 | 32.41 ± 6.18 | 1.26 |
+| 32 | 16 | 38.30 ± 12.58 | 27.95 ± 2.82 | 0.73 | 54.19 ± 10.21 | 54.98 ± 9.46 | 1.01 |
+| 64 | 1 | 24.27 ± 7.26 | 29.11 ± 7.85 | 1.20 | 40.81 ± 6.37 | 43.72 ± 5.85 | 1.07 |
+| 64 | 4 | 25.69 ± 7.77 | 34.16 ± 10.52 | 1.33 | 46.58 ± 6.75 | 52.82 ± 7.52 | 1.13 |
+| 64 | 16 | 55.56 ± 2.14 | 51.78 ± 2.43 | 0.93 | 85.86 ± 9.74 | 81.96 ± 10.35 | 0.95 |
+| 128 | 1 | 37.38 ± 2.44 | 40.71 ± 2.97 | 1.09 | 67.95 ± 8.30 | 71.06 ± 7.84 | 1.05 |
+| 128 | 4 | 50.43 ± 1.52 | 51.40 ± 2.57 | 1.02 | 86.83 ± 7.15 | 80.14 ± 11.94 | 0.92 |
+| 128 | 16 | 123.23 ± 1.78 | 96.58 ± 1.98 | 0.78 | 161.48 ± 11.41 | 135.34 ± 11.28 | 0.84 |
+| 256 | 1 | 78.40 ± 1.35 | 74.72 ± 1.32 | 0.95 | 149.69 ± 18.24 | 108.19 ± 11.15 | 0.72 |
+| 256 | 4 | 101.07 ± 1.39 | 95.77 ± 1.78 | 0.95 | 179.09 ± 15.29 | 132.64 ± 13.75 | 0.74 |
+| 256 | 16 | 271.67 ± 1.78 | 195.00 ± 0.85 | 0.72 | 389.48 ± 13.61 | 239.60 ± 12.24 | 0.62 |
+| 512 | 1 | 442.60 ± 2.39 | 147.27 ± 0.93 | 0.33 | 522.29 ± 12.89 | 184.21 ± 16.62 | 0.35 |
+| 512 | 4 | 575.61 ± 3.08 | 198.82 ± 3.54 | 0.35 | 653.99 ± 8.24 | 236.44 ± 10.35 | 0.36 |
+| 512 | 16 | 1319.45 ± 18.66 | 399.68 ± 0.69 | 0.30 | 1469.95 ± 28.13 | 443.69 ± 6.21 | 0.30 |
+
+The direct solve grows about linearly with the horizon and PCG does not: the
+warm linear system at batch 1 from N32 to N512 is 14.6, 23.9, 34.9, 65.4 and
+130.8 ms for the direct solve against 13.4, 18.8, 31.6, 69.5 and 426.1 ms for
+PCG. Final merit after the eight iterations, the same at every batch size:
+
+| N | cold pcg | cold bdsv | cold bdsv_first | warm pcg | warm bdsv | warm bdsv_first |
+|---|---|---|---|---|---|---|
+| 32 | 38.72 | 30.61 | 33.97 | 31.31 | 21.26 | 27.32 |
+| 64 | 51.78 | 45.54 | 50.11 | 38.05 | 31.88 | 39.48 |
+| 128 | 84.69 | 72.53 | 81.01 | 58.75 | 39.18 | 60.02 |
+| 256 | 157.12 | 137.95 | 153.77 | 86.36 | 77.28 | 105.07 |
+| 512 | 297.84 | 257.54 | 290.40 | 217.05 | 145.12 | 244.38 |
+
+The direct solve accepts equal or larger steps than PCG at every horizon
+(warm, batch 1: 0.0625 to 0.25 against 0.0078 to 0.125) and ends at the lower
+merit in every cell; none of the 900 solves meets the KKT tolerance within
+eight iterations, so the table compares progress per iteration. `bdsv_first`
+gains nothing consistent (0.82 to 1.22 of the PCG wall time up to N256, 0.79
+to 0.96 at N512) and ends above the direct solve everywhere: on this GPU it is
+a loss.
+
+The reading for the default: from N256 the direct solve is faster at every
+batch size, by about three times at N512, and at batch 16 from N32 warm; PCG
+keeps a few milliseconds at N32 to N128 at batch 1 and 4, by up to a third,
+inside the clock spread. From 0.2 the fixed-base default follows the horizon
+(`gato.linsys_autotune.BDSV_HORIZON`): the per-step policy below N256, the
+direct solve from N256; the floating base keeps the direct solve. The same
+sweep on the RTX 5090 is the open row of this page: the direct solve grows
+linearly in N and the crossover can sit elsewhere on a large GPU, so nothing
+below N256 changes before it runs.

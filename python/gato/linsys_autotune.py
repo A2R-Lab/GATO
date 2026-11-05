@@ -188,11 +188,17 @@ def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=N
     return admm_linsys, float(admm_threshold)
 
 
+# the horizon from which the fixed-base default is the direct solve (docs/merit_timing.md)
+BDSV_HORIZON = 256
+
+
 def resolve_linsys(floating_base, linsys=None, bdsv_threshold=None,
                    plant=None, N=None, task_tag=None, path=None):
     """Controller-side resolution: explicit > tuned > wired default.
 
-    Returns (linsys, bdsv_threshold) with linsys in
+    The wired default is "bdsv" on a floating base and, on a fixed base, "auto"
+    below ``BDSV_HORIZON`` knots and "bdsv" from there (``N`` None counts as
+    below). Returns (linsys, bdsv_threshold) with linsys in
     {"pcg", "bdsv", "bdsv_first", "auto"} and bdsv_threshold set iff auto.
     """
     if linsys is None and task_tag is not None and plant is not None:
@@ -202,8 +208,12 @@ def resolve_linsys(floating_base, linsys=None, bdsv_threshold=None,
             if linsys == "auto" and bdsv_threshold is None:
                 bdsv_threshold = entry.get("tau")
     if linsys is None:
-        # wired per-base defaults (2026-08-12): see MPCController docstring
-        linsys = "bdsv" if floating_base else "auto"
+        # the wired defaults: the floating base runs the direct solve (2026-08-12); the fixed
+        # base runs the per-step policy below N256 and the direct solve from N256, where it
+        # is faster at every batch size and ends at the lower merit on the Jetson AGX Orin
+        # (Felix Mueh, issue #19, docs/merit_timing.md, October 30); the 5090 row of that
+        # table is still to be measured
+        linsys = "bdsv" if floating_base or (N is not None and int(N) >= BDSV_HORIZON) else "auto"
     if linsys == "auto" and bdsv_threshold is None:
         bdsv_threshold = 0.1
     return linsys, bdsv_threshold

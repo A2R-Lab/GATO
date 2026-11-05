@@ -101,8 +101,13 @@ def test_resolve_precedence(tmp_path):
 
 
 def test_resolve_wired_defaults():
-    assert resolve_linsys(False) == ("auto", 0.1)          # fixed-base
+    assert resolve_linsys(False) == ("auto", 0.1)          # fixed-base, no horizon given
     assert resolve_linsys(True) == ("bdsv", None)          # floating
+    # the fixed-base horizon rule (issue #19, docs/merit_timing.md October 30)
+    assert resolve_linsys(False, N=128) == ("auto", 0.1)
+    assert resolve_linsys(False, N=256) == ("bdsv", None)
+    assert resolve_linsys(False, N=512) == ("bdsv", None)
+    assert resolve_linsys(False, "auto", None, N=256) == ("auto", 0.1)   # explicit wins
     assert resolve_linsys(False, "auto", None) == ("auto", 0.1)
     assert resolve_linsys(False, "auto", 0.25) == ("auto", 0.25)
     assert resolve_linsys(True, "pcg", None) == ("pcg", None)

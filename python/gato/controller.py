@@ -65,10 +65,13 @@ class MPCController:
             cap-out, the step is treated as cold and solved with "bdsv_first"
             (exact solve on the fresh linearization, PCG warm-started after);
             otherwise "pcg".
-            None (default) resolves to the wired per-base default: "auto" for
-            fixed-base solvers and "bdsv" for floating-base solvers. This is
-            a workload-dependent policy, not a speed guarantee. Pass the
-            solver's mode explicitly to keep it pinned.
+            None (default) resolves to the wired default: "bdsv" for
+            floating-base solvers; for fixed-base solvers "auto" below 256
+            knots and "bdsv" from 256, where the direct solve is faster at
+            every batch size and ends at the lower merit (issue #19,
+            docs/merit_timing.md). This is a workload-dependent policy, not a
+            speed guarantee. Pass the solver's mode explicitly to keep it
+            pinned.
         bdsv_threshold: pred_err threshold for linsys="auto"; defaults to 0.1
             under auto (the CDF study's [0.08, 0.17] deadline band — low τ
             trades a tighter max for a fatter p90). Calibrate per task from

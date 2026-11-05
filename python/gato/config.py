@@ -105,8 +105,9 @@ class SolverParams:
     - ``rho``: trust-region / regularization floor (> 0: f32 bdsv returns garbage
       steps at rho=0); ``adapt_rho`` lets the line search adapt it per solve.
     - ``linsys``: "pcg" | "bdsv" | "bdsv_first" | None (None = wired default:
-      pcg fixed-base, bdsv floating-base, the static arm of the controller's
-      per-step policy; see ``gato.linsys_autotune.resolve_linsys``).
+      pcg on a fixed base below 256 knots, bdsv from 256 and on a floating
+      base, the static arm of the controller's per-step policy; see
+      ``gato.linsys_autotune.resolve_linsys``).
 
     Cost weights (grid_plant tracking cost): ``q_cost`` (running EE position),
     ``N_cost`` (terminal EE position), ``qd_cost``, ``u_cost``, and the

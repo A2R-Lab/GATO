@@ -99,10 +99,12 @@ disagreement isolated to the `coriolis` probe points at damping instead.
   `solver.params` records configuration fields; setters for those fields update
   it. Row groups, vector weights and target tables have their own state and are
   not a complete replay configuration in `SolverParams` alone.
-- **linsys**: `SolverParams.linsys` None = the wired static default (pcg fixed
-  base, bdsv floating base) — the static arm of `MPCController`'s per-step
-  policy ("auto" = pcg warm / bdsv_first cold, same resolver:
-  `gato.linsys_autotune.resolve_linsys`). An explicit mode always wins.
+- **linsys**: `SolverParams.linsys` None = the wired static default (pcg on a
+  fixed base below 256 knots, bdsv from 256 and on a floating base) — the
+  static arm of `MPCController`'s per-step policy ("auto" = pcg warm /
+  bdsv_first cold, same resolver: `gato.linsys_autotune.resolve_linsys`). The
+  horizon rule is Felix Mueh's Orin measurement of October 30 (docs/merit_timing.md);
+  the 5090 row is pending. An explicit mode always wins.
 - **Array kinds.** `solve()` / `step()` take numpy, torch or JAX arrays and
   return the same kind. CUDA tensors (torch on a CUDA device, JAX on a GPU)
   use the device path: inputs are read in place through their device pointer
