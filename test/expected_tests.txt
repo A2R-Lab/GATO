@@ -3,6 +3,7 @@ test/test_admm_exit.py::test_timing_probe_does_not_inherit_controller_limits[fix
 test/test_admm_exit.py::test_timing_probe_does_not_inherit_controller_limits[fixed-factor]
 test/test_admm_exit.py::test_timing_probe_does_not_inherit_controller_limits[default]
 test/test_admm_exit.py::test_exit_off_is_the_fixed_budget_bitwise
+test/test_admm_exit.py::test_admm_iters_reads_the_native_budget
 test/test_admm_exit.py::test_exit_stops_early_and_keeps_feasibility
 test/test_admm_exit.py::test_exit_is_deterministic_and_batch_independent
 test/test_admm_exit.py::test_host_check_period_does_not_change_the_iterates

@@ -73,11 +73,20 @@ def test_exit_off_is_the_fixed_budget_bitwise(make_solver, smallest_module):
     ra, rb = a.solve(X, goals), b.solve(X, goals)
     np.testing.assert_array_equal(ra.xu, rb.xu)
     # the counts read the budget exactly: iters per SQP iteration, every entry
-    assert ra.stats.admm_iters is not None
+    assert ra.stats.admm_iters is not None and a.admm_iters == ITERS
     np.testing.assert_array_equal(ra.stats.admm_iters, ITERS * ra.stats.sqp_iters)
     assert ra.stats.admm_linsys_iters.shape == (3,) and (ra.stats.admm_linsys_iters >= 0).all()
     with pytest.raises(ValueError):
         a.set_admm_exit(-1e-3, 0.0, 1)
+
+
+def test_admm_iters_reads_the_native_budget(make_solver, smallest_module):
+    """BSQP.admm_iters is the solver's ADMM inner budget, also where a group add sets it."""
+    plant, N = smallest_module
+    s = make_solver(plant, N, batch_size=1)
+    assert s.admm_iters == 10                                  # the C++ default
+    s.add_lin_u_rows(np.eye(s.nu, dtype=np.float32)[:1], lo=[-1e6], hi=[1e6], mech="admm", admm_iters=3)
+    assert s.admm_iters == 3                                   # set by the group add, natively
 
 
 def test_exit_stops_early_and_keeps_feasibility(make_solver, smallest_module):

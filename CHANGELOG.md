@@ -2,6 +2,14 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## Unreleased
+
+- `BSQP.admm_iters` reads the ADMM inner-iteration budget per SQP iteration from
+  the native solver, beside `admm_eps_abs`, `admm_eps_rel` and `admm_check_every`:
+  `enable_limit_admm`'s `iters`, or the latest positive `admm_iters` of an ADMM
+  group add (`add_lin_u_rows`, `enable_collision`, `add_contact_pos_rows`), which
+  sets the budget of every ADMM group.
+
 ## 0.1.7 — 2026-10-29: the direct solve on every GPU
 
 - The direct linear solve (`linsys="bdsv"`, `bdsv_first`, the `auto` policy on
