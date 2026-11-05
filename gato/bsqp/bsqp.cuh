@@ -502,12 +502,13 @@ class BSQP {
                 gpuErrchk(cudaMemset2D(d_lam_hi_ + rows::ROW_STATE_SIZE, rows::TOTAL_ROW_STATE_SIZE * sizeof(T), 0, band_w, batch_size_));
                 gpuErrchk(cudaMemset2D(d_lam_lo_ + rows::ROW_STATE_SIZE, rows::TOTAL_ROW_STATE_SIZE * sizeof(T), 0, band_w, batch_size_));
 
+                // the per-solve (g, J) buffer (rows::CollisionCache): the ADMM inner loop reads it at the
+                // linearization point, the row-group telemetry refills its g slots at the returned trajectory
+                if (!d_coll_cache_) { gpuErrchk(cudaMalloc(&d_coll_cache_, (size_t)rows::CollisionCache<T>::SIZE * batch_size_ * sizeof(T))); }
                 if (mech == rows::MECH_ADMM) {
                         admm_active_ = true;
                         admm_needs_init_ = true;
                         if (admm_iters > 0) admm_iters_ = admm_iters;
-                        // (g, J) evaluated once per SQP iteration for the inner loop (kernels/admm.cuh)
-                        if (!d_coll_cache_) { gpuErrchk(cudaMalloc(&d_coll_cache_, (size_t)rows::CollisionCache<T>::SIZE * batch_size_ * sizeof(T))); }
                         admm_collision_ = true;
                 }
                 if (mech == rows::MECH_AL) {
@@ -1292,7 +1293,10 @@ class BSQP {
                 // row-group telemetry on the RETURNED trajectory (off the solver path;
                 // n_row_groups_ == 0 -> nothing launched, solve() byte-identical)
                 if (n_row_groups_ > 0) {
-                        rows::row_group_telemetry_batched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch, d_GRiD_mem_, h_env_);
+                        // the collision clearances at the returned trajectory, one block per (knot, solve), into
+                        // the per-solve buffer's g slots (dead after the inner loop); the per-solve kernel reads them
+                        if (has_collision_ && d_coll_cache_) { rows::collision_values_batched<T>(batch_size_, d_coll_cache_, d_xu_traj_batch, d_row_groups_, n_row_groups_, d_GRiD_mem_, h_env_); }
+                        rows::row_group_telemetry_batched<T>(batch_size_, d_row_telemetry_, d_row_groups_, n_row_groups_, d_xu_traj_batch, d_GRiD_mem_, h_env_, has_collision_ ? d_coll_cache_ : nullptr);
                         // AL outer dual update ONCE per solve, on the FINAL trajectory
                         // (rowgroups.cuh). The whole solve is the inner minimization —
                         // per-SQP-iteration updates diverge (a damped/rejected step is
@@ -1644,7 +1648,7 @@ class BSQP {
         T*   d_env_cuboids_ = nullptr;
         T*   d_env_planes_ = nullptr;
         bool has_collision_ = false;
-        T*   d_coll_cache_ = nullptr;     // ADMM collision (g, J) per solve: rows::CollisionCache<T>::SIZE (allocated by enable_collision(MECH_ADMM))
+        T*   d_coll_cache_ = nullptr;     // collision (g, J) per solve: rows::CollisionCache<T>::SIZE (allocated by enable_collision, any mechanism)
         bool admm_collision_ = false;     // the collision group is MECH_ADMM: fill and read d_coll_cache_
         bool has_contact_rows_ = false;   // a CONTACT_POS group is registered (CL-4)
 

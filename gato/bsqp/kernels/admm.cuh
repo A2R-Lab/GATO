@@ -163,25 +163,10 @@ __device__ __forceinline__ void cooperative_admm_init(const RowGroupDesc<T>& grp
         }
 }
 
-// ---- per-SQP-iteration COLLISION (g, J) cache ----------------------------
-// Per solve, per knot: [g (NCC) | J (NCC x NV, the trait's jac() layout)],
-// i.e. the contiguous [g | J] head of the trait's gradient carve. Filled at
-// the knots of the (single) MECH_ADMM collision group's window; other slots
-// are never read.
-template<typename T>
-struct CollisionCache {
-        using E = CooperativeRows<T, COLLISION>;
-        static constexpr uint32_t J_OFFSET = E::VALUES;                   // offset of J in a knot slot
-        static constexpr uint32_t KNOT_STRIDE = E::VALUES * (1 + E::NV);  // g + J
-        static constexpr uint32_t SIZE = KNOT_POINTS * KNOT_STRIDE;       // per solve
-};
-
-// knot slot of the cache, or nullptr (no cache: evaluate in place)
-template<typename T>
-__device__ __forceinline__ const T* collision_cache_knot(const T* d_cache, int knot)
-{
-        return d_cache ? d_cache + (size_t)knot * CollisionCache<T>::KNOT_STRIDE : nullptr;
-}
+// The per-solve COLLISION (g, J) buffer layout (CollisionCache, rowgroups.cuh)
+// is filled here once per SQP iteration (admm_collision_cache_batched) and,
+// in its g slots, once per solve at the returned trajectory for the telemetry
+// (collision_values_batched).
 
 template<typename T, int KIND>
 __device__ __forceinline__ void cooperative_admm_gradient(const RowGroupDesc<T>& grp, int gi, int knot,
@@ -286,6 +271,35 @@ __global__ __launch_bounds__(ADMM_THREADS) void admm_collision_cache_batched_ker
                 T *g, *J, *gr, *h;
                 E::gradient(grp, knot, x, s_scratch, d_robot_model, &env, g, J, gr, h);
                 for (int i = threadIdx.x; i < (int)CollisionCache<T>::KNOT_STRIDE; i += blockDim.x) { c[i] = g[i]; }  // [g | J] is contiguous
+                return;  // enable_collision registers at most one collision group
+        }
+}
+
+// Fill the g slots of the COLLISION buffer at a trajectory (the returned one,
+// for the row-group telemetry): grid (KNOT_POINTS, batch), one block per knot,
+// ROWGROUP_THREADS like the per-solve kernel that reads them. Every solve is
+// evaluated (the telemetry has no skip mask).
+template<typename T>
+__global__ __launch_bounds__(ROWGROUP_THREADS) void collision_values_batched_kernel(T* d_cache_batch,
+                                                                               const T* __restrict__ d_xu_traj_batch,
+                                                                               const RowGroupDesc<T>* __restrict__ d_groups,
+                                                                               int32_t n_groups,
+                                                                               const grid::robotModel<T>* __restrict__ d_robot_model,
+                                                                               const grid_collision::Environment<T> env)
+{
+        using E = CooperativeRows<T, COLLISION>;
+        const int32_t knot = blockIdx.x;
+        const uint32_t solve_idx = blockIdx.y;
+        extern __shared__ char s_raw_values[];
+        T* s_scratch = reinterpret_cast<T*>(s_raw_values);  // E::value_scratch_ct
+        const T* x = get_offset_xu<T>(d_xu_traj_batch, solve_idx, knot);
+        T* c = d_cache_batch + (size_t)solve_idx * CollisionCache<T>::SIZE + (size_t)knot * CollisionCache<T>::KNOT_STRIDE;
+        for (int32_t gi = 0; gi < n_groups; gi++) {
+                const RowGroupDesc<T>& grp = d_groups[gi];
+                if (grp.kind != COLLISION) continue;
+                if (knot < grp.knot_lo || knot >= grp.knot_hi) continue;
+                const T* g = E::value(grp, knot, x, s_scratch, d_robot_model, &env);
+                for (int i = threadIdx.x; i < (int)E::VALUES; i += blockDim.x) { c[i] = g[i]; }
                 return;  // enable_collision registers at most one collision group
         }
 }
@@ -668,6 +682,19 @@ __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_
         opt_in_dynamic_smem(admm_project_dual_batched_kernel<T>, s_mem_size, attr_bytes);
         admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_skip_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch,
                                                                                     d_linsys_iters, max_pcg_iters, eps_abs, eps_rel, d_admm_iters, d_admm_linsys_iters, d_coll_cache_batch);
+        gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
+}
+
+// the g slots at a trajectory, for the telemetry (rowgroups.cuh reads them)
+template<typename T>
+__host__ void collision_values_batched(uint32_t batch_size, T* d_coll_cache_batch, const T* d_xu_traj_batch, const RowGroupDesc<T>* d_groups, int32_t n_groups,
+                                     const void* d_GRiD_mem, const grid_collision::Environment<T>& env)
+{
+        dim3 grid(KNOT_POINTS, batch_size);
+        const size_t s_mem_size = sizeof(T) * CooperativeRows<T, COLLISION>::value_scratch_ct();
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(collision_values_batched_kernel<T>, s_mem_size, attr_bytes);
+        collision_values_batched_kernel<T><<<grid, ROWGROUP_THREADS, s_mem_size>>>(d_coll_cache_batch, d_xu_traj_batch, d_groups, n_groups, (const grid::robotModel<T>*)d_GRiD_mem, env);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
 }
 

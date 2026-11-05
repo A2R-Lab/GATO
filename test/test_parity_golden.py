@@ -150,6 +150,12 @@ def test_golden(plant, N, variant, case, urdfs):
                initial_merit=np.asarray(r.stats.initial_merit, np.float32),
                sqp_iters=np.asarray(r.stats.sqp_iters, np.int32),
                kkt_converged=np.asarray(r.stats.kkt_converged, np.int32))
+    if case.startswith("collision_"):
+        # the row-group telemetry on the returned trajectory: the collision clearances are
+        # evaluated once per knot in parallel (kernels/admm.cuh) and reduced in a fixed order,
+        # so the reported violations are bitwise those of the knot-by-knot evaluation
+        got["row_max_violation"] = np.asarray(r.stats.row_max_violation, np.float32)
+        got["row_sum_violation"] = np.asarray(r.stats.row_sum_violation, np.float32)
     assert np.isfinite(got["xu"]).all()
     path = GOLDEN / (f"{plant}_N{N}_{case}.npz" if variant == "default" else f"{plant}_N{N}_{variant}_{case}.npz")
     if REBASELINE or not path.exists():
