@@ -14,3 +14,9 @@ constexpr uint32_t NUM_BODIES = 7;
 constexpr uint32_t EE_POS_SIZE = 6;
 constexpr uint32_t NUM_CONTACT_FRAMES = 1;
 }
+
+// constants.h reads the actuated width from the plant header (the real one
+// derives it from the model descriptor in dynamics/model_dims.cuh)
+namespace gato { namespace plant {
+__host__ __device__ constexpr int actuated_width() { return (int)grid::NUM_VEL; }
+} }

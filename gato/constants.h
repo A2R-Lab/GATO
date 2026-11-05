@@ -28,10 +28,13 @@ namespace constants {
     // state is XU_STATE_SIZE (nq + nv) — identical on fixed base.
     constexpr uint32_t STATE_SIZE = NV * 2;
     constexpr uint32_t XU_STATE_SIZE = NQ + NV;
-    // Actuation: fixed base = every joint; floating base = everything but the
-    // 6 base dofs (grid's plant surfaces take a full NV-sized generalized
-    // force; GATO scatters the actuated slots and zeros the base rows).
-    constexpr uint32_t ACTUATED_SIZE = FLOATING_BASE ? (NV - 6) : grid::NUM_JOINTS;
+    // Actuation: the tangent size less the floating block's rows, from the
+    // model descriptor (gato::plant::actuated_width, dynamics/model_dims.cuh,
+    // which the plant header declares before this file is read on either
+    // include order; grid's plant surfaces take a full NV-sized generalized
+    // force, GATO scatters the actuated slots and zeros the base rows).
+    constexpr uint32_t ACTUATED_SIZE = gato::plant::actuated_width();
+    static_assert(FLOATING_BASE || ACTUATED_SIZE == NV, "a fixed-base plant actuates every tangent row");
     // Integrator selection (kernel template default). Ids: 0 Euler, 1
     // semi-implicit Euler, 2 trapezoidal (q += dt qd + dt^2 qdd / 2), 3 RK4.
     // The fixed base keeps the historic trapezoidal (2) and the floating base

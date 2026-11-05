@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include "grid.cuh"
+#include "model_dims.cuh"
 #include "glass.cuh"
 #include "settings.h"
 #include "utils/linalg.cuh"
@@ -30,11 +31,12 @@ namespace plant {
         inline constexpr int NQ          = grid::NUM_POS;          // configuration size
         inline constexpr int NV          = grid::NUM_VEL;          // tangent / velocity size
         inline constexpr int NX          = grid::NUM_POS + grid::NUM_VEL;  // stored state [q; qd]
-        // NU = the ACTUATED torque width (cost/control code is NU-wide).
-        // Floating base: grid's plant surfaces take a full NV generalized
-        // force; GATO scatters the NU actuated slots and zeros the 6 base rows.
-        inline constexpr int NU          = (grid::NUM_POS == grid::NUM_VEL)
-                                               ? grid::NUM_JOINTS : (grid::NUM_VEL - 6);
+        // NU = the ACTUATED torque width (cost/control code is NU-wide): the
+        // tangent size less the floating block's rows, read from the model
+        // descriptor (grid::model, grid-rbd 0.7.0). Floating base: grid's plant
+        // surfaces take a full NV generalized force; GATO scatters the NU
+        // actuated slots and zeros the base rows.
+        inline constexpr int NU          = actuated_width();   // dynamics/model_dims.cuh
         inline constexpr int NEE         = grid::NUM_EES;          // end-effector count
         inline constexpr int NCF         = grid::NUM_CONTACT_FRAMES; // baked contact frames (feet / the arm EE)
         inline constexpr int EE_POS_SIZE = 6;                      // pose size (xyz + orientation)
@@ -1036,21 +1038,19 @@ namespace plant {
         {       // the knot's activation ints, in T slots
                 return (unsigned)((gato::menu::NUM_TERMS * sizeof(int) + sizeof(T) - 1) / sizeof(T));
         }
+        // the preset's frame scratch and evaluation arena, carved by the generated
+        // tracking_cost_menu_arena (its rows are the linear feature widths)
         template<typename T>
-        __host__ __device__ constexpr unsigned menu_scratch_ct()
-        {       // the preset's s_scratch: the frame_eval arena (16-byte aligned, hence the slack) and the
-                // larger of the tangent state term's scratch (NV + 72 + 2 NV) and the linear feature widths
-                constexpr unsigned arena = (unsigned)((grid_plant::FRAME_EVAL_DYNAMIC_SHARED_MEM_BYTES<T>() + sizeof(T) - 1) / sizeof(T)) + (unsigned)(16 / sizeof(T));
-                constexpr unsigned terms = (unsigned)(NV + 72 + MENU_TS) > (unsigned)MENU_NLX ? (unsigned)(NV + 72 + MENU_TS) : (unsigned)MENU_NLX;
-                return arena > terms ? arena : terms;
-        }
-        // s_temp element count of menu_cost_value / menu_cost_grad_hess (fc builds add the
-        // NU-wide input blocks the generated preset writes before the scatter into CONTROL_SIZE)
+        using MenuArena = grid_plant::tracking_cost_menu_arena<T, MENU_NLX, MENU_NU>;
+        // s_temp element count of menu_cost_value / menu_cost_grad_hess: the limit buffers, the
+        // activation ints, the NU-wide input blocks the generated preset writes on fc builds
+        // before the scatter into CONTROL_SIZE, the 16-byte alignment of the arena, the arena
         template<typename T>
         __host__ __device__ constexpr unsigned menu_cost_smem_ct()
         {
-                return (2 * MENU_NQB + 2 * MENU_NVB + 2 * MENU_NU) + menu_act_ct<T>() + (unsigned)grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT
-                       + (FC > 0 ? (unsigned)(MENU_NU + MENU_NU * MENU_NU) : 0u) + menu_scratch_ct<T>();
+                return (2 * MENU_NQB + 2 * MENU_NVB + 2 * MENU_NU) + menu_act_ct<T>()
+                       + (FC > 0 ? (unsigned)(MENU_NU + MENU_NU * MENU_NU) : 0u)
+                       + (unsigned)(16 / sizeof(T)) + (unsigned)(MenuArena<T>::bytes() / sizeof(T));
         }
 
         template<typename T>
@@ -1064,11 +1064,12 @@ namespace plant {
                 c.s_qd_lo = c.s_q_hi + MENU_NQB;     c.s_qd_hi = c.s_qd_lo + MENU_NVB;
                 c.s_u_lo = c.s_qd_hi + MENU_NVB;     c.s_u_hi = c.s_u_lo + MENU_NU;
                 c.s_act = reinterpret_cast<int*>(c.s_u_hi + MENU_NU);
-                c.s_frame = c.s_u_hi + MENU_NU + menu_act_ct<T>();
-                c.s_r_nu = c.s_frame + grid_plant::GRID_PLANT_FRAME_SCRATCH_COUNT;   // fc builds only (NU and NU*NU)
+                c.s_r_nu = c.s_u_hi + MENU_NU + menu_act_ct<T>();   // fc builds only (NU and NU*NU)
                 c.s_R_nu = c.s_r_nu + MENU_NU;
                 const uintptr_t a = reinterpret_cast<uintptr_t>(FC > 0 ? c.s_R_nu + MENU_NU * MENU_NU : c.s_r_nu);
-                c.s_scratch = reinterpret_cast<T*>((a + 15u) & ~static_cast<uintptr_t>(15u));
+                const auto arena = MenuArena<T>::carve(reinterpret_cast<void*>((a + 15u) & ~static_cast<uintptr_t>(15u)));
+                c.s_frame = arena.s_frame;
+                c.s_scratch = arena.s_scratch;
                 return c;
         }
 
