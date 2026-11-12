@@ -2,6 +2,25 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## 0.2.1 — 2026-11-12: grid-rbd 0.7.1, rotor armature
+
+- `joint_armature=` on `gato.build` and `gato.register_robot` bakes a
+  reflected rotor inertia per velocity slot into the dynamics and their
+  derivatives, added to the diagonal of the joint-space inertia as
+  Pinocchio's `model.armature` (Felix Mueh, issue #20; grid-rbd 0.7.1). A
+  scalar fills every actuated slot; a vector of length nv follows the velocity
+  order, in kg m^2 on a revolute joint and kg on a prismatic one, and is zero
+  on the floating root. The values are an argument; the URDF is not read for
+  them. The step and its linearization are checked against Pinocchio. It is
+  part of the codegen key when nonzero, so existing robots keep their keys.
+  The values are fixed at registration; changing them between solves without
+  a rebuild (GRiD's `runtime_armature`) is not wired yet.
+- grid-rbd 0.7.1 is the pinned generator, GLASS 6a82320 unchanged. The
+  generated retract now normalizes its input quaternion, which moves six of
+  the eight Go2 parity goldens (re-baselined; reverting that one statement
+  restores them bitwise). The 48 fixed-base goldens are unchanged. Modules
+  rebuild on the new pin.
+
 ## 0.2.0 — 2026-11-05: grid-rbd 0.7.0, the floating defect, the artifact store
 
 - grid-rbd 0.7.0 is the pinned generator, bundling GLASS 6a82320 (the
