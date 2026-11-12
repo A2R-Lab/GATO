@@ -38,6 +38,11 @@ golden solve hits a non-PD factor, so the rest stayed bit-identical.
 Added 2026-10-01: the four collision_{al,admm} arm cases (captured with the
 pre-refactor code) so the cooperative row-kind consolidation is gated bitwise
 on all three cooperative kinds (EE_POS, COLLISION, CONTACT_POS).
+Re-baselined 2026-11-12 (grid-rbd 0.7.0 -> 0.7.1): six go2 cases (bdsv, fc
+bdsv, the two masked-contact cases, rk4 pcg and bdsv). The generated retract
+now normalizes its input quaternion; reverting that one statement in the 0.7.1
+header restored all 54 goldens bitwise, so nothing else in the release reaches
+them. The 48 fixed-base cases and the go2 pcg and fc pcg cases are unchanged.
 """
 import os
 from pathlib import Path
