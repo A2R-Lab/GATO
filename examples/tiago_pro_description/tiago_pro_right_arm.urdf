@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2024 PAL Robotics S.L. All rights reserved. Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License. -->
+<!-- Modified (Apache-2.0, section 4b) by Felix Muehlenberend: derived from PAL's TIAGo Pro
+     simulator URDF (tiago_pro_description) as the reduced right arm used for MPC with GATO
+     (gato_tiago f169a20, tiago.arm_urdf): fixed root torso_lift_link, the seven right-arm joints
+     in native coordinates (joint 6 turns about -z), the gripper's links lumped into
+     arm_right_tool_link at zero gripper posture, and a massless grasp frame. Visual and
+     collision geometry removed. The joints' <dynamics> carry Coulomb friction (friction, Nm)
+     and viscous damping (damping, Nm s/rad) fitted from real single-joint chirps on 2026-10-30,
+     not PAL's values. The reflected armature is not representable in URDF; see
+     tiago_pro_right_arm_parameters.csv. -->
+<!-- Modified by the GATO authors (Apache-2.0, section 4b): PAL's collision meshes of the seven arm links
+     (pal_sea_arm_description, arm_tiago_pro, spherical wrist) added as <collision> at the link origin.
+     See README.md in this folder. -->
+<robot name="tiago_pro_right_arm">
+  <link name="torso_lift_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <mass value="3.24266045177967" />
+      <inertia ixx="0.0295369723560087" ixy="-7.85101789883696E-07" ixz="-8.58576921315497E-05" iyy="0.0170989395656347" iyz="-8.17944373020342E-06" izz="0.0290055792681799" />
+    </inertial>
+  </link>
+  <link name="arm_right_1_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.00476 0.01532 0.15274" />
+      <mass value="1.21459" />
+      <inertia ixx="0.00434" ixy="0.00004" ixz="0.00016" iyy="0.00421" iyz="-0.00051" izz="0.00121" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_1_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_2_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.01715 -0.11231 -0.03000" />
+      <mass value="1.13101" />
+      <inertia ixx="0.00357" ixy="0.00029" ixz="0.00007" iyy="0.00117" iyz="-0.00068" izz="0.00352" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_2_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_3_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.01530 -0.00471 0.13242" />
+      <mass value="1.21628" />
+      <inertia ixx="0.00425" ixy="-0.00004" ixz="-0.00051" iyy="0.00437" iyz="-0.00015" izz="0.00121" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_3_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_4_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="-0.01715 0.11231 -0.03000" />
+      <mass value="1.13101" />
+      <inertia ixx="0.00357" ixy="0.00029" ixz="-0.00007" iyy="0.00117" iyz="0.00068" izz="0.00352" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_4_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_5_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="-0.00017 -0.02738 0.06749" />
+      <mass value="0.31298" />
+      <inertia ixx="0.00157" ixy="0.00000" ixz="0.00000" iyy="0.00154" iyz="-0.00038" izz="0.00043" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_5_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_6_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.031765231605914 -0.006515108863227 -0.040804517366422" />
+      <mass value="1.34587360139295" />
+      <inertia ixx="0.001098855044306" ixy="0.000130003468892" ixz="-5.88209416784623E-06" iyy="0.001164948561169" iyz="4.20092116284985E-07" izz="0.001189837857495" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_6_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_7_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.00174 -0.00223 0.0083" />
+      <mass value="0.12399" />
+      <inertia ixx="0.00008" ixy="0.0" ixz="0.0" iyy="0.00006" iyz="0.0" izz="0.00012" />
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/collision/arm_7_link_collision.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="arm_right_tool_link">
+    <inertial>
+      <origin xyz="-4.1383845090849906e-05 4.9337115718907538e-06 0.055165884735820729" rpy="0 0 0" />
+      <mass value="0.73294020568391793" />
+      <inertia ixx="0.0014180140239798678" ixy="-2.1090342807282663e-07" ixz="2.9128128307686125e-07" iyy="0.0011161263916423067" iyz="2.5287741519460123e-07" izz="0.00065159379068213761" />
+    </inertial>
+  </link>
+  <joint name="arm_right_1_joint" type="revolute">
+    <origin rpy="-2.0679 -0.0 -1.9198899999999999" xyz="0.08976 -0.15918 -0.092008" />
+    <parent link="torso_lift_link" />
+    <child link="arm_right_1_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="43.0" lower="-4.71238898038469" upper="0.5235987755982988" velocity="2.5" />
+    <dynamics damping="4.96" friction="2.06" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-4.642388980384689" soft_upper_limit="0.4535987755982988" />
+  </joint>
+  <joint name="arm_right_2_joint" type="revolute">
+    <origin rpy="-1.57079632679489 0 -1.5707963267949" xyz="0.0371099999999995 0.02 0.18" />
+    <parent link="arm_right_1_link" />
+    <child link="arm_right_2_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="43.0" lower="-2.443460952792061" upper="1.1344640137963142" velocity="2.5" />
+    <dynamics damping="6.67" friction="2.25" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-2.3734609527920614" soft_upper_limit="1.0644640137963142" />
+  </joint>
+  <joint name="arm_right_3_joint" type="revolute">
+    <origin rpy="1.5707963267949 0 0" xyz="0.019999999999999 -0.17011 -0.037110000000001" />
+    <parent link="arm_right_2_link" />
+    <child link="arm_right_3_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="26" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="2.5" />
+    <dynamics damping="3.21" friction="1.93" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-2.5479938779914946" soft_upper_limit="2.5479938779914946" />
+  </joint>
+  <joint name="arm_right_4_joint" type="revolute">
+    <origin rpy="1.57079632679489 0 0" xyz="0.0199999999999993 -0.0371100000000008 0.15989" />
+    <parent link="arm_right_3_link" />
+    <child link="arm_right_4_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="26" lower="-2.443460952792061" upper="1.1344640137963142" velocity="2.5" />
+    <dynamics damping="2.66" friction="1.62" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-2.3734609527920614" soft_upper_limit="1.0644640137963142" />
+  </joint>
+  <joint name="arm_right_5_joint" type="revolute">
+    <origin rpy="-1.5707963267949 3.14 0" xyz="-0.0199999999999971 0.17011 -0.037110000000002" />
+    <parent link="arm_right_4_link" />
+    <child link="arm_right_5_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="26" lower="-1.5707963267948966" upper="3.6651914291880923" velocity="2.5" />
+    <dynamics damping="3.57" friction="1.78" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-1.5007963267948965" soft_upper_limit="3.5951914291880924" />
+  </joint>
+  <joint name="arm_right_6_joint" type="revolute">
+    <origin rpy="-1.5708 0 3.14" xyz="0 -0.0422 0.1654" />
+    <parent link="arm_right_5_link" />
+    <child link="arm_right_6_link" />
+    <axis xyz="0 0 -1" />
+    <limit effort="26" lower="-1.8849555921538759" upper="3.001966313430247" velocity="2.5" />
+    <dynamics damping="1.86" friction="1.03" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-1.8149555921538758" soft_upper_limit="2.931966313430247" />
+  </joint>
+  <joint name="arm_right_7_joint" type="revolute">
+    <origin rpy="1.5708 0 0" xyz="0.07 -0.0534 -0.0422" />
+    <parent link="arm_right_6_link" />
+    <child link="arm_right_7_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="26" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="2.5" />
+    <dynamics damping="2.16" friction="0.94" />
+    <safety_controller k_position="20" k_velocity="20" soft_lower_limit="-2.5479938779914946" soft_upper_limit="2.5479938779914946" />
+  </joint>
+  <joint name="arm_right_tool_joint" type="fixed">
+    <parent link="arm_right_7_link" />
+    <child link="arm_right_tool_link" />
+    <origin rpy="0 0 0" xyz="0 0 0.017" />
+  </joint>
+  <link name="arm_right_grasp_link" />
+  <joint name="arm_right_grasp_joint" type="fixed">
+    <parent link="arm_right_tool_link" />
+    <child link="arm_right_grasp_link" />
+    <origin rpy="0 0 0" xyz="0 0 0.139288457525" />
+  </joint>
+</robot>

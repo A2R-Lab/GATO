@@ -1,0 +1,8 @@
+joint,coulomb_friction_nm,viscous_damping_nm_s_per_rad,armature_kg_m2
+arm_right_1_joint,2.06,4.96,0.43
+arm_right_2_joint,2.25,6.67,0.43
+arm_right_3_joint,1.93,3.21,0.19
+arm_right_4_joint,1.62,2.66,0.17
+arm_right_5_joint,1.78,3.57,0.21
+arm_right_6_joint,1.03,1.86,0.17
+arm_right_7_joint,0.94,2.16,0.18

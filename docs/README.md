@@ -23,6 +23,7 @@ needed by your example; the full receipt profile is for validation and research.
 | How do I move a tracking target every control step without re-applying the menu? | [`update_cost_menu`](cost_menu.md) |
 | Which linear solver runs by default, and why the direct solve from 256 knots? | [Consumer contract: linsys](consumer_contract.md#4-solve-interface), [the Orin sweep](merit_timing.md#jetson-agx-orin-october-30-2026-the-direct-solve-against-pcg-on-017) |
 | What does the solver's `converged` flag mean? | [Consumer contract: what converged means](consumer_contract.md#4-solve-interface), [`gato.certificate`](consumer_contract.md#4-solve-interface) |
+| My geared arm's rotor inertia matters. How do I model it? | [`joint_armature`](consumer_contract.md), [example 21](../examples/21_rotor_armature.py) on the TIAGo Pro arm |
 | Which integrator does a module run, and how do I get the RK4 step? | [Consumer contract: the integrator is a module property](consumer_contract.md#4-solve-interface), [example 20](../examples/20_integrators.py) |
 | When does Gauss-Newton fall short, and what does the exact-Hessian path add? | [`set_exact_hessian`](constraints.md#set_exact_hessianon) and [`set_cost_curvature`](constraints.md#set_cost_curvatureon) |
 | Which results reproduce the paper? | [Figure protocols, provenance and caveats](../examples/paper-figures/README.md) |

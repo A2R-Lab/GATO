@@ -401,6 +401,35 @@ def test_registered_joint_armature_matches_pinocchio(cache, tmp_path):
     np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)
 
 
+def test_solver_registration_refuses_headers_without_collision(tmp_path):
+    """collision_res=None is the headers-only codegen option: a solver module
+    does not compile against such headers, so both entry points say so."""
+    urdf = _three_link_urdf(tmp_path / "rotor.urdf")
+    with pytest.raises(ValueError, match="collision_res=None"):
+        gato.register_robot("cachebot_nocol", urdf, N=[8], collision_res=None, cache_dir_override=tmp_path / "c")
+    with pytest.raises(ValueError, match="collision_res=None"):
+        gato.build(urdf, name="cachebot_nocol", N=[8], collision_res=None)
+    assert not (tmp_path / "c").exists() and "cachebot_nocol" not in gato.builder.load_registry()
+
+
+def test_tiago_description_is_consistent(repo_root):
+    """The TIAGo Pro arm of example 21: the measured-value rows name the
+    URDF's actuated joints, and every collision mesh it references is vendored."""
+    import csv
+    import xml.etree.ElementTree as ET
+    d = repo_root / "examples/tiago_pro_description"
+    root = ET.parse(d / "tiago_pro_right_arm.urdf").getroot()
+    joints = [j.get("name") for j in root.findall("joint") if j.get("type") != "fixed"]
+    with open(d / "tiago_pro_right_arm_parameters.csv", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [r["joint"] for r in rows] == joints and len(joints) == 7
+    assert all(float(r["armature_kg_m2"]) > 0 for r in rows)
+    meshes = [m.get("filename") for m in root.iter("mesh")]
+    assert len(meshes) == 7 and all((d / m).is_file() for m in meshes)
+    assert sorted(p.name for p in (d / "meshes/collision").iterdir()) == sorted(Path(m).name for m in meshes)
+    assert "arm_right_grasp_joint" in [j.get("name") for j in root.findall("joint") if j.get("type") == "fixed"]
+
+
 def test_joint_armature_keys_and_validation(tmp_path):
     """joint_armature joins the codegen key only when nonzero, a scalar fills the
     actuated slots, and a bad value is rejected before codegen."""

@@ -223,7 +223,8 @@ The intro demos in [examples/](examples/) walk the whole surface:
 mechanisms on one task), `13_more_arms.py` (the FR3, Gen3 and UR5e on figure-8s sized
 from their own limits), `14_mujoco_closed_loop.py` (an independent MuJoCo loop),
 `15_solver_stats.py` (where a solve's time goes, stage by stage), `20_integrators.py` (the
-trapezoidal and the RK4 step side by side), `16_cost_menu.py` to
+trapezoidal and the RK4 step side by side), `21_rotor_armature.py` (reflected rotor inertia
+on the TIAGo Pro arm), `16_cost_menu.py` to
 `19_go2_standing.py` (the cost menu: orientation targets, robust and barrier activations, linear
 features, a gravity-relative effort cost, the Go2 base-pose weights; [docs/cost_menu.md](docs/cost_menu.md)).
 See [examples/cpp](examples/cpp/) for the same batched solve in C++/CUDA (below).

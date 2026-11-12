@@ -210,6 +210,7 @@ test/test_examples.py::test_intro_example_syntax[17_tool_pose_and_posture.py]
 test/test_examples.py::test_intro_example_syntax[18_robust_reference.py]
 test/test_examples.py::test_intro_example_syntax[19_go2_standing.py]
 test/test_examples.py::test_intro_example_syntax[20_integrators.py]
+test/test_examples.py::test_intro_example_syntax[21_rotor_armature.py]
 test/test_examples.py::test_constraint_example_exports_correctness_without_timings
 test/test_examples.py::test_merge_checkpoint_dry_run
 test/test_examples.py::test_merge_checkpoint_requires_quiet_declaration
@@ -489,6 +490,8 @@ test/test_register_robot.py::test_merit_threads_knob_is_bit_identical
 test/test_register_robot.py::test_registered_joint_dynamics_match_pinocchio
 test/test_register_robot.py::test_joint_dynamics_keys_and_width_validation
 test/test_register_robot.py::test_registered_joint_armature_matches_pinocchio
+test/test_register_robot.py::test_solver_registration_refuses_headers_without_collision
+test/test_register_robot.py::test_tiago_description_is_consistent
 test/test_register_robot.py::test_joint_armature_keys_and_validation
 test/test_row_masks.py::test_all_true_mask_is_bitwise_unmasked[al]
 test/test_row_masks.py::test_all_true_mask_is_bitwise_unmasked[admm]

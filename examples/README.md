@@ -40,6 +40,7 @@ the independent simulated trajectory before interpreting a task as feasible.
 | [`18_robust_reference.py`](18_robust_reference.py) | A reference with corrupted knots: the quadratic and the pseudo-Huber tracking term on the same problem, the planned end-effector path against the clean reference and the outliers. |
 | [`19_go2_standing.py`](19_go2_standing.py) | A standing reference for the Go2 through the posture anchor's base-pose weights and, on the contact-force variant, the floating-base cost menu: a lowered and rolled base returns to the stance. |
 | [`20_integrators.py`](20_integrators.py) | The trapezoidal and the RK4 module on the same arm: one-step error against a fine reference as the step grows, an open-loop swing under gravity, and the cost of the extra dynamics evaluations in solve iterations. |
+| [`21_rotor_armature.py`](21_rotor_armature.py) | Reflected rotor inertia on the TIAGo Pro right arm (`joint_armature`, the measured values of issue #20): the values matched to the velocity order by joint name, one device step against Pinocchio, and the same reach on a plant with rotors planned with and without them (tracking error, plan defect, limit excursions, the rotor and link shares of the inertial torque). |
 
 ```bash
 python examples/01_single_solve.py
@@ -63,6 +64,7 @@ python examples/17_tool_pose_and_posture.py   # needs pinocchio
 python examples/18_robust_reference.py        # needs pinocchio
 python examples/19_go2_standing.py            # needs bsqpN16_go2 and pinocchio
 python examples/20_integrators.py             # needs bsqpN16_iiwa14 and bsqpN16_iiwa14_rk4, pinocchio
+python examples/21_rotor_armature.py          # registers two robots and compiles their modules into the cache (minutes), pinocchio
 ```
 
 07 without `--fc` demonstrates contactless-model plumbing, not standing or
