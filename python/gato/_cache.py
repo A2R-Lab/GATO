@@ -213,6 +213,11 @@ def resolve(name: str, cache: Path | None = None) -> tuple[dict, Path] | None:
 
 # --- registration -------------------------------------------------------------
 
+_NO_COLLISION = ("collision_res=None generates headers without the collision family, and a solver module "
+                 "does not compile against them (the constraint layer uses grid_collision::). Give the URDF "
+                 "<collision> geometry; gato.builder.codegen(collision_res=None) remains for headers only.")
+
+
 def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=False,
                    collision_res=0.15, contact_frames=None, variant="default",
                    build=False, cache_dir_override=None, arch=None, jobs=2, force=False,
@@ -232,6 +237,8 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
 
     if not str(name).isidentifier():
         raise ValueError(f"robot name {name!r} must be a valid identifier (it becomes the module suffix)")
+    if collision_res is None:
+        raise ValueError(_NO_COLLISION)
     urdf_path = Path(urdf_path).resolve()
     if not urdf_path.exists():
         raise FileNotFoundError(f"URDF not found: {urdf_path}")
