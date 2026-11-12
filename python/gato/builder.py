@@ -213,19 +213,37 @@ def algorithms_for(floating_base, cost_frames=None, com=False):
     return GATO_ALGORITHMS + ("frame_jacobian",) + (("com", "ccrba") if com else ())
 
 
-def _armature_option(joint_armature):
+def _armature_option(joint_armature, nv=None):
     """The joint_armature argument in canonical form: None when absent or all
     zero, a float for a scalar (every supported slot), else a tuple of floats
-    in velocity order. Rejects anything that is not a finite nonnegative real."""
+    in velocity order. Rejects anything that is not a finite nonnegative real,
+    and a vector whose length is not ``nv`` (an int, or a callable evaluated
+    only for a vector) before the all-zero case folds to None."""
     if joint_armature is None:
         return None
     import numpy as np
     raw = np.asarray(joint_armature, dtype=np.float64)
     if raw.ndim > 1 or not np.all(np.isfinite(raw)) or np.any(raw < 0):
         raise ValueError(f"joint_armature must be a finite nonnegative scalar or a vector of length nv, got {joint_armature!r}")
+    if raw.ndim == 1:
+        if raw.size == 0:
+            raise ValueError("joint_armature must be a finite nonnegative scalar or a vector of length nv, got an empty vector")
+        nv = nv() if callable(nv) else nv
+        if nv is not None and raw.size != nv:
+            raise ValueError(f"joint_armature has {raw.size} entries, the robot has nv = {nv} velocity slots")
     if not np.any(raw != 0):
         return None
     return float(raw) if raw.ndim == 0 else tuple(float(v) for v in raw)
+
+
+def _urdf_nv(urdf_path, floating_base):
+    """The velocity dimension GRiD's parser gives the URDF."""
+    _grid.require()
+    from URDFParser import URDFParser
+    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
+    if robot is None:
+        raise ValueError(f"URDFParser could not parse {urdf_path}")
+    return robot.get_num_vel()
 
 
 def _armature_vector(robot, joint_armature):
@@ -233,18 +251,16 @@ def _armature_vector(robot, joint_armature):
     slot, kg on a prismatic one), or None. A scalar fills every slot that can
     carry one: GRiD's supported slots exclude the floating root, spherical
     joints and mimic followers."""
-    opt = _armature_option(joint_armature)
+    nv = robot.get_num_vel()
+    opt = _armature_option(joint_armature, nv)
     if opt is None:
         return None
-    from grid_codegen.armature import supported_slots
-    nv = robot.get_num_vel()
     if isinstance(opt, float):
+        from grid_codegen.armature import supported_slots
         vec = [0.0] * nv
         for slot in supported_slots(robot):
             vec[slot] = opt
         return vec
-    if len(opt) != nv:
-        raise ValueError(f"joint_armature has {len(opt)} entries, the robot has nv = {nv} velocity slots")
     return list(opt)
 
 
@@ -268,7 +284,8 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
         h.update(f"joint_dynamics tanh {float(friction_width)!r}".encode())
     if cost_frames:             # extra named cost frames beyond the end-effector target (frame 0)
         h.update(repr(("cost_frames", tuple(cost_frames))).encode())
-    armature = _armature_option(joint_armature)
+    # a vector is checked against the URDF's nv here, the one point build and register_robot share
+    armature = _armature_option(joint_armature, lambda: _urdf_nv(urdf_path, floating_base))
     if armature is not None:    # folded in only when nonzero, so the keys of existing robots are unchanged
         h.update(repr(("joint_armature", armature)).encode())
     return h.hexdigest()[:16]

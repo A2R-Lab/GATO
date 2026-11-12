@@ -370,6 +370,8 @@ def test_registered_joint_armature_matches_pinocchio(cache, tmp_path):
     np.testing.assert_allclose(entry["meta"]["armature"], armature, rtol=1e-6)
     assert _cache._codegen_request(entry)["armature"] == entry["meta"]["armature"]
     s = gato.BSQP(str(urdf), batch_size=1, N=N, dt=dt, plant_type=name)
+    # the solver's own Pinocchio model carries the baked values (float32 as baked)
+    np.testing.assert_array_equal(s.model.armature, np.asarray(entry["meta"]["armature"]))
     model = pin.buildModelFromUrdf(str(urdf))
     model.armature = np.asarray(armature)
     data = model.createData()
@@ -415,8 +417,19 @@ def test_joint_armature_keys_and_validation(tmp_path):
     robot = _parse_urdf(urdf, "EE", floating_base=False)
     assert _armature_vector(robot, 0.05) == [0.05, 0.05, 0.05]
     assert _armature_vector(robot, None) is None
-    for bad in (-0.1, [0.1, float("nan"), 0], [[0.1, 0.2, 0.3]]):
+    for bad in (-0.1, [0.1, float("nan"), 0], [[0.1, 0.2, 0.3]], []):
         with pytest.raises(ValueError, match="joint_armature"):
             _armature_option(bad)
     with pytest.raises(ValueError, match="nv = 3"):
         _armature_vector(robot, [0.1, 0.2])
+    # the length is checked before an all-zero vector folds to "no armature",
+    # at the key both build and register_robot compute first
+    for bad in ([0, 0], [0, 0, 0, 0], [0.1, 0.2]):
+        with pytest.raises(ValueError, match="nv = 3"):
+            _armature_vector(robot, bad)
+        with pytest.raises(ValueError, match="nv = 3"):
+            _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=bad)
+    with pytest.raises(ValueError, match="empty"):
+        _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=[])
+    with pytest.raises(ValueError, match="nv = 3"):
+        gato.register_robot("cachebot_badarm", urdf, N=[8], joint_armature=[0, 0], cache_dir_override=tmp_path / "c")

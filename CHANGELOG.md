@@ -11,7 +11,10 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   scalar fills every actuated slot; a vector of length nv follows the velocity
   order, in kg m^2 on a revolute joint and kg on a prismatic one, and is zero
   on the floating root. The values are an argument; the URDF is not read for
-  them. The step and its linearization are checked against Pinocchio. It is
+  them. The step and its linearization are checked against Pinocchio, and
+  `BSQP.model` carries the baked values as `model.armature`, so the
+  simulators and estimators built on it see the same dynamics. A vector of
+  the wrong length is rejected, an all-zero one included. It is
   part of the codegen key when nonzero, so existing robots keep their keys.
   The values are fixed at registration; changing them between solves without
   a rebuild (GRiD's `runtime_armature`) is not wired yet.

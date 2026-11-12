@@ -1429,16 +1429,25 @@ spherizer), so margin is extra safety on top.
     # ---- lazy pinocchio model (FK helpers / sim / estimators / tests) ----
     @property
     def model(self):
-        """pinocchio Model for model_path (built on first use; needs the [test] extra)."""
+        """pinocchio Model for model_path (built on first use; needs the [test] extra).
+        It carries the robot's baked ``joint_armature`` as ``model.armature``, so
+        it is the same dynamics the module solves with."""
         if self._model is None:
             pin = _require_pin()
             if self.floating_base:
                 # floating-base modules: the stored state carries the
                 # free-flyer q [p; quat xyzw] — mirror it in the pin model so
                 # nq/nv/nx and every oracle computation match the module.
-                self._model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())
+                model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())
             else:
-                self._model = pin.buildModelFromUrdf(self.model_path)
+                model = pin.buildModelFromUrdf(self.model_path)
+            armature = robot_info(self.plant_type).get("armature")
+            if armature:
+                if len(armature) != model.nv:
+                    raise ValueError(f"robot {self.plant_type!r} bakes an armature of {len(armature)} entries but the "
+                                     f"pinocchio model from {self.model_path!r} has nv = {model.nv}")
+                model.armature = np.asarray(armature, dtype=np.float64)
+            self._model = model
         return self._model
 
     @property
