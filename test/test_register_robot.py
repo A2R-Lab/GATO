@@ -433,3 +433,17 @@ def test_joint_armature_keys_and_validation(tmp_path):
         _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=[])
     with pytest.raises(ValueError, match="nv = 3"):
         gato.register_robot("cachebot_badarm", urdf, N=[8], joint_armature=[0, 0], cache_dir_override=tmp_path / "c")
+    with pytest.raises(ValueError, match="nv = 3"):
+        gato.build(urdf, name="cachebot_badarm", N=[8], joint_armature=[0, 0])
+    assert "cachebot_badarm" not in gato.builder.load_registry()
+    # a populated cache does not hide it: the all-zero vector of the right
+    # length is served from the cached headers, the wrong length still raises
+    cache = tmp_path / "hit"
+    dyn = cache / "robots" / base / "cachebot_hit"
+    dyn.mkdir(parents=True)
+    for f, text in (("grid.cuh", ""), ("limits.cuh", ""), ("meta.json", '{"nq": 3, "nv": 3, "ee_frame": "EE"}')):
+        (dyn / f).write_text(text)
+    meta = gato.register_robot("cachebot_hit", urdf, N=[8], joint_armature=[0, 0, 0], cache_dir_override=cache)
+    assert meta["nv"] == 3 and "armature" not in meta
+    with pytest.raises(ValueError, match="nv = 3"):
+        gato.register_robot("cachebot_hit", urdf, N=[8], joint_armature=[0, 0, 0, 0], cache_dir_override=cache)

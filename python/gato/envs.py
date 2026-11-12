@@ -27,6 +27,11 @@ class ArmTrackEnv(gym.Env):
     - Reward: ``-||ee_pos(q) - reference.window(t)[0:3]||`` (0 if no reference).
     - terminated: non-finite state. truncated: ``t >= horizon_s`` or ``reference.done(t)``.
     - info: ``{"t", "ee_pos", "ref0", "tracking_err"}``.
+
+    The environment builds its own Pinocchio model from the URDF and does not
+    know the solver. For a robot registered with ``joint_armature``, set
+    ``env.model.armature`` to the same values (``solver.model.armature``) so
+    the simulated plant carries the rotor inertia the solver plans with.
     """
 
     metadata = {"render_modes": []}

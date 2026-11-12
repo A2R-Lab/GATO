@@ -26,7 +26,9 @@ instability" and took five debugging rounds to name (PDDP round-5). The
 disagreement isolated to the `coriolis` probe points at damping instead.
 A simulator that models rotor inertia (MuJoCo `armature`, Pinocchio
 `model.armature`) shows up on the `inertia_j` probes; register the robot with
-`joint_armature=` (0.2.1) so both sides carry the same reflected inertia.
+`joint_armature=` (0.2.1) so both sides carry the same reflected inertia. `BSQP.model` then
+carries the values as `model.armature`; `gato.envs.ArmTrackEnv` builds its own
+model from the URDF, so set `env.model.armature` there.
 
 ## 1. Frames and kinematics
 
