@@ -405,7 +405,10 @@ tracks; on a floating base, the base-pose target frame); every actuated joint
 needs bounded `<limit>` tags (the barrier cost uses them). `joint_dynamics=True`
 bakes the URDF's `<dynamics damping>` and `friction` into the dynamics and
 its derivatives, the friction as GRiD's smooth `tanh` model with
-`friction_width` (rad/s, default 0.03; match it to the plan step). `cost_frames=[...]`
+`friction_width` (rad/s, default 0.03; match it to the plan step). `joint_armature=`
+bakes a reflected rotor inertia per velocity slot (a scalar for every actuated joint, or a
+vector of length nv; kg m^2 on a revolute joint), added to the joint-space inertia as
+Pinocchio's `model.armature`; the URDF is not read for it. `cost_frames=[...]`
 bakes extra URDF joints as cost frames for the cost menu's second position term (the
 end-effector target is always cost frame 0; [docs/cost_menu.md](docs/cost_menu.md)). Scope: serial chains,
 fixed or floating base (quaternion free-flyer). Codegen is skipped when nothing

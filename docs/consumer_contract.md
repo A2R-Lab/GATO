@@ -24,6 +24,9 @@ mismatch on iiwa14 joint 7 (MuJoCo harness vs URDF) presented as a "solver
 instability" and took five debugging rounds to name (PDDP round-5). The
 `inertia_j` probes are qd = 0, hence immune to damping/friction modeling;
 disagreement isolated to the `coriolis` probe points at damping instead.
+A simulator that models rotor inertia (MuJoCo `armature`, Pinocchio
+`model.armature`) shows up on the `inertia_j` probes; register the robot with
+`joint_armature=` (0.2.1) so both sides carry the same reflected inertia.
 
 ## 1. Frames and kinematics
 

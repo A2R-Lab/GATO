@@ -167,7 +167,7 @@ from other repos' venvs. The optional `pysqpcpu` comparison baseline has a separ
 `examples/benchmarks/baselines/README.md`. It is not used to sign GATO receipts.
 
 New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_base=False,
-contact_frames=None, contact_forces=False, exact_hessian=False, integrator=None, com=False)` runs codegen (grid.cuh +
+contact_frames=None, contact_forces=False, exact_hessian=False, integrator=None, com=False, joint_armature=None)` runs codegen (grid.cuh +
 limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
 call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
 fixed joint, addressed by its original URDF name, including hyphens; rotated inertial origins

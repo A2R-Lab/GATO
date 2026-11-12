@@ -332,3 +332,91 @@ def test_joint_dynamics_keys_and_width_validation(cache, tmp_path):
     assert _codegen_key(urdf, "EE", 0.15, None, False) == _codegen_key(urdf, "EE", 0.15, None, False, False)
     assert _codegen_key(urdf, "EE", 0.15, None, False) != _codegen_key(urdf, "EE", 0.15, None, False, True)
     assert _codegen_key(urdf, "EE", 0.15, None, False, True, 0.03) != _codegen_key(urdf, "EE", 0.15, None, False, True, 0.05)
+
+
+def _three_link_urdf(path):
+    links, joints = [], []
+    for i in (1, 2, 3):
+        links.append(f'''<link name="l{i}"><inertial>
+          <origin xyz=".12 .03 .02"/><mass value="1"/>
+          <inertia ixx=".02" iyy=".03" izz=".04" ixy="0" ixz="0" iyz="0"/>
+        </inertial><collision><geometry><sphere radius=".04"/></geometry></collision></link>''')
+        parent = "base" if i == 1 else f"l{i-1}"
+        joints.append(f'''<joint name="j{i}" type="revolute">
+          <parent link="{parent}"/><child link="l{i}"/>
+          <origin xyz=".25 .02 .04"/><axis xyz="0 0 1"/>
+          <limit lower="-2" upper="2" effort="20" velocity="3"/></joint>''')
+    path.write_text('<robot name="rotor"><link name="base"/>'
+                    + ''.join(links + joints)
+                    + '<link name="tool"/><joint name="EE" type="fixed">'
+                      '<parent link="l3"/><child link="tool"/>'
+                      '<origin xyz=".2 0 0"/></joint></robot>')
+    return path
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_registered_joint_armature_matches_pinocchio(cache, tmp_path):
+    """joint_armature (issue #20, grid-rbd 0.7.1): the reflected rotor inertia
+    enters the step and its linearization as Pinocchio's model.armature does."""
+    import pinocchio as pin
+
+    armature = (0.08, 0.0, 0.03)
+    urdf = _three_link_urdf(tmp_path / "rotor.urdf")
+    name, N, dt = "cachebot_rotor", 8, .01
+    gato.register_robot(name, urdf, N=[N], joint_armature=armature)
+    entry = _cache.robot_entry(name)
+    assert entry["options"]["joint_armature"] == list(armature)
+    np.testing.assert_allclose(entry["meta"]["armature"], armature, rtol=1e-6)
+    assert _cache._codegen_request(entry)["armature"] == entry["meta"]["armature"]
+    s = gato.BSQP(str(urdf), batch_size=1, N=N, dt=dt, plant_type=name)
+    model = pin.buildModelFromUrdf(str(urdf))
+    model.armature = np.asarray(armature)
+    data = model.createData()
+    q = np.array([.3, -.4, .2])
+    v = np.array([.2, -.1, .15])
+    u = np.array([.7, -.3, .5])
+    x = np.r_[q, v]
+    got = np.asarray(s.sim_forward(x[None], u[None], dt))[0]
+    acceleration = pin.aba(model, data, q, v, u)
+    expected = np.r_[q + dt * v + .5 * dt**2 * acceleration, v + dt * acceleration]
+    np.testing.assert_allclose(got, expected, atol=2e-5, rtol=1e-4)
+    bare = pin.buildModelFromUrdf(str(urdf))
+    rigid = pin.aba(bare, bare.createData(), q, v, u)
+    assert not np.allclose(got, np.r_[q + dt * v + .5 * dt**2 * rigid, v + dt * rigid], atol=2e-5)
+
+    xu = np.tile(np.r_[x, u], N)[:-3]
+    goals = np.zeros((1, N * 6), dtype=np.float32)
+    kkt = s.debug_setup_kkt(xu[None], x[None], goals)
+    aq, av, au = pin.computeABADerivatives(model, data, q, v, u)
+    eye = np.eye(3)
+    expected_A = np.block([[eye + .5 * dt**2 * aq, dt * eye + .5 * dt**2 * av],
+                           [dt * aq, eye + dt * av]])
+    expected_B = np.vstack([.5 * dt**2 * au, dt * au])
+    A = np.asarray(kkt["A"])[0].reshape(N, 6, 6)[0].T
+    B = np.asarray(kkt["B"])[0].reshape(N, 3, 6)[0].T
+    np.testing.assert_allclose(A, expected_A, atol=2e-5, rtol=1e-4)
+    np.testing.assert_allclose(B, expected_B, atol=2e-5, rtol=1e-4)
+
+
+def test_joint_armature_keys_and_validation(tmp_path):
+    """joint_armature joins the codegen key only when nonzero, a scalar fills the
+    actuated slots, and a bad value is rejected before codegen."""
+    from gato.builder import _armature_option, _armature_vector, _codegen_key, _parse_urdf
+
+    urdf = _three_link_urdf(tmp_path / "rotor.urdf")
+    base = _codegen_key(urdf, "EE", 0.15, None, False)
+    assert _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=None) == base
+    assert _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=0.0) == base
+    assert _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=[0, 0, 0]) == base
+    a = _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=0.05)
+    assert a != base and a != _codegen_key(urdf, "EE", 0.15, None, False, joint_armature=0.06)
+    assert _armature_option([0.1, 0, 0.2]) == (0.1, 0.0, 0.2)
+    robot = _parse_urdf(urdf, "EE", floating_base=False)
+    assert _armature_vector(robot, 0.05) == [0.05, 0.05, 0.05]
+    assert _armature_vector(robot, None) is None
+    for bad in (-0.1, [0.1, float("nan"), 0], [[0.1, 0.2, 0.3]]):
+        with pytest.raises(ValueError, match="joint_armature"):
+            _armature_option(bad)
+    with pytest.raises(ValueError, match="nv = 3"):
+        _armature_vector(robot, [0.1, 0.2])

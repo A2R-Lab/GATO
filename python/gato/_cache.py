@@ -10,7 +10,7 @@ Layout (``GATO_CACHE_DIR`` or platformdirs' user cache, e.g. ~/.cache/gato):
     modules/<name>/<module_key>/  bsqpN{N}_{name}[_variant].so (a link into the store) + meta.json
     store/                        grid-rbd's consumer artifact store: artifacts, headers, logs
 
-Modules compile through ``grid_rbd.build_artifact`` (grid-rbd 0.7.0): GRiD
+Modules compile through ``grid_rbd.build_artifact`` (since grid-rbd 0.7.0): GRiD
 generates the robot's header, compiles GATO's bindings translation unit against
 it with nvcc and links the extension; no CMake on this path. A module key hashes
 everything that shapes the binary: the robot's codegen key (URDF bytes, options,
@@ -216,16 +216,19 @@ def resolve(name: str, cache: Path | None = None) -> tuple[dict, Path] | None:
 def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=False,
                    collision_res=0.15, contact_frames=None, variant="default",
                    build=False, cache_dir_override=None, arch=None, jobs=2, force=False,
-                   joint_dynamics=False, friction_width=0.03, cost_frames=None, com=False) -> dict:
+                   joint_dynamics=False, friction_width=0.03, cost_frames=None, com=False,
+                   joint_armature=None) -> dict:
     """Generate a robot's dynamics headers into the per-host cache and record it
     in the manifest. Compiles the solver modules now only with ``build=True``;
     otherwise the first ``gato.BSQP(..., plant_type=name)`` compiles (once).
     ``joint_dynamics=True`` bakes the URDF's ``<dynamics damping>`` and smooth
     friction (``friction_width`` in rad/s) into the dynamics and its
-    derivatives (see gato.builder.codegen). ``cost_frames`` names extra joints
+    derivatives (see gato.builder.codegen). ``joint_armature`` bakes a reflected
+    rotor inertia per velocity slot (a scalar for every actuated slot, or a
+    vector of length nv), as Pinocchio's ``model.armature``. ``cost_frames`` names extra joints
     baked as cost frames for the cost menu's frame terms (fixed base; the
     end-effector target is always frame 0)."""
-    from .builder import _codegen_key, codegen
+    from .builder import _armature_option, _codegen_key, codegen
 
     if not str(name).isidentifier():
         raise ValueError(f"robot name {name!r} must be a valid identifier (it becomes the module suffix)")
@@ -235,7 +238,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     cache = Path(cache_dir_override) if cache_dir_override else cache_dir()
     cost_frames = [str(f) for f in (cost_frames or [])]
     key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
-                       cost_frames, com)
+                       cost_frames, com, joint_armature)
     dyn = cache / "robots" / key / name
     with _locked(cache):
         if force or not (dyn / "grid.cuh").exists() or not (dyn / "limits.cuh").exists():
@@ -243,7 +246,8 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                 meta = codegen(urdf_path, name, ee_frame=ee_frame, out_dir=dyn, register=False,
                                collision_res=collision_res, contact_frames=contact_frames,
                                floating_base=floating_base, joint_dynamics=joint_dynamics,
-                               friction_width=friction_width, cost_frames=cost_frames, com=com)
+                               friction_width=friction_width, cost_frames=cost_frames, com=com,
+                               joint_armature=joint_armature)
             except ValueError as e:
                 if "could not be resolved" in str(e):
                     raise ValueError(
@@ -262,7 +266,9 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                              "contact_frames": list(contact_frames) if contact_frames else None,
                              "joint_dynamics": bool(joint_dynamics),
                              "friction_width": float(friction_width) if joint_dynamics else None,
-                             "cost_frames": cost_frames or None, "com": bool(com)},
+                             "cost_frames": cost_frames or None, "com": bool(com),
+                             "joint_armature": (lambda a: list(a) if isinstance(a, tuple) else a)(
+                                 _armature_option(joint_armature))},
                  "N": sorted({int(n) for n in ([N] if isinstance(N, int) else N)}),
                  "variant": variant, "meta": meta, "registered": time.strftime("%Y-%m-%dT%H:%M:%S")}
         data = load_manifest(cache)
@@ -327,6 +333,8 @@ def _codegen_request(robot: dict) -> dict:
     if opts.get("joint_dynamics", meta.get("joint_dynamics", False)):
         req.update(use_joint_dynamics=True, friction_model="tanh",
                    friction_width=float(opts.get("friction_width") or meta.get("friction_width")))
+    if meta.get("armature"):    # the baked vector, so the store's header is the cached one
+        req.update(armature=[float(v) for v in meta["armature"]])
     return req
 
 
