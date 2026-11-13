@@ -124,3 +124,64 @@ def test_mujoco_example_correctness_only(repo_root):
     assert "budget_s=None" in result.stdout
     assert "step wall time" not in result.stdout
     assert "end-effector error" in result.stdout
+
+
+def _rotor_example(repo_root):
+    pytest.importorskip("pinocchio")
+    spec = importlib.util.spec_from_file_location("rotor_example", repo_root / "examples/21_rotor_armature.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_rotor_example_rejects_bad_parameter_rows(repo_root, tmp_path):
+    """Example 21 matches the CSV to the model by joint name: a joint named
+    twice, a missing joint and an unknown joint are errors, never a silent pick."""
+    import numpy as np
+    import pinocchio as pin
+    mod = _rotor_example(repo_root)
+    d = repo_root / "examples/tiago_pro_description"
+    model = pin.buildModelFromUrdf(str(d / "tiago_pro_right_arm.urdf"))
+    good = (d / "tiago_pro_right_arm_parameters.csv").read_text().splitlines()
+    names, armature = mod.measured_armature(model, d / "tiago_pro_right_arm_parameters.csv")
+    assert names == [model.names[j] for j in range(1, model.njoints)]
+    np.testing.assert_array_equal(armature, [.43, .43, .19, .17, .21, .17, .18])
+    cases = [
+        ("more than once", good + [good[3].rsplit(",", 1)[0] + ",9.9"]),   # joint 3 again, another value
+        ("not the model's joints", good[:-1]),
+        ("not the model's joints", good[:-1] + [good[-1].replace("arm_right_7_joint", "elbow")]),
+    ]
+    for match, lines in cases:
+        bad = tmp_path / "bad.csv"
+        bad.write_text("\n".join(lines) + "\n")
+        with pytest.raises(ValueError, match=match):
+            mod.measured_armature(model, bad)
+
+
+@pytest.mark.gpu
+@pytest.mark.slow
+def test_rotor_example_closed_loop_numbers(repo_root, tmp_path, monkeypatch):
+    """Example 21 end to end on the vendored arm, in its own cache: every
+    reported number is finite, the device step agrees with Pinocchio, and the
+    plan that knows the rotors tracks closer, with a smaller dynamics defect
+    and no velocity excursion, than the plan that does not. One simulated
+    reach; the bounds are wide of the recorded run (5.6 against 14.2 mm, defect
+    0.2 against 35, velocity excursion 0 against 0.38 rad/s)."""
+    import numpy as np
+    from gato import _cache
+    monkeypatch.setenv("GATO_CACHE_DIR", str(tmp_path / "cache"))
+    _cache.toolchain_identity.cache_clear()
+    _cache._native_source_id.cache_clear()
+    out = _rotor_example(repo_root).run()
+    rotor, rigid = out["with armature"], out["without"]
+    for r in (rotor, rigid):
+        assert len(r["err"]) == len(r["defect"]) == 100
+        for key in ("err", "defect", "over", "tau_rotor", "tau_link"):
+            assert np.isfinite(r[key]).all(), key
+        assert (r["over"] >= 0).all() and r["over"][0] == 0     # neither run leaves the position limits
+    assert np.isfinite(out["device_step_diff"]) and out["device_step_diff"] < 2e-5
+    assert rotor["err"][-1] < 0.010 and rotor["err"][-1] < 0.7 * rigid["err"][-1]
+    assert rotor["defect"].max() < 1.0 and rigid["defect"].max() > 10 * rotor["defect"].max()
+    assert rotor["over"][1] < 0.01 and rigid["over"][1] > 0.1
+    # on the first joint the rotor carries most of the planned inertial torque
+    assert rotor["tau_rotor"][0] > 2 * rotor["tau_link"][0]

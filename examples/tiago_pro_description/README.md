@@ -32,3 +32,27 @@ matches the rows by joint name). With `joint_dynamics` off, the default, the `<d
 are not read and the model is loss-free, which is the setting of issue #20: friction is
 compensated by an external controller. The joint limits are the file's. The end-effector frame
 is the fixed joint `arm_right_grasp_joint`.
+
+## Status of the files
+
+The URDF and the meshes derive from PAL's Apache-2.0 description, and `LICENSE` covers them.
+The parameter file is not a PAL asset and `LICENSE` does not cover it: it holds Felix
+Muehlenberend's own measurements, posted on issue #20, and is included here with credit to him.
+Example 21 does not depend on it being in the tree; `--params` takes any CSV with the columns
+`joint` and `armature_kg_m2`.
+
+## Recorded run
+
+`python examples/21_rotor_armature.py` on an RTX 5090 at commit `b63d9af`, a reach of 0.62 m
+over 3 s on the simulated arm with rotors, the planned torque applied unclipped:
+
+| Planning model | Final error | Mean error, last second | Max plan defect | Velocity excursion | Effort excursion |
+|---|---|---|---|---|---|
+| With armature | 5.6 mm | 5.1 mm | 0.195 | 0 | 1.40 N m |
+| Without | 14.2 mm | 15.5 mm | 35.3 | 0.377 rad/s | 1.80 N m |
+
+Neither run leaves the position limits, and the device step differs from Pinocchio's by 1.6e-07.
+This is one simulated reach. It shows what the planning model changes on a plant that has the
+rotors; it is not a hardware validation, and both plans exceed the effort limit, so it is not
+a feasibility claim either. `test_rotor_example_closed_loop_numbers` reruns it and checks the
+numbers are finite and inside wide bounds of this table.

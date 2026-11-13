@@ -26,7 +26,10 @@ The example
      the excursions past the URDF limits, and how the planned inertial torque
      splits between rotor and links.
 
-Fixed simulation pacing: a correctness demonstration, no timing is reported.
+One simulated reach, with the planned torque applied unclipped: an
+illustration of what the planning model changes, not a hardware validation and
+not a feasibility claim (both plans exceed the effort limit, and the example
+prints by how much). Fixed simulation pacing: no timing is reported.
 Needs pinocchio; the first run compiles two modules into the per-host cache.
 
     python examples/21_rotor_armature.py
@@ -59,7 +62,11 @@ def measured_armature(model, params):
     """The CSV's armature column as a vector in the model's velocity order.
     Every joint must be named once; an unknown or missing name is an error."""
     with open(params, newline="") as f:
-        rows = {r["joint"]: float(r["armature_kg_m2"]) for r in csv.DictReader(f)}
+        pairs = [(r["joint"], float(r["armature_kg_m2"])) for r in csv.DictReader(f)]
+    rows = dict(pairs)
+    if len(rows) != len(pairs):
+        twice = sorted({n for n, _ in pairs if [m for m, _ in pairs].count(n) > 1})
+        raise ValueError(f"the CSV names {twice} more than once")
     names = [model.names[j] for j in range(1, model.njoints)]
     idx_v = [model.joints[j].idx_v for j in range(1, model.njoints)]
     if idx_v != list(range(model.nv)):
@@ -98,22 +105,19 @@ def closed_loop(solver, plant, x0, goal):
     return np.array(err), np.array(defect), np.maximum(over, 0.0), np.max(tau_rotor, axis=0), np.max(tau_link, axis=0)
 
 
-def main():
-    p = argparse.ArgumentParser(description="rotor armature on the TIAGo Pro right arm (or your own arm).")
-    p.add_argument("--urdf", default=str(HERE / "tiago_pro_right_arm.urdf"))
-    p.add_argument("--params", default=str(HERE / "tiago_pro_right_arm_parameters.csv"),
-                   help="CSV with the columns joint and armature_kg_m2")
-    p.add_argument("--ee-frame", default="arm_right_grasp_joint", help="URDF fixed joint of the EE target frame")
-    args = p.parse_args()
-    URDF = args.urdf
-
-    names, armature = measured_armature(pin.buildModelFromUrdf(URDF), args.params)
+def run(urdf=HERE / "tiago_pro_right_arm.urdf", params=HERE / "tiago_pro_right_arm_parameters.csv",
+        ee_frame="arm_right_grasp_joint"):
+    """The whole example. Returns the printed numbers: the device-step
+    difference and, per planning model, the error trace, the defect trace and
+    the limit excursions."""
+    URDF = str(urdf)
+    names, armature = measured_armature(pin.buildModelFromUrdf(URDF), params)
     print("joint, armature [kg m^2] (velocity order):")
     for n, a in zip(names, armature):
         print(f"  {n:<18} {a:.2f}")
 
     stem = "".join(c if c.isalnum() else "_" for c in Path(URDF).stem)
-    common = dict(N=[N], ee_frame=args.ee_frame)
+    common = dict(N=[N], ee_frame=ee_frame)
     gato.register_robot(f"{stem}_rotor", URDF, joint_armature=armature, **common)
     gato.register_robot(f"{stem}_rigid", URDF, **common)
     params = SolverParams(max_sqp_iters=5, defect_telemetry=True)
@@ -135,7 +139,8 @@ def main():
     got = np.asarray(rotor.sim_forward(x[None], u[None], DT))[0]
     qdd = pin.aba(plant, rotor.data, x[:nv], x[nv:], u)
     want = np.r_[x[:nv] + DT * x[nv:] + .5 * DT**2 * qdd, x[nv:] + DT * qdd]
-    print(f"\ndevice step vs Pinocchio with armature: max abs difference {np.abs(got - want).max():.2e}")
+    out = {"device_step_diff": float(np.abs(got - want).max())}
+    print(f"\ndevice step vs Pinocchio with armature: max abs difference {out['device_step_diff']:.2e}")
     assert np.allclose(got, want, atol=2e-4, rtol=1e-4)
 
     # the same reach, twice, on the plant that has the rotors
@@ -147,6 +152,7 @@ def main():
           f"{SIM_S:.0f} s, planned torque applied as is:")
     for label, solver in (("with armature", rotor), ("without", rigid)):
         err, defect, over, t_rotor, t_link = closed_loop(solver, plant, x0, goal)
+        out[label] = dict(err=err, defect=defect, over=over, tau_rotor=t_rotor, tau_link=t_link)
         print(f"  plan {label:<14} final error {err[-1] * 1e3:7.1f} mm, "
               f"mean over the last second {err[-int(1 / DT):].mean() * 1e3:7.1f} mm")
         print(f"    plan dynamics defect: max {defect.max():.2e}; excursion past the limits: "
@@ -155,6 +161,17 @@ def main():
             with np.printoptions(precision=2, suppress=True):
                 print(f"    largest planned inertial torque per joint [N m]: rotor {t_rotor}")
                 print(f"    {'':>48} links {t_link}")
+    return out
+
+
+def main():
+    p = argparse.ArgumentParser(description="rotor armature on the TIAGo Pro right arm (or your own arm).")
+    p.add_argument("--urdf", default=str(HERE / "tiago_pro_right_arm.urdf"))
+    p.add_argument("--params", default=str(HERE / "tiago_pro_right_arm_parameters.csv"),
+                   help="CSV with the columns joint and armature_kg_m2")
+    p.add_argument("--ee-frame", default="arm_right_grasp_joint", help="URDF fixed joint of the EE target frame")
+    args = p.parse_args()
+    run(args.urdf, args.params, args.ee_frame)
 
 
 if __name__ == "__main__":

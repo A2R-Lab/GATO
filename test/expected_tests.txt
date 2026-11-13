@@ -220,6 +220,8 @@ test/test_examples.py::test_call_boundary_refuses_unassigned_window
 test/test_examples.py::test_cpu_baseline_uses_selected_interpreter
 test/test_examples.py::test_call_boundary_check_only_has_no_timing_output
 test/test_examples.py::test_mujoco_example_correctness_only
+test/test_examples.py::test_rotor_example_rejects_bad_parameter_rows
+test/test_examples.py::test_rotor_example_closed_loop_numbers
 test/test_f_ext.py::test_per_knot_uniform_matches_broadcast
 test/test_f_ext.py::test_per_knot_varying_wrench_changes_solution
 test/test_f_ext.py::test_per_knot_deterministic
