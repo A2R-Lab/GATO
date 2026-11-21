@@ -47,15 +47,21 @@ inline size_t max_block_smem_bytes()
 // SILENTLY at launch, leaving the outputs unwritten while the solve "ran"
 // (2026-08-11 collision-carve bug). Pair every launch with
 // gpuErrchk(cudaGetLastError()).
+// what a refused stage's request scales with (the tail of the refusal)
+constexpr const char* SMEM_HORIZON = "The request grows with the horizon; use a shorter one.";
+constexpr const char* SMEM_ROBOT = "The request grows with the robot's body and joint counts, not with the horizon: this robot does not fit in one block on this device.";
+constexpr const char* SMEM_EITHER = "The module fixes the request: it grows with the horizon for the linear solvers and the row tables, and with the robot's body and joint counts for the per-knot stages.";
+
 template<typename Kernel>
-inline void opt_in_dynamic_smem(Kernel kernel, size_t bytes, size_t& latch, const char* what = "a solver kernel")
+inline void opt_in_dynamic_smem(Kernel kernel, size_t bytes, size_t& latch, const char* what = "a solver kernel",
+                                const char* remedy = SMEM_EITHER)
 {
         if (bytes > 48 * 1024 && bytes > latch) {
                 const size_t limit = max_block_smem_bytes();
                 if (bytes > limit) {
                         throw std::runtime_error(std::string(what) + " cannot launch for this module on this GPU: it needs " + std::to_string(bytes)
                                                  + " bytes of block shared memory and the device allows " + std::to_string(limit)
-                                                 + ". The request grows with the horizon; use a shorter one.");
+                                                 + ". " + remedy);
                 }
                 gpuErrchk(cudaFuncSetAttribute(reinterpret_cast<const void*>(kernel), cudaFuncAttributeMaxDynamicSharedMemorySize, (int)bytes));
                 latch = bytes;

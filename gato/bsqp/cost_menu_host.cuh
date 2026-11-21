@@ -168,7 +168,7 @@ public:
                 ensure(d_[U_DES], cap_[U_DES], (size_t)KNOT_POINTS * NU);
                 const size_t smem = grid_plant::GRAVITY_TORQUE_DYNAMIC_SHARED_MEM_BYTES<T>() + (size_t)(NQ + NU) * sizeof(T) + 16;
                 static size_t latch = 0;
-                opt_in_dynamic_smem(gravity_target_kernel<T>, smem, latch);
+                opt_in_dynamic_smem(gravity_target_kernel<T>, smem, latch, "The gravity target of the cost menu", SMEM_ROBOT);
                 gravity_target_kernel<T><<<KNOT_POINTS, 128, smem>>>(d_[U_DES], d_q_ref_, d_robotModel, gato::plant::GRAVITY<T>());
                 gpuErrchk(cudaGetLastError());
                 gpuErrchk(cudaDeviceSynchronize());
@@ -189,7 +189,7 @@ public:
                 ensure(d_terms_, cap_terms_, n);
                 const size_t smem = sizeof(T) * ((size_t)gato::plant::NX + gato::plant::NU + gato::plant::menu_cost_smem_ct<T>());
                 static size_t latch = 0;
-                opt_in_dynamic_smem(menu_term_values_kernel<T>, smem, latch);
+                opt_in_dynamic_smem(menu_term_values_kernel<T>, smem, latch, "The cost-menu term readout", SMEM_ROBOT);
                 menu_term_values_kernel<T><<<dim3(KNOT_POINTS, batch_size_), 128, smem>>>(d_terms_, d_xu_traj_batch, view_, d_robotModel);
                 gpuErrchk(cudaGetLastError());
                 gpuErrchk(cudaDeviceSynchronize());

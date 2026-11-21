@@ -99,7 +99,7 @@ void sim_forward_batched(
     dim3 block(SIM_FORWARD_THREADS);
     size_t s_mem_size = get_sim_forward_batched_kernel_smem_size<T>();
     static size_t attr_bytes = 0;
-    opt_in_dynamic_smem(sim_forward_batched_kernel<T>, s_mem_size, attr_bytes);
+    opt_in_dynamic_smem(sim_forward_batched_kernel<T>, s_mem_size, attr_bytes, "The plant step", SMEM_ROBOT);
 
     sim_forward_batched_kernel<T><<<grid, block, s_mem_size>>>(
         d_xkp1_batch,

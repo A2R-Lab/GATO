@@ -542,13 +542,13 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
         constexpr unsigned IT = gato::constants::INTEGRATOR_TYPE_DEFAULT;
         auto kernel = setup_kkt_system_batched_kernel<T>;
         if (!use_menu && !use_com) {
-                opt_in_dynamic_smem(setup_kkt_system_batched_kernel<T>, s_mem_size, attr_bytes);
+                opt_in_dynamic_smem(setup_kkt_system_batched_kernel<T>, s_mem_size, attr_bytes, "The KKT assembly (dynamics linearization and cost blocks of one knot)", SMEM_ROBOT);
         } else if (use_menu && !use_com) {
 #if GATO_MENU_AVAILABLE
                 // the MENU instantiation; the default kernel keeps its code and attributes
                 static size_t attr_bytes_menu = 0;
                 kernel = setup_kkt_system_batched_kernel<T, IT, false, true>;
-                opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_menu);
+                opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_menu, "The KKT assembly (dynamics linearization and cost blocks of one knot)", SMEM_ROBOT);
 #else
                 throw std::runtime_error("cost menu requested on a module that does not carry it");
 #endif
@@ -559,13 +559,13 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
                 if (use_menu) {
 #if GATO_MENU_AVAILABLE
                         kernel = setup_kkt_system_batched_kernel<T, IT, false, true, true>;
-                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_menu_com);
+                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_menu_com, "The KKT assembly (dynamics linearization and cost blocks of one knot)", SMEM_ROBOT);
 #else
                         throw std::runtime_error("cost menu requested on a module that does not carry it");
 #endif
                 } else {
                         kernel = setup_kkt_system_batched_kernel<T, IT, false, false, true>;
-                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_com);
+                        opt_in_dynamic_smem(kernel, s_mem_size, attr_bytes_com, "The KKT assembly (dynamics linearization and cost blocks of one knot)", SMEM_ROBOT);
                 }
 #else
                 throw std::runtime_error("CoM term requested on a module whose header does not bake the centroidal families");

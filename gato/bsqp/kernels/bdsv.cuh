@@ -150,7 +150,7 @@ __host__ void solve_bdsv_batched(uint32_t batch_size, T* d_lambda_batch, SchurSy
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_solve_bdsv_batched_smem_size<T>();
         static size_t  attr_bytes = 0;
-        opt_in_dynamic_smem(solve_bdsv_batched_kernel<T>, s_mem_size, attr_bytes, "The direct solve (two vectors of (N + 2) * nx values)");
+        opt_in_dynamic_smem(solve_bdsv_batched_kernel<T>, s_mem_size, attr_bytes, "The direct solve (two vectors of (N + 2) * nx values)", SMEM_HORIZON);
 
         solve_bdsv_batched_kernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_kkt_converged_batch);
@@ -274,7 +274,7 @@ __host__ void factor_bdsv_batched(uint32_t batch_size, SchurSystem<T> schur, int
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_factor_bdsv_batched_smem_size<T>();
         static size_t  attr_bytes = 0;
-        opt_in_dynamic_smem(factor_bdsv_batched_kernel<T>, s_mem_size, attr_bytes);
+        opt_in_dynamic_smem(factor_bdsv_batched_kernel<T>, s_mem_size, attr_bytes, "The direct factorization");
 
         factor_bdsv_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_factor_status, schur.d_S_batch, d_kkt_converged_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently
@@ -290,7 +290,7 @@ __host__ void solve_bdsv_factored_batched(uint32_t batch_size, T* d_x_batch, Sch
         dim3           thread_block(BDSV_THREADS);
         const uint32_t s_mem_size = get_solve_bdsv_factored_batched_smem_size<T>();
         static size_t  attr_bytes = 0;
-        opt_in_dynamic_smem(solve_bdsv_factored_batched_kernel<T>, s_mem_size, attr_bytes);
+        opt_in_dynamic_smem(solve_bdsv_factored_batched_kernel<T>, s_mem_size, attr_bytes, "The factored direct solve");
 
         solve_bdsv_factored_batched_kernel<T><<<grid, thread_block, s_mem_size>>>(d_iterations, d_x_batch, schur.d_S_batch, d_rhs_batch, d_factor_status, d_skip_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

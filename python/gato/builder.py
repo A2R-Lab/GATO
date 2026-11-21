@@ -142,9 +142,11 @@ def _write_limits(robot, out_path, name, urdf_name):
     ⚠ do not consume grid::init_joint_limits() instead: it is misaligned /
     uninitialized for floating robots (GRiD gen_init_joint_limits bug, ask
     filed 2026-08-09)."""
-    joints = [j for j in robot.get_joints_ordered_by_id()
-              if getattr(j, "jtype", None) != "floating"]
+    every = [j for j in robot.get_joints_ordered_by_id()
+             if getattr(j, "jtype", None) != "floating"]
+    joints = [j for j in every if not getattr(j, "is_mimic", False)]
     rows = {"JOINT_LIMITS_DATA": [], "VEL_LIMITS_DATA": [], "CTRL_LIMITS_DATA": []}
+    slot = {}
     for j in joints:
         lo, hi = j.joint_limits
         vel, eff = j.get_velocity_limit(), j.get_effort_limit()
@@ -155,9 +157,33 @@ def _write_limits(robot, out_path, name, urdf_name):
                     f"GATO's barrier cost needs bounded <limit> tags on every joint "
                     f"(continuous/unbounded joints are not supported yet)"
                 )
+        slot[j.jid] = len(rows["JOINT_LIMITS_DATA"])
         rows["JOINT_LIMITS_DATA"].append((lo, hi, j.name))
         rows["VEL_LIMITS_DATA"].append((-vel, vel, j.name))
         rows["CTRL_LIMITS_DATA"].append((-eff, eff, j.name))
+    # A mimic follower has no coordinate of its own (its value is multiplier *
+    # q + offset of the joint it follows), so it has no row. Its position and
+    # velocity limits bound the joint it follows; its effort limit bounds
+    # nothing, the follower has no actuator.
+    for j in every:
+        if not getattr(j, "is_mimic", False):
+            continue
+        i, mult, off = slot.get(j.mimic_target_id), float(j.mimic_multiplier), float(j.mimic_offset)
+        if i is None or mult == 0.0:
+            raise ValueError(f"mimic joint {j.name!r} in {urdf_name} follows a joint that carries no "
+                             f"limit row, or has a zero multiplier")
+        lo, hi = j.joint_limits
+        vel = j.get_velocity_limit()
+        plo, phi, pname = rows["JOINT_LIMITS_DATA"][i]
+        if lo is not None and hi is not None and math.isfinite(float(lo)) and math.isfinite(float(hi)):
+            a, b = sorted(((float(lo) - off) / mult, (float(hi) - off) / mult))
+            plo, phi = max(plo, a), min(phi, b)
+            if plo > phi:
+                raise ValueError(f"mimic joint {j.name!r} in {urdf_name} leaves joint {pname!r} no admissible position")
+            rows["JOINT_LIMITS_DATA"][i] = (plo, phi, pname)
+        if vel is not None and math.isfinite(float(vel)):
+            pv = min(rows["VEL_LIMITS_DATA"][i][1], float(vel) / abs(mult))
+            rows["VEL_LIMITS_DATA"][i] = (-pv, pv, pname)
 
     nq = len(joints)
     out = [

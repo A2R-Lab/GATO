@@ -78,3 +78,44 @@ def test_pcg_shared_memory_admission(make_solver, monkeypatch):
     with pytest.raises(ValueError, match="needs PCG"):
         gato.BSQP(model_path=str(URDFS["indy7"]), batch_size=1, N=16, dt=0.01, plant_type="indy7",
                   params=gato.SolverParams(linsys="pcg"))
+
+
+MIMIC_URDF = '''<robot name="mimic_probe">
+  <link name="base"/>
+  <link name="palm"><inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="finger_a"><inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="finger_b"><inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="tool"/>
+  <joint name="wrist" type="revolute"><parent link="base"/><child link="palm"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="2"/></joint>
+  <joint name="drive" type="revolute"><parent link="palm"/><child link="finger_a"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.8" effort="1" velocity="2"/></joint>
+  <joint name="follow" type="revolute"><parent link="palm"/><child link="finger_b"/><axis xyz="0 1 0"/>
+    <limit lower="-0.3" upper="0.1" effort="5" velocity="1"/><mimic joint="drive" multiplier="-0.5" offset="0.05"/></joint>
+  <joint name="EE" type="fixed"><parent link="palm"/><child link="tool"/></joint>
+</robot>'''
+
+
+def test_limit_table_has_one_row_per_coordinate_and_folds_mimic_followers(tmp_path):
+    """A mimic follower has no coordinate, so limits.cuh carries no row for it
+    (the module's static check on the table width failed to compile before
+    0.2.3); its position and velocity limits bound the joint it follows and its
+    effort limit bounds nothing."""
+    import re
+    from gato import builder
+    urdf = tmp_path / "mimic_probe.urdf"
+    urdf.write_text(MIMIC_URDF)
+    robot = builder._parse_urdf(urdf, "EE")
+    assert robot.get_num_vel() == 2
+    out = tmp_path / "limits.cuh"
+    builder._write_limits(robot, out, "mimic_probe", urdf.name)
+    text = out.read_text()
+    tables = dict(re.findall(r"T (\w+)\[(\d+)\]\[2\]", text))
+    assert tables == {"JOINT_LIMITS_DATA": "2", "VEL_LIMITS_DATA": "2", "CTRL_LIMITS_DATA": "2"}
+    rows = [tuple(float(v) for v in m) for m in re.findall(r"\{(-?[\d.e+-]+) - JOINT_LIMIT_MARGIN<T>\(\), (-?[\d.e+-]+) \+ JOINT_LIMIT_MARGIN", text)]
+    # follower in [-0.3, 0.1] = -0.5 q + 0.05 gives q in [-0.1, 0.7]; with drive's own [0, 0.8]: [0, 0.7]
+    assert rows[0] == (-1.0, 1.0) and rows[1] == pytest.approx((0.0, 0.7))
+    # follower speed 1 at multiplier 0.5 allows 2 on the drive joint: its own 2 stands
+    assert rows[2:4] == [(-2.0, 2.0), (-2.0, 2.0)]
+    assert rows[4:6] == [(-10.0, 10.0), (-1.0, 1.0)]          # the follower's effort limit is not a bound
+    assert "follow" not in text

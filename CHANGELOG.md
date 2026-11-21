@@ -15,6 +15,21 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   the holding seed the same 141 mm reach ends within 12 mm after 3 s on
   default weights. Fixed-base modules without contact-force controls; the
   default is unchanged. `initialize_warm_start` takes the control as `u=`.
+- A robot with mimic joints builds and constructs. The limit table has one
+  row per coordinate: a mimic follower carries none, and its position and
+  velocity limits bound the joint it follows (0.2.2 wrote a row per joint and
+  the module failed its own static check at compile time). `BSQP.model` asks
+  Pinocchio for the followers as followers, so its dimensions match the
+  module; Pinocchio's `aba` does not accept that model, so the Pinocchio
+  simulator does not run it yet. On the TIAGo Pro upper body with both
+  grippers (19 coordinates, 10 followers) the device step matches the
+  mimic-reduced Pinocchio dynamics to 1e-5 relative.
+- Every shared-memory refusal names its stage and what the request grows
+  with, the horizon or the robot. The contact-dynamics oracle keeps its
+  tables in the opted-in arena: at 29 bodies they passed the 48 KB a kernel
+  gets without asking and the module did not link. That robot still does not
+  solve on the RTX 5090: its KKT assembly asks for 117,648 bytes against the
+  101,376 a block may use, and says so.
 - The `BSQP.sim_forward` docstring states its shapes: one state and one
   control in, one next state per batch row out.
 

@@ -30,6 +30,22 @@
 
 namespace gato {
 
+// The kernel's shared-memory layout, in elements of T: the grid arena (every
+// sequential grid claim plus the plant FD-gradient scratch; FD_DU_MAX (minv +
+// id + id-gradient + vaf temps) dominates the f_ext_gradient arena and the
+// hom-transform family on every generated robot, and fc builds append the
+// adapter's persistent fc block), then the kernel's own buffers.
+template<typename T>
+struct ContactDebugSmem {
+        static constexpr size_t NQ = gato::plant::NQ, NFC = grid::NUM_CONTACT_FRAMES, FEXT = 6 * grid::NUM_BODIES;
+        size_t q, qd, fc, u, fext, qdd, df_du, dtau_dfext, dqdd_dfext, dfext_dfc, dfext_dq, count;
+        __host__ __device__ constexpr ContactDebugSmem()
+            : q(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT), qd(q + NQ), fc(qd + NQ), u(fc + 6 * NFC),
+              fext(u + NQ + 6 * NFC), qdd(fext + FEXT), df_du(qdd + NQ), dtau_dfext(df_du + 3 * NQ * NQ + NQ * 6 * NFC),
+              dqdd_dfext(dtau_dfext + NQ * FEXT), dfext_dfc(dqdd_dfext + NQ * FEXT), dfext_dq(dfext_dfc + FEXT * 6 * NFC),
+              count(dfext_dq + FEXT * NQ) {}
+};
+
 template<typename T>
 __global__ void debug_contact_dynamics_kernel(T*       d_qdd,          // NQ
                                            T*       d_fext,         // 6*NUM_BODIES
@@ -55,20 +71,25 @@ __global__ void debug_contact_dynamics_kernel(T*       d_qdd,          // NQ
         const grid::robotModel<T>* d_robotModel = (const grid::robotModel<T>*)d_GRiD_mem;
 
         // On GATO_CONTACT_FORCES builds the adapter reads fc as the control tail
-        // (s_u[NQ..)) and appends its dqdd/dfc block at s_df_du[3*NQ*NQ..) — size
-        // both for the wide layout unconditionally (debug kernel; smem is cheap).
-        __shared__ T s_q[NQ], s_qd[NQ], s_fc[6 * NFC];
-        __shared__ T s_u[NQ + 6 * NFC];
-        __shared__ T s_fext[FEXT];
-        __shared__ T s_qdd[NQ];
-        __shared__ T s_df_du[3 * NQ * NQ + NQ * 6 * NFC]; // [dq | dqd | Minv | dfc(fc builds)]
-        __shared__ T s_dtau_dfext[NQ * FEXT];           // -J^T, col-major [v + NQ*(6b+k)]
-        __shared__ T s_dqdd_dfext[NQ * FEXT];           // Minv J^T, same layout
-        __shared__ T s_dfext_dfc[FEXT * 6 * NFC];       // col-major [row + FEXT*col]
-        __shared__ T s_dfext_dq[FEXT * NQ];             // col-major [row + FEXT*v]
-
-        extern __shared__ T s_mem[];                    // sequential grid arena / plant scratch
+        // (s_u[NQ..)) and appends its dqdd/dfc block at s_df_du[3*NQ*NQ..) — the
+        // layout is sized for the wide case unconditionally. Every buffer is a
+        // carve of the dynamic arena behind the grid claims (ContactDebugSmem):
+        // the three NQ x 6*NUM_BODIES tables pass the 48 KB a kernel gets without
+        // asking at 29 bodies (the TIAGo Pro upper body with its grippers).
+        extern __shared__ T s_mem[];                    // sequential grid arena / plant scratch, then the carves
         T*                  s_scratch = s_mem;
+        const ContactDebugSmem<T> lay;
+        T* const s_q = s_mem + lay.q;
+        T* const s_qd = s_mem + lay.qd;
+        T* const s_fc = s_mem + lay.fc;
+        T* const s_u = s_mem + lay.u;
+        T* const s_fext = s_mem + lay.fext;
+        T* const s_qdd = s_mem + lay.qdd;
+        T* const s_df_du = s_mem + lay.df_du;           // [dq | dqd | Minv | dfc(fc builds)]
+        T* const s_dtau_dfext = s_mem + lay.dtau_dfext; // -J^T, col-major [v + NQ*(6b+k)]
+        T* const s_dqdd_dfext = s_mem + lay.dqdd_dfext; // Minv J^T, same layout
+        T* const s_dfext_dfc = s_mem + lay.dfext_dfc;   // col-major [row + FEXT*col]
+        T* const s_dfext_dq = s_mem + lay.dfext_dq;     // col-major [row + FEXT*v]
 
         const int tid = threadIdx.x, nth = blockDim.x;
         for (int i = tid; i < NQ; i += nth) { s_q[i] = d_q[i]; s_qd[i] = d_qd[i]; s_u[i] = d_u[i]; }
@@ -135,12 +156,10 @@ __host__ void debug_contact_dynamics(T* d_qdd, T* d_fext, T* d_dqdd_dfc, T* d_dq
                                    T* d_dqdd_dfc_adapter, T* d_dqdd_dq_adapter,
                                    const T* d_q, const T* d_qd, const T* d_u, const T* d_fc, void* d_GRiD_mem)
 {
-        // Arena must cover every sequential grid arena claim + the plant FD-gradient
-        // scratch. FD_DU_MAX (minv + id + id-gradient + vaf temps) dominates the
-        // f_ext_gradient arena (XImats + minv/jacobianT temp) and the hom-transform
-        // family (~288 + EE linalg bytes) on every generated robot. fc builds append
-        // the adapter's persistent fc block after the FD_DU arena.
-        const size_t smem = static_cast<size_t>(grid::FD_DU_MAX_SHARED_MEM_COUNT + gato::plant::FC_PERSIST_COUNT) * sizeof(T);
+        const size_t  smem = ContactDebugSmem<T>().count * sizeof(T);
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(debug_contact_dynamics_kernel<T>, smem, attr_bytes, "The contact-dynamics oracle",
+                            "The request grows with the body count times the joint count.");
         debug_contact_dynamics_kernel<T><<<1, 128, smem>>>(d_qdd, d_fext, d_dqdd_dfc, d_dqdd_dq, d_dqdd_dq_corr,
                                                         d_dqdd_dfc_adapter, d_dqdd_dq_adapter,
                                                         d_q, d_qd, d_u, d_fc, d_GRiD_mem);

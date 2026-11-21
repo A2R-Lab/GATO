@@ -1461,6 +1461,18 @@ spherizer), so margin is extra safety on top.
                 # free-flyer q [p; quat xyzw] — mirror it in the pin model so
                 # nq/nv/nx and every oracle computation match the module.
                 model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())
+            elif "<mimic" in Path(self.model_path).read_text(errors="replace"):
+                # a mimic follower has no coordinate in the module; pinocchio
+                # mirrors that only when asked (the follower is otherwise an
+                # independent joint and nq/nv exceed the module's)
+                try:
+                    model = pin.buildModelFromUrdf(self.model_path, mimic=True)
+                except (TypeError, Exception) as e:
+                    if "mimic" not in str(e):
+                        raise
+                    raise RuntimeError(f"{self.model_path!r} has mimic joints and this pinocchio ({pin.__version__}) "
+                                       f"cannot build them as followers; the solver runs without the pinocchio "
+                                       f"model, the FK helpers, simulators and estimators need a newer pinocchio") from e
             else:
                 model = pin.buildModelFromUrdf(self.model_path)
             armature = robot_info(self.plant_type).get("armature")
