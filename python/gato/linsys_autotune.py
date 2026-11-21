@@ -161,8 +161,13 @@ def lookup(plant, N, task_tag, path=None):
 ADMM_FACTOR_MIN_N = 64
 
 
+PCG_REFUSED = ("{what}={mode!r} needs PCG, which cannot launch for this module on this GPU "
+               "(BSQP.pcg_smem_fit: block shared memory needed against the device limit); "
+               "use {direct!r} or a shorter horizon")
+
+
 def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=None,
-                        plant=None, N=None, task_tag=None, path=None):
+                        plant=None, N=None, task_tag=None, path=None, pcg_ok=True):
     """Controller-side resolution of the ADMM inner-loop linsys policy:
     explicit > tuned entry (``admm_policy`` / ``admm_tau``) > wired default by
     horizon ("pcg" below ADMM_FACTOR_MIN_N knots, "bdsv_factor" from there).
@@ -172,6 +177,10 @@ def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=N
     an unset threshold takes the tuned ``admm_tau``, else ``fallback_tau`` (the
     controller passes its SQP bdsv_threshold: one warm-startedness signal, two
     switches), else 0.1.
+
+    ``pcg_ok`` False (``BSQP.pcg_smem_fit``: the PCG kernel does not fit the
+    device's block shared memory) makes the wired default "bdsv_factor" at every
+    horizon and refuses an explicit or tuned policy that needs PCG.
     """
     if admm_linsys is None and task_tag is not None and plant is not None:
         entry = lookup(plant, N, task_tag, path)
@@ -180,7 +189,9 @@ def resolve_admm_linsys(admm_linsys=None, admm_threshold=None, *, fallback_tau=N
             if admm_linsys == "auto" and admm_threshold is None:
                 admm_threshold = entry.get("admm_tau")
     if admm_linsys is None:
-        admm_linsys = "bdsv_factor" if (N is not None and N >= ADMM_FACTOR_MIN_N) else "pcg"
+        admm_linsys = "bdsv_factor" if (not pcg_ok or (N is not None and N >= ADMM_FACTOR_MIN_N)) else "pcg"
+    if not pcg_ok and admm_linsys != "bdsv_factor":
+        raise ValueError(PCG_REFUSED.format(what="admm_linsys", mode=admm_linsys, direct="bdsv_factor"))
     if admm_linsys != "auto":
         return admm_linsys, None
     if admm_threshold is None:
@@ -193,13 +204,16 @@ BDSV_HORIZON = 256
 
 
 def resolve_linsys(floating_base, linsys=None, bdsv_threshold=None,
-                   plant=None, N=None, task_tag=None, path=None):
+                   plant=None, N=None, task_tag=None, path=None, pcg_ok=True):
     """Controller-side resolution: explicit > tuned > wired default.
 
     The wired default is "bdsv" on a floating base and, on a fixed base, "auto"
     below ``BDSV_HORIZON`` knots and "bdsv" from there (``N`` None counts as
     below). Returns (linsys, bdsv_threshold) with linsys in
     {"pcg", "bdsv", "bdsv_first", "auto"} and bdsv_threshold set iff auto.
+
+    ``pcg_ok`` False (``BSQP.pcg_smem_fit``) makes the wired default "bdsv" at
+    every horizon and refuses an explicit or tuned policy that needs PCG.
     """
     if linsys is None and task_tag is not None and plant is not None:
         entry = lookup(plant, N, task_tag, path)
@@ -213,7 +227,10 @@ def resolve_linsys(floating_base, linsys=None, bdsv_threshold=None,
         # is faster at every batch size and ends at the lower merit on the Jetson AGX Orin
         # (Felix Mueh, issue #19, docs/merit_timing.md, October 30); the 5090 row of that
         # table is still to be measured
-        linsys = "bdsv" if floating_base or (N is not None and int(N) >= BDSV_HORIZON) else "auto"
+        linsys = "bdsv" if (floating_base or not pcg_ok
+                            or (N is not None and int(N) >= BDSV_HORIZON)) else "auto"
+    if not pcg_ok and linsys != "bdsv":
+        raise ValueError(PCG_REFUSED.format(what="linsys", mode=linsys, direct="bdsv"))
     if linsys == "auto" and bdsv_threshold is None:
         bdsv_threshold = 0.1
     return linsys, bdsv_threshold

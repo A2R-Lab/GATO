@@ -25,6 +25,8 @@ COMMON = ["-std=c++17", "-O2", "-DNDEBUG", "-I", str(_grid.glass_dir())]
 # PTX for the Jetson AGX Orin's architecture, run through the driver's JIT here.
 ARCHES = {"bdsv_factor_solve": ("native", "compute_87")}
 HARNESSES = {
+    "pcg_admission": ["-DKNOT_POINTS=512", "-DGATO_PLANT_HEADER=\"plant_shim.cuh\"",
+                      "-I", str(REPO / "gato"), "-I", str(HERE / "cuda")],
     "pcg_vs_cpu": [],
     "bdsv_vs_pcg": [],
     "gamma_parity": ["-DKNOT_POINTS=128", "-DGATO_PLANT_HEADER=\"plant_shim.cuh\"",

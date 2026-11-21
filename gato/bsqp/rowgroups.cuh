@@ -958,6 +958,9 @@ __host__ void row_group_telemetry_batched(uint32_t batch_size, T* d_telemetry, c
                                        const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_coll_cache_batch = nullptr)
 {
         if (n_groups <= 0) return;
+        // the N * TELEMETRY_MAX_ROWS table passes the 48 KB default at long horizons
+        static size_t attr_bytes = 0;
+        opt_in_dynamic_smem(row_group_telemetry_batched_kernel<T>, get_row_group_telemetry_smem_size<T>(), attr_bytes, "The row-group violation readout (a table of N * max(collision spheres, nx) values)");
         row_group_telemetry_batched_kernel<T><<<batch_size, ROWGROUP_THREADS, get_row_group_telemetry_smem_size<T>()>>>(d_telemetry, d_groups, n_groups, d_xu_traj_batch,
                                                                                                                (const grid::robotModel<T>*)d_GRiD_mem, env, d_coll_cache_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

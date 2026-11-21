@@ -46,3 +46,35 @@ def test_module_refusals_name_the_build_that_carries_the_feature(make_solver):
     go2 = go2_solver(1)
     with pytest.raises(ValueError, match="fixed-base plants only"):
         go2.set_cost_menu(CostMenu(input=Term(weight=1.0, target="gravity"), q_ref=np.zeros((go2.N, go2.nq), np.float32)))
+
+
+@pytest.mark.gpu
+def test_pcg_shared_memory_admission(make_solver, monkeypatch):
+    """PCG keeps five vectors of (N + 2) * nx values in block shared memory. A
+    shipped module reports the kernel's request against the device limit and
+    fits. Where it would not fit (the report is replaced here; test/cuda/
+    pcg_admission.cu runs the real refusal at N512), the defaults are the
+    direct solves and every request for PCG is refused by name."""
+    from gato.controller import MPCController
+    arm = make_solver("indy7", 16)
+    need, limit = arm.pcg_smem_fit()
+    assert need == 4 * (5 * (16 + 2) * 12 + 32) + 20
+    assert 48 * 1024 <= limit and arm.pcg_ok
+    assert arm.linsys == "pcg" and arm.admm_linsys == "pcg"
+
+    monkeypatch.setattr(gato.BSQP, "pcg_smem_fit", lambda self: (limit + 4, limit))
+    assert not arm.pcg_ok
+    for mode in ("pcg", "bdsv_first"):
+        with pytest.raises(ValueError, match="linsys=.* needs PCG.*'bdsv'"):
+            arm.set_linsys(mode)
+    with pytest.raises(ValueError, match="admm_linsys='pcg' needs PCG.*'bdsv_factor'"):
+        arm.set_admm_linsys("pcg")
+    fresh = make_solver("indy7", 16)
+    assert fresh.linsys == "bdsv" and fresh.admm_linsys == "bdsv_factor"
+    ctrl = MPCController(fresh)
+    assert ctrl.linsys == "bdsv" and ctrl.admm_linsys == "bdsv_factor"
+    with pytest.raises(ValueError, match="needs PCG"):
+        MPCController(fresh, linsys="auto")
+    with pytest.raises(ValueError, match="needs PCG"):
+        gato.BSQP(model_path=str(URDFS["indy7"]), batch_size=1, N=16, dt=0.01, plant_type="indy7",
+                  params=gato.SolverParams(linsys="pcg"))

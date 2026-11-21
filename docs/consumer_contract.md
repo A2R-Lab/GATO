@@ -110,6 +110,10 @@ model from the URDF, so set `env.model.armature` there.
   bdsv_first cold, same resolver: `gato.linsys_autotune.resolve_linsys`). The
   horizon rule is Felix Mueh's Orin measurement of October 30 (docs/merit_timing.md);
   the 5090 row is pending. An explicit mode always wins.
+  PCG needs block shared memory that grows with the horizon and the state
+  width; where the module does not fit the device (`BSQP.pcg_ok` False,
+  `BSQP.pcg_smem_fit()` for the two numbers) the default is bdsv at every
+  horizon and a request for PCG raises a `ValueError`.
 - **Array kinds.** `solve()` / `step()` take numpy, torch or JAX arrays and
   return the same kind. CUDA tensors (torch on a CUDA device, JAX on a GPU)
   use the device path: inputs are read in place through their device pointer

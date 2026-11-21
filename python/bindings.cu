@@ -634,6 +634,7 @@ class PyBSQP {
         void set_defect_telemetry(bool on) { solver_.set_defect_telemetry(on); }
         void set_defect_exit(T tol) { solver_.set_defect_exit(tol); }
         void set_linsys_mode(int mode) { solver_.set_linsys_mode(mode); }
+        py::tuple pcg_smem_fit() const { const auto f = solver_.pcg_smem_fit(); return py::make_tuple(f.need, f.limit); }
         void set_admm_linsys_pcg(bool on) { solver_.set_admm_linsys_pcg(on); }
         void set_admm_exit(T eps_abs, T eps_rel, uint32_t check_every) { solver_.set_admm_exit(eps_abs, eps_rel, check_every); }
         bool admm_active() const { return solver_.admm_active(); }
@@ -918,6 +919,7 @@ class PyBSQP {
             .def("set_defect_telemetry", &PyBSQP<Type>::set_defect_telemetry, py::arg("on"))                                                                                                                             \
             .def("set_defect_exit", &PyBSQP<Type>::set_defect_exit, py::arg("tol"))                                                                                                                                      \
             .def("set_linsys_mode", &PyBSQP<Type>::set_linsys_mode)                                                                                                                                    \
+            .def("pcg_smem_fit", &PyBSQP<Type>::pcg_smem_fit)                                                                                                                                          \
             .def("set_admm_linsys_pcg", &PyBSQP<Type>::set_admm_linsys_pcg, py::arg("on"))                                                                                                             \
             .def("set_admm_exit", &PyBSQP<Type>::set_admm_exit, py::arg("eps_abs"), py::arg("eps_rel"), py::arg("check_every"))                                                                       \
             .def("admm_active", &PyBSQP<Type>::admm_active)                                                                                                                                           \

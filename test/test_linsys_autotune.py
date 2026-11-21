@@ -145,3 +145,30 @@ def test_resolve_admm_linsys_defaults():
     assert resolve_admm_linsys("auto", fallback_tau=0.25) == ("auto", 0.25)
     assert resolve_admm_linsys("auto", 0.05) == ("auto", 0.05)
     assert resolve_admm_linsys("bdsv_factor") == ("bdsv_factor", None)
+
+
+def test_resolve_without_pcg():
+    """A module whose PCG kernel does not fit the device's block shared memory
+    (BSQP.pcg_ok False): the wired defaults are the direct solves at every
+    horizon, and an explicit or tuned policy that needs PCG is refused."""
+    assert resolve_linsys(False, N=64, pcg_ok=False) == ("bdsv", None)
+    assert resolve_linsys(False, pcg_ok=False) == ("bdsv", None)
+    assert resolve_linsys(True, pcg_ok=False) == ("bdsv", None)
+    assert resolve_linsys(False, "bdsv", None, N=64, pcg_ok=False) == ("bdsv", None)
+    for mode in ("pcg", "bdsv_first", "auto"):
+        with pytest.raises(ValueError, match="needs PCG.*'bdsv'"):
+            resolve_linsys(False, mode, None, N=64, pcg_ok=False)
+    assert resolve_admm_linsys(None, None, N=32, pcg_ok=False) == ("bdsv_factor", None)
+    assert resolve_admm_linsys("bdsv_factor", None, N=32, pcg_ok=False) == ("bdsv_factor", None)
+    for mode in ("pcg", "auto"):
+        with pytest.raises(ValueError, match="needs PCG.*'bdsv_factor'"):
+            resolve_admm_linsys(mode, None, N=32, pcg_ok=False)
+
+
+def test_resolve_tuned_entry_without_pcg(tmp_path):
+    p = tmp_path / "tuning.json"
+    save_tuning("indy7", 64, "fig8", {"policy": "auto", "tau": 0.2, "admm_policy": "pcg"}, path=p)
+    with pytest.raises(ValueError, match="needs PCG"):
+        resolve_linsys(False, None, None, plant="indy7", N=64, task_tag="fig8", path=p, pcg_ok=False)
+    with pytest.raises(ValueError, match="needs PCG"):
+        resolve_admm_linsys(None, None, plant="indy7", N=64, task_tag="fig8", path=p, pcg_ok=False)

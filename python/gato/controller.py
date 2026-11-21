@@ -165,10 +165,11 @@ class MPCController:
         self.warm_start = warm_start
         self.reset_rho_each_step = reset_rho_each_step
         self.floating_base = bool(getattr(solver, "floating_base", False))
+        pcg_ok = bool(getattr(solver, "pcg_ok", True))
         linsys, bdsv_threshold = resolve_linsys(
             self.floating_base, linsys, bdsv_threshold,
             plant=getattr(solver, "plant_type", None), N=solver.N,
-            task_tag=task_tag)
+            task_tag=task_tag, pcg_ok=pcg_ok)
         self.linsys = linsys
         self.bdsv_threshold = bdsv_threshold
         self.reseed_threshold = reseed_threshold
@@ -177,7 +178,8 @@ class MPCController:
         self.limits = self._install_limits(limits, limits_kw)
         admm_linsys, admm_threshold = resolve_admm_linsys(
             admm_linsys, admm_threshold, fallback_tau=bdsv_threshold,
-            plant=getattr(solver, "plant_type", None), N=solver.N, task_tag=task_tag)
+            plant=getattr(solver, "plant_type", None), N=solver.N, task_tag=task_tag,
+            pcg_ok=pcg_ok)
         self.admm_linsys = admm_linsys
         self.admm_threshold = admm_threshold
         if admm_linsys != "auto" and hasattr(solver, "set_admm_linsys"):

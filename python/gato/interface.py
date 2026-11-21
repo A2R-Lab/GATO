@@ -10,7 +10,7 @@ import numpy as np
 from .common import _require_pin, _pin_available, initialize_warm_start
 from .rowkinds import MECHS, KIND_CONTACT_POS, is_vector_kind
 from .config import SolverParams, COST_FIELDS
-from .linsys_autotune import resolve_linsys
+from .linsys_autotune import PCG_REFUSED, resolve_linsys
 
 
 VARIANTS = ("default", "fc", "eh", "rk4")   # module variants: base / contact forces / exact Hessian / RK4 step
@@ -413,7 +413,7 @@ class BSQP:
         # (linsys_autotune.resolve_linsys): the solver takes the STATIC arm —
         # "auto" (a per-step controller policy) maps to its warm-body path, pcg.
         mode, _ = resolve_linsys(self.floating_base, params.linsys, None,
-                                 plant=plant_type, N=N, task_tag=None)
+                                 plant=plant_type, N=N, task_tag=None, pcg_ok=self.pcg_ok)
         self.set_linsys("pcg" if mode == "auto" else mode)
         self._row_mech = None  # active enable_limit_* mode (add_lin_u_rows mech=None default)
         self._n_appended_groups = 0
@@ -421,6 +421,8 @@ class BSQP:
         self.cost_curvature = False  # the C++ default
         self._time_budget_us = 0.0  # solve(budget_s=...) state mirrored in the C++ solver
         self._admm_linsys = "pcg"   # set_admm_linsys; the C++ default
+        if not self.pcg_ok:
+            self.set_admm_linsys("bdsv_factor")   # the only inner solver that launches here
         self._admm_exit = (0.0, 0.0, 1)   # set_admm_exit (eps_abs, eps_rel, check_every); the C++ default
         if params.exact_hessian:
             self.set_exact_hessian(True)
@@ -528,6 +530,22 @@ class BSQP:
         xu = np.ascontiguousarray(np.asarray(xu, dtype=np.float32).reshape(self.batch_size, self.xu_size))
         return np.asarray(self.solver.cost_menu_term_values(xu), dtype=np.float32)
 
+    def pcg_smem_fit(self):
+        """(needed, limit) in bytes: the block shared memory the PCG kernel asks
+        for on this module and the most a block may opt in to on this GPU. PCG
+        keeps five vectors of (N + 2) * nx values there, so a long horizon or a
+        wide state can pass the limit (Indy7 at N512 on the RTX 5090: 123,508
+        against 101,376). The direct solve keeps two such vectors and reaches
+        about 2.5 times further."""
+        need, limit = self.solver.pcg_smem_fit()
+        return int(need), int(limit)
+
+    @property
+    def pcg_ok(self):
+        """Whether the PCG kernel can launch for this module on this GPU."""
+        need, limit = self.pcg_smem_fit()
+        return need <= limit
+
     def set_linsys(self, mode):
         """Pick the S·λ = γ path for subsequent solves: "pcg" | "bdsv" | "bdsv_first".
 
@@ -535,6 +553,8 @@ class BSQP:
         """
         if mode not in LINSYS_MODES:
             raise ValueError(f"linsys must be one of {sorted(LINSYS_MODES)}, got {mode!r}")
+        if mode != "bdsv" and not self.pcg_ok:
+            raise ValueError(PCG_REFUSED.format(what="linsys", mode=mode, direct="bdsv"))
         if mode != self.linsys:
             self.solver.set_linsys_mode(LINSYS_MODES[mode])
             self.linsys = mode
@@ -546,6 +566,8 @@ class BSQP:
         Measured defaults, rulings and provenance: docs/constraints.md (`set_admm_linsys`)."""
         if mode not in ("bdsv_factor", "pcg"):
             raise ValueError(f'admm_linsys must be "bdsv_factor" or "pcg", got {mode!r}')
+        if mode == "pcg" and not self.pcg_ok:
+            raise ValueError(PCG_REFUSED.format(what="admm_linsys", mode=mode, direct="bdsv_factor"))
         self.solver.set_admm_linsys_pcg(mode == "pcg")
         self._admm_linsys = mode
 

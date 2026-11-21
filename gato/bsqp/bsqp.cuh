@@ -694,6 +694,15 @@ class BSQP {
                 linsys_mode_ = mode;
         }
         int linsys_mode() const { return linsys_mode_; }
+        // Whether the next solve launches the PCG kernel (the same conditions as the
+        // branches in solve()), and what it needs against the device limit (kernels/pcg.cuh).
+        bool uses_pcg() const
+        {
+                if (admm_active_) { return admm_linsys_pcg_; }
+                if (al_active_ || exact_hessian_ || cost_curvature_ || linsys_mode_ == 1) { return false; }
+                return linsys_mode_ == 0 || max_sqp_iters_ > 1;
+        }
+        PcgSmemFit pcg_smem_fit() const { return ::pcg_smem_fit<T>(); }
 
         // ADMM inner-loop linsys: true (DEFAULT since 2026-08-01) = warm-started
         // PCG per inner iteration (λ carries across the loop; no factor);
@@ -1026,6 +1035,8 @@ class BSQP {
 
         SQPStats<T> solve(T* d_xu_traj_batch, ProblemInputs<T> inputs)
         {
+                // a solve that will reach PCG is refused here, before any kernel runs
+                if (uses_pcg()) { require_pcg_smem_fit<T>(); }
                 SQPStats<T> sqp_stats(batch_size_);
                 PCGStats    pcg_stats(batch_size_);
 

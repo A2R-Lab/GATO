@@ -5,8 +5,11 @@
 // SQP convergence signal read by bsqp.cuh. The direct alternative is bdsv.cuh.
 
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 #include "settings.h"
 #include "constants.h"
+#include "types.cuh"
 #include "utils/cuda.cuh"
 #include "utils/linalg.cuh"
 #include "glass.cuh"  // top-level GLASS (global glass::, distinct from grid.cuh's grid::glass)
@@ -66,14 +69,48 @@ __host__ size_t get_solve_pcg_batched_smem_size()
         return glass::pcg_scratch_bytes<T, STATE_SIZE, KNOT_POINTS>(PCG_THREADS);
 }
 
+// Admission. glass::pcg keeps five padded vectors in block shared memory, so the
+// request grows with (KNOT_POINTS + 2) * STATE_SIZE and a long horizon or a wide
+// state passes what a block may opt in to on the device (101,376 bytes on sm_120,
+// where Indy7 at N512 asks for 123,488). The limit is a device attribute, never a
+// horizon constant: need = the dynamic request plus glass::pcg's five static
+// scalars, limit = max_block_smem_bytes() (utils/cuda.cuh). The direct solve
+// keeps two such vectors (kernels/bdsv.cuh), so it reaches about 2.5 times further.
+struct PcgSmemFit {
+        size_t need;
+        size_t limit;
+        bool   fits() const { return need <= limit; }
+};
+
+template<typename T>
+__host__ PcgSmemFit pcg_smem_fit()
+{
+        return {get_solve_pcg_batched_smem_size<T>() + 5 * sizeof(T), max_block_smem_bytes()};
+}
+
+// Refuse before any launch: past the limit the attribute set fails with
+// "invalid argument" and the process exits (issue #19 sweep, RTX 5090, N512).
+template<typename T>
+__host__ void require_pcg_smem_fit()
+{
+        static const PcgSmemFit fit = pcg_smem_fit<T>();
+        if (!fit.fits()) {
+                throw std::runtime_error("PCG cannot launch for this module on this GPU: it needs " + std::to_string(fit.need)
+                                         + " bytes of block shared memory (five vectors of (N + 2) * nx values, N = " + std::to_string(KNOT_POINTS)
+                                         + ", nx = " + std::to_string(STATE_SIZE) + ") and the device allows " + std::to_string(fit.limit)
+                                         + ". Use the direct solve (linsys=\"bdsv\", admm_linsys=\"bdsv_factor\") or a shorter horizon.");
+        }
+}
+
 template<typename T>
 __host__ void solve_pcg_batched(uint32_t batch_size, T* d_lambda_batch, SchurSystem<T> schur, T* d_epsilon_batch, uint32_t max_pcg_iters, int32_t* d_kkt_converged_batch, uint32_t* d_iterations)
 {
+        require_pcg_smem_fit<T>();
         dim3           grid(batch_size);
         dim3           thread_block(PCG_THREADS);
         const uint32_t s_mem_size = get_solve_pcg_batched_smem_size<T>();
         static size_t  attr_bytes = 0;
-        opt_in_dynamic_smem(solve_pcg_batched_kernel<T>, s_mem_size, attr_bytes);
+        opt_in_dynamic_smem(solve_pcg_batched_kernel<T>, s_mem_size, attr_bytes, "PCG");
 
         solve_pcg_batched_kernel<T>
             <<<grid, thread_block, s_mem_size>>>(d_iterations, d_lambda_batch, schur.d_S_batch, schur.d_P_inv_batch, schur.d_gamma_batch, d_epsilon_batch, max_pcg_iters, d_kkt_converged_batch);

@@ -679,7 +679,7 @@ __host__ void admm_project_dual_batched(uint32_t batch_size, T* d_z_batch, T* d_
         const size_t s_mem_size = get_admm_project_dual_smem_size<T>();
         // the TELEMETRY_MAX_ROWS residual scratch can exceed the 48KB default at large N
         static size_t attr_bytes = 0;
-        opt_in_dynamic_smem(admm_project_dual_batched_kernel<T>, s_mem_size, attr_bytes);
+        opt_in_dynamic_smem(admm_project_dual_batched_kernel<T>, s_mem_size, attr_bytes, "The ADMM row update (two residual tables of N * max(collision spheres, nx) values)");
         admm_project_dual_batched_kernel<T><<<batch_size, ADMM_THREADS, s_mem_size>>>(d_z_batch, d_y_batch, d_resid_batch, d_xu_traj_batch, d_dz_batch, d_groups, n_groups, d_skip_batch, (const grid::robotModel<T>*)d_GRiD_mem, env, d_rho_scale_batch,
                                                                                     d_linsys_iters, max_pcg_iters, eps_abs, eps_rel, d_admm_iters, d_admm_linsys_iters, d_coll_cache_batch);
         gpuErrchk(cudaGetLastError());  // launch-config failures must not pass silently

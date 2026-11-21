@@ -2,6 +2,36 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## Unreleased
+
+- A kernel that cannot launch is refused with an error, where 0.2.1 exited
+  with `GPUassert: invalid argument`. Three stages keep tables in block shared
+  memory that grow with the horizon, and the device bounds what a block may
+  use (101,376 bytes on the RTX 5090; the Jetson AGX Orin ran PCG at N512 in
+  issue #19): PCG holds five vectors of (N + 2) nx values, the
+  direct solve two, and the ADMM row update two tables of N times the larger
+  of the collision-sphere count and nx. On the RTX 5090 PCG stops fitting
+  between N384 and N512 on the Indy7 and between N256 and N384 on a 14-state
+  arm, and the ADMM rows, which `MPCController` adds to a fixed-base arm by
+  default, do not launch at N512 on the Indy7. Every such launch
+  now raises a `RuntimeError` naming the stage, its request and the device
+  limit, and the solver stays usable.
+- PCG has its own admission. `BSQP.pcg_smem_fit()` returns the request and the
+  device limit and `BSQP.pcg_ok` their comparison. On a module that does not
+  fit, the wired defaults are the direct solves (`"bdsv"`,
+  `admm_linsys="bdsv_factor"`) at every horizon, and an explicit or tuned
+  request for PCG raises a `ValueError` that names the direct solve. Modules
+  that fit are unchanged, the parity goldens included.
+- The row-group violation readout opts in to its shared memory. Its table
+  passed the 48 KB a kernel gets without asking well below the device limit,
+  so the readout failed at horizons the device can run.
+- Example 21 runs the rotor armature on the TIAGo Pro right arm with Felix
+  Muehlenberend's reduced model and measured values (issue #20) and PAL's
+  collision meshes. A joint named twice in the parameter file is rejected, and
+  a bounded closed-loop test checks the numbers the run returns.
+- `gato.build` and `gato.register_robot` refuse `collision_res=None`: a solver
+  module does not compile against headers without the collision family.
+
 ## 0.2.1 — 2026-11-12: grid-rbd 0.7.1, rotor armature
 
 - `joint_armature=` on `gato.build` and `gato.register_robot` bakes a
