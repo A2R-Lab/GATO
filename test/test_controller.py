@@ -395,3 +395,103 @@ def test_u_clip_projects_the_command_onto_the_effort_box(make_solver, smallest_m
     assert r2.u_clipped and np.all(np.abs(r2.u) <= 1e-3 + 1e-7)
     with pytest.raises(ValueError, match="u_clip"):
         MPCController(make_solver(plant, N), linsys="pcg", limits="off", limits_kw={"u_clip": True})
+
+
+def test_holding_control_is_the_pinocchio_static_torque(make_solver):
+    """BSQP.holding_control: the gravity torque at rest and the zero-acceleration
+    torque in motion, against Pinocchio's inverse dynamics; the device step from
+    that control leaves the velocity where it was; one row per batch entry."""
+    import pinocchio as pin
+    solver = make_solver("iiwa14", 16, batch_size=3)
+    m = solver.model
+    d = m.createData()
+    rng = np.random.default_rng(5)
+    lo, hi = m.lowerPositionLimit, m.upperPositionLimit
+    for trial in range(3):
+        q = lo + rng.uniform(0.2, 0.8, solver.nq) * (hi - lo)
+        v = rng.uniform(-0.5, 0.5, solver.nv) * (trial > 0)
+        x = np.r_[q, v].astype(np.float32)
+        U = solver.holding_control(x)
+        assert U.shape == (3, solver.nu) and U.dtype == np.float32
+        np.testing.assert_array_equal(U, np.repeat(U[:1], 3, axis=0))     # no wrench: equal rows
+        want = pin.rnea(m, d, x[:solver.nq].astype(float), x[solver.nq:].astype(float), np.zeros(solver.nv))
+        np.testing.assert_allclose(U[0], want, rtol=2e-4, atol=2e-3)
+        if trial == 0:
+            np.testing.assert_allclose(U[0], pin.computeGeneralizedGravity(m, d, x[:solver.nq].astype(float)),
+                                       rtol=2e-4, atol=2e-3)
+        nxt = np.asarray(solver.sim_forward(x, U[0], solver.dt)).reshape(3, solver.nx)
+        assert np.abs(nxt[:, solver.nq:] - x[solver.nq:]).max() < 2e-5
+
+
+def test_holding_control_follows_the_wrench_and_the_rk4_step(make_solver):
+    """Each batch row holds against its own knot-0 wrench, and on the RK4
+    module the correction step lands the velocity (the step is not affine in
+    the control there)."""
+    for variant in (None, "rk4"):
+        solver = make_solver("iiwa14", 16, batch_size=2, variant=variant)
+        x = np.zeros(solver.nx, dtype=np.float32)
+        x[:solver.nq] = 0.3
+        x[solver.nq:] = 0.4
+        f = np.zeros((2, 6), np.float32)
+        f[1, 5] = 20.0
+        solver.set_f_ext_B(f)
+        U = solver.holding_control(x)
+        assert np.abs(U[1] - U[0]).max() > 0.5
+        for b in range(2):
+            nxt = np.asarray(solver.sim_forward(x, U[b], solver.dt)).reshape(2, solver.nx)
+            assert np.abs(nxt[b, solver.nq:] - x[solver.nq:]).max() < 2e-5
+
+
+def test_hold_control_gravity_seeds_reset_and_reseed(make_solver, smallest_module):
+    """hold_control="gravity": reset and a reseed write the holding control at
+    every knot; the default seed is unchanged; the option is validated."""
+    from gato.common import initialize_warm_start
+    plant, N = smallest_module
+    solver = make_solver(plant, N, batch_size=1)
+    with pytest.raises(ValueError, match="hold_control must be"):
+        MPCController(solver, hold_control="static")
+    x0 = np.zeros(solver.nx, dtype=np.float32)
+    x0[1] = 0.4
+    ref = GoalReference([0.35, 0.25, 0.5], N).window(0.0)
+
+    zero = MPCController(solver, limits="off")
+    zero.reset(x0)
+    np.testing.assert_array_equal(
+        zero._XU[0], initialize_warm_start(x0, N, solver.nx, solver.nu).astype(np.float32))
+
+    ctrl = MPCController(solver, limits="off", hold_control="gravity", reseed_threshold=0.1)
+    ctrl.reset(x0)
+    u = solver.holding_control(x0)[0]
+    assert np.abs(u).max() > 1.0                       # the arm carries a load in this pose
+    nxu = solver.nx + solver.nu
+    seed = ctrl._XU[0]
+    for k in range(N):
+        np.testing.assert_array_equal(seed[k * nxu: k * nxu + solver.nx], x0)
+        if k < N - 1:
+            np.testing.assert_array_equal(seed[k * nxu + solver.nx: (k + 1) * nxu], u)
+
+    seen = {}
+    orig_solve = solver.solve
+
+    def spy(xcur_B, goals_B, XU_B=None, **kw):
+        seen["xu"] = np.array(XU_B, copy=True)
+        return orig_solve(xcur_B, goals_B, XU_B, **kw)
+
+    solver.solve = spy
+    ctrl.step(x0, ref)
+    x_kick = x0.copy()
+    x_kick[: solver.nq] += 0.5
+    r = ctrl.step(x_kick, ref)
+    assert r.reseeded is True
+    expected = initialize_warm_start(x_kick, N, solver.nx, solver.nu,
+                                     u=solver.holding_control(x_kick)[0]).astype(np.float32)
+    np.testing.assert_array_equal(seen["xu"][0], expected)
+
+
+def test_hold_control_gravity_refuses_floating_and_contact_force_modules(make_solver):
+    from conftest import go2_solver
+    for solver in (go2_solver(1), make_solver("indy7", 16, variant="fc")):
+        with pytest.raises(ValueError, match="fixed-base module"):
+            solver.holding_control(np.zeros(solver.nx, np.float32))
+        with pytest.raises(ValueError, match="fixed-base module"):
+            MPCController(solver, limits="off", hold_control="gravity")

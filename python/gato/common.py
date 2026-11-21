@@ -140,15 +140,18 @@ def world_wrench_to_joint_local(model, data, q, w_world, frame_id):
     return jid, data.oMi[jid].actInv(F0)
 
 
-def initialize_warm_start(x_start, N, nx, nu):
+def initialize_warm_start(x_start, N, nx, nu, u=None):
     """Cold-start trajectory for solve(): HOLD AT x — every knot's state is
-    ``x_init`` and every control is zero, flat ``(N*(nx+nu) - nu,)`` in the
-    stored layout ``[x_0, u_0, ..., x_{N-1}]``, float64 (callers cast to the
-    solver's float32)."""
+    ``x_init`` and every control is zero, or ``u`` (nu,) when given (the
+    control that holds the state, ``BSQP.holding_control``), flat
+    ``(N*(nx+nu) - nu,)`` in the stored layout ``[x_0, u_0, ..., x_{N-1}]``,
+    float64 (callers cast to the solver's float32)."""
     XU = np.zeros(N*(nx+nu)-nu)
     for i in range(N):
         start_idx = i * (nx + nu)
         XU[start_idx:start_idx+nx] = x_start
+        if u is not None and i < N - 1:
+            XU[start_idx+nx:start_idx+nx+nu] = u
     return XU
 
 

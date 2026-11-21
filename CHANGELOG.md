@@ -2,6 +2,22 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
+## Unreleased
+
+- `MPCController(hold_control="gravity")` seeds a cold start and a reseed
+  with the control that holds the measured state, where the default seed has
+  zero control. `BSQP.holding_control(x)` returns that control per batch row,
+  the knot-0 external wrench included; at rest it is the gravity torque, and
+  it matches Pinocchio's inverse dynamics on the iiwa14. From zero control a
+  joint under a large static load falls before the plan builds the load up:
+  on the TIAGo Pro upper body (Felix Muehlenberend's model, issue #20) the
+  lift column carries 190 N and left its limits in under a second, and with
+  the holding seed the same 141 mm reach ends within 12 mm after 3 s on
+  default weights. Fixed-base modules without contact-force controls; the
+  default is unchanged. `initialize_warm_start` takes the control as `u=`.
+- The `BSQP.sim_forward` docstring states its shapes: one state and one
+  control in, one next state per batch row out.
+
 ## 0.2.2 — 2026-11-20: shared-memory admission
 
 - A kernel that cannot launch is refused with an error, where 0.2.1 exited

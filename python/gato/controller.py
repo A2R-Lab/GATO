@@ -91,6 +91,15 @@ class MPCController:
             pred_err signal as linsys="auto"; a re-seeded step is treated as
             cold there. Floating tasks should set this; set it above
             bdsv_threshold (re-seeding is the bigger hammer).
+        hold_control: the control written into a cold start (reset without
+            ``xu_warm``) and into a reseed. "zero" (default) is the historic
+            seed. "gravity" writes the control that holds the measured state
+            (``BSQP.holding_control``; at rest, the gravity torque), for
+            robots with a joint under a large static load: from zero control
+            such a joint falls before the plan builds the load up (measured
+            on the TIAGo Pro lift column, 190 N, which left its limits in
+            under a second). Fixed-base modules without contact-force
+            controls only. A device-path reseed then stages through the host.
         admm_linsys: the ADMM inner loop's linear solver policy, read only
             while a row group runs the ADMM mechanism (solver.admm_active).
             "pcg" / "bdsv_factor" pin solver.set_admm_linsys; "auto" picks per
@@ -146,9 +155,13 @@ class MPCController:
     def __init__(self, solver, *, hypotheses=None, warm_start="shift",
                  reset_rho_each_step=True, linsys=None, bdsv_threshold=None,
                  task_tag=None, reseed_threshold=None, admm_linsys=None,
-                 admm_threshold=None, limits=None, limits_kw=None):
+                 admm_threshold=None, limits=None, limits_kw=None, hold_control="zero"):
         if warm_start not in ("shift", "hold"):
             raise ValueError(f"warm_start must be 'shift' or 'hold', got {warm_start!r}")
+        if hold_control not in ("zero", "gravity"):
+            raise ValueError(f"hold_control must be 'zero' or 'gravity', got {hold_control!r}")
+        if hold_control == "gravity" and (getattr(solver, "floating_base", False) or getattr(solver, "n_fc", 0)):
+            raise ValueError("hold_control='gravity' needs a fixed-base module without contact-force controls")
         if linsys not in (None, "pcg", "bdsv", "bdsv_first", "auto"):
             raise ValueError(f"linsys must be None, 'pcg', 'bdsv', 'bdsv_first' or 'auto', got {linsys!r}")
         if admm_linsys not in (None, "pcg", "bdsv_factor", "auto"):
@@ -173,6 +186,7 @@ class MPCController:
         self.linsys = linsys
         self.bdsv_threshold = bdsv_threshold
         self.reseed_threshold = reseed_threshold
+        self.hold_control = hold_control
         if linsys != "auto":
             solver.set_linsys(linsys)
         self.limits = self._install_limits(limits, limits_kw)
@@ -243,10 +257,21 @@ class MPCController:
                                                 np.asarray(grp["hi"], dtype=np.float32) * s)
         return limits
 
+    def _hold_seed(self, x):
+        """The hold-at-x seed, (B, xu_size) float32: zero control, or under
+        hold_control="gravity" each row's holding control at every knot (the
+        rows differ when a hypothesis batch has set per-row wrenches)."""
+        if self.hold_control == "zero":
+            row = initialize_warm_start(x, self.N, self.nx, self.nu).astype(np.float32)
+            return np.broadcast_to(row, self._XU.shape)
+        U = self.solver.holding_control(x)
+        return np.stack([initialize_warm_start(x, self.N, self.nx, self.nu, u=u) for u in U]).astype(np.float32)
+
     def reset(self, x0, *, xu_warm=None):
         """Reset solver state and seed the trajectory.
 
-        By default every knot holds x0 with zero control. An explicit
+        By default every knot holds x0 with zero control (the holding
+        control under hold_control="gravity"). An explicit
         ``xu_warm`` has shape (xu_size,) (broadcast) or (B, xu_size); its
         first state is replaced by x0. This permits reproducible non-default
         initial guesses without reaching into controller internals. Inputs
@@ -260,7 +285,7 @@ class MPCController:
             raise ValueError("reset x0 must be finite")
         check_floating_state(x0, self.nq, self.nv, "reset x0")
         if xu_warm is None:
-            seed = initialize_warm_start(x0, self.N, self.nx, self.nu)
+            seed = self._hold_seed(x0)
         else:
             seed = _arrays.to_numpy(xu_warm)
             if seed.shape not in ((self._XU.shape[1],), self._XU.shape):
@@ -379,8 +404,7 @@ class MPCController:
         reseeded = (self.reseed_threshold is not None
                     and pred_err > self.reseed_threshold)
         if reseeded:
-            xu0 = initialize_warm_start(x, self.N, self.nx, self.nu).astype(np.float32)
-            self._XU[:, :] = xu0[None, :]
+            self._XU[:, :] = self._hold_seed(x)
             self.solver.reset_dual()
         if self.linsys == "auto":
             cold = pred_err > self.bdsv_threshold or self._prev_capout or reseeded
@@ -457,7 +481,13 @@ class MPCController:
         pred_err = solver.pred_err_warm(x)          # knot 0 of the resident plan vs the measured state
         reseeded = (self.reseed_threshold is not None
                     and pred_err > self.reseed_threshold)
-        if reseeded:
+        if reseeded and self.hold_control == "gravity":
+            # the holding control is solved on the host; a reseed is rare
+            from . import _arrays
+            self._XU[:, :] = self._hold_seed(_arrays.to_numpy(x).reshape(self.nx))
+            self._xu_where = "host"
+            self._warm_to_device()
+        elif reseeded:
             solver.hold_warm(x)
             solver.reset_dual()
         if self.linsys == "auto":

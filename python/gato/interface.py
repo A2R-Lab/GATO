@@ -1520,11 +1520,54 @@ spherizer), so margin is extra safety on top.
         self.set_f_ext_B(np.zeros((self.batch_size, 6)))
 
     def sim_forward(self, xk, uk, sim_dt):
-        """One plant step on the DEVICE integrator for every batch entry:
-        (B, nx) x (B, nu) -> (B, nx) (knot-0 external wrench applies)."""
+        """One plant step on the DEVICE integrator from one state and one
+        control, for every batch entry: (nx,) x (nu,) -> (B, nx). The rows
+        differ through each entry's knot-0 external wrench."""
         xk = np.asarray(xk, dtype=np.float32)
         uk = np.asarray(uk, dtype=np.float32)
         return self.solver.sim_forward(xk, uk, sim_dt)
+
+    def holding_control(self, x):
+        """The control that holds state ``x``: zero joint acceleration on the
+        device model, the knot-0 external wrench of each batch row included. At
+        rest it is the gravity torque. ``x`` is (nx,); returns (B, nu) float32,
+        one row per batch entry (the rows differ only through the wrench).
+
+        A cold start seeds every control with zero, so a joint that carries a
+        large static load (a lift column, a heavy arm) falls before the plan
+        builds the load up. Seed with this control instead
+        (``MPCController(hold_control="gravity")``, or
+        ``initialize_warm_start(x, N, nx, nu, u=...)`` for a raw solve).
+
+        Fixed-base modules without contact-force controls only: a floating
+        base cannot hold an arbitrary state with joint torques. The value is
+        solved from device steps: nu + 1 give the acceleration as an affine
+        function of the control, and one correction step per distinct row
+        covers an integrator that is not exactly affine (the RK4 variant).
+        """
+        if self.floating_base or self.n_fc or self.nq != self.nv or self.nu != self.nv:
+            raise ValueError("holding_control needs a fixed-base module whose controls are the joint "
+                             "efforts; this module has a floating base or contact-force controls")
+        x = np.ascontiguousarray(np.asarray(x, dtype=np.float32).reshape(self.nx))
+        if not np.isfinite(x).all():
+            raise ValueError("holding_control needs a finite state")
+        nu, dt = self.nu, float(self.dt)
+
+        def accel(u):
+            nxt = np.asarray(self.sim_forward(x, np.ascontiguousarray(u, dtype=np.float32), dt), dtype=np.float64)
+            return (nxt.reshape(self.batch_size, self.nx)[:, self.nq:] - x[self.nq:]) / dt
+
+        a0 = accel(np.zeros(nu))
+        G = np.stack([(accel(np.eye(nu)[j]) - a0)[0] for j in range(nu)], axis=1)   # the wrench does not enter it
+        U = np.linalg.solve(G, -a0.T).T
+        rows, index = np.unique(U.astype(np.float32), axis=0, return_inverse=True)
+        index = np.asarray(index).reshape(-1)
+        for r, u in enumerate(rows):
+            members = index == r
+            U[members] -= np.linalg.solve(G, accel(u)[members].T).T
+        if not np.isfinite(U).all():
+            raise RuntimeError("holding_control: the device step returned a non-finite acceleration")
+        return U.astype(np.float32)
 
     def set_f_ext_B(self, f_ext_B):
         """Upload the external-wrench band the dynamics see.
