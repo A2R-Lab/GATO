@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## Unreleased
+## 0.2.2 — 2026-11-20: shared-memory admission
 
 - A kernel that cannot launch is refused with an error, where 0.2.1 exited
   with `GPUassert: invalid argument`. Three stages keep tables in block shared
