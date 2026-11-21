@@ -6,10 +6,19 @@ Tier selection (CI-ready; no CI wiring here):
     pytest -m "not slow"         # skip codegen/build-heavy tests
 """
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# JAX's allocator claims 75 % of the GPU at its first backend use (24.5 GiB of
+# the lab's 32 GiB card, held for the rest of the process). The suite's JAX
+# arrays are a few kilobytes, and the example tests start solver processes of
+# their own beside this one: with another job holding 7 GiB they ran out of
+# device memory (measured peak 32.1 of 32.6 GiB, November 21, 2026). Allocate
+# on demand instead. Set before any jax import; an explicit caller choice wins.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "python") not in sys.path:
