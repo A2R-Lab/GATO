@@ -193,6 +193,25 @@ __host__ inline void grid_legacy_check(cudaError_t e, const char *op, const char
  *
  */
 namespace grid {
+    // Quaternions (xyzw) of the floating base and of spherical joints. Every rotation is built through
+    // these two helpers. The quaternion is normalised here, so callers may pass any
+    // nonzero quaternion (generate with assume_unit_quaternions to skip it).
+    template <typename T>
+    __host__ __device__ __forceinline__ T grid_quat_norm2(T qx, T qy, T qz, T qw) {
+        return fma(qx, qx, fma(qy, qy, fma(qz, qz, qw*qw)));
+    }
+    // Row-major 3x3 rotation, R[3*i+j], of the quaternion q = (x, y, z, w).
+    template <typename T>
+    __host__ __device__ __forceinline__ void grid_base_rotation(const T *q, T *R) {
+        const T qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+        const T s = static_cast<T>(2)/grid_quat_norm2<T>(qx, qy, qz, qw);
+        const T xx = qx*qx, yy = qy*qy, zz = qz*qz;
+        const T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
+        R[0] = static_cast<T>(1) - s*(yy+zz); R[1] = s*(xy-wz);                    R[2] = s*(xz+wy);
+        R[3] = s*(xy+wz);                    R[4] = static_cast<T>(1) - s*(xx+zz); R[5] = s*(yz-wx);
+        R[6] = s*(xz-wy);                    R[7] = s*(yz+wx);                    R[8] = static_cast<T>(1) - s*(xx+yy);
+    }
+    
     __host__ __device__ constexpr size_t grid_align_up(size_t offset, size_t alignment) {
         return (offset + alignment - 1) / alignment * alignment;
     }
@@ -10491,7 +10510,7 @@ namespace grid {
         h_XImats[34] = static_cast<T>(0);
         h_XImats[35] = static_cast<T>(0);
         // X[1]
-        h_XImats[36] = static_cast<T>(1.00000000000000);
+        h_XImats[36] = static_cast<T>(1.0);
         h_XImats[37] = static_cast<T>(0);
         h_XImats[38] = static_cast<T>(0);
         h_XImats[39] = static_cast<T>(0);
@@ -10506,13 +10525,13 @@ namespace grid {
         h_XImats[48] = static_cast<T>(0);
         h_XImats[49] = static_cast<T>(0);
         h_XImats[50] = static_cast<T>(0);
-        h_XImats[51] = static_cast<T>(-0.0465000000000000);
+        h_XImats[51] = static_cast<T>(-0.0465);
         h_XImats[52] = static_cast<T>(0);
         h_XImats[53] = static_cast<T>(0);
         h_XImats[54] = static_cast<T>(0);
         h_XImats[55] = static_cast<T>(0);
         h_XImats[56] = static_cast<T>(0);
-        h_XImats[57] = static_cast<T>(1.00000000000000);
+        h_XImats[57] = static_cast<T>(1.0);
         h_XImats[58] = static_cast<T>(0);
         h_XImats[59] = static_cast<T>(0);
         h_XImats[60] = static_cast<T>(0);
@@ -10535,7 +10554,7 @@ namespace grid {
         h_XImats[76] = static_cast<T>(0);
         h_XImats[77] = static_cast<T>(0);
         h_XImats[78] = static_cast<T>(0);
-        h_XImats[79] = static_cast<T>(1.00000000000000);
+        h_XImats[79] = static_cast<T>(1.0);
         h_XImats[80] = static_cast<T>(0);
         h_XImats[81] = static_cast<T>(0);
         h_XImats[82] = static_cast<T>(0);
@@ -10556,7 +10575,7 @@ namespace grid {
         h_XImats[97] = static_cast<T>(0);
         h_XImats[98] = static_cast<T>(0);
         h_XImats[99] = static_cast<T>(0);
-        h_XImats[100] = static_cast<T>(1.00000000000000);
+        h_XImats[100] = static_cast<T>(1.0);
         h_XImats[101] = static_cast<T>(0);
         h_XImats[102] = static_cast<T>(0);
         h_XImats[103] = static_cast<T>(0);
@@ -10569,10 +10588,10 @@ namespace grid {
         h_XImats[109] = static_cast<T>(0);
         h_XImats[110] = static_cast<T>(0);
         h_XImats[111] = static_cast<T>(0);
-        h_XImats[112] = static_cast<T>(0.213000000000000);
+        h_XImats[112] = static_cast<T>(0.213);
         h_XImats[113] = static_cast<T>(0);
         h_XImats[114] = static_cast<T>(0);
-        h_XImats[115] = static_cast<T>(1.00000000000000);
+        h_XImats[115] = static_cast<T>(1.0);
         h_XImats[116] = static_cast<T>(0);
         h_XImats[117] = static_cast<T>(0);
         h_XImats[118] = static_cast<T>(0);
@@ -10593,7 +10612,7 @@ namespace grid {
         h_XImats[133] = static_cast<T>(0);
         h_XImats[134] = static_cast<T>(0);
         h_XImats[135] = static_cast<T>(0);
-        h_XImats[136] = static_cast<T>(1.00000000000000);
+        h_XImats[136] = static_cast<T>(1.0);
         h_XImats[137] = static_cast<T>(0);
         h_XImats[138] = static_cast<T>(0);
         h_XImats[139] = static_cast<T>(0);
@@ -10602,7 +10621,7 @@ namespace grid {
         h_XImats[142] = static_cast<T>(0);
         h_XImats[143] = static_cast<T>(0);
         // X[4]
-        h_XImats[144] = static_cast<T>(1.00000000000000);
+        h_XImats[144] = static_cast<T>(1.0);
         h_XImats[145] = static_cast<T>(0);
         h_XImats[146] = static_cast<T>(0);
         h_XImats[147] = static_cast<T>(0);
@@ -10617,13 +10636,13 @@ namespace grid {
         h_XImats[156] = static_cast<T>(0);
         h_XImats[157] = static_cast<T>(0);
         h_XImats[158] = static_cast<T>(0);
-        h_XImats[159] = static_cast<T>(0.0465000000000000);
+        h_XImats[159] = static_cast<T>(0.0465);
         h_XImats[160] = static_cast<T>(0);
         h_XImats[161] = static_cast<T>(0);
         h_XImats[162] = static_cast<T>(0);
         h_XImats[163] = static_cast<T>(0);
         h_XImats[164] = static_cast<T>(0);
-        h_XImats[165] = static_cast<T>(1.00000000000000);
+        h_XImats[165] = static_cast<T>(1.0);
         h_XImats[166] = static_cast<T>(0);
         h_XImats[167] = static_cast<T>(0);
         h_XImats[168] = static_cast<T>(0);
@@ -10646,7 +10665,7 @@ namespace grid {
         h_XImats[184] = static_cast<T>(0);
         h_XImats[185] = static_cast<T>(0);
         h_XImats[186] = static_cast<T>(0);
-        h_XImats[187] = static_cast<T>(1.00000000000000);
+        h_XImats[187] = static_cast<T>(1.0);
         h_XImats[188] = static_cast<T>(0);
         h_XImats[189] = static_cast<T>(0);
         h_XImats[190] = static_cast<T>(0);
@@ -10667,7 +10686,7 @@ namespace grid {
         h_XImats[205] = static_cast<T>(0);
         h_XImats[206] = static_cast<T>(0);
         h_XImats[207] = static_cast<T>(0);
-        h_XImats[208] = static_cast<T>(1.00000000000000);
+        h_XImats[208] = static_cast<T>(1.0);
         h_XImats[209] = static_cast<T>(0);
         h_XImats[210] = static_cast<T>(0);
         h_XImats[211] = static_cast<T>(0);
@@ -10680,10 +10699,10 @@ namespace grid {
         h_XImats[217] = static_cast<T>(0);
         h_XImats[218] = static_cast<T>(0);
         h_XImats[219] = static_cast<T>(0);
-        h_XImats[220] = static_cast<T>(0.213000000000000);
+        h_XImats[220] = static_cast<T>(0.213);
         h_XImats[221] = static_cast<T>(0);
         h_XImats[222] = static_cast<T>(0);
-        h_XImats[223] = static_cast<T>(1.00000000000000);
+        h_XImats[223] = static_cast<T>(1.0);
         h_XImats[224] = static_cast<T>(0);
         h_XImats[225] = static_cast<T>(0);
         h_XImats[226] = static_cast<T>(0);
@@ -10704,7 +10723,7 @@ namespace grid {
         h_XImats[241] = static_cast<T>(0);
         h_XImats[242] = static_cast<T>(0);
         h_XImats[243] = static_cast<T>(0);
-        h_XImats[244] = static_cast<T>(1.00000000000000);
+        h_XImats[244] = static_cast<T>(1.0);
         h_XImats[245] = static_cast<T>(0);
         h_XImats[246] = static_cast<T>(0);
         h_XImats[247] = static_cast<T>(0);
@@ -10713,7 +10732,7 @@ namespace grid {
         h_XImats[250] = static_cast<T>(0);
         h_XImats[251] = static_cast<T>(0);
         // X[7]
-        h_XImats[252] = static_cast<T>(1.00000000000000);
+        h_XImats[252] = static_cast<T>(1.0);
         h_XImats[253] = static_cast<T>(0);
         h_XImats[254] = static_cast<T>(0);
         h_XImats[255] = static_cast<T>(0);
@@ -10728,13 +10747,13 @@ namespace grid {
         h_XImats[264] = static_cast<T>(0);
         h_XImats[265] = static_cast<T>(0);
         h_XImats[266] = static_cast<T>(0);
-        h_XImats[267] = static_cast<T>(-0.0465000000000000);
+        h_XImats[267] = static_cast<T>(-0.0465);
         h_XImats[268] = static_cast<T>(0);
         h_XImats[269] = static_cast<T>(0);
         h_XImats[270] = static_cast<T>(0);
         h_XImats[271] = static_cast<T>(0);
         h_XImats[272] = static_cast<T>(0);
-        h_XImats[273] = static_cast<T>(1.00000000000000);
+        h_XImats[273] = static_cast<T>(1.0);
         h_XImats[274] = static_cast<T>(0);
         h_XImats[275] = static_cast<T>(0);
         h_XImats[276] = static_cast<T>(0);
@@ -10757,7 +10776,7 @@ namespace grid {
         h_XImats[292] = static_cast<T>(0);
         h_XImats[293] = static_cast<T>(0);
         h_XImats[294] = static_cast<T>(0);
-        h_XImats[295] = static_cast<T>(1.00000000000000);
+        h_XImats[295] = static_cast<T>(1.0);
         h_XImats[296] = static_cast<T>(0);
         h_XImats[297] = static_cast<T>(0);
         h_XImats[298] = static_cast<T>(0);
@@ -10778,7 +10797,7 @@ namespace grid {
         h_XImats[313] = static_cast<T>(0);
         h_XImats[314] = static_cast<T>(0);
         h_XImats[315] = static_cast<T>(0);
-        h_XImats[316] = static_cast<T>(1.00000000000000);
+        h_XImats[316] = static_cast<T>(1.0);
         h_XImats[317] = static_cast<T>(0);
         h_XImats[318] = static_cast<T>(0);
         h_XImats[319] = static_cast<T>(0);
@@ -10791,10 +10810,10 @@ namespace grid {
         h_XImats[325] = static_cast<T>(0);
         h_XImats[326] = static_cast<T>(0);
         h_XImats[327] = static_cast<T>(0);
-        h_XImats[328] = static_cast<T>(0.213000000000000);
+        h_XImats[328] = static_cast<T>(0.213);
         h_XImats[329] = static_cast<T>(0);
         h_XImats[330] = static_cast<T>(0);
-        h_XImats[331] = static_cast<T>(1.00000000000000);
+        h_XImats[331] = static_cast<T>(1.0);
         h_XImats[332] = static_cast<T>(0);
         h_XImats[333] = static_cast<T>(0);
         h_XImats[334] = static_cast<T>(0);
@@ -10815,7 +10834,7 @@ namespace grid {
         h_XImats[349] = static_cast<T>(0);
         h_XImats[350] = static_cast<T>(0);
         h_XImats[351] = static_cast<T>(0);
-        h_XImats[352] = static_cast<T>(1.00000000000000);
+        h_XImats[352] = static_cast<T>(1.0);
         h_XImats[353] = static_cast<T>(0);
         h_XImats[354] = static_cast<T>(0);
         h_XImats[355] = static_cast<T>(0);
@@ -10824,7 +10843,7 @@ namespace grid {
         h_XImats[358] = static_cast<T>(0);
         h_XImats[359] = static_cast<T>(0);
         // X[10]
-        h_XImats[360] = static_cast<T>(1.00000000000000);
+        h_XImats[360] = static_cast<T>(1.0);
         h_XImats[361] = static_cast<T>(0);
         h_XImats[362] = static_cast<T>(0);
         h_XImats[363] = static_cast<T>(0);
@@ -10839,13 +10858,13 @@ namespace grid {
         h_XImats[372] = static_cast<T>(0);
         h_XImats[373] = static_cast<T>(0);
         h_XImats[374] = static_cast<T>(0);
-        h_XImats[375] = static_cast<T>(0.0465000000000000);
+        h_XImats[375] = static_cast<T>(0.0465);
         h_XImats[376] = static_cast<T>(0);
         h_XImats[377] = static_cast<T>(0);
         h_XImats[378] = static_cast<T>(0);
         h_XImats[379] = static_cast<T>(0);
         h_XImats[380] = static_cast<T>(0);
-        h_XImats[381] = static_cast<T>(1.00000000000000);
+        h_XImats[381] = static_cast<T>(1.0);
         h_XImats[382] = static_cast<T>(0);
         h_XImats[383] = static_cast<T>(0);
         h_XImats[384] = static_cast<T>(0);
@@ -10868,7 +10887,7 @@ namespace grid {
         h_XImats[400] = static_cast<T>(0);
         h_XImats[401] = static_cast<T>(0);
         h_XImats[402] = static_cast<T>(0);
-        h_XImats[403] = static_cast<T>(1.00000000000000);
+        h_XImats[403] = static_cast<T>(1.0);
         h_XImats[404] = static_cast<T>(0);
         h_XImats[405] = static_cast<T>(0);
         h_XImats[406] = static_cast<T>(0);
@@ -10889,7 +10908,7 @@ namespace grid {
         h_XImats[421] = static_cast<T>(0);
         h_XImats[422] = static_cast<T>(0);
         h_XImats[423] = static_cast<T>(0);
-        h_XImats[424] = static_cast<T>(1.00000000000000);
+        h_XImats[424] = static_cast<T>(1.0);
         h_XImats[425] = static_cast<T>(0);
         h_XImats[426] = static_cast<T>(0);
         h_XImats[427] = static_cast<T>(0);
@@ -10902,10 +10921,10 @@ namespace grid {
         h_XImats[433] = static_cast<T>(0);
         h_XImats[434] = static_cast<T>(0);
         h_XImats[435] = static_cast<T>(0);
-        h_XImats[436] = static_cast<T>(0.213000000000000);
+        h_XImats[436] = static_cast<T>(0.213);
         h_XImats[437] = static_cast<T>(0);
         h_XImats[438] = static_cast<T>(0);
-        h_XImats[439] = static_cast<T>(1.00000000000000);
+        h_XImats[439] = static_cast<T>(1.0);
         h_XImats[440] = static_cast<T>(0);
         h_XImats[441] = static_cast<T>(0);
         h_XImats[442] = static_cast<T>(0);
@@ -10926,7 +10945,7 @@ namespace grid {
         h_XImats[457] = static_cast<T>(0);
         h_XImats[458] = static_cast<T>(0);
         h_XImats[459] = static_cast<T>(0);
-        h_XImats[460] = static_cast<T>(1.00000000000000);
+        h_XImats[460] = static_cast<T>(1.0);
         h_XImats[461] = static_cast<T>(0);
         h_XImats[462] = static_cast<T>(0);
         h_XImats[463] = static_cast<T>(0);
@@ -11431,9 +11450,9 @@ namespace grid {
         h_XImats[948] = static_cast<T>(0);
         h_XImats[949] = static_cast<T>(0);
         h_XImats[950] = static_cast<T>(0);
-        h_XImats[951] = static_cast<T>(1.00000000000000);
+        h_XImats[951] = static_cast<T>(1.0);
         // Xhom[1]
-        h_XImats[952] = static_cast<T>(1.00000000000000);
+        h_XImats[952] = static_cast<T>(1.0);
         h_XImats[953] = static_cast<T>(0);
         h_XImats[954] = static_cast<T>(0);
         h_XImats[955] = static_cast<T>(0);
@@ -11445,17 +11464,17 @@ namespace grid {
         h_XImats[961] = static_cast<T>(0);
         h_XImats[962] = static_cast<T>(0);
         h_XImats[963] = static_cast<T>(0);
-        h_XImats[964] = static_cast<T>(0.193400000000000);
-        h_XImats[965] = static_cast<T>(0.0465000000000000);
+        h_XImats[964] = static_cast<T>(0.1934);
+        h_XImats[965] = static_cast<T>(0.0465);
         h_XImats[966] = static_cast<T>(0);
-        h_XImats[967] = static_cast<T>(1.00000000000000);
+        h_XImats[967] = static_cast<T>(1.0);
         // Xhom[2]
         h_XImats[968] = static_cast<T>(0);
         h_XImats[969] = static_cast<T>(0);
         h_XImats[970] = static_cast<T>(0);
         h_XImats[971] = static_cast<T>(0);
         h_XImats[972] = static_cast<T>(0);
-        h_XImats[973] = static_cast<T>(1.00000000000000);
+        h_XImats[973] = static_cast<T>(1.0);
         h_XImats[974] = static_cast<T>(0);
         h_XImats[975] = static_cast<T>(0);
         h_XImats[976] = static_cast<T>(0);
@@ -11463,16 +11482,16 @@ namespace grid {
         h_XImats[978] = static_cast<T>(0);
         h_XImats[979] = static_cast<T>(0);
         h_XImats[980] = static_cast<T>(0);
-        h_XImats[981] = static_cast<T>(0.0955000000000000);
+        h_XImats[981] = static_cast<T>(0.0955);
         h_XImats[982] = static_cast<T>(0);
-        h_XImats[983] = static_cast<T>(1.00000000000000);
+        h_XImats[983] = static_cast<T>(1.0);
         // Xhom[3]
         h_XImats[984] = static_cast<T>(0);
         h_XImats[985] = static_cast<T>(0);
         h_XImats[986] = static_cast<T>(0);
         h_XImats[987] = static_cast<T>(0);
         h_XImats[988] = static_cast<T>(0);
-        h_XImats[989] = static_cast<T>(1.00000000000000);
+        h_XImats[989] = static_cast<T>(1.0);
         h_XImats[990] = static_cast<T>(0);
         h_XImats[991] = static_cast<T>(0);
         h_XImats[992] = static_cast<T>(0);
@@ -11481,10 +11500,10 @@ namespace grid {
         h_XImats[995] = static_cast<T>(0);
         h_XImats[996] = static_cast<T>(0);
         h_XImats[997] = static_cast<T>(0);
-        h_XImats[998] = static_cast<T>(-0.213000000000000);
-        h_XImats[999] = static_cast<T>(1.00000000000000);
+        h_XImats[998] = static_cast<T>(-0.213);
+        h_XImats[999] = static_cast<T>(1.0);
         // Xhom[4]
-        h_XImats[1000] = static_cast<T>(1.00000000000000);
+        h_XImats[1000] = static_cast<T>(1.0);
         h_XImats[1001] = static_cast<T>(0);
         h_XImats[1002] = static_cast<T>(0);
         h_XImats[1003] = static_cast<T>(0);
@@ -11496,17 +11515,17 @@ namespace grid {
         h_XImats[1009] = static_cast<T>(0);
         h_XImats[1010] = static_cast<T>(0);
         h_XImats[1011] = static_cast<T>(0);
-        h_XImats[1012] = static_cast<T>(0.193400000000000);
-        h_XImats[1013] = static_cast<T>(-0.0465000000000000);
+        h_XImats[1012] = static_cast<T>(0.1934);
+        h_XImats[1013] = static_cast<T>(-0.0465);
         h_XImats[1014] = static_cast<T>(0);
-        h_XImats[1015] = static_cast<T>(1.00000000000000);
+        h_XImats[1015] = static_cast<T>(1.0);
         // Xhom[5]
         h_XImats[1016] = static_cast<T>(0);
         h_XImats[1017] = static_cast<T>(0);
         h_XImats[1018] = static_cast<T>(0);
         h_XImats[1019] = static_cast<T>(0);
         h_XImats[1020] = static_cast<T>(0);
-        h_XImats[1021] = static_cast<T>(1.00000000000000);
+        h_XImats[1021] = static_cast<T>(1.0);
         h_XImats[1022] = static_cast<T>(0);
         h_XImats[1023] = static_cast<T>(0);
         h_XImats[1024] = static_cast<T>(0);
@@ -11514,16 +11533,16 @@ namespace grid {
         h_XImats[1026] = static_cast<T>(0);
         h_XImats[1027] = static_cast<T>(0);
         h_XImats[1028] = static_cast<T>(0);
-        h_XImats[1029] = static_cast<T>(-0.0955000000000000);
+        h_XImats[1029] = static_cast<T>(-0.0955);
         h_XImats[1030] = static_cast<T>(0);
-        h_XImats[1031] = static_cast<T>(1.00000000000000);
+        h_XImats[1031] = static_cast<T>(1.0);
         // Xhom[6]
         h_XImats[1032] = static_cast<T>(0);
         h_XImats[1033] = static_cast<T>(0);
         h_XImats[1034] = static_cast<T>(0);
         h_XImats[1035] = static_cast<T>(0);
         h_XImats[1036] = static_cast<T>(0);
-        h_XImats[1037] = static_cast<T>(1.00000000000000);
+        h_XImats[1037] = static_cast<T>(1.0);
         h_XImats[1038] = static_cast<T>(0);
         h_XImats[1039] = static_cast<T>(0);
         h_XImats[1040] = static_cast<T>(0);
@@ -11532,10 +11551,10 @@ namespace grid {
         h_XImats[1043] = static_cast<T>(0);
         h_XImats[1044] = static_cast<T>(0);
         h_XImats[1045] = static_cast<T>(0);
-        h_XImats[1046] = static_cast<T>(-0.213000000000000);
-        h_XImats[1047] = static_cast<T>(1.00000000000000);
+        h_XImats[1046] = static_cast<T>(-0.213);
+        h_XImats[1047] = static_cast<T>(1.0);
         // Xhom[7]
-        h_XImats[1048] = static_cast<T>(1.00000000000000);
+        h_XImats[1048] = static_cast<T>(1.0);
         h_XImats[1049] = static_cast<T>(0);
         h_XImats[1050] = static_cast<T>(0);
         h_XImats[1051] = static_cast<T>(0);
@@ -11547,17 +11566,17 @@ namespace grid {
         h_XImats[1057] = static_cast<T>(0);
         h_XImats[1058] = static_cast<T>(0);
         h_XImats[1059] = static_cast<T>(0);
-        h_XImats[1060] = static_cast<T>(-0.193400000000000);
-        h_XImats[1061] = static_cast<T>(0.0465000000000000);
+        h_XImats[1060] = static_cast<T>(-0.1934);
+        h_XImats[1061] = static_cast<T>(0.0465);
         h_XImats[1062] = static_cast<T>(0);
-        h_XImats[1063] = static_cast<T>(1.00000000000000);
+        h_XImats[1063] = static_cast<T>(1.0);
         // Xhom[8]
         h_XImats[1064] = static_cast<T>(0);
         h_XImats[1065] = static_cast<T>(0);
         h_XImats[1066] = static_cast<T>(0);
         h_XImats[1067] = static_cast<T>(0);
         h_XImats[1068] = static_cast<T>(0);
-        h_XImats[1069] = static_cast<T>(1.00000000000000);
+        h_XImats[1069] = static_cast<T>(1.0);
         h_XImats[1070] = static_cast<T>(0);
         h_XImats[1071] = static_cast<T>(0);
         h_XImats[1072] = static_cast<T>(0);
@@ -11565,16 +11584,16 @@ namespace grid {
         h_XImats[1074] = static_cast<T>(0);
         h_XImats[1075] = static_cast<T>(0);
         h_XImats[1076] = static_cast<T>(0);
-        h_XImats[1077] = static_cast<T>(0.0955000000000000);
+        h_XImats[1077] = static_cast<T>(0.0955);
         h_XImats[1078] = static_cast<T>(0);
-        h_XImats[1079] = static_cast<T>(1.00000000000000);
+        h_XImats[1079] = static_cast<T>(1.0);
         // Xhom[9]
         h_XImats[1080] = static_cast<T>(0);
         h_XImats[1081] = static_cast<T>(0);
         h_XImats[1082] = static_cast<T>(0);
         h_XImats[1083] = static_cast<T>(0);
         h_XImats[1084] = static_cast<T>(0);
-        h_XImats[1085] = static_cast<T>(1.00000000000000);
+        h_XImats[1085] = static_cast<T>(1.0);
         h_XImats[1086] = static_cast<T>(0);
         h_XImats[1087] = static_cast<T>(0);
         h_XImats[1088] = static_cast<T>(0);
@@ -11583,10 +11602,10 @@ namespace grid {
         h_XImats[1091] = static_cast<T>(0);
         h_XImats[1092] = static_cast<T>(0);
         h_XImats[1093] = static_cast<T>(0);
-        h_XImats[1094] = static_cast<T>(-0.213000000000000);
-        h_XImats[1095] = static_cast<T>(1.00000000000000);
+        h_XImats[1094] = static_cast<T>(-0.213);
+        h_XImats[1095] = static_cast<T>(1.0);
         // Xhom[10]
-        h_XImats[1096] = static_cast<T>(1.00000000000000);
+        h_XImats[1096] = static_cast<T>(1.0);
         h_XImats[1097] = static_cast<T>(0);
         h_XImats[1098] = static_cast<T>(0);
         h_XImats[1099] = static_cast<T>(0);
@@ -11598,17 +11617,17 @@ namespace grid {
         h_XImats[1105] = static_cast<T>(0);
         h_XImats[1106] = static_cast<T>(0);
         h_XImats[1107] = static_cast<T>(0);
-        h_XImats[1108] = static_cast<T>(-0.193400000000000);
-        h_XImats[1109] = static_cast<T>(-0.0465000000000000);
+        h_XImats[1108] = static_cast<T>(-0.1934);
+        h_XImats[1109] = static_cast<T>(-0.0465);
         h_XImats[1110] = static_cast<T>(0);
-        h_XImats[1111] = static_cast<T>(1.00000000000000);
+        h_XImats[1111] = static_cast<T>(1.0);
         // Xhom[11]
         h_XImats[1112] = static_cast<T>(0);
         h_XImats[1113] = static_cast<T>(0);
         h_XImats[1114] = static_cast<T>(0);
         h_XImats[1115] = static_cast<T>(0);
         h_XImats[1116] = static_cast<T>(0);
-        h_XImats[1117] = static_cast<T>(1.00000000000000);
+        h_XImats[1117] = static_cast<T>(1.0);
         h_XImats[1118] = static_cast<T>(0);
         h_XImats[1119] = static_cast<T>(0);
         h_XImats[1120] = static_cast<T>(0);
@@ -11616,16 +11635,16 @@ namespace grid {
         h_XImats[1122] = static_cast<T>(0);
         h_XImats[1123] = static_cast<T>(0);
         h_XImats[1124] = static_cast<T>(0);
-        h_XImats[1125] = static_cast<T>(-0.0955000000000000);
+        h_XImats[1125] = static_cast<T>(-0.0955);
         h_XImats[1126] = static_cast<T>(0);
-        h_XImats[1127] = static_cast<T>(1.00000000000000);
+        h_XImats[1127] = static_cast<T>(1.0);
         // Xhom[12]
         h_XImats[1128] = static_cast<T>(0);
         h_XImats[1129] = static_cast<T>(0);
         h_XImats[1130] = static_cast<T>(0);
         h_XImats[1131] = static_cast<T>(0);
         h_XImats[1132] = static_cast<T>(0);
-        h_XImats[1133] = static_cast<T>(1.00000000000000);
+        h_XImats[1133] = static_cast<T>(1.0);
         h_XImats[1134] = static_cast<T>(0);
         h_XImats[1135] = static_cast<T>(0);
         h_XImats[1136] = static_cast<T>(0);
@@ -11634,8 +11653,8 @@ namespace grid {
         h_XImats[1139] = static_cast<T>(0);
         h_XImats[1140] = static_cast<T>(0);
         h_XImats[1141] = static_cast<T>(0);
-        h_XImats[1142] = static_cast<T>(-0.213000000000000);
-        h_XImats[1143] = static_cast<T>(1.00000000000000);
+        h_XImats[1142] = static_cast<T>(-0.213);
+        h_XImats[1143] = static_cast<T>(1.0);
         // Xhom[13]
         h_XImats[1144] = static_cast<T>(-0.9655122329338992);
         h_XImats[1145] = static_cast<T>(0.0);
@@ -19546,131 +19565,131 @@ namespace grid {
         if(threadIdx.x == 0 && threadIdx.y == 0){
             if constexpr (!SKIP_FLOATING_BASE_X) {
                 // X[0]
-                s_XImats[0] = static_cast<T>(-2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0);
-                s_XImats[1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[3] = static_cast<T>(s_q[1]*(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) - s_q[2]*(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
-                s_XImats[4] = static_cast<T>(s_q[1]*(-2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) - s_q[2]*(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0));
-                s_XImats[5] = static_cast<T>(s_q[1]*(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0) - s_q[2]*(2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
-                s_XImats[6] = static_cast<T>(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[7] = static_cast<T>(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0);
-                s_XImats[8] = static_cast<T>(2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[9] = static_cast<T>(-s_q[0]*(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) + s_q[2]*(-2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0));
-                s_XImats[10] = static_cast<T>(-s_q[0]*(-2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) + s_q[2]*(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
-                s_XImats[11] = static_cast<T>(-s_q[0]*(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0) + s_q[2]*(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
-                s_XImats[12] = static_cast<T>(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[13] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]));
-                s_XImats[14] = static_cast<T>(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0);
-                s_XImats[15] = static_cast<T>(s_q[0]*(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) - s_q[1]*(-2.0*s_q[4]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0));
-                s_XImats[16] = static_cast<T>(s_q[0]*(-2.0*s_q[3]*s_q[3]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[5]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 1.0) - s_q[1]*(2.0*s_q[3]*s_q[4]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[5]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
-                s_XImats[17] = static_cast<T>(s_q[0]*(2.0*s_q[3]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) + 2.0*s_q[4]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])) - s_q[1]*(2.0*s_q[3]*s_q[5]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6]) - 2.0*s_q[4]*s_q[6]/(s_q[3]*s_q[3] + s_q[4]*s_q[4] + s_q[5]*s_q[5] + s_q[6]*s_q[6])));
+                s_XImats[0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+                s_XImats[1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[3] = static_cast<T>(fma(s_q[1], fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), (-s_q[2])*(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+                s_XImats[4] = static_cast<T>(fma(s_q[1], fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), (-s_q[2])*(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))))));
+                s_XImats[5] = static_cast<T>(fma(s_q[1], fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))), (-s_q[2])*(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+                s_XImats[6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[7] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+                s_XImats[8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[9] = static_cast<T>(fma(-s_q[0], fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), s_q[2]*(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))))));
+                s_XImats[10] = static_cast<T>(fma(-s_q[0], fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), s_q[2]*(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+                s_XImats[11] = static_cast<T>(fma(-s_q[0], fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))), s_q[2]*(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+                s_XImats[12] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[13] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+                s_XImats[14] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+                s_XImats[15] = static_cast<T>(fma(s_q[0], fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), (-s_q[1])*(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))))));
+                s_XImats[16] = static_cast<T>(fma(s_q[0], fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))), (-s_q[1])*(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+                s_XImats[17] = static_cast<T>(fma(s_q[0], fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))), (-s_q[1])*(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             }
             // X[1]
-            s_XImats[40] = static_cast<T>(0.0465*s_temp[7]);
-            s_XImats[41] = static_cast<T>(0.0465*s_temp[26]);
+            s_XImats[40] = static_cast<T>(static_cast<T>(0.0465)*s_temp[7]);
+            s_XImats[41] = static_cast<T>(static_cast<T>(0.0465)*s_temp[26]);
             s_XImats[43] = static_cast<T>(s_temp[26]);
             s_XImats[44] = static_cast<T>(-s_temp[7]);
-            s_XImats[46] = static_cast<T>(-0.1934*s_temp[7]);
-            s_XImats[47] = static_cast<T>(-0.1934*s_temp[26]);
+            s_XImats[46] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[7]);
+            s_XImats[47] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[26]);
             s_XImats[49] = static_cast<T>(s_temp[7]);
             s_XImats[50] = static_cast<T>(s_temp[26]);
-            s_XImats[52] = static_cast<T>(0.1934*s_temp[26]);
-            s_XImats[53] = static_cast<T>(-0.1934*s_temp[7]);
+            s_XImats[52] = static_cast<T>(static_cast<T>(0.1934)*s_temp[26]);
+            s_XImats[53] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[7]);
             // X[2]
             s_XImats[72] = static_cast<T>(s_temp[27]);
             s_XImats[74] = static_cast<T>(s_temp[8]);
-            s_XImats[75] = static_cast<T>(-0.0955*s_temp[8]);
-            s_XImats[77] = static_cast<T>(0.0955*s_temp[27]);
+            s_XImats[75] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[8]);
+            s_XImats[77] = static_cast<T>(static_cast<T>(0.0955)*s_temp[27]);
             s_XImats[84] = static_cast<T>(-s_temp[8]);
             s_XImats[86] = static_cast<T>(s_temp[27]);
-            s_XImats[87] = static_cast<T>(-0.0955*s_temp[27]);
-            s_XImats[89] = static_cast<T>(-0.0955*s_temp[8]);
+            s_XImats[87] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[27]);
+            s_XImats[89] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[8]);
             // X[3]
             s_XImats[108] = static_cast<T>(s_temp[28]);
             s_XImats[110] = static_cast<T>(s_temp[9]);
-            s_XImats[117] = static_cast<T>(-0.213*s_temp[28]);
-            s_XImats[119] = static_cast<T>(-0.213*s_temp[9]);
+            s_XImats[117] = static_cast<T>(-static_cast<T>(0.213)*s_temp[28]);
+            s_XImats[119] = static_cast<T>(-static_cast<T>(0.213)*s_temp[9]);
             s_XImats[120] = static_cast<T>(-s_temp[9]);
             s_XImats[122] = static_cast<T>(s_temp[28]);
             // X[4]
-            s_XImats[148] = static_cast<T>(-0.0465*s_temp[10]);
-            s_XImats[149] = static_cast<T>(-0.0465*s_temp[29]);
+            s_XImats[148] = static_cast<T>(-static_cast<T>(0.0465)*s_temp[10]);
+            s_XImats[149] = static_cast<T>(-static_cast<T>(0.0465)*s_temp[29]);
             s_XImats[151] = static_cast<T>(s_temp[29]);
             s_XImats[152] = static_cast<T>(-s_temp[10]);
-            s_XImats[154] = static_cast<T>(-0.1934*s_temp[10]);
-            s_XImats[155] = static_cast<T>(-0.1934*s_temp[29]);
+            s_XImats[154] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[10]);
+            s_XImats[155] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[29]);
             s_XImats[157] = static_cast<T>(s_temp[10]);
             s_XImats[158] = static_cast<T>(s_temp[29]);
-            s_XImats[160] = static_cast<T>(0.1934*s_temp[29]);
-            s_XImats[161] = static_cast<T>(-0.1934*s_temp[10]);
+            s_XImats[160] = static_cast<T>(static_cast<T>(0.1934)*s_temp[29]);
+            s_XImats[161] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[10]);
             // X[5]
             s_XImats[180] = static_cast<T>(s_temp[30]);
             s_XImats[182] = static_cast<T>(s_temp[11]);
-            s_XImats[183] = static_cast<T>(0.0955*s_temp[11]);
-            s_XImats[185] = static_cast<T>(-0.0955*s_temp[30]);
+            s_XImats[183] = static_cast<T>(static_cast<T>(0.0955)*s_temp[11]);
+            s_XImats[185] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[30]);
             s_XImats[192] = static_cast<T>(-s_temp[11]);
             s_XImats[194] = static_cast<T>(s_temp[30]);
-            s_XImats[195] = static_cast<T>(0.0955*s_temp[30]);
-            s_XImats[197] = static_cast<T>(0.0955*s_temp[11]);
+            s_XImats[195] = static_cast<T>(static_cast<T>(0.0955)*s_temp[30]);
+            s_XImats[197] = static_cast<T>(static_cast<T>(0.0955)*s_temp[11]);
             // X[6]
             s_XImats[216] = static_cast<T>(s_temp[31]);
             s_XImats[218] = static_cast<T>(s_temp[12]);
-            s_XImats[225] = static_cast<T>(-0.213*s_temp[31]);
-            s_XImats[227] = static_cast<T>(-0.213*s_temp[12]);
+            s_XImats[225] = static_cast<T>(-static_cast<T>(0.213)*s_temp[31]);
+            s_XImats[227] = static_cast<T>(-static_cast<T>(0.213)*s_temp[12]);
             s_XImats[228] = static_cast<T>(-s_temp[12]);
             s_XImats[230] = static_cast<T>(s_temp[31]);
             // X[7]
-            s_XImats[256] = static_cast<T>(0.0465*s_temp[13]);
-            s_XImats[257] = static_cast<T>(0.0465*s_temp[32]);
+            s_XImats[256] = static_cast<T>(static_cast<T>(0.0465)*s_temp[13]);
+            s_XImats[257] = static_cast<T>(static_cast<T>(0.0465)*s_temp[32]);
             s_XImats[259] = static_cast<T>(s_temp[32]);
             s_XImats[260] = static_cast<T>(-s_temp[13]);
-            s_XImats[262] = static_cast<T>(0.1934*s_temp[13]);
-            s_XImats[263] = static_cast<T>(0.1934*s_temp[32]);
+            s_XImats[262] = static_cast<T>(static_cast<T>(0.1934)*s_temp[13]);
+            s_XImats[263] = static_cast<T>(static_cast<T>(0.1934)*s_temp[32]);
             s_XImats[265] = static_cast<T>(s_temp[13]);
             s_XImats[266] = static_cast<T>(s_temp[32]);
-            s_XImats[268] = static_cast<T>(-0.1934*s_temp[32]);
-            s_XImats[269] = static_cast<T>(0.1934*s_temp[13]);
+            s_XImats[268] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[32]);
+            s_XImats[269] = static_cast<T>(static_cast<T>(0.1934)*s_temp[13]);
             // X[8]
             s_XImats[288] = static_cast<T>(s_temp[33]);
             s_XImats[290] = static_cast<T>(s_temp[14]);
-            s_XImats[291] = static_cast<T>(-0.0955*s_temp[14]);
-            s_XImats[293] = static_cast<T>(0.0955*s_temp[33]);
+            s_XImats[291] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[14]);
+            s_XImats[293] = static_cast<T>(static_cast<T>(0.0955)*s_temp[33]);
             s_XImats[300] = static_cast<T>(-s_temp[14]);
             s_XImats[302] = static_cast<T>(s_temp[33]);
-            s_XImats[303] = static_cast<T>(-0.0955*s_temp[33]);
-            s_XImats[305] = static_cast<T>(-0.0955*s_temp[14]);
+            s_XImats[303] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[33]);
+            s_XImats[305] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[14]);
             // X[9]
             s_XImats[324] = static_cast<T>(s_temp[34]);
             s_XImats[326] = static_cast<T>(s_temp[15]);
-            s_XImats[333] = static_cast<T>(-0.213*s_temp[34]);
-            s_XImats[335] = static_cast<T>(-0.213*s_temp[15]);
+            s_XImats[333] = static_cast<T>(-static_cast<T>(0.213)*s_temp[34]);
+            s_XImats[335] = static_cast<T>(-static_cast<T>(0.213)*s_temp[15]);
             s_XImats[336] = static_cast<T>(-s_temp[15]);
             s_XImats[338] = static_cast<T>(s_temp[34]);
             // X[10]
-            s_XImats[364] = static_cast<T>(-0.0465*s_temp[16]);
-            s_XImats[365] = static_cast<T>(-0.0465*s_temp[35]);
+            s_XImats[364] = static_cast<T>(-static_cast<T>(0.0465)*s_temp[16]);
+            s_XImats[365] = static_cast<T>(-static_cast<T>(0.0465)*s_temp[35]);
             s_XImats[367] = static_cast<T>(s_temp[35]);
             s_XImats[368] = static_cast<T>(-s_temp[16]);
-            s_XImats[370] = static_cast<T>(0.1934*s_temp[16]);
-            s_XImats[371] = static_cast<T>(0.1934*s_temp[35]);
+            s_XImats[370] = static_cast<T>(static_cast<T>(0.1934)*s_temp[16]);
+            s_XImats[371] = static_cast<T>(static_cast<T>(0.1934)*s_temp[35]);
             s_XImats[373] = static_cast<T>(s_temp[16]);
             s_XImats[374] = static_cast<T>(s_temp[35]);
-            s_XImats[376] = static_cast<T>(-0.1934*s_temp[35]);
-            s_XImats[377] = static_cast<T>(0.1934*s_temp[16]);
+            s_XImats[376] = static_cast<T>(-static_cast<T>(0.1934)*s_temp[35]);
+            s_XImats[377] = static_cast<T>(static_cast<T>(0.1934)*s_temp[16]);
             // X[11]
             s_XImats[396] = static_cast<T>(s_temp[36]);
             s_XImats[398] = static_cast<T>(s_temp[17]);
-            s_XImats[399] = static_cast<T>(0.0955*s_temp[17]);
-            s_XImats[401] = static_cast<T>(-0.0955*s_temp[36]);
+            s_XImats[399] = static_cast<T>(static_cast<T>(0.0955)*s_temp[17]);
+            s_XImats[401] = static_cast<T>(-static_cast<T>(0.0955)*s_temp[36]);
             s_XImats[408] = static_cast<T>(-s_temp[17]);
             s_XImats[410] = static_cast<T>(s_temp[36]);
-            s_XImats[411] = static_cast<T>(0.0955*s_temp[36]);
-            s_XImats[413] = static_cast<T>(0.0955*s_temp[17]);
+            s_XImats[411] = static_cast<T>(static_cast<T>(0.0955)*s_temp[36]);
+            s_XImats[413] = static_cast<T>(static_cast<T>(0.0955)*s_temp[17]);
             // X[12]
             s_XImats[432] = static_cast<T>(s_temp[37]);
             s_XImats[434] = static_cast<T>(s_temp[18]);
-            s_XImats[441] = static_cast<T>(-0.213*s_temp[37]);
-            s_XImats[443] = static_cast<T>(-0.213*s_temp[18]);
+            s_XImats[441] = static_cast<T>(-static_cast<T>(0.213)*s_temp[37]);
+            s_XImats[443] = static_cast<T>(-static_cast<T>(0.213)*s_temp[18]);
             s_XImats[444] = static_cast<T>(-s_temp[18]);
             s_XImats[446] = static_cast<T>(s_temp[37]);
         }
@@ -19723,15 +19742,15 @@ namespace grid {
         __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // X_hom[0]
-            s_XmatsHom[0] = static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[4] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[5] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[6] = static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[8] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[9] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[10] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+            s_XmatsHom[0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[4] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[5] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[9] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[10] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
             s_XmatsHom[12] = static_cast<T>(s_q[0]);
             s_XmatsHom[13] = static_cast<T>(s_q[1]);
             s_XmatsHom[14] = static_cast<T>(s_q[2]);
@@ -19828,15 +19847,15 @@ namespace grid {
         __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // X_hom[0]
-            s_XmatsHom[0] = static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[4] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[5] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[6] = static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[8] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[9] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[10] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+            s_XmatsHom[0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[4] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[5] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[9] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[10] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
             s_XmatsHom[12] = static_cast<T>(s_q[0]);
             s_XmatsHom[13] = static_cast<T>(s_q[1]);
             s_XmatsHom[14] = static_cast<T>(s_q[2]);
@@ -19906,45 +19925,45 @@ namespace grid {
             // dX_hom[1]
             // dX_hom[2]
             // dX_hom[3]
-            s_dXmatsHom[48] = static_cast<T>(4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[49] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[50] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[52] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[53] = static_cast<T>(4.0*pow(s_q[3], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[54] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[56] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[57] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[58] = static_cast<T>(4.0*pow(s_q[3], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_dXmatsHom[48] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[49] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[50] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[52] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[53] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[54] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[56] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[57] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[58] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[4]
-            s_dXmatsHom[64] = static_cast<T>(4.0*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[65] = static_cast<T>(-4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[66] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[68] = static_cast<T>(-4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[69] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[70] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[72] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[73] = static_cast<T>(4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[74] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_dXmatsHom[64] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[65] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[66] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[68] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(4.0)*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[69] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[70] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[72] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[73] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[74] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[5]
-            s_dXmatsHom[80] = static_cast<T>(4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[81] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[82] = static_cast<T>(-4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[84] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[85] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[86] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[88] = static_cast<T>(-4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[89] = static_cast<T>(4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[90] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_dXmatsHom[80] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[81] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[82] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(4.0)*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[84] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[85] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[86] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[88] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[89] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[90] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[6]
-            s_dXmatsHom[96] = static_cast<T>(4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[97] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[98] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[100] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[101] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[102] = static_cast<T>(-4.0*s_q[3]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[104] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[105] = static_cast<T>(4.0*s_q[3]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[106] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_dXmatsHom[96] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[97] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[98] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[100] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[101] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[102] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[104] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[105] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[106] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[7]
             s_dXmatsHom[117] = static_cast<T>(-s_temp[7]);
             s_dXmatsHom[118] = static_cast<T>(s_temp[26]);
@@ -20042,15 +20061,15 @@ namespace grid {
         __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // X_hom[0]
-            s_XmatsHom[0] = static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[4] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[5] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[6] = static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[8] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[9] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[10] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+            s_XmatsHom[0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[4] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[5] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[9] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[10] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
             s_XmatsHom[12] = static_cast<T>(s_q[0]);
             s_XmatsHom[13] = static_cast<T>(s_q[1]);
             s_XmatsHom[14] = static_cast<T>(s_q[2]);
@@ -20120,45 +20139,45 @@ namespace grid {
             // dX_hom[1]
             // dX_hom[2]
             // dX_hom[3]
-            s_dXmatsHom[48] = static_cast<T>(4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[49] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[50] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[52] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[53] = static_cast<T>(4.0*pow(s_q[3], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[54] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[56] = static_cast<T>(-4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[57] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[58] = static_cast<T>(4.0*pow(s_q[3], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_dXmatsHom[48] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[49] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[50] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[52] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[53] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[54] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[56] = static_cast<T>(fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[57] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[58] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[4]
-            s_dXmatsHom[64] = static_cast<T>(4.0*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[65] = static_cast<T>(-4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[66] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[68] = static_cast<T>(-4.0*s_q[3]*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[69] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[70] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[72] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[73] = static_cast<T>(4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[74] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_dXmatsHom[64] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[65] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[66] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[68] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(4.0)*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[69] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[70] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[72] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[73] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[74] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[5]
-            s_dXmatsHom[80] = static_cast<T>(4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[81] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[82] = static_cast<T>(-4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[84] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[85] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[86] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[88] = static_cast<T>(-4.0*s_q[3]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[89] = static_cast<T>(4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[90] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_dXmatsHom[80] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[81] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[82] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(4.0)*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[84] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[85] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[86] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[88] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[89] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[90] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[6]
-            s_dXmatsHom[96] = static_cast<T>(4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[97] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[98] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[100] = static_cast<T>(-4.0*s_q[3]*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[101] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[102] = static_cast<T>(-4.0*s_q[3]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[104] = static_cast<T>(-4.0*s_q[3]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_dXmatsHom[105] = static_cast<T>(4.0*s_q[3]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0*s_q[3]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 4.0*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_dXmatsHom[106] = static_cast<T>(4.0*pow(s_q[3], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_dXmatsHom[96] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[97] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[98] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[100] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-2.0))*(s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[101] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[102] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[104] = static_cast<T>(fma(static_cast<T>(-4.0), s_q[3]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)*(s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_dXmatsHom[105] = static_cast<T>(fma(static_cast<T>(4.0), s_q[3]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-2.0), s_q[3]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_dXmatsHom[106] = static_cast<T>(fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // dX_hom[7]
             s_dXmatsHom[117] = static_cast<T>(-s_temp[7]);
             s_dXmatsHom[118] = static_cast<T>(s_temp[26]);
@@ -20282,45 +20301,45 @@ namespace grid {
             // d2X_hom[58]
             // d2X_hom[59]
             // d2X_hom[60]
-            s_d2XmatsHom[960] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[961] = static_cast<T>(16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[962] = static_cast<T>(16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[964] = static_cast<T>(16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[965] = static_cast<T>(-16.0*pow(s_q[3], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[966] = static_cast<T>(16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[968] = static_cast<T>(16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[969] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[970] = static_cast<T>(-16.0*pow(s_q[3], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_d2XmatsHom[960] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[961] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[962] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[964] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[965] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[966] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[968] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[969] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(12.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[970] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[61]
-            s_d2XmatsHom[976] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[977] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[978] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[980] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[981] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[982] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[984] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[985] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[986] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[976] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[977] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[978] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[980] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[981] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[982] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[984] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[985] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[986] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[62]
-            s_d2XmatsHom[992] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[993] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[994] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[996] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[997] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[998] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1000] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1001] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1002] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[992] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[993] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[994] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[996] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[997] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[998] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1000] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1001] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1002] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[63]
-            s_d2XmatsHom[1008] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
-            s_d2XmatsHom[1009] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1010] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1012] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1013] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1014] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1016] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1017] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1018] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1008] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_d2XmatsHom[1009] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1010] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1012] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1013] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1014] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1016] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1017] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1018] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[64]
             // d2X_hom[65]
             // d2X_hom[66]
@@ -20337,45 +20356,45 @@ namespace grid {
             // d2X_hom[77]
             // d2X_hom[78]
             // d2X_hom[79]
-            s_d2XmatsHom[1264] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1265] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1266] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1268] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1269] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1270] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1272] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1273] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1274] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1264] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1265] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1266] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1268] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1269] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1270] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1272] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1273] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1274] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[80]
-            s_d2XmatsHom[1280] = static_cast<T>(-16.0*pow(s_q[4], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1281] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1282] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1284] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1285] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1286] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1288] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1289] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1290] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+            s_d2XmatsHom[1280] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1281] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1282] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(12.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1284] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1285] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1286] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1288] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1289] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1290] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[81]
-            s_d2XmatsHom[1296] = static_cast<T>(-16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1297] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1298] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1300] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1301] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1302] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1304] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1305] = static_cast<T>(-16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1306] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1296] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1297] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1298] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1300] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1301] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1302] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1304] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1305] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1306] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[82]
-            s_d2XmatsHom[1312] = static_cast<T>(-16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1313] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1314] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1316] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1317] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
-            s_d2XmatsHom[1318] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1320] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1321] = static_cast<T>(-16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1322] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1312] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1313] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1314] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1316] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1317] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_d2XmatsHom[1318] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1320] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1321] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1322] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[83]
             // d2X_hom[84]
             // d2X_hom[85]
@@ -20392,45 +20411,45 @@ namespace grid {
             // d2X_hom[96]
             // d2X_hom[97]
             // d2X_hom[98]
-            s_d2XmatsHom[1568] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1569] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1570] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1572] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1573] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1574] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1576] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1577] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1578] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1568] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1569] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1570] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1572] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1573] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1574] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1576] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1577] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1578] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[99]
-            s_d2XmatsHom[1584] = static_cast<T>(-16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1585] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1586] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1588] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1589] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1590] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1592] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1593] = static_cast<T>(-16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1594] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 3)*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1584] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(16.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1585] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1586] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1588] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1589] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1590] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1592] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1593] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1594] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[100]
-            s_d2XmatsHom[1600] = static_cast<T>(-16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[5], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1601] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1602] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1604] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1605] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[5], 4)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 20.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1606] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1608] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1609] = static_cast<T>(-16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1610] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1600] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1601] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1602] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1604] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(12.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1605] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(20.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(4.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1606] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1608] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1609] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1610] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
             // d2X_hom[101]
-            s_d2XmatsHom[1616] = static_cast<T>(-16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1617] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1618] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1620] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1621] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1622] = static_cast<T>(16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1624] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1625] = static_cast<T>(-16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1626] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
+            s_d2XmatsHom[1616] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1617] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1618] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1620] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1621] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1622] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1624] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1625] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1626] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // d2X_hom[102]
             // d2X_hom[103]
             // d2X_hom[104]
@@ -20447,45 +20466,45 @@ namespace grid {
             // d2X_hom[115]
             // d2X_hom[116]
             // d2X_hom[117]
-            s_d2XmatsHom[1872] = static_cast<T>(-16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
-            s_d2XmatsHom[1873] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1874] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1876] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1877] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1878] = static_cast<T>(16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1880] = static_cast<T>(16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1881] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1882] = static_cast<T>(-16.0*pow(s_q[3], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1872] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_d2XmatsHom[1873] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1874] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1876] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1877] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1878] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1880] = static_cast<T>(fma(static_cast<T>(16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1881] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1882] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3])*(s_q[3]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[118]
-            s_d2XmatsHom[1888] = static_cast<T>(-16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1889] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1890] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1892] = static_cast<T>(16.0*s_q[3]*pow(s_q[4], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1893] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
-            s_d2XmatsHom[1894] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1896] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1897] = static_cast<T>(-16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1898] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1888] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1889] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1890] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1892] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1893] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
+            s_d2XmatsHom[1894] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1896] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1897] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1898] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4])*(s_q[4]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
             // d2X_hom[119]
-            s_d2XmatsHom[1904] = static_cast<T>(-16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1905] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1906] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1908] = static_cast<T>(16.0*s_q[3]*s_q[4]*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 4.0*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 2.0/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_d2XmatsHom[1909] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[5], 3)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 8.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1910] = static_cast<T>(16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1912] = static_cast<T>(16.0*s_q[3]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1913] = static_cast<T>(-16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[5], 2)*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1914] = static_cast<T>(-16.0*pow(s_q[3], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 16.0*pow(s_q[4], 2)*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3));
+            s_d2XmatsHom[1904] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1905] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1906] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1908] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), -static_cast<T>(2.0)/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1909] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(8.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))))));
+            s_d2XmatsHom[1910] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1912] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1913] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[5])*(s_q[5]))*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1914] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-16.0))*(((s_q[4])*(s_q[4]))*s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))));
             // d2X_hom[120]
-            s_d2XmatsHom[1920] = static_cast<T>(-16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1921] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[5]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1922] = static_cast<T>(16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[4]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1924] = static_cast<T>(16.0*s_q[3]*s_q[4]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[4]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*s_q[5]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[5]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1925] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[5], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[5], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1926] = static_cast<T>(16.0*s_q[3]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1928] = static_cast<T>(16.0*s_q[3]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[3]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 12.0*s_q[4]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1929] = static_cast<T>(-16.0*s_q[3]*pow(s_q[6], 3)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 12.0*s_q[3]*s_q[6]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) + 16.0*s_q[4]*s_q[5]*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) - 4.0*s_q[4]*s_q[5]/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
-            s_d2XmatsHom[1930] = static_cast<T>(-16.0*pow(s_q[3], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[3], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2) - 16.0*pow(s_q[4], 2)*pow(s_q[6], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 3) + 4.0*pow(s_q[4], 2)/pow(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2), 2));
+            s_d2XmatsHom[1920] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1921] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[5]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1922] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[4]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(12.0)*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1924] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[4]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[4]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), s_q[5]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(12.0)*(s_q[5]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1925] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[5])*(s_q[5]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[5])*(s_q[5]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1926] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-12.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1928] = static_cast<T>(fma(static_cast<T>(16.0), s_q[3]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-4.0), s_q[3]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-12.0))*(s_q[4]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1929] = static_cast<T>(fma(static_cast<T>(-16.0), s_q[3]*((s_q[6])*(s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(12.0), s_q[3]*s_q[6]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(16.0), s_q[4]*s_q[5]*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), (static_cast<T>(-4.0))*(s_q[4]*s_q[5]/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
+            s_d2XmatsHom[1930] = static_cast<T>(fma(static_cast<T>(-16.0), ((s_q[3])*(s_q[3]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(4.0), ((s_q[3])*(s_q[3]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), fma(static_cast<T>(-16.0), ((s_q[4])*(s_q[4]))*((s_q[6])*(s_q[6]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))), static_cast<T>(4.0)*(((s_q[4])*(s_q[4]))/((grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))*(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6]))))))));
             // d2X_hom[121]
             // d2X_hom[122]
             // d2X_hom[123]
@@ -20782,67 +20801,6 @@ namespace grid {
      * Floating-base Lie-group helpers (xyzw quaternion, Pinocchio v order).
      *
      */
-    template <typename T> __device__ inline void grid_so3_skew(const T v[3], T S[9]) {
-        glass::thread::skew<T>(v, S);
-    }
-    
-    template <typename T> __device__ inline void grid_mat3_mul(const T A[9], const T B[9], T C[9]) {
-        glass::thread::gemm<T,3,3,3>(static_cast<T>(1), A, B, static_cast<T>(0), C);
-    }
-    
-    template <typename T> __device__ inline void grid_mat3_vec(const T A[9], const T v[3], T out[3]) {
-        glass::thread::gemv<T,3,3>(static_cast<T>(1), A, v, static_cast<T>(0), out);
-    }
-    
-    template <typename T> __device__ inline void grid_so3_V_matrix(const T phi[3], T V[9]) {
-        glass::thread::so3_left_jacobian<T>(phi, V);
-    }
-    
-    template <typename T> __device__ inline void grid_so3_right_jacobian(const T phi[3], T J[9]) {
-        glass::thread::so3_right_jacobian<T>(phi, J);
-    }
-    
-    template <typename T> __device__ inline void grid_so3_exp(const T phi[3], T R[9]) {
-        glass::thread::so3_exp<T>(phi, R);
-    }
-    
-    template <typename T> __device__ inline void grid_se3_Q_block(const T rho[3], const T phi[3], T Q[9]) {
-        T phi_neg[3] = {-phi[0], -phi[1], -phi[2]};
-        T Px[9]; grid_so3_skew(phi_neg, Px);
-        T Rx[9]; grid_so3_skew(rho, Rx);
-        T Px2[9]; grid_mat3_mul(Px, Px, Px2);
-        T Rx_Px[9]; grid_mat3_mul(Rx, Px, Rx_Px);
-        T Px_Rx[9]; grid_mat3_mul(Px, Rx, Px_Rx);
-        T Px_Rx_Px[9]; grid_mat3_mul(Px, Rx_Px, Px_Rx_Px);
-        T Px2_Rx[9]; grid_mat3_mul(Px2, Rx, Px2_Rx);
-        T Rx_Px2[9]; grid_mat3_mul(Rx_Px, Px, Rx_Px2);  // Rx@Px@Px
-        T Px_Rx_Px2[9]; grid_mat3_mul(Px_Rx, Px2, Px_Rx_Px2);  // Px@Rx@Px@Px
-        T Px2_Rx_Px[9]; grid_mat3_mul(Px2, Rx_Px, Px2_Rx_Px);  // Px@Px@Rx@Px
-        T theta_neg = sqrt(phi[0]*phi[0] + phi[1]*phi[1] + phi[2]*phi[2]);
-        T sola[9];
-        if (theta_neg < static_cast<T>(1e-4)) {
-            #pragma unroll
-            for (int i = 0; i < 9; ++i)
-                sola[i] = static_cast<T>(0.5)*Rx[i]
-                        + static_cast<T>(1.0/6.0)*(Px_Rx[i] + Rx_Px[i] + Px_Rx_Px[i])
-                        - static_cast<T>(1.0/24.0)*(Px2_Rx[i] + Rx_Px2[i] - static_cast<T>(3)*Px_Rx_Px[i]);
-        } else {
-            T c1 = (theta_neg - sin(theta_neg)) / (theta_neg*theta_neg*theta_neg);
-            T c2 = (static_cast<T>(1) - static_cast<T>(0.5)*theta_neg*theta_neg - cos(theta_neg)) / (theta_neg*theta_neg*theta_neg*theta_neg);
-            // Negative sign matches Barfoot's SE(3) Q-block coefficient (2θ−3sinθ+θcosθ)/(2θ⁵); verified against pin.dIntegrate(ARG1).
-            T c3 = static_cast<T>(-0.5) * (c2 - static_cast<T>(3) * (theta_neg - sin(theta_neg) - theta_neg*theta_neg*theta_neg/static_cast<T>(6)) / (theta_neg*theta_neg*theta_neg*theta_neg*theta_neg));
-            #pragma unroll
-            for (int i = 0; i < 9; ++i)
-                sola[i] = static_cast<T>(0.5)*Rx[i]
-                        + c1*(Px_Rx[i] + Rx_Px[i] + Px_Rx_Px[i])
-                        - c2*(Px2_Rx[i] + Rx_Px2[i] - static_cast<T>(3)*Px_Rx_Px[i])
-                        + c3*(Px_Rx_Px2[i] + Px2_Rx_Px[i]);
-        }
-        // Pinocchio convention: Q = -Sola(rho, -phi).
-        #pragma unroll
-        for (int i = 0; i < 9; ++i) Q[i] = -sola[i];
-    }
-    
     template <typename T, int NUM_POS> __device__ inline void grid_integrate_floating_q(
         const T *q, const T *v_dt, T *q_new) {
         // Pinocchio user-facing v_dt order: [v_lin; omega; joints].
@@ -20891,193 +20849,28 @@ namespace grid {
     }
     
     template <typename T> __device__ inline void grid_dIntegrate_q_block(const T *v_dt, T J[36]) {
-        // v_dt in Pinocchio user-facing order: [v_lin; omega].
-        T rho[3]   = {v_dt[0], v_dt[1], v_dt[2]};
-        T omega[3] = {v_dt[3], v_dt[4], v_dt[5]};
-        T R_inv[9]; T omega_neg[3] = {-omega[0], -omega[1], -omega[2]};
-        grid_so3_exp(omega_neg, R_inv);
-        T V_neg[9]; grid_so3_V_matrix(omega_neg, V_neg);
-        T V_neg_rho[3]; grid_mat3_vec(V_neg, rho, V_neg_rho);
-        T p_inv[3] = {-V_neg_rho[0], -V_neg_rho[1], -V_neg_rho[2]};
-        T P_inv_x[9]; grid_so3_skew(p_inv, P_inv_x);
-        T off[9]; grid_mat3_mul(P_inv_x, R_inv, off);
-        // 6x6 block in row-major: [[R_inv, off], [0, R_inv]]  (Pinocchio order [v_lin; omega])
-        #pragma unroll
-        for (int i = 0; i < 36; ++i) J[i] = static_cast<T>(0);
-        #pragma unroll
-        for (int i = 0; i < 3; ++i) {
-            #pragma unroll
-            for (int j = 0; j < 3; ++j) {
-                J[6*i + j]     = R_inv[3*j + i];   // col-major block -> row-major J (transpose read)
-                J[6*i + 3 + j] = off[3*j + i];
-                J[6*(3+i) + 3 + j] = R_inv[3*j + i];
-            }
-        }
+        // v_dt in Pinocchio order [v_lin; omega]. GLASS returns the block column-major;
+        // J is row-major.
+        T G[36]; glass::thread::se3_retract_jacobian_q<T>(v_dt, v_dt + 3, G);
+        for (int r = 0; r < 6; ++r) for (int c = 0; c < 6; ++c) J[6*r + c] = G[6*c + r];
     }
     
     template <typename T> __device__ inline void grid_dIntegrate_v_block(const T *v_dt, T J[36]) {
-        // v_dt in Pinocchio user-facing order: [v_lin; omega].
-        T rho[3]   = {v_dt[0], v_dt[1], v_dt[2]};
-        T omega[3] = {v_dt[3], v_dt[4], v_dt[5]};
-        T Jr[9]; grid_so3_right_jacobian(omega, Jr);
-        T Q[9]; grid_se3_Q_block(rho, omega, Q);
-        #pragma unroll
-        for (int i = 0; i < 36; ++i) J[i] = static_cast<T>(0);
-        #pragma unroll
-        for (int i = 0; i < 3; ++i) {
-            #pragma unroll
-            for (int j = 0; j < 3; ++j) {
-                J[6*i + j]     = Jr[3*j + i];   // col-major block -> row-major J (transpose read)
-                J[6*i + 3 + j] = Q[3*j + i];
-                J[6*(3+i) + 3 + j] = Jr[3*j + i];
-            }
-        }
+        // v_dt in Pinocchio order [v_lin; omega]. GLASS returns the block column-major;
+        // J is row-major.
+        T G[36]; glass::thread::se3_retract_jacobian_v<T>(v_dt, v_dt + 3, G);
+        for (int r = 0; r < 6; ++r) for (int c = 0; c < 6; ++c) J[6*r + c] = G[6*c + r];
     }
     
-    __device__ inline void grid_se3_d2_coefs(double t, double c[5], double dc[5]) {
-        if (t >= 0.2) {
-            double s=sin(t), co=cos(t), t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t, t6=t5*t;
-            c[0]=(1.0-co)/t2; c[1]=(t-s)/t3; c[2]=s/t;
-            c[3]=(1.0-0.5*t2-co)/t4;
-            c[4]=-0.5*(c[3]-3.0*(t-s-t3/6.0)/t5);
-            dc[0]=(t*s-2.0*(1.0-co))/t3;
-            dc[1]=((1.0-co)*t-3.0*(t-s))/t4;
-            dc[2]=(t*co-s)/t2;
-            dc[3]=(t*s+t2+4.0*co-4.0)/t5;
-            dc[4]=-0.5*(dc[3]-3.0*(-4.0*t-t*co+5.0*s+t3/3.0)/t6);
-        } else {
-            double x=t*t;  // even series (value) / odd series (derivative)
-            c[0]=0.5+x*(-1.0/24+x*(1.0/720+x*(-1.0/40320+x*(1.0/3628800))));
-            c[1]=1.0/6+x*(-1.0/120+x*(1.0/5040+x*(-1.0/362880+x*(1.0/39916800))));
-            c[2]=1.0+x*(-1.0/6+x*(1.0/120+x*(-1.0/5040+x*(1.0/362880))));
-            c[3]=-1.0/24+x*(1.0/720+x*(-1.0/40320+x*(1.0/3628800+x*(-1.0/479001600))));
-            c[4]=1.0/120+x*(-1.0/2520+x*(1.0/120960+x*(-1.0/9979200+x*(1.0/1245404160))));
-            dc[0]=t*(-1.0/12+x*(1.0/180+x*(-1.0/6720+x*(1.0/453600))));
-            dc[1]=t*(-1.0/60+x*(1.0/1260+x*(-1.0/60480+x*(1.0/4989600))));
-            dc[2]=t*(-1.0/3+x*(1.0/30+x*(-1.0/840+x*(1.0/45360))));
-            dc[3]=t*(1.0/360+x*(-1.0/10080+x*(1.0/604800+x*(-1.0/59875200))));
-            dc[4]=t*(-1.0/1260+x*(1.0/30240+x*(-1.0/1663200+x*(1.0/155675520))));
-        }
-    }
-    
-    __device__ inline void grid_d2_dJr(const double phi[3], double t, const double c[5], const double dc[5], int k, double out[9]) {
-        double S[9]; grid_so3_skew<double>(phi,S);
-        double ek[3]={0,0,0}; ek[k]=1.0; double Ek[9]; grid_so3_skew<double>(ek,Ek);
-        double S2[9]; grid_mat3_mul<double>(S,S,S2);
-        double EkS[9]; grid_mat3_mul<double>(Ek,S,EkS);
-        double SEk[9]; grid_mat3_mul<double>(S,Ek,SEk);
-        double invt=(t>1e-30)?1.0/t:0.0; double da=dc[0]*phi[k]*invt, db=dc[1]*phi[k]*invt;
-        #pragma unroll
-        for (int i=0;i<9;++i) out[i]=-da*S[i]-c[0]*Ek[i]+db*S2[i]+c[1]*(EkS[i]+SEk[i]);
-    }
-    
-    __device__ inline void grid_d2_dRinv(const double phi[3], double t, const double c[5], const double dc[5], int k, double out[9]) {
-        double S[9]; grid_so3_skew<double>(phi,S);
-        double ek[3]={0,0,0}; ek[k]=1.0; double Ek[9]; grid_so3_skew<double>(ek,Ek);
-        double S2[9]; grid_mat3_mul<double>(S,S,S2);
-        double EkS[9]; grid_mat3_mul<double>(Ek,S,EkS);
-        double SEk[9]; grid_mat3_mul<double>(S,Ek,SEk);
-        double invt=(t>1e-30)?1.0/t:0.0; double ds=dc[2]*phi[k]*invt, da=dc[0]*phi[k]*invt;
-        #pragma unroll
-        for (int i=0;i<9;++i) out[i]=-ds*S[i]-c[2]*Ek[i]+da*S2[i]+c[0]*(EkS[i]+SEk[i]);
-    }
-    
-    __device__ inline void grid_d2_dQ(const double rho[3], const double phi[3], double t, const double c[5], const double dc[5], int kk, double out[9]) {
-        double nphi[3]={-phi[0],-phi[1],-phi[2]}; double Px[9]; grid_so3_skew<double>(nphi,Px);
-        double Px2[9]; grid_mat3_mul<double>(Px,Px,Px2);
-        if (kk<3) {
-            double ek[3]={0,0,0}; ek[kk]=1.0; double Ek[9]; grid_so3_skew<double>(ek,Ek);
-            double PxEk[9]; grid_mat3_mul<double>(Px,Ek,PxEk);
-            double EkPx[9]; grid_mat3_mul<double>(Ek,Px,EkPx);
-            double PxEkPx[9]; grid_mat3_mul<double>(PxEk,Px,PxEkPx);
-            double Px2Ek[9]; grid_mat3_mul<double>(Px2,Ek,Px2Ek);
-            double EkPx2[9]; grid_mat3_mul<double>(Ek,Px2,EkPx2);
-            double PxEkPx2[9]; grid_mat3_mul<double>(PxEk,Px2,PxEkPx2);
-            double Px2EkPx[9]; grid_mat3_mul<double>(Px2Ek,Px,Px2EkPx);
-            #pragma unroll
-            for (int i=0;i<9;++i) out[i]=-(0.5*Ek[i]+c[1]*(PxEk[i]+EkPx[i]+PxEkPx[i])-c[3]*(Px2Ek[i]+EkPx2[i]-3.0*PxEkPx[i])+c[4]*(PxEkPx2[i]+Px2EkPx[i]));
-            return;
-        }
-        int k=kk-3; double Rx[9]; grid_so3_skew<double>(rho,Rx);
-        double ek[3]={0,0,0}; ek[k]=1.0; double Ek[9]; grid_so3_skew<double>(ek,Ek);
-        double dPx[9]; for (int i=0;i<9;++i) dPx[i]=-Ek[i];
-        double dPx2a[9]; grid_mat3_mul<double>(dPx,Px,dPx2a);
-        double dPx2b[9]; grid_mat3_mul<double>(Px,dPx,dPx2b);
-        double dPx2[9]; for (int i=0;i<9;++i) dPx2[i]=dPx2a[i]+dPx2b[i];
-        double PxRx[9]; grid_mat3_mul<double>(Px,Rx,PxRx);
-        double RxPx[9]; grid_mat3_mul<double>(Rx,Px,RxPx);
-        double PxRxPx[9]; grid_mat3_mul<double>(PxRx,Px,PxRxPx);
-        double Px2Rx[9]; grid_mat3_mul<double>(Px2,Rx,Px2Rx);
-        double RxPx2[9]; grid_mat3_mul<double>(RxPx,Px,RxPx2);
-        double PxRxPx2[9]; grid_mat3_mul<double>(PxRx,Px2,PxRxPx2);
-        double Px2RxPx[9]; grid_mat3_mul<double>(Px2Rx,Px,Px2RxPx);
-        double dPxRx[9]; grid_mat3_mul<double>(dPx,Rx,dPxRx);
-        double RxdPx[9]; grid_mat3_mul<double>(Rx,dPx,RxdPx);
-        double dPxRxPx[9]; grid_mat3_mul<double>(dPxRx,Px,dPxRxPx);
-        double PxRxdPx[9]; grid_mat3_mul<double>(PxRx,dPx,PxRxdPx);
-        double dPx2Rx[9]; grid_mat3_mul<double>(dPx2,Rx,dPx2Rx);
-        double RxdPx2[9]; grid_mat3_mul<double>(Rx,dPx2,RxdPx2);
-        double dPxRxPx2[9]; grid_mat3_mul<double>(dPxRx,Px2,dPxRxPx2);
-        double PxRxdPx2[9]; grid_mat3_mul<double>(PxRx,dPx2,PxRxdPx2);
-        double dPx2RxPx[9]; grid_mat3_mul<double>(dPx2Rx,Px,dPx2RxPx);
-        double Px2RxdPx[9]; grid_mat3_mul<double>(Px2Rx,dPx,Px2RxdPx);
-        double invt=(t>1e-30)?1.0/t:0.0;
-        double dc1=dc[1]*phi[k]*invt, dc2=dc[3]*phi[k]*invt, dc3=dc[4]*phi[k]*invt;
-        #pragma unroll
-        for (int i=0;i<9;++i) {
-            double A1=PxRx[i]+RxPx[i]+PxRxPx[i];
-            double A2=Px2Rx[i]+RxPx2[i]-3.0*PxRxPx[i];
-            double A3=PxRxPx2[i]+Px2RxPx[i];
-            double dA1=dPxRx[i]+RxdPx[i]+dPxRxPx[i]+PxRxdPx[i];
-            double dA2=dPx2Rx[i]+RxdPx2[i]-3.0*(dPxRxPx[i]+PxRxdPx[i]);
-            double dA3=(dPxRxPx2[i]+PxRxdPx2[i])+(dPx2RxPx[i]+Px2RxdPx[i]);
-            out[i]=-(dc1*A1+c[1]*dA1-dc2*A2-c[3]*dA2+dc3*A3+c[4]*dA3);
-        }
-    }
-    
-    __device__ inline void grid_d2_doff(const double rho[3], const double phi[3], double t, const double c[5], const double dc[5], int kk, double out[9]) {
-        double S[9]; grid_so3_skew<double>(phi,S); double S2[9]; grid_mat3_mul<double>(S,S,S2);
-        double Jr[9], R[9];
-        #pragma unroll
-        for (int i=0;i<9;++i){ double id=(i%4==0)?1.0:0.0; Jr[i]=id-c[0]*S[i]+c[1]*S2[i]; R[i]=id-c[2]*S[i]+c[0]*S2[i]; }
-        if (kk<3) {
-            double col[3]={-Jr[3*kk],-Jr[3*kk+1],-Jr[3*kk+2]}; double Sc[9]; grid_so3_skew<double>(col,Sc);  // column kk of col-major Jr
-            grid_mat3_mul<double>(Sc,R,out); return;
-        }
-        int k=kk-3;
-        double p[3]; grid_mat3_vec<double>(Jr,rho,p); p[0]=-p[0]; p[1]=-p[1]; p[2]=-p[2];
-        double dJr[9]; grid_d2_dJr(phi,t,c,dc,k,dJr);
-        double dp[3]; grid_mat3_vec<double>(dJr,rho,dp); dp[0]=-dp[0]; dp[1]=-dp[1]; dp[2]=-dp[2];
-        double dR[9]; grid_d2_dRinv(phi,t,c,dc,k,dR);
-        double Sdp[9]; grid_so3_skew<double>(dp,Sdp); double Sp[9]; grid_so3_skew<double>(p,Sp);
-        double t1[9]; grid_mat3_mul<double>(Sdp,R,t1);
-        double t2[9]; grid_mat3_mul<double>(Sp,dR,t2);
-        #pragma unroll
-        for (int i=0;i<9;++i) out[i]=t1[i]+t2[i];
-    }
-    
+    // Deliberately in double inside GLASS: the one exemption from computing in T (see
+    // test/test_generated_code_pure_T.py). The second derivatives of SE(3) integration
+    // cancel badly in single precision, so glass::se3_retract_hessian and its call in
+    // integrator_hessian_device evaluate in double and return T. It is slow on GPUs
+    // with reduced double throughput.
     template <typename T, bool IS_Q> __device__ inline void grid_d2Integrate_block(const T *w, T J2[216]) {
-        double rho[3]={(double)w[0],(double)w[1],(double)w[2]};
-        double phi[3]={(double)w[3],(double)w[4],(double)w[5]};
-        double t=sqrt(phi[0]*phi[0]+phi[1]*phi[1]+phi[2]*phi[2]);
-        double c[5], dc[5]; grid_se3_d2_coefs(t,c,dc);
-        for (int k=0;k<6;++k) {
-            double dA[9], dB[9];
-            if constexpr (IS_Q) {
-                if (k>=3) grid_d2_dRinv(phi,t,c,dc,k-3,dA); else for(int i=0;i<9;++i) dA[i]=0.0;
-                grid_d2_doff(rho,phi,t,c,dc,k,dB);
-            } else {
-                if (k>=3) grid_d2_dJr(phi,t,c,dc,k-3,dA); else for(int i=0;i<9;++i) dA[i]=0.0;
-                grid_d2_dQ(rho,phi,t,c,dc,k,dB);
-            }
-            #pragma unroll
-            for (int r=0;r<3;++r) for (int col=0;col<3;++col) {
-                J2[(r)*36     + (col)*6   + k] = static_cast<T>(dA[col*3+r]);   // col-major dA/dB -> transpose read
-                J2[(r)*36     + (col+3)*6 + k] = static_cast<T>(dB[col*3+r]);
-                J2[(r+3)*36   + (col)*6   + k] = static_cast<T>(0);
-                J2[(r+3)*36   + (col+3)*6 + k] = static_cast<T>(dA[col*3+r]);
-            }
-        }
+        T H[216]; glass::thread::se3_retract_hessian<T, IS_Q>(w, w + 3, H);  // H[k*36 + col*6 + row]
+        for (int o = 0; o < 6; ++o) for (int j = 0; j < 6; ++j) for (int k = 0; k < 6; ++k)
+            J2[o*36 + j*6 + k] = H[k*36 + j*6 + o];
     }
     
     /**
@@ -21719,49 +21512,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -21844,49 +21613,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -21964,49 +21709,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -22083,49 +21804,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -22190,49 +21887,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -22292,49 +21965,25 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -23965,13 +23614,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -23982,13 +23625,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -24009,49 +23646,25 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -24126,13 +23739,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -24143,13 +23750,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -24170,49 +23771,25 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -24282,13 +23859,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian_ws + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -24299,13 +23870,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 24; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -24326,49 +23891,25 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 0) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 0)[r + 6*0], j1 = (s_end_effector_pose_gradient + 0)[r + 6*1], j2 = (s_end_effector_pose_gradient + 0)[r + 6*2]; (s_end_effector_pose_gradient + 0)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 0)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 0)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 108) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 108)[r + 6*0], j1 = (s_end_effector_pose_gradient + 108)[r + 6*1], j2 = (s_end_effector_pose_gradient + 108)[r + 6*2]; (s_end_effector_pose_gradient + 108)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 108)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 108)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 216) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 216)[r + 6*0], j1 = (s_end_effector_pose_gradient + 216)[r + 6*1], j2 = (s_end_effector_pose_gradient + 216)[r + 6*2]; (s_end_effector_pose_gradient + 216)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 216)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 216)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
                     // mjx output: column reframe (s_end_effector_pose_gradient + 324) G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = (s_end_effector_pose_gradient + 324)[r + 6*0], j1 = (s_end_effector_pose_gradient + 324)[r + 6*1], j2 = (s_end_effector_pose_gradient + 324)[r + 6*2]; (s_end_effector_pose_gradient + 324)[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_end_effector_pose_gradient + 324)[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_end_effector_pose_gradient + 324)[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25112,13 +24653,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25201,13 +24736,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25285,13 +24814,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25368,13 +24891,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25439,13 +24956,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -25505,13 +25016,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -26448,13 +25953,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -26465,13 +25964,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -26492,13 +25985,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -26573,13 +26060,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -26590,13 +26071,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -26617,13 +26092,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -26693,13 +26162,7 @@ namespace grid {
                     // mjx output: EE-pose Hessian convention transform (double col-reframe + sym frame term)
                     // (A) double column-reframe Rb H Rb^T on the base-linear 3-block, per (ee,out-row) slab
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int c = s - 6*ee;
                         T *Hc = s_end_effector_pose_hessian_ws + ee * 1944 + c * 324;
                         for (int k = 0; k < 18; k++) { T m0 = Hc[0*18 + k], m1 = Hc[1*18 + k], m2 = Hc[2*18 + k];
@@ -26710,13 +26173,7 @@ namespace grid {
                     __syncthreads();
                     // (B) frame term term[i,l,3+a] = dpose[i,0:3] . (-[e_a]x R^T), then 0.5*(term+term^T) into H, per (ee,out-row)
                     for(int s = threadIdx.x + threadIdx.y*blockDim.x; s < 6; s += blockDim.x*blockDim.y){
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         int ee = s / 6; int i = s - 6*ee;
                         T *gb = s_end_effector_pose_gradient + ee * 108;
                         T di0 = gb[6*0 + i], di1 = gb[6*1 + i], di2 = gb[6*2 + i];
@@ -26737,13 +26194,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: column reframe s_end_effector_pose_gradient G^{-1} (base-linear cols . R^T)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int r = 0; r < 6; r++) { T j0 = s_end_effector_pose_gradient[r + 6*0], j1 = s_end_effector_pose_gradient[r + 6*1], j2 = s_end_effector_pose_gradient[r + 6*2]; s_end_effector_pose_gradient[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_end_effector_pose_gradient[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_end_effector_pose_gradient[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                     }
                     __syncthreads();
@@ -26869,15 +26320,15 @@ namespace grid {
         (void)target_idx;
         // X_hom[0] floating root from s_q[0..6] (pos + xyzw quat)
         {
-            s_XmatsHom[16*0 + 0] = static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[16*0 + 1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 4] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 5] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[16*0 + 6] = static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 8] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 9] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 10] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+            s_XmatsHom[16*0 + 0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[16*0 + 1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 4] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 5] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[16*0 + 6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 9] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 10] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
             s_XmatsHom[16*0 + 12] = static_cast<T>(s_q[0]);
             s_XmatsHom[16*0 + 13] = static_cast<T>(s_q[1]);
             s_XmatsHom[16*0 + 14] = static_cast<T>(s_q[2]);
@@ -27152,15 +26603,15 @@ namespace grid {
         const unsigned mask = 0xFFFFFFFFu;
         // refresh q-dependent X_hom cells: lane j owns joint j
         if (lane == 0) {
-            s_XmatsHom[16*0 + 0] = static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[16*0 + 1] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 2] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 4] = static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 5] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-            s_XmatsHom[16*0 + 6] = static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 8] = static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 9] = static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-            s_XmatsHom[16*0 + 10] = static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+            s_XmatsHom[16*0 + 0] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[16*0 + 1] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 2] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 4] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 5] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+            s_XmatsHom[16*0 + 6] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 8] = static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 9] = static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+            s_XmatsHom[16*0 + 10] = static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
             s_XmatsHom[16*0 + 12] = static_cast<T>(s_q[0]);
             s_XmatsHom[16*0 + 13] = static_cast<T>(s_q[1]);
             s_XmatsHom[16*0 + 14] = static_cast<T>(s_q[2]);
@@ -29862,13 +29313,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -29889,13 +29334,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: base-linear rows of s_c <- R * rows
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T b0 = s_c[0], b1 = s_c[1], b2 = s_c[2];
                     s_c[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
                     s_c[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
@@ -31005,13 +30444,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: congruence G s_Minv G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_Minv[0 + 18*c], m1 = s_Minv[1 + 18*c], m2 = s_Minv[2 + 18*c]; s_Minv[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_Minv[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_Minv[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_Minv[r + 18*0], m1 = s_Minv[r + 18*1], m2 = s_Minv[r + 18*2]; s_Minv[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_Minv[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_Minv[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -31082,13 +30515,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: congruence G s_Minv G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_Minv[0 + 18*c], m1 = s_Minv[1 + 18*c], m2 = s_Minv[2 + 18*c]; s_Minv[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_Minv[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_Minv[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_Minv[r + 18*0], m1 = s_Minv[r + 18*1], m2 = s_Minv[r + 18*2]; s_Minv[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_Minv[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_Minv[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -31159,13 +30586,7 @@ namespace grid {
                     __syncthreads();
                     // mjx output: congruence G s_Minv G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_Minv[0 + 18*c], m1 = s_Minv[1 + 18*c], m2 = s_Minv[2 + 18*c]; s_Minv[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_Minv[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_Minv[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_Minv[r + 18*0], m1 = s_Minv[r + 18*1], m2 = s_Minv[r + 18*2]; s_Minv[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_Minv[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_Minv[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -31659,13 +31080,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -31685,13 +31100,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
@@ -31754,13 +31163,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -31780,13 +31183,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
@@ -31849,13 +31246,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -31875,13 +31266,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: forward-dynamics accel s_qdd[0:3] <- R (qdd + omega x v_local)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_qdd[0] + (wy_*vz_ - wz_*vy_);
@@ -32394,12 +31779,7 @@ namespace grid {
             // precompute shared helpers (R + base source vectors) into dead crba scratch
             T *s_mjxh = s_temp + 324;
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                s_mjxh[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); s_mjxh[1] = static_cast<T>(2)*(xy-wz);                    s_mjxh[2] = static_cast<T>(2)*(xz+wy);
-                s_mjxh[3] = static_cast<T>(2)*(xy+wz);                    s_mjxh[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); s_mjxh[5] = static_cast<T>(2)*(yz-wx);
-                s_mjxh[6] = static_cast<T>(2)*(xz-wy);                    s_mjxh[7] = static_cast<T>(2)*(yz+wx);                    s_mjxh[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                grid_base_rotation<T>(&s_q[3], s_mjxh);
                 s_mjxh[9] = s_qd[0]; s_mjxh[10] = s_qd[1]; s_mjxh[11] = s_qd[2];
                 s_mjxh[12] = s_qd[3]; s_mjxh[13] = s_qd[4]; s_mjxh[14] = s_qd[5];
                 s_mjxh[15] = s_qdd[0]; s_mjxh[16] = s_qdd[1]; s_mjxh[17] = s_qdd[2];
@@ -32579,12 +31959,7 @@ namespace grid {
             // precompute shared helpers (R + base source vectors) into dead crba scratch
             T *s_mjxh = s_temp + 324;
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                s_mjxh[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); s_mjxh[1] = static_cast<T>(2)*(xy-wz);                    s_mjxh[2] = static_cast<T>(2)*(xz+wy);
-                s_mjxh[3] = static_cast<T>(2)*(xy+wz);                    s_mjxh[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); s_mjxh[5] = static_cast<T>(2)*(yz-wx);
-                s_mjxh[6] = static_cast<T>(2)*(xz-wy);                    s_mjxh[7] = static_cast<T>(2)*(yz+wx);                    s_mjxh[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                grid_base_rotation<T>(&s_q[3], s_mjxh);
                 s_mjxh[9] = s_qd[0]; s_mjxh[10] = s_qd[1]; s_mjxh[11] = s_qd[2];
                 s_mjxh[12] = s_qd[3]; s_mjxh[13] = s_qd[4]; s_mjxh[14] = s_qd[5];
                 s_mjxh[15] = static_cast<T>(0); s_mjxh[16] = static_cast<T>(0); s_mjxh[17] = static_cast<T>(0);
@@ -33053,13 +32428,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -33140,13 +32509,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -33224,13 +32587,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -33836,13 +33193,7 @@ namespace grid {
             // === mjx output convention (floating-base fd-gradient) ===
             // Phase A: df_dq column_reframe (cols 0:3) + base couplings (cols 3+a), per row
             for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 18; r += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -33871,13 +33222,7 @@ namespace grid {
             __syncthreads();
             // Phase B: df_dq base_rotate_rows rows 0:3 <- R . rows, per col
             for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 18; c += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -33892,13 +33237,7 @@ namespace grid {
             // Phase C: df_dq accel output-map terms (base-linear rows of cols 3+a), AFTER row-rotate
             //   += R@(e_a x (qdd_lin + omega x v_lin)) + R@(omega x (-(e_a x v_lin))), per a
             for(int a = threadIdx.x + threadIdx.y*blockDim.x; a < 3; a += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -33925,13 +33264,7 @@ namespace grid {
             __syncthreads();
             // Phase D: df_dqd column_reframe cols 0:3 <- cols . R^T, per row
             for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 18; r += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -33945,13 +33278,7 @@ namespace grid {
             __syncthreads();
             // Phase E: df_dqd base_rotate_rows rows 0:3 <- R . rows, per col
             for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 18; c += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -33966,13 +33293,7 @@ namespace grid {
             // Phase F: df_dqd out_vd accel-map terms (base-linear rows), AFTER row-rotate
             //   col 0+a += R@(omega x R^T e_a) ; col 3+a += R@(e_a x v_lin), per a
             for(int a = threadIdx.x + threadIdx.y*blockDim.x; a < 3; a += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 const T *s_M = s_Minv;
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3] = {s_qd[3], s_qd[4], s_qd[5]};
@@ -34789,13 +34110,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -34873,13 +34188,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -34947,13 +34256,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -37118,13 +36421,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: congruence G s_M G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_M[0 + 18*c], m1 = s_M[1 + 18*c], m2 = s_M[2 + 18*c]; s_M[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_M[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_M[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_M[r + 18*0], m1 = s_M[r + 18*1], m2 = s_M[r + 18*2]; s_M[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_M[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_M[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -37191,13 +36488,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: congruence G s_M G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_M[0 + 18*c], m1 = s_M[1 + 18*c], m2 = s_M[2 + 18*c]; s_M[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_M[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_M[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_M[r + 18*0], m1 = s_M[r + 18*1], m2 = s_M[r + 18*2]; s_M[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_M[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_M[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -37260,13 +36551,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: congruence G s_M G^T (base rows then base cols)
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         for (int c = 0; c < 18; c++) { T m0 = s_M[0 + 18*c], m1 = s_M[1 + 18*c], m2 = s_M[2 + 18*c]; s_M[0 + 18*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_M[1 + 18*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_M[2 + 18*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                         for (int r = 0; r < 18; r++) { T m0 = s_M[r + 18*0], m1 = s_M[r + 18*1], m2 = s_M[r + 18*2]; s_M[r + 18*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_M[r + 18*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_M[r + 18*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
                     }
@@ -37917,13 +37202,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -37942,13 +37221,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: velocity step qd_{k+1} = qvel + dt qacc (world-linear, omega x v), base position global add, quaternion wxyz
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_x_kp1[19+0] + (dt)*(wy_*vz_ - wz_*vy_);
@@ -38031,13 +37304,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -38056,13 +37323,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: velocity step qd_{k+1} = qvel + dt qacc (world-linear, omega x v), base position global add, quaternion wxyz
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_x_kp1[19+0] + (dt)*(wy_*vz_ - wz_*vy_);
@@ -38145,13 +37406,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -38170,13 +37425,7 @@ namespace grid {
                 if constexpr (MUJOCO_OUTPUT) {
                     // mjx output: velocity step qd_{k+1} = qvel + dt qacc (world-linear, omega x v), base position global add, quaternion wxyz
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                         T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                         T c0 = s_x_kp1[19+0] + (dt)*(wy_*vz_ - wz_*vy_);
@@ -38554,13 +37803,7 @@ namespace grid {
                 const bool si_mjx = (IT == IntegratorType::SEMI_IMPLICIT_EULER);
                 // Phase 1: per (half, output-column) reframe (reads s_dAB, writes s_mjx)
                 for(int gi = threadIdx.x + threadIdx.y*blockDim.x; gi < 108; gi += blockDim.x*blockDim.y){
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                     T ulin[3] = {s_u[0],  s_u[1],  s_u[2]};
                     // qd_{k+1,pin}[lin] = (qd + dt*qdd)[lin] (for the g_dot velocity-output term)
@@ -39259,13 +38502,7 @@ namespace grid {
                 const bool si_mjx = (IT == IntegratorType::SEMI_IMPLICIT_EULER);
                 // Phase 1: per (half, output-column) reframe (reads s_dAB, writes s_mjx)
                 for(int gi = threadIdx.x + threadIdx.y*blockDim.x; gi < 108; gi += blockDim.x*blockDim.y){
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                     T ulin[3] = {s_u[0],  s_u[1],  s_u[2]};
                     // qd_{k+1,pin}[lin] = (qd + dt*qdd)[lin] (for the g_dot velocity-output term)
@@ -39349,13 +38586,7 @@ namespace grid {
                 __syncthreads();
                 // mjx output: velocity step qd_{k+1} = qvel + dt qacc (world-linear, omega x v), base position global add, quaternion wxyz
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                     T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                     T c0 = s_x_kp1[19+0] + (dt)*(wy_*vz_ - wz_*vy_);
@@ -39908,13 +39139,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40034,13 +39259,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40160,13 +39379,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40318,13 +39531,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40427,13 +39634,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40536,13 +39737,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40772,13 +39967,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -40906,13 +40095,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -41040,13 +40223,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -41207,13 +40384,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -41325,13 +40496,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -41443,13 +40608,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -42175,13 +41334,7 @@ namespace grid {
             __syncthreads();
             // --- GLASS all-k sensitivity precompute (tensor_vec_contract, replaces 6*nv^3 unroll) ---
             {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3]   = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3]   = {s_qd[3], s_qd[4], s_qd[5]};
                 T qdd_lin[3] = {s_qdd[0], s_qdd[1], s_qdd[2]};
@@ -42243,13 +41396,7 @@ namespace grid {
             // === block-parallel slab assembly (whole block cooperates per k) ===
             #pragma unroll 1
             for (int k = 0; k < 18; k++) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3]   = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3]   = {s_qd[3], s_qd[4], s_qd[5]};
                 T qdd_lin[3] = {s_qdd[0], s_qdd[1], s_qdd[2]};
@@ -42643,13 +41790,7 @@ namespace grid {
             // --- dM_dq (block3) closed form, BLOCK-PARALLEL: Step1 reframe, Step2 congruence, Step3 frame ---
             #pragma unroll 1
             for (int k = 0; k < 18; k++) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3]   = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3]   = {s_qd[3], s_qd[4], s_qd[5]};
                 T qdd_lin[3] = {s_qdd[0], s_qdd[1], s_qdd[2]};
@@ -42697,13 +41838,7 @@ namespace grid {
             // Step3: base-rot frame term added to columns kk=3+c
             #pragma unroll 1
             for (int c = 0; c < 3; c++) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3]   = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3]   = {s_qd[3], s_qd[4], s_qd[5]};
                 T qdd_lin[3] = {s_qdd[0], s_qdd[1], s_qdd[2]};
@@ -42835,13 +41970,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -42900,13 +42029,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -42963,13 +42086,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -43058,13 +42175,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -43133,13 +42244,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -43206,13 +42311,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -43646,13 +42745,7 @@ namespace grid {
             // === block-parallel per-k assembly (whole block cooperates per k) ===
             #pragma unroll 1
             for (int k = 0; k < 18; k++) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3]   = {s_qd[0], s_qd[1], s_qd[2]};
                 T omega[3]   = {s_qd[3], s_qd[4], s_qd[5]};
                 T u_lin[3]   = {s_u[0], s_u[1], s_u[2]};
@@ -44138,13 +43231,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44225,13 +43312,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44310,13 +43391,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44405,13 +43480,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44484,13 +43553,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44561,13 +43624,7 @@ namespace grid {
                     if (threadIdx.x == 0 && threadIdx.y == 0) {
                         T qw_in = s_q[3];
                         s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                        T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                        T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                        T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                        T R[9];
-                        R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                        R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                        R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                        T R[9]; grid_base_rotation<T>(&s_q[3], R);
                         T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                         s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                         s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -44721,9 +43778,7 @@ namespace grid {
         }
         __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
-            double w_d[6]; for (int m = 0; m < 6; ++m) w_d[m] = static_cast<double>(s_w[m]);
-            double dIv_d[36]; grid_dIntegrate_v_block<double>(w_d, dIv_d);
-            for (int m = 0; m < 36; ++m) s_dInt_v[m] = static_cast<T>(dIv_d[m]);
+            grid_dIntegrate_v_block<T>(s_w, s_dInt_v);
             grid_d2Integrate_block<T, true >(s_w, s_d2Int_qv);
             grid_d2Integrate_block<T, false>(s_w, s_d2Int_vv);
         }
@@ -44794,9 +43849,7 @@ namespace grid {
             T *s_dInt_q  = &d_mjx_ws[104976];          // 6x6 dIntegrate_q
             T *s_dAB_pin = &d_mjx_ws[105012];      // pin dAB [A|B] col-major (2nv*3nv)
             if(threadIdx.x == 0 && threadIdx.y == 0){
-                double wq_d[6]; for (int m = 0; m < 6; ++m) wq_d[m] = static_cast<double>(s_w[m]);
-                double dIq_d[36]; grid_dIntegrate_q_block<double>(wq_d, dIq_d);
-                for (int m = 0; m < 36; ++m) s_dInt_q[m] = static_cast<T>(dIq_d[m]);
+                grid_dIntegrate_q_block<T>(s_w, s_dInt_q);
             }
             __syncthreads();
             // reconstruct the pin dAB = [A|B] (col-major) from the SE(3) + fd-grad blocks
@@ -44948,13 +44001,7 @@ namespace grid {
             __syncthreads();
             for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < 54; k += blockDim.x*blockDim.y){
                 const bool si_mjx = si;
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T v_lin[3] = {s_qd[0], s_qd[1], s_qd[2]};
                 T w_lin[3] = {s_qd[3], s_qd[4], s_qd[5]};
                 T u_lin[3] = {s_u[0],  s_u[1],  s_u[2]};
@@ -45610,13 +44657,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: column reframe (s_out + 3) G^{-1} (base-linear cols . R^T)
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     for (int r = 0; r < 3; r++) { T j0 = (s_out + 3)[r + 3*0], j1 = (s_out + 3)[r + 3*1], j2 = (s_out + 3)[r + 3*2]; (s_out + 3)[r + 3*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_out + 3)[r + 3*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_out + 3)[r + 3*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                 }
                 __syncthreads();
@@ -45718,13 +44759,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: column reframe (s_out + 3) G^{-1} (base-linear cols . R^T)
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     for (int r = 0; r < 3; r++) { T j0 = (s_out + 3)[r + 3*0], j1 = (s_out + 3)[r + 3*1], j2 = (s_out + 3)[r + 3*2]; (s_out + 3)[r + 3*0] = j0*R[0] + j1*R[1] + j2*R[2]; (s_out + 3)[r + 3*1] = j0*R[3] + j1*R[4] + j2*R[5]; (s_out + 3)[r + 3*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                 }
                 __syncthreads();
@@ -45957,13 +44992,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -45985,13 +45014,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                 }
                 __syncthreads();
@@ -46079,13 +45102,7 @@ namespace grid {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q[3];
                     s_q[3] = s_q[4]; s_q[4] = s_q[5]; s_q[5] = s_q[6]; s_q[6] = qw_in;
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     T vlx = s_qd[0], vly = s_qd[1], vlz = s_qd[2];
                     s_qd[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_qd[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -46107,13 +45124,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: column reframe s_out G^{-1} (base-linear cols . R^T)
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     for (int r = 0; r < 6; r++) { T j0 = s_out[r + 6*0], j1 = s_out[r + 6*1], j2 = s_out[r + 6*2]; s_out[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_out[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_out[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                 }
                 __syncthreads();
@@ -46433,13 +45444,7 @@ namespace grid {
             if constexpr (MUJOCO_OUTPUT) {
                 // mjx output: column reframe s_frame_jacobian G^{-1} (base-linear cols . R^T)
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
-                    T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q[3], R);
                     for (int r = 0; r < 6; r++) { T j0 = s_frame_jacobian[r + 6*0], j1 = s_frame_jacobian[r + 6*1], j2 = s_frame_jacobian[r + 6*2]; s_frame_jacobian[r + 6*0] = j0*R[0] + j1*R[1] + j2*R[2]; s_frame_jacobian[r + 6*1] = j0*R[3] + j1*R[4] + j2*R[5]; s_frame_jacobian[r + 6*2] = j0*R[6] + j1*R[7] + j2*R[8]; }
                 }
                 __syncthreads();
@@ -48774,6 +47779,8 @@ namespace grid {
  *
  */
 namespace grid_plant {
+    using grid::grid_quat_norm2;
+    using grid::grid_base_rotation;
     /**
      * quadratic_state_cost: value = 1/2 * sum_i s_Q[i] * (s_x[i] - s_x_des[i])^2
      *
@@ -48824,13 +47831,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: base-linear rows of (s_grad + 19) <- R * rows
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T b0 = (s_grad + 19)[0], b1 = (s_grad + 19)[1], b2 = (s_grad + 19)[2];
                 (s_grad + 19)[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
                 (s_grad + 19)[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
@@ -48863,13 +47864,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: congruence G s_hess G^T on the base block at offset 19 (rows then cols)
             for(int c = threadIdx.x + threadIdx.y*blockDim.x; c < 37; c += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T m0 = s_hess[19 + 37*c], m1 = s_hess[20 + 37*c], m2 = s_hess[21 + 37*c];
                 s_hess[19 + 37*c] = R[0]*m0 + R[1]*m1 + R[2]*m2;
                 s_hess[20 + 37*c] = R[3]*m0 + R[4]*m1 + R[5]*m2;
@@ -48877,13 +47872,7 @@ namespace grid_plant {
             }
             __syncthreads();
             for(int r = threadIdx.x + threadIdx.y*blockDim.x; r < 37; r += blockDim.x*blockDim.y){
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T m0 = s_hess[r + 37*19], m1 = s_hess[r + 37*20], m2 = s_hess[r + 37*21];
                 s_hess[r + 37*19] = m0*R[0] + m1*R[1] + m2*R[2];
                 s_hess[r + 37*20] = m0*R[3] + m1*R[4] + m2*R[5];
@@ -49417,13 +48406,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: velocity step qd_{k+1} = qvel + dt qacc (world-linear, omega x v), base position global add, quaternion wxyz
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T wx_ = s_qd[3], wy_ = s_qd[4], wz_ = s_qd[5];
                 T vx_ = s_qd[0], vy_ = s_qd[1], vz_ = s_qd[2];
                 T c0 = s_x_kp1[19+0] + (dt)*(wy_*vz_ - wz_*vy_);
@@ -49797,13 +48780,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: base-linear rows of s_grad <- R * rows
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T b0 = s_grad[0], b1 = s_grad[1], b2 = s_grad[2];
                 s_grad[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
                 s_grad[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
@@ -49925,13 +48902,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: congruence G s_hess G^T (base rows then base cols)
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 for (int c = 0; c < 37; c++) { T m0 = s_hess[0 + 37*c], m1 = s_hess[1 + 37*c], m2 = s_hess[2 + 37*c]; s_hess[0 + 37*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_hess[1 + 37*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_hess[2 + 37*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                 for (int r = 0; r < 37; r++) { T m0 = s_hess[r + 37*0], m1 = s_hess[r + 37*1], m2 = s_hess[r + 37*2]; s_hess[r + 37*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_hess[r + 37*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_hess[r + 37*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
             }
@@ -51273,13 +50244,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: base-linear rows of s_grad <- R * rows
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 T b0 = s_grad[0], b1 = s_grad[1], b2 = s_grad[2];
                 s_grad[0] = R[0]*b0 + R[1]*b1 + R[2]*b2;
                 s_grad[1] = R[3]*b0 + R[4]*b1 + R[5]*b2;
@@ -51353,13 +50318,7 @@ namespace grid_plant {
         if constexpr (MUJOCO_OUTPUT) {
             // mjx output: congruence G s_hess G^T (base rows then base cols)
             if (threadIdx.x == 0 && threadIdx.y == 0) {
-                T qx = s_q[3], qy = s_q[4], qz = s_q[5], qw = s_q[6];
-                T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                T R[9];
-                R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                T R[9]; grid_base_rotation<T>(&s_q[3], R);
                 for (int c = 0; c < 37; c++) { T m0 = s_hess[0 + 37*c], m1 = s_hess[1 + 37*c], m2 = s_hess[2 + 37*c]; s_hess[0 + 37*c] = R[0]*m0 + R[1]*m1 + R[2]*m2; s_hess[1 + 37*c] = R[3]*m0 + R[4]*m1 + R[5]*m2; s_hess[2 + 37*c] = R[6]*m0 + R[7]*m1 + R[8]*m2; }
                 for (int r = 0; r < 37; r++) { T m0 = s_hess[r + 37*0], m1 = s_hess[r + 37*1], m2 = s_hess[r + 37*2]; s_hess[r + 37*0] = m0*R[0] + m1*R[1] + m2*R[2]; s_hess[r + 37*1] = m0*R[3] + m1*R[4] + m2*R[5]; s_hess[r + 37*2] = m0*R[6] + m1*R[7] + m2*R[8]; }
             }
@@ -51398,13 +50357,7 @@ namespace grid_plant {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_q_xyzw[3];
                     s_q_xyzw[3] = s_q_xyzw[4]; s_q_xyzw[4] = s_q_xyzw[5]; s_q_xyzw[5] = s_q_xyzw[6]; s_q_xyzw[6] = qw_in;
-                    T qx = s_q_xyzw[3], qy = s_q_xyzw[4], qz = s_q_xyzw[5], qw = s_q_xyzw[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_q_xyzw[3], R);
                     T vlx = s_x_use[19], vly = s_x_use[20], vlz = s_x_use[21];
                     s_x_use[19] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     s_x_use[20] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -51554,13 +50507,7 @@ namespace grid_plant {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_x_mjx[3];
                     s_x_mjx[3] = s_x_mjx[4]; s_x_mjx[4] = s_x_mjx[5]; s_x_mjx[5] = s_x_mjx[6]; s_x_mjx[6] = qw_in;
-                    T qx = s_x_mjx[3], qy = s_x_mjx[4], qz = s_x_mjx[5], qw = s_x_mjx[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_x_mjx[3], R);
                     T vlx = (s_x_mjx + 19)[0], vly = (s_x_mjx + 19)[1], vlz = (s_x_mjx + 19)[2];
                     (s_x_mjx + 19)[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     (s_x_mjx + 19)[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -51685,13 +50632,7 @@ namespace grid_plant {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_x[3];
                     s_x[3] = s_x[4]; s_x[4] = s_x[5]; s_x[5] = s_x[6]; s_x[6] = qw_in;
-                    T qx = s_x[3], qy = s_x[4], qz = s_x[5], qw = s_x[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_x[3], R);
                     T vlx = (s_x + 19)[0], vly = (s_x + 19)[1], vlz = (s_x + 19)[2];
                     (s_x + 19)[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     (s_x + 19)[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -51898,13 +50839,7 @@ namespace grid_plant {
                 if (threadIdx.x == 0 && threadIdx.y == 0) {
                     T qw_in = s_x[3];
                     s_x[3] = s_x[4]; s_x[4] = s_x[5]; s_x[5] = s_x[6]; s_x[6] = qw_in;
-                    T qx = s_x[3], qy = s_x[4], qz = s_x[5], qw = s_x[6];
-                    T xx = qx*qx, yy = qy*qy, zz = qz*qz;
-                    T xy = qx*qy, xz = qx*qz, yz = qy*qz, wx = qw*qx, wy = qw*qy, wz = qw*qz;
-                    T R[9];
-                    R[0] = static_cast<T>(1) - static_cast<T>(2)*(yy+zz); R[1] = static_cast<T>(2)*(xy-wz);                    R[2] = static_cast<T>(2)*(xz+wy);
-                    R[3] = static_cast<T>(2)*(xy+wz);                    R[4] = static_cast<T>(1) - static_cast<T>(2)*(xx+zz); R[5] = static_cast<T>(2)*(yz-wx);
-                    R[6] = static_cast<T>(2)*(xz-wy);                    R[7] = static_cast<T>(2)*(yz+wx);                    R[8] = static_cast<T>(1) - static_cast<T>(2)*(xx+yy);
+                    T R[9]; grid_base_rotation<T>(&s_x[3], R);
                     T vlx = (s_x + 19)[0], vly = (s_x + 19)[1], vlz = (s_x + 19)[2];
                     (s_x + 19)[0] = R[0]*vlx + R[3]*vly + R[6]*vlz;
                     (s_x + 19)[1] = R[1]*vlx + R[4]*vly + R[7]*vlz;
@@ -52592,6 +51527,7 @@ inline constexpr int nq = 19, nv = 18, nb = 13, nj = 13;
 inline constexpr int frame_count = 43;
 inline constexpr bool runtime_transform = false;
 inline constexpr char descriptor_id[] = "20e81227a9afb1823964179c555114951623b5f2d1ba42f8ad2204ccfa795e5a";
+inline constexpr bool planar_base = false;
 inline constexpr char descriptor_json[] = "{\042schema_version\042:1,\042model_name\042:\042go2_description\042,\042descriptor_id\042:\04220e81227a9afb1823964179c555114951623b5f2d1ba42f8ad2204ccfa795e5a\042,\042nq\042:19,\042nv\042:18,\042nb\042:13,\042nj\042:13,\042floating_base\042:true,\042runtime_transform\042:false,\042coordinate_convention\042:\042grid-xyzw-local-v1\042,\042joints\042:[{\042id\042:0,\042name\042:\042floating_base_joint\042,\042kind\042:\042floating\042,\042parent_body\042:-1,\042child_body\042:0,\042local_nq\042:7,\042local_nv\042:6,\042q_start\042:0,\042v_start\042:0,\042owns_coordinates\042:true,\042axis\042:null,\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:null,\042velocity\042:null,\042effort\042:null}},{\042id\042:1,\042name\042:\042FL_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:1,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:7,\042v_start\042:6,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.1934],[0.0,1.0,-0.0,0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:2,\042name\042:\042FL_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:1,\042child_body\042:2,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:8,\042v_start\042:7,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.5708,3.4907],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:3,\042name\042:\042FL_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:2,\042child_body\042:3,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:9,\042v_start\042:8,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:4,\042name\042:\042FR_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:4,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:10,\042v_start\042:9,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.1934],[0.0,1.0,-0.0,-0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:5,\042name\042:\042FR_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:4,\042child_body\042:5,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:11,\042v_start\042:10,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.5708,3.4907],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:6,\042name\042:\042FR_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:5,\042child_body\042:6,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:12,\042v_start\042:11,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:7,\042name\042:\042RL_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:7,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:13,\042v_start\042:12,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,-0.1934],[0.0,1.0,-0.0,0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:8,\042name\042:\042RL_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:7,\042child_body\042:8,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:14,\042v_start\042:13,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-0.5236,4.5379],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:9,\042name\042:\042RL_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:8,\042child_body\042:9,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:15,\042v_start\042:14,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}},{\042id\042:10,\042name\042:\042RR_hip_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:10,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:16,\042v_start\042:15,\042owns_coordinates\042:true,\042axis\042:[1.0,0.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,-0.1934],[0.0,1.0,-0.0,-0.0465],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.0472,1.0472],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:11,\042name\042:\042RR_thigh_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:10,\042child_body\042:11,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:17,\042v_start\042:16,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.0955],[-0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-0.5236,4.5379],\042velocity\042:30.1,\042effort\042:23.7}},{\042id\042:12,\042name\042:\042RR_calf_joint\042,\042kind\042:\042revolute\042,\042parent_body\042:11,\042child_body\042:12,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:18,\042v_start\042:17,\042owns_coordinates\042:true,\042axis\042:[0.0,1.0,0.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[-0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.7227,-0.83776],\042velocity\042:15.7,\042effort\042:45.43}}],\042bodies\042:[{\042id\042:0,\042name\042:\042base\042,\042parent_body\042:-1,\042joint_id\042:0},{\042id\042:1,\042name\042:\042FL_hip\042,\042parent_body\042:0,\042joint_id\042:1},{\042id\042:2,\042name\042:\042FL_thigh\042,\042parent_body\042:1,\042joint_id\042:2},{\042id\042:3,\042name\042:\042FL_calf\042,\042parent_body\042:2,\042joint_id\042:3},{\042id\042:4,\042name\042:\042FR_hip\042,\042parent_body\042:0,\042joint_id\042:4},{\042id\042:5,\042name\042:\042FR_thigh\042,\042parent_body\042:4,\042joint_id\042:5},{\042id\042:6,\042name\042:\042FR_calf\042,\042parent_body\042:5,\042joint_id\042:6},{\042id\042:7,\042name\042:\042RL_hip\042,\042parent_body\042:0,\042joint_id\042:7},{\042id\042:8,\042name\042:\042RL_thigh\042,\042parent_body\042:7,\042joint_id\042:8},{\042id\042:9,\042name\042:\042RL_calf\042,\042parent_body\042:8,\042joint_id\042:9},{\042id\042:10,\042name\042:\042RR_hip\042,\042parent_body\042:0,\042joint_id\042:10},{\042id\042:11,\042name\042:\042RR_thigh\042,\042parent_body\042:10,\042joint_id\042:11},{\042id\042:12,\042name\042:\042RR_calf\042,\042parent_body\042:11,\042joint_id\042:12}],\042configuration_layout\042:[{\042kind\042:\042floating\042,\042q_start\042:0,\042v_start\042:0,\042nq\042:7,\042nv\042:6},{\042kind\042:\042euclidean\042,\042q_start\042:7,\042v_start\042:6,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:8,\042v_start\042:7,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:9,\042v_start\042:8,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:10,\042v_start\042:9,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:11,\042v_start\042:10,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:12,\042v_start\042:11,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:13,\042v_start\042:12,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:14,\042v_start\042:13,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:15,\042v_start\042:14,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:16,\042v_start\042:15,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:17,\042v_start\042:16,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:18,\042v_start\042:17,\042nq\042:1,\042nv\042:1}],\042frames\042:[{\042id\042:0,\042name\042:\042root\042,\042kind\042:\042root\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:1,\042name\042:\042floating_base_joint\042,\042kind\042:\042joint\042,\042attached_body\042:0,\042joint_id\042:0,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:2,\042name\042:\042FL_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:1,\042joint_id\042:1,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:3,\042name\042:\042FL_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:2,\042joint_id\042:2,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:4,\042name\042:\042FL_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:3,\042joint_id\042:3,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:5,\042name\042:\042FR_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:4,\042joint_id\042:4,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:6,\042name\042:\042FR_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:5,\042joint_id\042:5,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:7,\042name\042:\042FR_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:6,\042joint_id\042:6,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:8,\042name\042:\042RL_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:7,\042joint_id\042:7,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:9,\042name\042:\042RL_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:8,\042joint_id\042:8,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:10,\042name\042:\042RL_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:9,\042joint_id\042:9,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:11,\042name\042:\042RR_hip_joint\042,\042kind\042:\042joint\042,\042attached_body\042:10,\042joint_id\042:10,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:12,\042name\042:\042RR_thigh_joint\042,\042kind\042:\042joint\042,\042attached_body\042:11,\042joint_id\042:11,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:13,\042name\042:\042RR_calf_joint\042,\042kind\042:\042joint\042,\042attached_body\042:12,\042joint_id\042:12,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:14,\042name\042:\042radar_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[-0.9655122329338992,0.0,0.2603576925212619,0.28945],[0.0,1.0,0.0,0.0],[-0.2603576925212619,0.0,-0.9655122329338992,-0.046825],[0.0,0.0,0.0,1.0]]},{\042id\042:15,\042name\042:\042imu_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.02557],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.04232],[0.0,0.0,0.0,1.0]]},{\042id\042:16,\042name\042:\042front_camera_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.32715],[0.0,1.0,0.0,-3e-05],[0.0,0.0,1.0,0.04297],[0.0,0.0,0.0,1.0]]},{\042id\042:17,\042name\042:\042RR_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.11215],[0.0,1.0,0.0,-0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:18,\042name\042:\042RR_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:10,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:19,\042name\042:\042RR_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:11,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:20,\042name\042:\042RR_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:21,\042name\042:\042RR_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:22,\042name\042:\042RR_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:12,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:23,\042name\042:\042RL_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.11215],[0.0,1.0,0.0,0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:24,\042name\042:\042RL_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:7,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:25,\042name\042:\042RL_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:8,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:26,\042name\042:\042RL_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:27,\042name\042:\042RL_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:28,\042name\042:\042RL_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:9,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:29,\042name\042:\042Head_lower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.293],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.060000000000000005],[0.0,0.0,0.0,1.0]]},{\042id\042:30,\042name\042:\042Head_upper_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.285],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.01],[0.0,0.0,0.0,1.0]]},{\042id\042:31,\042name\042:\042FR_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.11215],[0.0,1.0,0.0,-0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:32,\042name\042:\042FR_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:4,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:33,\042name\042:\042FR_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:5,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:34,\042name\042:\042FR_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:35,\042name\042:\042FR_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:36,\042name\042:\042FR_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]},{\042id\042:37,\042name\042:\042FL_hip_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.11215],[0.0,1.0,0.0,0.04675],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:38,\042name\042:\042FL_thigh_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.00015],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:39,\042name\042:\042FL_calf_rotor_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:2,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,-0.03235],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:40,\042name\042:\042FL_foot_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,-0.213],[0.0,0.0,0.0,1.0]]},{\042id\042:41,\042name\042:\042FL_calflower1_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[0.862807070514761,0.0,0.5055333412048469,0.008013330625223204],[0.0,1.0,0.0,0.0],[-0.5055333412048469,0.0,0.862807070514761,-0.18745021872309187],[0.0,0.0,0.0,1.0]]},{\042id\042:42,\042name\042:\042FL_calflower_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[0.9987502603949663,0.0,0.04997916927067833,0.02],[0.0,1.0,0.0,0.0],[-0.04997916927067833,0.0,0.9987502603949663,-0.148],[0.0,0.0,0.0,1.0]]}]}";
 struct joint_record {
   int id, parent_body, child_body, q_start, v_start, local_nq, local_nv;
@@ -52759,17 +51695,17 @@ template<class T> __device__ __forceinline__ bool joint_transform(
   if (runtime_transform) return false;
   switch(joint_id) {
   case 0: {
-    out[0]=static_cast<T>(-2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-    out[1]=static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-    out[2]=static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[0]=static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+    out[1]=static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+    out[2]=static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
     out[3]=static_cast<T>(0);
-    out[4]=static_cast<T>(2.0*s_q[3]*s_q[4]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*s_q[5]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-    out[5]=static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[5], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
-    out[6]=static_cast<T>(2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
+    out[4]=static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[4]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), (static_cast<T>(-2.0))*(s_q[5]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+    out[5]=static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[5])*(s_q[5]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
+    out[6]=static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
     out[7]=static_cast<T>(0);
-    out[8]=static_cast<T>(2.0*s_q[3]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-    out[9]=static_cast<T>(-2.0*s_q[3]*s_q[6]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 2.0*s_q[4]*s_q[5]/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)));
-    out[10]=static_cast<T>(-2.0*pow(s_q[3], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) - 2.0*pow(s_q[4], 2)/(pow(s_q[3], 2) + pow(s_q[4], 2) + pow(s_q[5], 2) + pow(s_q[6], 2)) + 1.0);
+    out[8]=static_cast<T>(fma(static_cast<T>(2.0), s_q[3]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+    out[9]=static_cast<T>(fma(static_cast<T>(-2.0), s_q[3]*s_q[6]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(2.0)*(s_q[4]*s_q[5]/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])))));
+    out[10]=static_cast<T>(fma(static_cast<T>(-2.0), ((s_q[3])*(s_q[3]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), fma(static_cast<T>(-2.0), ((s_q[4])*(s_q[4]))/(grid_quat_norm2<T>(s_q[3], s_q[4], s_q[5], s_q[6])), static_cast<T>(1.0))));
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(s_q[0]);
     out[13]=static_cast<T>(s_q[1]);
@@ -52793,7 +51729,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(0.19339999999999999);
+    out[12]=static_cast<T>(0.1934);
     out[13]=static_cast<T>(0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -52816,7 +51752,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(0.095500000000000002);
+    out[13]=static_cast<T>(0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -52839,7 +51775,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -52859,7 +51795,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(0.19339999999999999);
+    out[12]=static_cast<T>(0.1934);
     out[13]=static_cast<T>(-0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -52882,7 +51818,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(-0.095500000000000002);
+    out[13]=static_cast<T>(-0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -52905,7 +51841,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -52925,7 +51861,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(-0.19339999999999999);
+    out[12]=static_cast<T>(-0.1934);
     out[13]=static_cast<T>(0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -52948,7 +51884,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(0.095500000000000002);
+    out[13]=static_cast<T>(0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -52971,7 +51907,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -52991,7 +51927,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(-0.19339999999999999);
+    out[12]=static_cast<T>(-0.1934);
     out[13]=static_cast<T>(-0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -53014,7 +51950,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(-0.095500000000000002);
+    out[13]=static_cast<T>(-0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -53037,7 +51973,7 @@ template<class T> __device__ __forceinline__ bool joint_transform(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -53065,7 +52001,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(0.19339999999999999);
+    out[12]=static_cast<T>(0.1934);
     out[13]=static_cast<T>(0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -53088,7 +52024,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(0.095500000000000002);
+    out[13]=static_cast<T>(0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -53111,7 +52047,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -53131,7 +52067,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(0.19339999999999999);
+    out[12]=static_cast<T>(0.1934);
     out[13]=static_cast<T>(-0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -53154,7 +52090,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(-0.095500000000000002);
+    out[13]=static_cast<T>(-0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -53177,7 +52113,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -53197,7 +52133,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(-0.19339999999999999);
+    out[12]=static_cast<T>(-0.1934);
     out[13]=static_cast<T>(0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -53220,7 +52156,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(0.095500000000000002);
+    out[13]=static_cast<T>(0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -53243,7 +52179,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -53263,7 +52199,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[9]=static_cast<T>(-s);
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
-    out[12]=static_cast<T>(-0.19339999999999999);
+    out[12]=static_cast<T>(-0.1934);
     out[13]=static_cast<T>(-0.0465);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
@@ -53286,7 +52222,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[10]=static_cast<T>(c);
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
-    out[13]=static_cast<T>(-0.095500000000000002);
+    out[13]=static_cast<T>(-0.0955);
     out[14]=static_cast<T>(0);
     out[15]=static_cast<T>(1.0);
     break;
@@ -53309,7 +52245,7 @@ template<class T> __device__ __forceinline__ bool joint_transform_scalar(
     out[11]=static_cast<T>(0);
     out[12]=static_cast<T>(0);
     out[13]=static_cast<T>(0);
-    out[14]=static_cast<T>(-0.21299999999999999);
+    out[14]=static_cast<T>(-0.213);
     out[15]=static_cast<T>(1.0);
     break;
   }
@@ -53345,44 +52281,43 @@ __host__ __device__ constexpr bool coordinate_block(int id, coordinate_block_rec
 namespace configuration_detail {
 // Reference-first differences; independent quaternion sign representatives.
 template<class T> __device__ inline void block_difference(
-    const model::coordinate_block_record &b, const T *from, const T *to, double *e) {
-    if(b.kind==model::coordinate_kind::euclidean) { e[0]=double(to[b.q_start])-double(from[b.q_start]); return; }
-    double a[7],z[7];
-    for(int k=0;k<b.nq;++k) { a[k]=double(from[b.q_start+k]); z[k]=double(to[b.q_start+k]); }
+    const model::coordinate_block_record &b, const T *from, const T *to, T *e) {
+    if(b.kind==model::coordinate_kind::euclidean) { e[0]=to[b.q_start]-from[b.q_start]; return; }
+    const T *a=from+b.q_start, *z=to+b.q_start;
     if(b.kind==model::coordinate_kind::floating) {
-        glass::thread::se3_difference<double>(a,z,e,e+3);
+        glass::thread::se3_difference<T>(a,z,e,e+3);
     } else {
-        double conjugate[4],relative[4];
-        glass::thread::quat_conj<double>(a,conjugate);
-        glass::thread::quat_mul<double>(conjugate,z,relative);
-        glass::thread::quat_log<double>(relative,e);
+        T conjugate[4],relative[4];
+        glass::thread::quat_conj<T>(a,conjugate);
+        glass::thread::quat_mul<T>(conjugate,z,relative);
+        glass::thread::quat_log<T>(relative,e);
     }
 }
 // One nonlinear evaluation body prevents caller-dependent FMA contraction
 // from making dense and compact representations disagree in their last bits.
 template<class T> __device__ __noinline__ void nonlinear_block_jacobians(
     const model::coordinate_block_record &b, const T *from, const T *to, T *J1, T *J2) {
-    double e[6]; block_difference(b,from,to,e);
+    T e[6]; block_difference(b,from,to,e);
     if(b.kind==model::coordinate_kind::spherical) {
-        double A[9],B[9];
-        glass::thread::so3_left_jacobian_inv<double>(e,A);
-        glass::thread::so3_right_jacobian_inv<double>(e,B);
-        for(int k=0;k<9;++k) { J1[k]=T(-A[k]); J2[k]=T(B[k]); }
+        T A[9],B[9];
+        glass::thread::so3_left_jacobian_inv<T>(e,A);
+        glass::thread::so3_right_jacobian_inv<T>(e,B);
+        for(int k=0;k<9;++k) { J1[k]=-A[k]; J2[k]=B[k]; }
         return;
     }
     // Invert the upper-triangular SE(3) Jr: [A,Q;0,A]^-1.
-    double A[9],Q[9],AQ[9],C[9],inverse[36],base[36];
-    glass::thread::so3_right_jacobian_inv<double>(e+3,A);
-    glass::thread::se3_Q_block<double>(e,e+3,Q);
-    glass::thread::gemm<double,3,3,3>(1.,A,Q,0.,AQ);
-    glass::thread::gemm<double,3,3,3>(-1.,AQ,A,0.,C);
+    T A[9],Q[9],AQ[9],C[9],inverse[36],base[36];
+    glass::thread::so3_right_jacobian_inv<T>(e+3,A);
+    glass::thread::se3_Q_block<T>(e,e+3,Q);
+    glass::thread::gemm<T,3,3,3>(T(1),A,Q,T(0),AQ);
+    glass::thread::gemm<T,3,3,3>(T(-1),AQ,A,T(0),C);
     for(int c=0;c<6;++c) for(int r=0;r<6;++r)
         inverse[c*6+r]=(r<3 && c<3)?A[c*3+r]:
-            ((r>=3 && c>=3)?A[(c-3)*3+r-3]:((r<3 && c>=3)?C[(c-3)*3+r]:0.));
-    glass::thread::se3_retract_jacobian_q<double>(e,e+3,base);
+            ((r>=3 && c>=3)?A[(c-3)*3+r-3]:((r<3 && c>=3)?C[(c-3)*3+r]:T(0)));
+    glass::thread::se3_retract_jacobian_q<T>(e,e+3,base);
     for(int c=0;c<6;++c) for(int r=0;r<6;++r) {
-        double v=0.; for(int k=0;k<6;++k) v-=inverse[k*6+r]*base[c*6+k];
-        J1[c*6+r]=T(v); J2[c*6+r]=T(inverse[c*6+r]);
+        T v=T(0); for(int k=0;k<6;++k) v-=inverse[k*6+r]*base[c*6+k];
+        J1[c*6+r]=v; J2[c*6+r]=inverse[c*6+r];
     }
 }
 template<class T> __device__ inline void block_jacobians(
@@ -53405,8 +52340,8 @@ template<class T> __device__ inline void configuration_difference(
     const T *from, const T *to, T *delta) {
     for(int k=0;k<model::coordinate_block_count;++k) {
         model::coordinate_block_record b{}; model::coordinate_block(k,b);
-        double e[6]; configuration_detail::block_difference(b,from,to,e);
-        for(int i=0;i<b.nv;++i) delta[b.v_start+i]=T(e[i]);
+        T e[6]; configuration_detail::block_difference(b,from,to,e);
+        for(int i=0;i<b.nv;++i) delta[b.v_start+i]=e[i];
     }
 }
 template<class T> __device__ inline void configuration_difference_jacobians(

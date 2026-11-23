@@ -10408,7 +10408,7 @@ namespace grid {
         h_XImats[11] = static_cast<T>(0);
         h_XImats[12] = static_cast<T>(0);
         h_XImats[13] = static_cast<T>(0);
-        h_XImats[14] = static_cast<T>(1.00000000000000);
+        h_XImats[14] = static_cast<T>(1.0);
         h_XImats[15] = static_cast<T>(0);
         h_XImats[16] = static_cast<T>(0);
         h_XImats[17] = static_cast<T>(0);
@@ -10429,7 +10429,7 @@ namespace grid {
         h_XImats[32] = static_cast<T>(0);
         h_XImats[33] = static_cast<T>(0);
         h_XImats[34] = static_cast<T>(0);
-        h_XImats[35] = static_cast<T>(1.00000000000000);
+        h_XImats[35] = static_cast<T>(1.0);
         // X[1]
         h_XImats[36] = static_cast<T>(0);
         h_XImats[37] = static_cast<T>(0);
@@ -10439,7 +10439,7 @@ namespace grid {
         h_XImats[41] = static_cast<T>(0);
         h_XImats[42] = static_cast<T>(0);
         h_XImats[43] = static_cast<T>(0);
-        h_XImats[44] = static_cast<T>(1.00000000000000);
+        h_XImats[44] = static_cast<T>(1.0);
         h_XImats[45] = static_cast<T>(0);
         h_XImats[46] = static_cast<T>(0);
         h_XImats[47] = static_cast<T>(0);
@@ -10460,7 +10460,7 @@ namespace grid {
         h_XImats[62] = static_cast<T>(0);
         h_XImats[63] = static_cast<T>(0);
         h_XImats[64] = static_cast<T>(0);
-        h_XImats[65] = static_cast<T>(1.00000000000000);
+        h_XImats[65] = static_cast<T>(1.0);
         h_XImats[66] = static_cast<T>(0);
         h_XImats[67] = static_cast<T>(0);
         h_XImats[68] = static_cast<T>(0);
@@ -10476,7 +10476,7 @@ namespace grid {
         h_XImats[77] = static_cast<T>(0);
         h_XImats[78] = static_cast<T>(0);
         h_XImats[79] = static_cast<T>(0);
-        h_XImats[80] = static_cast<T>(-1.00000000000000);
+        h_XImats[80] = static_cast<T>(-1.0);
         h_XImats[81] = static_cast<T>(0);
         h_XImats[82] = static_cast<T>(0);
         h_XImats[83] = static_cast<T>(0);
@@ -10497,7 +10497,7 @@ namespace grid {
         h_XImats[98] = static_cast<T>(0);
         h_XImats[99] = static_cast<T>(0);
         h_XImats[100] = static_cast<T>(0);
-        h_XImats[101] = static_cast<T>(-1.00000000000000);
+        h_XImats[101] = static_cast<T>(-1.0);
         h_XImats[102] = static_cast<T>(0);
         h_XImats[103] = static_cast<T>(0);
         h_XImats[104] = static_cast<T>(0);
@@ -10513,7 +10513,7 @@ namespace grid {
         h_XImats[113] = static_cast<T>(0);
         h_XImats[114] = static_cast<T>(0);
         h_XImats[115] = static_cast<T>(0);
-        h_XImats[116] = static_cast<T>(-1.00000000000000);
+        h_XImats[116] = static_cast<T>(-1.0);
         h_XImats[117] = static_cast<T>(0);
         h_XImats[118] = static_cast<T>(0);
         h_XImats[119] = static_cast<T>(0);
@@ -10522,7 +10522,7 @@ namespace grid {
         h_XImats[122] = static_cast<T>(0);
         h_XImats[123] = static_cast<T>(0);
         h_XImats[124] = static_cast<T>(0);
-        h_XImats[125] = static_cast<T>(-0.0825000000000000);
+        h_XImats[125] = static_cast<T>(-0.0825);
         h_XImats[126] = static_cast<T>(0);
         h_XImats[127] = static_cast<T>(0);
         h_XImats[128] = static_cast<T>(0);
@@ -10534,7 +10534,7 @@ namespace grid {
         h_XImats[134] = static_cast<T>(0);
         h_XImats[135] = static_cast<T>(0);
         h_XImats[136] = static_cast<T>(0);
-        h_XImats[137] = static_cast<T>(-1.00000000000000);
+        h_XImats[137] = static_cast<T>(-1.0);
         h_XImats[138] = static_cast<T>(0);
         h_XImats[139] = static_cast<T>(0);
         h_XImats[140] = static_cast<T>(0);
@@ -10550,7 +10550,7 @@ namespace grid {
         h_XImats[149] = static_cast<T>(0);
         h_XImats[150] = static_cast<T>(0);
         h_XImats[151] = static_cast<T>(0);
-        h_XImats[152] = static_cast<T>(1.00000000000000);
+        h_XImats[152] = static_cast<T>(1.0);
         h_XImats[153] = static_cast<T>(0);
         h_XImats[154] = static_cast<T>(0);
         h_XImats[155] = static_cast<T>(0);
@@ -10559,7 +10559,7 @@ namespace grid {
         h_XImats[158] = static_cast<T>(0);
         h_XImats[159] = static_cast<T>(0);
         h_XImats[160] = static_cast<T>(0);
-        h_XImats[161] = static_cast<T>(-0.0825000000000000);
+        h_XImats[161] = static_cast<T>(-0.0825);
         h_XImats[162] = static_cast<T>(0);
         h_XImats[163] = static_cast<T>(0);
         h_XImats[164] = static_cast<T>(0);
@@ -10571,7 +10571,7 @@ namespace grid {
         h_XImats[170] = static_cast<T>(0);
         h_XImats[171] = static_cast<T>(0);
         h_XImats[172] = static_cast<T>(0);
-        h_XImats[173] = static_cast<T>(1.00000000000000);
+        h_XImats[173] = static_cast<T>(1.0);
         h_XImats[174] = static_cast<T>(0);
         h_XImats[175] = static_cast<T>(0);
         h_XImats[176] = static_cast<T>(0);
@@ -10587,7 +10587,7 @@ namespace grid {
         h_XImats[185] = static_cast<T>(0);
         h_XImats[186] = static_cast<T>(0);
         h_XImats[187] = static_cast<T>(0);
-        h_XImats[188] = static_cast<T>(-1.00000000000000);
+        h_XImats[188] = static_cast<T>(-1.0);
         h_XImats[189] = static_cast<T>(0);
         h_XImats[190] = static_cast<T>(0);
         h_XImats[191] = static_cast<T>(0);
@@ -10608,7 +10608,7 @@ namespace grid {
         h_XImats[206] = static_cast<T>(0);
         h_XImats[207] = static_cast<T>(0);
         h_XImats[208] = static_cast<T>(0);
-        h_XImats[209] = static_cast<T>(-1.00000000000000);
+        h_XImats[209] = static_cast<T>(-1.0);
         h_XImats[210] = static_cast<T>(0);
         h_XImats[211] = static_cast<T>(0);
         h_XImats[212] = static_cast<T>(0);
@@ -10624,7 +10624,7 @@ namespace grid {
         h_XImats[221] = static_cast<T>(0);
         h_XImats[222] = static_cast<T>(0);
         h_XImats[223] = static_cast<T>(0);
-        h_XImats[224] = static_cast<T>(-1.00000000000000);
+        h_XImats[224] = static_cast<T>(-1.0);
         h_XImats[225] = static_cast<T>(0);
         h_XImats[226] = static_cast<T>(0);
         h_XImats[227] = static_cast<T>(0);
@@ -10633,7 +10633,7 @@ namespace grid {
         h_XImats[230] = static_cast<T>(0);
         h_XImats[231] = static_cast<T>(0);
         h_XImats[232] = static_cast<T>(0);
-        h_XImats[233] = static_cast<T>(-0.0880000000000000);
+        h_XImats[233] = static_cast<T>(-0.088);
         h_XImats[234] = static_cast<T>(0);
         h_XImats[235] = static_cast<T>(0);
         h_XImats[236] = static_cast<T>(0);
@@ -10645,7 +10645,7 @@ namespace grid {
         h_XImats[242] = static_cast<T>(0);
         h_XImats[243] = static_cast<T>(0);
         h_XImats[244] = static_cast<T>(0);
-        h_XImats[245] = static_cast<T>(-1.00000000000000);
+        h_XImats[245] = static_cast<T>(-1.0);
         h_XImats[246] = static_cast<T>(0);
         h_XImats[247] = static_cast<T>(0);
         h_XImats[248] = static_cast<T>(0);
@@ -10922,12 +10922,12 @@ namespace grid {
         h_XImats[511] = static_cast<T>(0);
         h_XImats[512] = static_cast<T>(0);
         h_XImats[513] = static_cast<T>(0);
-        h_XImats[514] = static_cast<T>(1.00000000000000);
+        h_XImats[514] = static_cast<T>(1.0);
         h_XImats[515] = static_cast<T>(0);
         h_XImats[516] = static_cast<T>(0);
         h_XImats[517] = static_cast<T>(0);
-        h_XImats[518] = static_cast<T>(0.333000000000000);
-        h_XImats[519] = static_cast<T>(1.00000000000000);
+        h_XImats[518] = static_cast<T>(0.333);
+        h_XImats[519] = static_cast<T>(1.0);
         // Xhom[1]
         h_XImats[520] = static_cast<T>(0);
         h_XImats[521] = static_cast<T>(0);
@@ -10938,13 +10938,13 @@ namespace grid {
         h_XImats[526] = static_cast<T>(0);
         h_XImats[527] = static_cast<T>(0);
         h_XImats[528] = static_cast<T>(0);
-        h_XImats[529] = static_cast<T>(1.00000000000000);
+        h_XImats[529] = static_cast<T>(1.0);
         h_XImats[530] = static_cast<T>(0);
         h_XImats[531] = static_cast<T>(0);
         h_XImats[532] = static_cast<T>(0);
         h_XImats[533] = static_cast<T>(0);
         h_XImats[534] = static_cast<T>(0);
-        h_XImats[535] = static_cast<T>(1.00000000000000);
+        h_XImats[535] = static_cast<T>(1.0);
         // Xhom[2]
         h_XImats[536] = static_cast<T>(0);
         h_XImats[537] = static_cast<T>(0);
@@ -10955,13 +10955,13 @@ namespace grid {
         h_XImats[542] = static_cast<T>(0);
         h_XImats[543] = static_cast<T>(0);
         h_XImats[544] = static_cast<T>(0);
-        h_XImats[545] = static_cast<T>(-1.00000000000000);
+        h_XImats[545] = static_cast<T>(-1.0);
         h_XImats[546] = static_cast<T>(0);
         h_XImats[547] = static_cast<T>(0);
         h_XImats[548] = static_cast<T>(0);
-        h_XImats[549] = static_cast<T>(-0.316000000000000);
+        h_XImats[549] = static_cast<T>(-0.316);
         h_XImats[550] = static_cast<T>(0);
-        h_XImats[551] = static_cast<T>(1.00000000000000);
+        h_XImats[551] = static_cast<T>(1.0);
         // Xhom[3]
         h_XImats[552] = static_cast<T>(0);
         h_XImats[553] = static_cast<T>(0);
@@ -10972,13 +10972,13 @@ namespace grid {
         h_XImats[558] = static_cast<T>(0);
         h_XImats[559] = static_cast<T>(0);
         h_XImats[560] = static_cast<T>(0);
-        h_XImats[561] = static_cast<T>(-1.00000000000000);
+        h_XImats[561] = static_cast<T>(-1.0);
         h_XImats[562] = static_cast<T>(0);
         h_XImats[563] = static_cast<T>(0);
-        h_XImats[564] = static_cast<T>(0.0825000000000000);
+        h_XImats[564] = static_cast<T>(0.0825);
         h_XImats[565] = static_cast<T>(0);
         h_XImats[566] = static_cast<T>(0);
-        h_XImats[567] = static_cast<T>(1.00000000000000);
+        h_XImats[567] = static_cast<T>(1.0);
         // Xhom[4]
         h_XImats[568] = static_cast<T>(0);
         h_XImats[569] = static_cast<T>(0);
@@ -10989,13 +10989,13 @@ namespace grid {
         h_XImats[574] = static_cast<T>(0);
         h_XImats[575] = static_cast<T>(0);
         h_XImats[576] = static_cast<T>(0);
-        h_XImats[577] = static_cast<T>(1.00000000000000);
+        h_XImats[577] = static_cast<T>(1.0);
         h_XImats[578] = static_cast<T>(0);
         h_XImats[579] = static_cast<T>(0);
-        h_XImats[580] = static_cast<T>(-0.0825000000000000);
-        h_XImats[581] = static_cast<T>(0.384000000000000);
+        h_XImats[580] = static_cast<T>(-0.0825);
+        h_XImats[581] = static_cast<T>(0.384);
         h_XImats[582] = static_cast<T>(0);
-        h_XImats[583] = static_cast<T>(1.00000000000000);
+        h_XImats[583] = static_cast<T>(1.0);
         // Xhom[5]
         h_XImats[584] = static_cast<T>(0);
         h_XImats[585] = static_cast<T>(0);
@@ -11006,13 +11006,13 @@ namespace grid {
         h_XImats[590] = static_cast<T>(0);
         h_XImats[591] = static_cast<T>(0);
         h_XImats[592] = static_cast<T>(0);
-        h_XImats[593] = static_cast<T>(-1.00000000000000);
+        h_XImats[593] = static_cast<T>(-1.0);
         h_XImats[594] = static_cast<T>(0);
         h_XImats[595] = static_cast<T>(0);
         h_XImats[596] = static_cast<T>(0);
         h_XImats[597] = static_cast<T>(0);
         h_XImats[598] = static_cast<T>(0);
-        h_XImats[599] = static_cast<T>(1.00000000000000);
+        h_XImats[599] = static_cast<T>(1.0);
         // Xhom[6]
         h_XImats[600] = static_cast<T>(0);
         h_XImats[601] = static_cast<T>(0);
@@ -11023,13 +11023,13 @@ namespace grid {
         h_XImats[606] = static_cast<T>(0);
         h_XImats[607] = static_cast<T>(0);
         h_XImats[608] = static_cast<T>(0);
-        h_XImats[609] = static_cast<T>(-1.00000000000000);
+        h_XImats[609] = static_cast<T>(-1.0);
         h_XImats[610] = static_cast<T>(0);
         h_XImats[611] = static_cast<T>(0);
-        h_XImats[612] = static_cast<T>(0.0880000000000000);
+        h_XImats[612] = static_cast<T>(0.088);
         h_XImats[613] = static_cast<T>(0);
         h_XImats[614] = static_cast<T>(0);
-        h_XImats[615] = static_cast<T>(1.00000000000000);
+        h_XImats[615] = static_cast<T>(1.0);
         // Xhom[7]
         h_XImats[616] = static_cast<T>(-0.7071067811865476);
         h_XImats[617] = static_cast<T>(0.7071067811865475);
@@ -12503,14 +12503,14 @@ namespace grid {
         __syncthreads();
         if(threadIdx.x == 0 && threadIdx.y == 0){
             // X[0]
-            s_XImats[0] = static_cast<T>(1.0*s_temp[7]);
-            s_XImats[1] = static_cast<T>(-1.0*s_temp[0]);
-            s_XImats[3] = static_cast<T>(-0.333*s_temp[0]);
-            s_XImats[4] = static_cast<T>(-0.333*s_temp[7]);
-            s_XImats[6] = static_cast<T>(1.0*s_temp[0]);
-            s_XImats[7] = static_cast<T>(1.0*s_temp[7]);
-            s_XImats[9] = static_cast<T>(0.333*s_temp[7]);
-            s_XImats[10] = static_cast<T>(-0.333*s_temp[0]);
+            s_XImats[0] = static_cast<T>(static_cast<T>(1.0)*s_temp[7]);
+            s_XImats[1] = static_cast<T>(-static_cast<T>(1.0)*s_temp[0]);
+            s_XImats[3] = static_cast<T>(-static_cast<T>(0.333)*s_temp[0]);
+            s_XImats[4] = static_cast<T>(-static_cast<T>(0.333)*s_temp[7]);
+            s_XImats[6] = static_cast<T>(static_cast<T>(1.0)*s_temp[0]);
+            s_XImats[7] = static_cast<T>(static_cast<T>(1.0)*s_temp[7]);
+            s_XImats[9] = static_cast<T>(static_cast<T>(0.333)*s_temp[7]);
+            s_XImats[10] = static_cast<T>(-static_cast<T>(0.333)*s_temp[0]);
             // X[1]
             s_XImats[36] = static_cast<T>(s_temp[8]);
             s_XImats[37] = static_cast<T>(-s_temp[1]);
@@ -12519,30 +12519,30 @@ namespace grid {
             // X[2]
             s_XImats[72] = static_cast<T>(s_temp[9]);
             s_XImats[73] = static_cast<T>(-s_temp[2]);
-            s_XImats[75] = static_cast<T>(-0.316*s_temp[2]);
-            s_XImats[76] = static_cast<T>(-0.316*s_temp[9]);
+            s_XImats[75] = static_cast<T>(-static_cast<T>(0.316)*s_temp[2]);
+            s_XImats[76] = static_cast<T>(-static_cast<T>(0.316)*s_temp[9]);
             s_XImats[84] = static_cast<T>(s_temp[2]);
             s_XImats[85] = static_cast<T>(s_temp[9]);
-            s_XImats[87] = static_cast<T>(0.316*s_temp[9]);
-            s_XImats[88] = static_cast<T>(-0.316*s_temp[2]);
+            s_XImats[87] = static_cast<T>(static_cast<T>(0.316)*s_temp[9]);
+            s_XImats[88] = static_cast<T>(-static_cast<T>(0.316)*s_temp[2]);
             // X[3]
             s_XImats[108] = static_cast<T>(s_temp[10]);
             s_XImats[109] = static_cast<T>(-s_temp[3]);
-            s_XImats[117] = static_cast<T>(-0.0825*s_temp[3]);
-            s_XImats[118] = static_cast<T>(-0.0825*s_temp[10]);
+            s_XImats[117] = static_cast<T>(-static_cast<T>(0.0825)*s_temp[3]);
+            s_XImats[118] = static_cast<T>(-static_cast<T>(0.0825)*s_temp[10]);
             s_XImats[120] = static_cast<T>(s_temp[3]);
             s_XImats[121] = static_cast<T>(s_temp[10]);
             // X[4]
             s_XImats[144] = static_cast<T>(s_temp[11]);
             s_XImats[145] = static_cast<T>(-s_temp[4]);
-            s_XImats[147] = static_cast<T>(-0.384*s_temp[4]);
-            s_XImats[148] = static_cast<T>(-0.384*s_temp[11]);
-            s_XImats[153] = static_cast<T>(-0.0825*s_temp[4]);
-            s_XImats[154] = static_cast<T>(-0.0825*s_temp[11]);
+            s_XImats[147] = static_cast<T>(-static_cast<T>(0.384)*s_temp[4]);
+            s_XImats[148] = static_cast<T>(-static_cast<T>(0.384)*s_temp[11]);
+            s_XImats[153] = static_cast<T>(-static_cast<T>(0.0825)*s_temp[4]);
+            s_XImats[154] = static_cast<T>(-static_cast<T>(0.0825)*s_temp[11]);
             s_XImats[156] = static_cast<T>(-s_temp[4]);
             s_XImats[157] = static_cast<T>(-s_temp[11]);
-            s_XImats[159] = static_cast<T>(-0.384*s_temp[11]);
-            s_XImats[160] = static_cast<T>(0.384*s_temp[4]);
+            s_XImats[159] = static_cast<T>(-static_cast<T>(0.384)*s_temp[11]);
+            s_XImats[160] = static_cast<T>(static_cast<T>(0.384)*s_temp[4]);
             // X[5]
             s_XImats[180] = static_cast<T>(s_temp[12]);
             s_XImats[181] = static_cast<T>(-s_temp[5]);
@@ -12551,8 +12551,8 @@ namespace grid {
             // X[6]
             s_XImats[216] = static_cast<T>(s_temp[13]);
             s_XImats[217] = static_cast<T>(-s_temp[6]);
-            s_XImats[225] = static_cast<T>(-0.088*s_temp[6]);
-            s_XImats[226] = static_cast<T>(-0.088*s_temp[13]);
+            s_XImats[225] = static_cast<T>(-static_cast<T>(0.088)*s_temp[6]);
+            s_XImats[226] = static_cast<T>(-static_cast<T>(0.088)*s_temp[13]);
             s_XImats[228] = static_cast<T>(s_temp[6]);
             s_XImats[229] = static_cast<T>(s_temp[13]);
         }
@@ -36524,6 +36524,7 @@ namespace grid {
     inline constexpr int frame_count = 26;
     inline constexpr bool runtime_transform = false;
     inline constexpr char descriptor_id[] = "79dae284f0245d01826e833c6bc5d9311f0a906ff9db87fa3b8eb6bfcc3b9a29";
+    inline constexpr bool planar_base = false;
     inline constexpr char descriptor_json[] = "{\042schema_version\042:1,\042model_name\042:\042fr3\042,\042descriptor_id\042:\04279dae284f0245d01826e833c6bc5d9311f0a906ff9db87fa3b8eb6bfcc3b9a29\042,\042nq\042:7,\042nv\042:7,\042nb\042:7,\042nj\042:7,\042floating_base\042:false,\042runtime_transform\042:false,\042coordinate_convention\042:\042grid-xyzw-local-v1\042,\042joints\042:[{\042id\042:0,\042name\042:\042fr3_joint1\042,\042kind\042:\042revolute\042,\042parent_body\042:-1,\042child_body\042:0,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:0,\042v_start\042:0,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.333],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.9007,2.9007],\042velocity\042:2.62,\042effort\042:87.0}},{\042id\042:1,\042name\042:\042fr3_joint2\042,\042kind\042:\042revolute\042,\042parent_body\042:0,\042child_body\042:1,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:1,\042v_start\042:1,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.0],[0.0,0.0,1.0,0.0],[-0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-1.8361,1.8361],\042velocity\042:2.62,\042effort\042:87.0}},{\042id\042:2,\042name\042:\042fr3_joint3\042,\042kind\042:\042revolute\042,\042parent_body\042:1,\042child_body\042:2,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:2,\042v_start\042:2,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.0],[0.0,0.0,-1.0,-0.316],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.9007,2.9007],\042velocity\042:2.62,\042effort\042:87.0}},{\042id\042:3,\042name\042:\042fr3_joint4\042,\042kind\042:\042revolute\042,\042parent_body\042:2,\042child_body\042:3,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:3,\042v_start\042:3,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.0825],[0.0,0.0,-1.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-3.077,-0.1169],\042velocity\042:2.62,\042effort\042:87.0}},{\042id\042:4,\042name\042:\042fr3_joint5\042,\042kind\042:\042revolute\042,\042parent_body\042:3,\042child_body\042:4,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:4,\042v_start\042:4,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,-0.0825],[0.0,0.0,1.0,0.384],[-0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-2.8763,2.8763],\042velocity\042:5.26,\042effort\042:12.0}},{\042id\042:5,\042name\042:\042fr3_joint6\042,\042kind\042:\042revolute\042,\042parent_body\042:4,\042child_body\042:5,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:5,\042v_start\042:5,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.0],[0.0,0.0,-1.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[0.4398,4.6216],\042velocity\042:4.18,\042effort\042:12.0}},{\042id\042:6,\042name\042:\042fr3_joint7\042,\042kind\042:\042revolute\042,\042parent_body\042:5,\042child_body\042:6,\042local_nq\042:1,\042local_nv\042:1,\042q_start\042:6,\042v_start\042:6,\042owns_coordinates\042:true,\042axis\042:[0.0,0.0,1.0],\042pitch\042:null,\042T_parent_joint_zero\042:[[1.0,-0.0,0.0,0.088],[0.0,0.0,-1.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]],\042mimic\042:null,\042limits\042:{\042position\042:[-3.0508,3.0508],\042velocity\042:5.26,\042effort\042:12.0}}],\042bodies\042:[{\042id\042:0,\042name\042:\042fr3_link1\042,\042parent_body\042:-1,\042joint_id\042:0},{\042id\042:1,\042name\042:\042fr3_link2\042,\042parent_body\042:0,\042joint_id\042:1},{\042id\042:2,\042name\042:\042fr3_link3\042,\042parent_body\042:1,\042joint_id\042:2},{\042id\042:3,\042name\042:\042fr3_link4\042,\042parent_body\042:2,\042joint_id\042:3},{\042id\042:4,\042name\042:\042fr3_link5\042,\042parent_body\042:3,\042joint_id\042:4},{\042id\042:5,\042name\042:\042fr3_link6\042,\042parent_body\042:4,\042joint_id\042:5},{\042id\042:6,\042name\042:\042fr3_link7\042,\042parent_body\042:5,\042joint_id\042:6}],\042configuration_layout\042:[{\042kind\042:\042euclidean\042,\042q_start\042:0,\042v_start\042:0,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:1,\042v_start\042:1,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:2,\042v_start\042:2,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:3,\042v_start\042:3,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:4,\042v_start\042:4,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:5,\042v_start\042:5,\042nq\042:1,\042nv\042:1},{\042kind\042:\042euclidean\042,\042q_start\042:6,\042v_start\042:6,\042nq\042:1,\042nv\042:1}],\042frames\042:[{\042id\042:0,\042name\042:\042root\042,\042kind\042:\042root\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:1,\042name\042:\042fr3_joint1\042,\042kind\042:\042joint\042,\042attached_body\042:0,\042joint_id\042:0,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:2,\042name\042:\042fr3_joint2\042,\042kind\042:\042joint\042,\042attached_body\042:1,\042joint_id\042:1,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:3,\042name\042:\042fr3_joint3\042,\042kind\042:\042joint\042,\042attached_body\042:2,\042joint_id\042:2,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:4,\042name\042:\042fr3_joint4\042,\042kind\042:\042joint\042,\042attached_body\042:3,\042joint_id\042:3,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:5,\042name\042:\042fr3_joint5\042,\042kind\042:\042joint\042,\042attached_body\042:4,\042joint_id\042:4,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:6,\042name\042:\042fr3_joint6\042,\042kind\042:\042joint\042,\042attached_body\042:5,\042joint_id\042:5,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:7,\042name\042:\042fr3_joint7\042,\042kind\042:\042joint\042,\042attached_body\042:6,\042joint_id\042:6,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:8,\042name\042:\042fr3_finger_joint2\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[-0.7071067811865476,-0.7071067811865475,0.0,0.0],[0.7071067811865475,-0.7071067811865476,0.0,0.0],[0.0,0.0,1.0,0.1654],[0.0,0.0,0.0,1.0]]},{\042id\042:9,\042name\042:\042fr3_finger_joint1\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.7071067811865476,0.7071067811865475,0.0,0.0],[-0.7071067811865475,0.7071067811865476,0.0,0.0],[0.0,0.0,1.0,0.1654],[0.0,0.0,0.0,1.0]]},{\042id\042:10,\042name\042:\042fr3_hand_tcp_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.7071067811865476,0.7071067811865475,0.0,0.0],[-0.7071067811865475,0.7071067811865476,0.0,0.0],[0.0,0.0,1.0,0.2104],[0.0,0.0,0.0,1.0]]},{\042id\042:11,\042name\042:\042fr3_hand_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[0.7071067811865476,0.7071067811865475,0.0,0.0],[-0.7071067811865475,0.7071067811865476,0.0,0.0],[0.0,0.0,1.0,0.107],[0.0,0.0,0.0,1.0]]},{\042id\042:12,\042name\042:\042fr3_joint8\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:6,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.107],[0.0,0.0,0.0,1.0]]},{\042id\042:13,\042name\042:\042fr3_link5_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:4,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,1.0,0.11],[0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:14,\042name\042:\042fr3_link5_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:4,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,-1.0,0.1],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:15,\042name\042:\042fr3_link4_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.0825],[0.0,0.0,-1.0,0.05],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:16,\042name\042:\042fr3_link4_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:3,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,-0.0825],[0.0,0.0,1.0,0.06],[0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:17,\042name\042:\042fr3_link3_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:2,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0825],[0.0,0.0,1.0,0.05],[0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:18,\042name\042:\042fr3_link3_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:2,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0825],[0.0,0.0,-1.0,0.04],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:19,\042name\042:\042fr3_link2_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,1.0,-0.13],[0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:20,\042name\042:\042fr3_link2_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,-1.0,-0.14],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:21,\042name\042:\042fr3_link1_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,-1.0,-0.1],[0.0,1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:22,\042name\042:\042fr3_link1_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:0,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,0.0,1.0,-0.09],[0.0,-1.0,0.0,0.0],[0.0,0.0,0.0,1.0]]},{\042id\042:23,\042name\042:\042fr3_link0_accelerometer_top_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,-1.0,0.0,0.0],[0.0,0.0,-1.0,0.05],[0.0,0.0,0.0,1.0]]},{\042id\042:24,\042name\042:\042fr3_link0_accelerometer_bottom_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.06],[0.0,0.0,0.0,1.0]]},{\042id\042:25,\042name\042:\042fr3_base_joint\042,\042kind\042:\042fixed_joint\042,\042attached_body\042:-1,\042joint_id\042:null,\042T_body_frame\042:[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]]}]}";
     struct joint_record {
       int id, parent_body, child_body, q_start, v_start, local_nq, local_nv;
@@ -36662,7 +36663,7 @@ namespace grid {
         out[11]=static_cast<T>(0);
         out[12]=static_cast<T>(0);
         out[13]=static_cast<T>(0);
-        out[14]=static_cast<T>(0.33300000000000002);
+        out[14]=static_cast<T>(0.333);
         out[15]=static_cast<T>(1.0);
         break;
       }
@@ -36726,7 +36727,7 @@ namespace grid {
         out[9]=static_cast<T>(-1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(0.082500000000000004);
+        out[12]=static_cast<T>(0.0825);
         out[13]=static_cast<T>(0);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
@@ -36748,8 +36749,8 @@ namespace grid {
         out[9]=static_cast<T>(1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(-0.082500000000000004);
-        out[13]=static_cast<T>(0.38400000000000001);
+        out[12]=static_cast<T>(-0.0825);
+        out[13]=static_cast<T>(0.384);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
         break;
@@ -36792,7 +36793,7 @@ namespace grid {
         out[9]=static_cast<T>(-1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(0.087999999999999995);
+        out[12]=static_cast<T>(0.088);
         out[13]=static_cast<T>(0);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
@@ -36824,7 +36825,7 @@ namespace grid {
         out[11]=static_cast<T>(0);
         out[12]=static_cast<T>(0);
         out[13]=static_cast<T>(0);
-        out[14]=static_cast<T>(0.33300000000000002);
+        out[14]=static_cast<T>(0.333);
         out[15]=static_cast<T>(1.0);
         break;
       }
@@ -36888,7 +36889,7 @@ namespace grid {
         out[9]=static_cast<T>(-1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(0.082500000000000004);
+        out[12]=static_cast<T>(0.0825);
         out[13]=static_cast<T>(0);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
@@ -36910,8 +36911,8 @@ namespace grid {
         out[9]=static_cast<T>(1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(-0.082500000000000004);
-        out[13]=static_cast<T>(0.38400000000000001);
+        out[12]=static_cast<T>(-0.0825);
+        out[13]=static_cast<T>(0.384);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
         break;
@@ -36954,7 +36955,7 @@ namespace grid {
         out[9]=static_cast<T>(-1.0);
         out[10]=static_cast<T>(0);
         out[11]=static_cast<T>(0);
-        out[12]=static_cast<T>(0.087999999999999995);
+        out[12]=static_cast<T>(0.088);
         out[13]=static_cast<T>(0);
         out[14]=static_cast<T>(0);
         out[15]=static_cast<T>(1.0);
@@ -36986,44 +36987,43 @@ namespace grid {
     namespace configuration_detail {
     // Reference-first differences; independent quaternion sign representatives.
     template<class T> __device__ inline void block_difference(
-        const model::coordinate_block_record &b, const T *from, const T *to, double *e) {
-        if(b.kind==model::coordinate_kind::euclidean) { e[0]=double(to[b.q_start])-double(from[b.q_start]); return; }
-        double a[7],z[7];
-        for(int k=0;k<b.nq;++k) { a[k]=double(from[b.q_start+k]); z[k]=double(to[b.q_start+k]); }
+        const model::coordinate_block_record &b, const T *from, const T *to, T *e) {
+        if(b.kind==model::coordinate_kind::euclidean) { e[0]=to[b.q_start]-from[b.q_start]; return; }
+        const T *a=from+b.q_start, *z=to+b.q_start;
         if(b.kind==model::coordinate_kind::floating) {
-            glass::thread::se3_difference<double>(a,z,e,e+3);
+            glass::thread::se3_difference<T>(a,z,e,e+3);
         } else {
-            double conjugate[4],relative[4];
-            glass::thread::quat_conj<double>(a,conjugate);
-            glass::thread::quat_mul<double>(conjugate,z,relative);
-            glass::thread::quat_log<double>(relative,e);
+            T conjugate[4],relative[4];
+            glass::thread::quat_conj<T>(a,conjugate);
+            glass::thread::quat_mul<T>(conjugate,z,relative);
+            glass::thread::quat_log<T>(relative,e);
         }
     }
     // One nonlinear evaluation body prevents caller-dependent FMA contraction
     // from making dense and compact representations disagree in their last bits.
     template<class T> __device__ __noinline__ void nonlinear_block_jacobians(
         const model::coordinate_block_record &b, const T *from, const T *to, T *J1, T *J2) {
-        double e[6]; block_difference(b,from,to,e);
+        T e[6]; block_difference(b,from,to,e);
         if(b.kind==model::coordinate_kind::spherical) {
-            double A[9],B[9];
-            glass::thread::so3_left_jacobian_inv<double>(e,A);
-            glass::thread::so3_right_jacobian_inv<double>(e,B);
-            for(int k=0;k<9;++k) { J1[k]=T(-A[k]); J2[k]=T(B[k]); }
+            T A[9],B[9];
+            glass::thread::so3_left_jacobian_inv<T>(e,A);
+            glass::thread::so3_right_jacobian_inv<T>(e,B);
+            for(int k=0;k<9;++k) { J1[k]=-A[k]; J2[k]=B[k]; }
             return;
         }
         // Invert the upper-triangular SE(3) Jr: [A,Q;0,A]^-1.
-        double A[9],Q[9],AQ[9],C[9],inverse[36],base[36];
-        glass::thread::so3_right_jacobian_inv<double>(e+3,A);
-        glass::thread::se3_Q_block<double>(e,e+3,Q);
-        glass::thread::gemm<double,3,3,3>(1.,A,Q,0.,AQ);
-        glass::thread::gemm<double,3,3,3>(-1.,AQ,A,0.,C);
+        T A[9],Q[9],AQ[9],C[9],inverse[36],base[36];
+        glass::thread::so3_right_jacobian_inv<T>(e+3,A);
+        glass::thread::se3_Q_block<T>(e,e+3,Q);
+        glass::thread::gemm<T,3,3,3>(T(1),A,Q,T(0),AQ);
+        glass::thread::gemm<T,3,3,3>(T(-1),AQ,A,T(0),C);
         for(int c=0;c<6;++c) for(int r=0;r<6;++r)
             inverse[c*6+r]=(r<3 && c<3)?A[c*3+r]:
-                ((r>=3 && c>=3)?A[(c-3)*3+r-3]:((r<3 && c>=3)?C[(c-3)*3+r]:0.));
-        glass::thread::se3_retract_jacobian_q<double>(e,e+3,base);
+                ((r>=3 && c>=3)?A[(c-3)*3+r-3]:((r<3 && c>=3)?C[(c-3)*3+r]:T(0)));
+        glass::thread::se3_retract_jacobian_q<T>(e,e+3,base);
         for(int c=0;c<6;++c) for(int r=0;r<6;++r) {
-            double v=0.; for(int k=0;k<6;++k) v-=inverse[k*6+r]*base[c*6+k];
-            J1[c*6+r]=T(v); J2[c*6+r]=T(inverse[c*6+r]);
+            T v=T(0); for(int k=0;k<6;++k) v-=inverse[k*6+r]*base[c*6+k];
+            J1[c*6+r]=v; J2[c*6+r]=inverse[c*6+r];
         }
     }
     template<class T> __device__ inline void block_jacobians(
@@ -37046,8 +37046,8 @@ namespace grid {
         const T *from, const T *to, T *delta) {
         for(int k=0;k<model::coordinate_block_count;++k) {
             model::coordinate_block_record b{}; model::coordinate_block(k,b);
-            double e[6]; configuration_detail::block_difference(b,from,to,e);
-            for(int i=0;i<b.nv;++i) delta[b.v_start+i]=T(e[i]);
+            T e[6]; configuration_detail::block_difference(b,from,to,e);
+            for(int i=0;i<b.nv;++i) delta[b.v_start+i]=e[i];
         }
     }
     template<class T> __device__ inline void configuration_difference_jacobians(

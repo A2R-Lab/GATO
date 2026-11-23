@@ -43,6 +43,13 @@ bdsv, the two masked-contact cases, rk4 pcg and bdsv). The generated retract
 now normalizes its input quaternion; reverting that one statement in the 0.7.1
 header restored all 54 goldens bitwise, so nothing else in the release reaches
 them. The 48 fixed-base cases and the go2 pcg and fc pcg cases are unchanged.
+Re-baselined 2026-11-22 (grid-rbd 0.7.1 -> 0.7.2): all 54 cases. The release
+computes generated device code in T with fixed-order fma, so the dynamics move
+in the last bits everywhere. Initial merits are identical in 48 cases and within
+3e-7 relative in 6, iteration counts are unchanged, and a one-ulp nudge of one
+start coordinate under 0.7.2 alone moves xu as far as the version change does.
+GLASS is the same commit. The full suite passed on the new build and memcheck
+and initcheck of indy7 N8 were clean before the capture.
 """
 import os
 from pathlib import Path
