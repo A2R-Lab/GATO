@@ -52,6 +52,9 @@ def test_forced_spill_is_bit_identical(cache, urdfs, monkeypatch):
     goals = np.tile(np.array([0.4, 0.1, 0.5, 0, 0, 0], np.float32), (B, N))
     a, b = shared.debug_setup_kkt(xu, x, goals), spilled.debug_setup_kkt(xu, x, goals)
     for block in ("A", "B", "c", "Q", "R", "q", "r"):
-        np.testing.assert_array_equal(np.asarray(a[block]), np.asarray(b[block]), err_msg=block)
+        got, want = np.asarray(b[block]), np.asarray(a[block])
+        if block in ("A", "B"):   # one block per interval; the slot of the last knot is never written
+            got, want = (m.reshape(B, N, -1)[:, :N - 1] for m in (got, want))
+        np.testing.assert_array_equal(got, want, err_msg=block)
     ra, rb = shared.solve(x, goals), spilled.solve(x, goals)
     np.testing.assert_array_equal(np.asarray(ra.xu), np.asarray(rb.xu))
