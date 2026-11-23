@@ -984,6 +984,8 @@ PYBIND11_MODULE(MODULE_NAME(KNOT_POINTS, GATO_PLANT_NAME, GATO_MODULE_VARIANT), 
         m.attr("NATIVE_SOURCE_ID") = GATO_NATIVE_SOURCE_ID;
         m.attr("KNOT_POINTS") = KNOT_POINTS;      // to check num knots for current module
         m.attr("NUM_BODIES") = grid::NUM_BODIES;  // body-major f_ext is 6*NUM_BODIES per (solve, knot)
+        m.attr("ID_GRAD_SPILL_COUNT") = int(kkt_id_spill_ct<float>());   // elements per (solve, knot) held in global memory; 0 = all shared
+        m.attr("KKT_SMEM_BYTES") = int(get_setup_kkt_system_batched_smem_size<float>());   // default KKT assembly request per block
         m.attr("NUM_COLLISION_SPHERES") = gato::plant::NCC;  // clearance rows per knot (CL-2)
         m.attr("EXACT_HESSIAN_AVAILABLE") = bool(USE_EXACT_HESSIAN);  // SO-SQP path compiled in?
         // the step this module integrates with (0 euler, 1 semi-implicit euler, 2 trapezoidal, 3 rk4)

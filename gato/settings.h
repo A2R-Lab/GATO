@@ -72,6 +72,20 @@ constexpr uint32_t DZ_THREADS = 128;
 // are summed in fixed order, so the block size is bit-identical. Override through
 // the GATO_MERIT_THREADS environment variable (register_robot / build /
 // first-use compiles) or -DGATO_MERIT_THREADS=128 at configure time.
+// Shared memory of the KKT assembly. A robot whose request exceeds the per-block
+// limit keeps the scratch pool of the inverse-dynamics gradient, the largest
+// consumer, in global memory (one pool per solve and knot).
+// GATO_ID_GRAD_SPILL: -1 decides from the request (the default), 0 and 1 force
+// it off and on (the GATO_ID_GRAD_SPILL environment variable on the cache
+// path). Values are bit-identical either way; only the storage moves.
+// GATO_SMEM_BLOCK_CAP_BYTES is the limit the decision compares against.
+#ifndef GATO_ID_GRAD_SPILL
+    #define GATO_ID_GRAD_SPILL -1
+#endif
+#ifndef GATO_SMEM_BLOCK_CAP_BYTES
+    #define GATO_SMEM_BLOCK_CAP_BYTES 101376
+#endif
+
 #ifndef GATO_MERIT_THREADS
     #define GATO_MERIT_THREADS 0
 #endif

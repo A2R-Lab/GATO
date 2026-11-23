@@ -946,7 +946,7 @@ class BSQP {
         {
                 gpuErrchk(cudaMemset(d_kkt_converged_batch_, 0, batch_size_ * sizeof(int32_t)));
                 const T* d_knot_w = use_knot_cost_weights_ ? d_knot_cost_weights_ : nullptr;
-                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr());
+                setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr(), d_id_spill_);
                 gpuErrchk(cudaDeviceSynchronize());
         }
 #ifdef GRID_HAS_CONTACT_FRAMES
@@ -1105,7 +1105,7 @@ class BSQP {
                         }
                         iters_started = i + 1;
                         if (collect_stats_) { stage_record(i, 0); }
-                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr());
+                        setup_kkt_system_batched<T>(batch_size_, kkt_system_batch_, inputs, d_xu_traj_batch, f_ext_ptr(), d_GRiD_mem_, q_cost_, qd_cost_, u_cost_, N_cost_, q_lim_cost_, vel_lim_cost_, ctrl_lim_cost_, d_kkt_converged_batch_, d_knot_w, d_row_groups_, n_row_groups_, d_lam_hi_, d_lam_lo_, exact_hessian_ ? 1 : 0, d_lambda_batch_, coop_carve_flag(), h_env_, admm_rho_scale_ptr(), q_pos_cost_, d_q_nom_, fc_cost_, d_u_cost_vec_, d_q_pos_w_vec_, d_fc_ref_, menu_.view_ptr(), cost_curvature_ ? 1 : 0, com_.view_ptr(), d_id_spill_);
                         if (collect_stats_) { stage_record(i, 1); }
                         form_schur_system_batched<T>(batch_size_, schur_system_batch_, kkt_system_batch_, d_rho_penalty_batch_, d_kkt_converged_batch_);
                         if (collect_stats_) { stage_record(i, 2); }
@@ -1446,6 +1446,10 @@ class BSQP {
                 gpuErrchk(cudaMalloc(&d_f_ext_batch_, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
                 gpuErrchk(cudaMemset(d_f_ext_batch_, 0, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
                 gpuErrchk(cudaMallocHost(&h_f_ext_staging_, 6 * grid::NUM_BODIES * KNOT_POINTS * BT));
+                // global band of the inverse-dynamics gradient spill, one per (solve, running knot); absent when off
+                if (kkt_id_spill_ct<T>() > 0) {
+                        gpuErrchk(cudaMalloc(&d_id_spill_, kkt_id_spill_ct<T>() * (size_t)(KNOT_POINTS - 1) * BT));
+                }
 
                 // Batched hyperparameters
                 gpuErrchk(cudaMalloc(&d_mu_batch_, BT));
@@ -1536,6 +1540,7 @@ class BSQP {
                 gpuErrchk(cudaFree(d_pcg_iterations_));
                 gpuErrchk(cudaFree(d_step_size_batch_));
                 gpuErrchk(cudaFree(d_f_ext_batch_));
+                if (d_id_spill_) { gpuErrchk(cudaFree(d_id_spill_)); }
                 gpuErrchk(cudaFreeHost(h_f_ext_staging_));
                 if (d_q_nom_) { gpuErrchk(cudaFree(d_q_nom_)); d_q_nom_ = nullptr; }
                 if (d_fc_ref_) { gpuErrchk(cudaFree(d_fc_ref_)); d_fc_ref_ = nullptr; }
@@ -1598,6 +1603,7 @@ class BSQP {
         T*        d_step_size_batch_;
         int32_t*  d_kkt_converged_batch_;
         T*        d_f_ext_batch_;
+        T*        d_id_spill_ = nullptr;
         T*        h_f_ext_staging_;         // pinned, 6*NUM_BODIES*K*B (set_f_ext_batch)
         bool      f_ext_nonzero_ = false;   // band starts memset-0; uploads maintain this
 

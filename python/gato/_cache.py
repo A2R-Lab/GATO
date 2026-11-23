@@ -77,6 +77,17 @@ def merit_threads() -> int | None:
     return validate_merit_threads(raw) if raw else None
 
 
+def id_grad_spill() -> int | None:
+    """GATO_ID_GRAD_SPILL: 1 moves the scratch pool of the inverse-dynamics
+    gradient from block shared memory to global memory, 0 keeps it shared; None
+    (unset) lets the module decide from its own request (settings.h). Compiled
+    into the module and part of its cache key. Results are bit-identical."""
+    raw = os.environ.get("GATO_ID_GRAD_SPILL", "").strip()
+    if raw not in ("", "0", "1"):
+        raise ValueError(f"GATO_ID_GRAD_SPILL must be 0 or 1, got {raw!r}")
+    return int(raw) if raw else None
+
+
 def native_root() -> Path:
     """The CMake source tree solver modules compile from: the wheel's bundled
     copy (gato/_native) or the source checkout around an editable install."""
@@ -147,6 +158,9 @@ def module_key(robot: dict, N: int, variant: str, plant_root: Path, arch: str | 
     mt = merit_threads()
     if mt is not None:          # absent when unset, so existing cache keys are unchanged
         inputs["merit_threads"] = mt
+    spill = id_grad_spill()
+    if spill is not None:
+        inputs["id_grad_spill"] = spill
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16]
     return key, inputs
 
@@ -401,6 +415,8 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
         threads = inputs.get("merit_threads") or (32 if arch in ("72", "87") else None)   # CMakeLists.txt's Jetson default
         if threads:
             defines.append(f"GATO_MERIT_THREADS={int(threads)}")
+        if inputs.get("id_grad_spill") is not None:
+            defines.append(f"GATO_ID_GRAD_SPILL={int(inputs['id_grad_spill'])}")
         req = _codegen_request(robot)
         model = grid_rbd.describe_model(urdf, floating_base=req["floating_base"],
                                         planar_base=req.get("planar_base", False))

@@ -143,6 +143,11 @@ cmake --build build --parallel 2                                # RAM-bound: rou
   multiple of 32; the default is 64, the measured optimum on the RTX 5090 and
   on few-SM conditions ([docs/merit_timing.md](docs/merit_timing.md)). Results
   are bit-identical at any size.
+- `GATO_ID_GRAD_SPILL` (environment, for `register_robot` and first-use
+  compiles): `1` keeps the scratch pool of the inverse-dynamics gradient in
+  global memory, `0` keeps it in shared memory. Unset, the module moves it only
+  when its KKT assembly would not fit one block's shared memory. Results are
+  bit-identical either way.
 - `GATO_MERIT_FUSED=1` (environment, read at run time): the fused merit launch,
   one block per knot evaluating every candidate; measured slower in every
   condition, kept for other hardware. Results are bit-identical either way.

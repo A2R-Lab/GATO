@@ -44,6 +44,39 @@ __host__ __device__ constexpr uint32_t kkt_cost_ct()
         return gato::plant::tracking_cost_grad_hess_smem_ct<T>();
 }
 
+// the running-knot chain ahead of the scratch (SetupKktSmem::temp, asserted there)
+template<typename T>
+__host__ __device__ constexpr uint32_t kkt_chain_ct()
+{
+        return constants::XUX_SIZE + 2 * constants::EE_POS_SIZE + 2 * STATE_SIZE_SQ + CONTROL_SIZE_SQ
+               + 2 * STATE_SIZE + CONTROL_SIZE + STATE_P_CONTROL;
+}
+
+// Whether this module keeps the inverse-dynamics gradient pool in global memory (settings.h). Decided
+// from the default stage with everything in shared memory, so a robot under the limit
+// compiles exactly as before. Fixed base without contact forces only.
+template<typename T>
+__host__ __device__ constexpr bool kkt_id_grad_spill()
+{
+#if GATO_GRID_STEP || GATO_CONTACT_FORCES
+        return false;
+#else
+        return GATO_ID_GRAD_SPILL == 1
+               || (GATO_ID_GRAD_SPILL < 0
+                   && sizeof(T) * (size_t)(kkt_chain_ct<T>() + gato::plant::linearized_dynamics_smem_ct<T>()) > (size_t)GATO_SMEM_BLOCK_CAP_BYTES);
+#endif
+}
+#if (GATO_GRID_STEP || GATO_CONTACT_FORCES) && GATO_ID_GRAD_SPILL == 1
+#error "GATO_ID_GRAD_SPILL=1 needs a fixed-base module without contact forces"
+#endif
+
+// elements of the per-(solve, knot) global band the spill uses; 0 when it is off
+template<typename T>
+__host__ __device__ constexpr size_t kkt_id_spill_ct()
+{
+        return kkt_id_grad_spill<T>() ? (size_t)gato::plant::id_grad_pool_ct<T>() : (size_t)0;
+}
+
 template<typename T, bool MENU = false, bool COM = false>
 __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
 {
@@ -51,7 +84,7 @@ __host__ __device__ constexpr uint32_t setup_kkt_temp_mem_ct()
         // grid step (floating base, rk4): the linearization scratch is the grid step-gradient arena
         constexpr uint32_t dyn_ct = gato::plant::step_grad_grid_smem_ct<T>();
 #else
-        constexpr uint32_t dyn_ct = gato::plant::linearized_dynamics_smem_ct<T>();   // qdd|dqdd prefix + adapter arena
+        constexpr uint32_t dyn_ct = gato::plant::linearized_dynamics_smem_ct<T, kkt_id_grad_spill<T>()>();   // qdd|dqdd prefix + adapter arena
 #endif
         return kkt_cost_ct<T, MENU, COM>() > dyn_ct ? kkt_cost_ct<T, MENU, COM>() : dyn_ct;
 }
@@ -91,6 +124,7 @@ struct SetupKktSmem {
         static constexpr uint32_t total = temp + temp_ct;
         // dead scratch past the terminal chain (where the collision carve overlays)
         static constexpr uint32_t tail_ct = total - temp_terminal;
+        static_assert(temp == kkt_chain_ct<T>(), "kkt_chain_ct must equal the chain ahead of temp");
 };
 
 template<typename T, bool MENU = false, bool COM = false>
@@ -242,7 +276,8 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                                             const grid_collision::Environment<T> env,                      // obstacle set (COLLISION rows; empty default = no-op)
                                             const T* __restrict__       d_admm_rho_scale_batch,            // per-solve ADMM rho adaptation scale (nullable -> 1)
                                             const gato::menu::Buffers<T> menu,                             // cost-menu buffers (read when MENU)
-                                            const gato::com::Buffers<T>  com                               // centre-of-mass term (read when COM)
+                                            const gato::com::Buffers<T>  com,                              // centre-of-mass term (read when COM)
+                                            T*                          d_id_spill_batch                   // (solve, knot) bands of kkt_id_spill_ct (nullable when 0)
 #if USE_EXACT_HESSIAN
                                             ,
                                             int32_t                     exact_hessian,   // runtime per-TASK toggle (0 = GN path)
@@ -329,7 +364,9 @@ __global__ __launch_bounds__(KKT_THREADS) void setup_kkt_system_batched_kernel(T
                 // A|B over grid_plant (tangent on the floating base); c = traj ⊟ pred
                 gato::plant::compute_linearized_dynamics_grid<T, INTEGRATOR_TYPE>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
 #else
-                gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext);
+                T* d_id_spill = kkt_id_grad_spill<T>()
+                    ? d_id_spill_batch + ((size_t)solve_idx * (KNOT_POINTS - 1) + knot_idx) * kkt_id_spill_ct<T>() : nullptr;
+                gato::plant::compute_linearized_dynamics<T, INTEGRATOR_TYPE, ANGLE_WRAP, true, kkt_id_grad_spill<T>()>(s_xux_k, s_A_k, s_B_k, s_c_k, s_temp, d_GRiD_mem, timestep, d_f_ext, d_id_spill);
 #endif
                 __syncthreads();
 
@@ -525,7 +562,7 @@ __host__ size_t get_setup_kkt_system_batched_smem_size(int exact_hessian = 0, in
 }
 
 template<typename T>
-__host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr, const gato::menu::Buffers<T>* menu = nullptr, int32_t cost_curvature = 0, const gato::com::Buffers<T>* com = nullptr)
+__host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, ProblemInputs<T> inputs, T* d_xu_traj_batch, T* d_f_ext_batch, void* d_GRiD_mem, T q_cost, T qd_cost, T u_cost, T N_cost, T q_lim_cost, T vel_lim_cost, T ctrl_lim_cost, const int32_t* d_kkt_converged_batch, const T* d_knot_cost_weights, const gato::rows::RowGroupDesc<T>* d_row_groups = nullptr, int32_t n_row_groups = 0, const T* d_lam_hi_batch = nullptr, const T* d_lam_lo_batch = nullptr, int32_t exact_hessian = 0, const T* d_lambda_batch = nullptr, int32_t has_collision = 0, const grid_collision::Environment<T>& env = grid_collision::Environment<T>{}, const T* d_admm_rho_scale_batch = nullptr, T q_pos_cost = 0, const T* d_q_nom = nullptr, T fc_cost = 0, const T* d_u_cost_vec = nullptr, const T* d_q_pos_w_vec = nullptr, const T* d_fc_ref = nullptr, const gato::menu::Buffers<T>* menu = nullptr, int32_t cost_curvature = 0, const gato::com::Buffers<T>* com = nullptr, T* d_id_spill_batch = nullptr)
 {
 #if !USE_EXACT_HESSIAN
         (void)exact_hessian;  // path compiled out (settings.h USE_EXACT_HESSIAN)
@@ -609,7 +646,8 @@ __host__ void setup_kkt_system_batched(uint32_t batch_size, KKTSystem<T> kkt, Pr
                                                                                env,
                                                                                d_admm_rho_scale_batch,
                                                                                menu_args,
-                                                                               com_args
+                                                                               com_args,
+                                                                               d_id_spill_batch
 #if USE_EXACT_HESSIAN
                                                                                ,
                                                                                exact_hessian,

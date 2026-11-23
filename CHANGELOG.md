@@ -20,6 +20,17 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   coordinates `[px, py, theta]` with the velocities `[vx, vy, theta_dot]` in
   the world frame, three unbounded and directly actuated coordinates. There is
   no wheel or rolling constraint, so a differential drive is not modeled.
+- A robot whose KKT assembly does not fit one block's shared memory now
+  builds and solves. The scratch pool of the inverse-dynamics gradient, the
+  largest consumer, then lives in global memory, one pool per solve and knot.
+  The module decides at compile time from its own request against the 101,376
+  byte limit per block, so a robot under the limit compiles as before. The
+  TIAGo Pro upper body with both grippers (19 coordinates, 29 bodies) asked
+  for 117,648 bytes and was refused; it now asks for 53,364. The values are
+  bit-identical either way. `GATO_ID_GRAD_SPILL=0` or `1` forces the choice
+  on `register_robot` and first-use compiles. Fixed-base modules without
+  contact forces only. The solve time with the pool in global memory is not
+  measured yet.
 - `gato.pinocchio_model(urdf, floating_base=, planar_base=)` builds the
   Pinocchio model in the module's coordinates, and `BSQP.model` uses it.
   Pinocchio's own loader reads a continuous joint as `(cos, sin)` and its

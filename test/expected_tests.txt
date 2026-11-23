@@ -318,6 +318,8 @@ test/test_gait.py::test_fc_pin_mask_and_fn_ref_windows
 test/test_gait.py::test_swing_curve_and_foothold
 test/test_gait.py::test_base_reference_rotates_command
 test/test_gait.py::test_validation
+test/test_id_grad_spill.py::test_spill_setting_is_validated_and_keys_the_module
+test/test_id_grad_spill.py::test_forced_spill_is_bit_identical
 test/test_integrator.py::test_module_names_and_variants
 test/test_integrator.py::test_build_refuses_the_combinations_the_module_cannot_compile
 test/test_integrator.py::test_module_reports_its_step

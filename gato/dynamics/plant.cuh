@@ -269,14 +269,41 @@ namespace plant {
                 return grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT + FC_PERSIST_COUNT + topology_helpers_smem_ct<T>();
         }
 
-        template<typename T, bool INCLUDE_DU = true>
-        __device__ void forward_dynamics_and_gradient(T* s_df_du, T* s_qdd, const T* s_q, const T* s_qd, const T* s_u, T* s_temp_in, void* d_dynMem_const, T* d_f_ext = nullptr)
+        // ID_SPILL: the scratch pool of the inverse-dynamics gradient, the largest consumer
+        // of the arena, lives in d_id_spill (id_grad_pool_ct elements owned by this block).
+        // The inner takes its pool as a pointer and does not own the placement. The shared
+        // s_temp then only serves the other inners (Minv, inverse dynamics), sized from
+        // their own arenas. GRiD's selective band (USE_DA_DF_SPILL) is not used: the dense
+        // inner it emits for mimic robots ignores it and writes the full pool.
+        inline constexpr int FD_DU_PREFIX_COUNT = XIMATS_COUNT + VAF_COUNT + 3 * NQ * NQ;   // XImats | vaf | dc_du | Minv
+        inline constexpr int FD_DU_SMALL_TEMP_COUNT = NQ +
+            (grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT > grid::MINV_DYNAMIC_SHARED_MEM_COUNT
+                 ? (grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT > grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT
+                        ? grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT : grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT)
+                 : (grid::MINV_DYNAMIC_SHARED_MEM_COUNT > grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT
+                        ? grid::MINV_DYNAMIC_SHARED_MEM_COUNT : grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_COUNT)) - XIMATS_COUNT;
+        template<typename T>
+        __host__ __device__ constexpr unsigned id_grad_pool_ct()
+        {
+                return (unsigned)(grid::FD_DU_MAX_SHARED_MEM_COUNT - FD_DU_PREFIX_COUNT);
+        }
+        template<typename T, bool ID_SPILL = false>
+        __host__ __device__ constexpr unsigned fd_du_arena_ct()
+        {
+                return ID_SPILL ? (unsigned)(FD_DU_PREFIX_COUNT + FD_DU_SMALL_TEMP_COUNT) : (unsigned)grid::FD_DU_MAX_SHARED_MEM_COUNT;
+        }
+
+        template<typename T, bool INCLUDE_DU = true, bool ID_SPILL = false>
+        __device__ void forward_dynamics_and_gradient(T* s_df_du, T* s_qdd, const T* s_q, const T* s_qd, const T* s_u, T* s_temp_in, void* d_dynMem_const, T* d_f_ext = nullptr, T* d_id_spill = nullptr)
         {
                 T*                   s_XITemp = s_temp_in;
                 grid::robotModel<T>* d_robotModel = (grid::robotModel<T>*)d_dynMem_const;
+#if GATO_CONTACT_FORCES
+                static_assert(!ID_SPILL, "the inverse-dynamics gradient spill is not carried on contact-force builds");
+#endif
 
                 int* s_topology_helpers = topology_helpers_at(
-                    s_XITemp + grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT);
+                    s_XITemp + fd_du_arena_ct<T, ID_SPILL>() + FC_PERSIST_COUNT);
                 T* s_XImats = s_XITemp;
                 T* s_vaf = &s_XITemp[XIMATS_COUNT];
                 T* s_dc_du = &s_vaf[VAF_COUNT];
@@ -309,8 +336,8 @@ namespace plant {
                 __syncthreads();
                 grid::inverse_dynamics_inner_vaf<T>(s_vaf, s_q, s_qd, s_qdd, s_XImats, s_topology_helpers, s_temp, d_f_ext, GRAVITY<T>());
                 // Inverse-dynamics gradient is not f_ext-threaded in GRiD (matches prior GATO behavior,
-                // which also omitted d_f_ext on the gradient). d_temp_spill == nullptr (USE_DA_DF_SPILL=false).
-                grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, s_temp, /*d_temp_spill*/nullptr, GRAVITY<T>());
+                // which also omitted d_f_ext on the gradient).
+                grid::inverse_dynamics_gradient_inner<T>(s_dc_du, s_q, s_qd, s_vaf, s_XImats, s_topology_helpers, ID_SPILL ? d_id_spill : s_temp, /*d_temp_spill*/nullptr, GRAVITY<T>());
 
                 // Option A: GATO keeps its own hand-composition df_du = -Minv * dc_du and packs
                 // dqdd/du = Minv into s_df_du[2*NQ*NQ..] itself (the integrator gradient reads it there).
@@ -366,10 +393,10 @@ namespace plant {
 #endif
         }
 
-        template<typename T>
+        template<typename T, bool ID_SPILL = false>
         __host__ __device__ constexpr unsigned forward_dynamics_gradient_smem_ct()
         {
-                return grid::FD_DU_MAX_SHARED_MEM_COUNT + FC_PERSIST_COUNT + topology_helpers_smem_ct<T>();
+                return fd_du_arena_ct<T, ID_SPILL>() + FC_PERSIST_COUNT + topology_helpers_smem_ct<T>();
         }
 
 #if USE_EXACT_HESSIAN

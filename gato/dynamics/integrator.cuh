@@ -39,11 +39,11 @@ __host__ __device__ constexpr uint32_t integrator_error_smem_ct()
 {
         return STATE_SIZE + forward_dynamics_smem_ct<T>();
 }
-template<typename T>
+template<typename T, bool ID_SPILL = false>
 __host__ __device__ constexpr uint32_t linearized_dynamics_smem_ct()
 {
         return STATE_SIZE / 2 + (STATE_SIZE / 2) * (STATE_SIZE + CONTROL_SIZE)
-               + forward_dynamics_gradient_smem_ct<T>();
+               + forward_dynamics_gradient_smem_ct<T, ID_SPILL>();
 }
 
 template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false>
@@ -262,8 +262,8 @@ __device__ T compute_integrator_error(T* s_xuk, T* s_xkp1, T* s_temp, void* d_dy
         return s_err[0];
 }
 
-template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false>
-__device__ __forceinline__ void compute_linearized_dynamics(T* s_xux, T* s_Ak, T* s_Bk, T* s_out, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr)
+template<typename T, unsigned INTEGRATOR_TYPE = 2, bool ANGLE_WRAP = false, bool COMPUTE_INTEGRATOR_ERROR = false, bool ID_SPILL = false>
+__device__ __forceinline__ void compute_linearized_dynamics(T* s_xux, T* s_Ak, T* s_Bk, T* s_out, T* s_temp, void* d_dynMem_const, T dt, T* d_f_ext = nullptr, T* d_id_spill = nullptr)
 {
         GATO_FIXED_BASE_ONLY(T);
         T* s_q = s_xux;
@@ -274,9 +274,9 @@ __device__ __forceinline__ void compute_linearized_dynamics(T* s_xux, T* s_Ak, T
         T* s_extra_temp = s_dqdd + STATE_SIZE / 2 * (STATE_SIZE + CONTROL_SIZE);
 
         if (d_f_ext == nullptr) {  // no external wrench
-                forward_dynamics_and_gradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const);
+                forward_dynamics_and_gradient<T, true, ID_SPILL>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, nullptr, d_id_spill);
         } else {
-                forward_dynamics_and_gradient<T>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext);
+                forward_dynamics_and_gradient<T, true, ID_SPILL>(s_dqdd, s_qdd, s_q, s_qd, s_u, s_extra_temp, d_dynMem_const, d_f_ext, d_id_spill);
         }
 
         if (COMPUTE_INTEGRATOR_ERROR) {
