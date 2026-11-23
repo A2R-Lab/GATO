@@ -60,9 +60,7 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 - Every shared-memory refusal names its stage and what the request grows
   with, the horizon or the robot. The contact-dynamics oracle keeps its
   tables in the opted-in arena: at 29 bodies they passed the 48 KB a kernel
-  gets without asking and the module did not link. That robot still does not
-  solve on the RTX 5090: its KKT assembly asks for 117,648 bytes against the
-  101,376 a block may use, and says so.
+  gets without asking and the module did not link.
 - The `BSQP.sim_forward` docstring states its shapes: one state and one
   control in, one next state per batch row out.
 
