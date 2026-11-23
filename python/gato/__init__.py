@@ -21,6 +21,7 @@ _LAZY = {
     "build": ".builder",
     "codegen": ".builder",
     "register_robot": "._cache",
+    "pinocchio_model": ".common",
     "CostMenu": ".cost_menu",
     "Term": ".cost_menu",
     "LinearTerm": ".cost_menu",

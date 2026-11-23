@@ -52,10 +52,7 @@ def test_regen_matches_vendored(robot, urdfs, repo_root, tmp_path):
         f"tools/regen_grid.py --robot {robot} and commit the result")
 
 
-def test_unbounded_joint_rejected(tmp_path):
-    """Continuous/unlimited joints must fail fast with an actionable error."""
-    urdf = tmp_path / "cont.urdf"
-    urdf.write_text("""<robot name="cont">
+UNBOUNDED_URDF = """<robot name="cont">
   <link name="world"/>
   <link name="l1"><inertial><mass value="1"/>
     <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
@@ -63,13 +60,75 @@ def test_unbounded_joint_rejected(tmp_path):
     <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
   <link name="l3"><inertial><mass value="1"/>
     <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="l4"/>
   <joint name="j0" type="fixed"><parent link="world"/><child link="l1"/></joint>
   <joint name="j1" type="continuous"><parent link="l1"/><child link="l2"/>
     <axis xyz="0 0 1"/><limit effort="10" velocity="1"/></joint>
-  <joint name="EE" type="fixed"><parent link="l2"/><child link="l3"/></joint>
-</robot>""")
-    with pytest.raises(ValueError, match="finite.*limit|not supported"):
-        codegen(urdf, "cont", ee_frame="EE", out_dir=tmp_path / "out", register=False)
+  <joint name="j2" type="revolute"><origin xyz="0 0 0.3"/><parent link="l2"/><child link="l3"/>
+    <axis xyz="0 1 0"/><limit LIMITS/></joint>
+  <joint name="EE" type="fixed"><origin xyz="0 0 0.3"/><parent link="l3"/><child link="l4"/></joint>
+</robot>"""
+
+
+def _limit_rows(text, table):
+    """The (lower, upper) expressions of one table of a generated limits.cuh."""
+    body = text.split(table)[1].split("};")[0]
+    return [tuple(part.strip() for part in line.strip().lstrip("{").split("}")[0].split(", "))
+            for line in body.splitlines() if line.strip().startswith("{")]
+
+
+@pytest.mark.parametrize("planar", [False, True])
+def test_unbounded_sides_are_infinite_in_the_limit_tables(tmp_path, planar):
+    """A continuous joint, a missing lower/upper/velocity/effort attribute and the
+    three coordinates of a planar base give an infinity on that side, and the
+    bounded sides keep the margin expression of every vendored table."""
+    from gato.builder import _parse_urdf, _write_limits
+
+    urdf = tmp_path / "cont.urdf"
+    urdf.write_text(UNBOUNDED_URDF.replace("LIMITS", 'lower="-1" effort="5"'))
+    robot = _parse_urdf(urdf, "EE", planar_base=planar)
+    out = tmp_path / "limits.cuh"
+    _write_limits(robot, out, "cont", urdf.name)
+    text = out.read_text()
+    inf, base = "std::numeric_limits<T>::infinity()", 3 if planar else 0
+    assert "#include <limits>" in text
+    q, qd, u = (_limit_rows(text, t) for t in ("JOINT_LIMITS_DATA", "VEL_LIMITS_DATA", "CTRL_LIMITS_DATA"))
+    assert len(q) == len(qd) == len(u) == base + 2 == robot.get_num_pos()
+    for rows in (q, qd, u):
+        assert rows[:base] == [("-" + inf, inf)] * base
+    assert q[base:] == [("-" + inf, inf), ("-1.0 - JOINT_LIMIT_MARGIN<T>()", inf)]
+    assert qd[base:] == [("-1.0 - JOINT_LIMIT_MARGIN<T>()", "1.0 + JOINT_LIMIT_MARGIN<T>()"), ("-" + inf, inf)]
+    assert u[base:] == [("-10.0 - JOINT_LIMIT_MARGIN<T>()", "10.0 + JOINT_LIMIT_MARGIN<T>()"),
+                        ("-5.0 - JOINT_LIMIT_MARGIN<T>()", "5.0 + JOINT_LIMIT_MARGIN<T>()")]
+
+
+@pytest.mark.parametrize("limits, match", [
+    ('lower="1" upper="-1" velocity="1" effort="1"', "lower must not exceed upper"),
+    ('lower="-1" upper="1" velocity="-2" effort="1"', "velocity limit"),
+    ('lower="-1" upper="1" velocity="1" effort="nan"', "effort limit"),
+], ids=["reversed", "negative-velocity", "nan-effort"])
+def test_inconsistent_limits_rejected(tmp_path, limits, match):
+    from gato.builder import _parse_urdf, _write_limits
+
+    urdf = tmp_path / "bad.urdf"
+    urdf.write_text(UNBOUNDED_URDF.replace("LIMITS", limits))
+    with pytest.raises(ValueError, match=match):
+        _write_limits(_parse_urdf(urdf, "EE"), tmp_path / "limits.cuh", "bad", urdf.name)
+
+
+def test_bounded_robot_limit_table_has_no_infinity(repo_root):
+    """The vendored tables are unchanged by the unbounded-joint support."""
+    for robot in ("indy7", "iiwa14", "go2", "fr3", "gen3", "ur5e"):
+        text = (repo_root / "gato" / "dynamics" / robot / "limits.cuh").read_text()
+        assert "infinity" not in text and "#include" not in text
+
+
+def test_floating_and_planar_base_are_exclusive(tmp_path):
+    urdf = tmp_path / "cont.urdf"
+    urdf.write_text(UNBOUNDED_URDF.replace("LIMITS", 'lower="-1" upper="1" velocity="1" effort="5"'))
+    with pytest.raises(ValueError, match="separate base models"):
+        codegen(urdf, "cont", ee_frame="EE", out_dir=tmp_path / "out", register=False,
+                floating_base=True, planar_base=True)
 
 
 ROTATED_URDF = """<robot name="rot">

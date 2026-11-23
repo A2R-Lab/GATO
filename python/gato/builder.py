@@ -109,13 +109,13 @@ def canonicalize_inertials(urdf_path, out_path):
     return done
 
 
-def _parse_urdf(urdf_path, ee_frame, floating_base=False):
+def _parse_urdf(urdf_path, ee_frame, floating_base=False, planar_base=False):
     """Parse with GRiD's URDFParser (same parse codegen uses); validate ee_frame."""
     # URDFParser ships inside the pinned grid-rbd wheel (gato._grid checks the pin).
     _grid.require()
     from URDFParser import URDFParser
 
-    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
+    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base), **_planar(planar_base))
     if robot is None:
         raise ValueError(f"URDFParser could not parse {urdf_path}")
 
@@ -128,9 +128,18 @@ def _parse_urdf(urdf_path, ee_frame, floating_base=False):
     return robot
 
 
-def _fmt(v):
-    """Full-precision C++ float literal for a URDF limit value."""
-    return repr(float(v))
+def _planar(planar_base):
+    """The parser and generator keyword for a planar base, passed only when on."""
+    return {"planar_base": True} if planar_base else {}
+
+
+def _bound(v, sign):
+    """The C++ expression of one limit-table entry: the URDF value moved inward
+    by JOINT_LIMIT_MARGIN, or an infinity for a side without a bound."""
+    v = float(v)
+    if math.isinf(v):
+        return ("-" if v < 0 else "") + "std::numeric_limits<T>::infinity()"
+    return f"{v!r} {sign} JOINT_LIMIT_MARGIN<T>()"
 
 
 def _write_limits(robot, out_path, name, urdf_name):
@@ -139,6 +148,10 @@ def _write_limits(robot, out_path, name, urdf_name):
     Floating base: the synthesized base free-joint carries no <limit> tags and
     its dofs are unbounded by construction — the tables cover the ACTUATED
     joints only.
+    A side without a bound holds an infinity, which the barrier and every row
+    mechanism skip: a continuous joint, the three coordinates of a planar base,
+    a revolute or prismatic joint with a missing lower or upper attribute, and
+    a missing velocity or effort attribute.
     ⚠ do not consume grid::init_joint_limits() instead: it is misaligned /
     uninitialized for floating robots (GRiD gen_init_joint_limits bug, ask
     filed 2026-08-09)."""
@@ -148,15 +161,19 @@ def _write_limits(robot, out_path, name, urdf_name):
     rows = {"JOINT_LIMITS_DATA": [], "VEL_LIMITS_DATA": [], "CTRL_LIMITS_DATA": []}
     slot = {}
     for j in joints:
-        lo, hi = j.joint_limits
+        lo, hi = j.joint_limits if j.joint_limits else (None, None)
         vel, eff = j.get_velocity_limit(), j.get_effort_limit()
-        for v, what in ((lo, "lower"), (hi, "upper"), (vel, "velocity"), (eff, "effort")):
-            if v is None or not math.isfinite(float(v)):
-                raise ValueError(
-                    f"joint {j.name!r} has no finite {what} limit in {urdf_name} — "
-                    f"GATO's barrier cost needs bounded <limit> tags on every joint "
-                    f"(continuous/unbounded joints are not supported yet)"
-                )
+        lo = -math.inf if lo is None else float(lo)
+        hi = math.inf if hi is None else float(hi)
+        vel = math.inf if vel is None else float(vel)
+        eff = math.inf if eff is None else float(eff)
+        if math.isnan(lo) or math.isnan(hi) or not lo <= hi:
+            raise ValueError(f"joint {j.name!r} in {urdf_name} has position limits [{lo}, {hi}]; "
+                             f"lower must not exceed upper")
+        for v, what in ((vel, "velocity"), (eff, "effort")):
+            if math.isnan(v) or v < 0.0:
+                raise ValueError(f"joint {j.name!r} in {urdf_name} has {what} limit {v}; it must be "
+                                 f"nonnegative, or absent for no limit")
         slot[j.jid] = len(rows["JOINT_LIMITS_DATA"])
         rows["JOINT_LIMITS_DATA"].append((lo, hi, j.name))
         rows["VEL_LIMITS_DATA"].append((-vel, vel, j.name))
@@ -186,11 +203,13 @@ def _write_limits(robot, out_path, name, urdf_name):
             rows["VEL_LIMITS_DATA"][i] = (-pv, pv, pname)
 
     nq = len(joints)
+    unbounded = any(math.isinf(float(v)) for entries in rows.values() for lo, hi, _ in entries for v in (lo, hi))
     out = [
         "#pragma once",
         f"// Joint/velocity/effort limit tables for {name}, from the URDF <limit> tags.",
         "// Generated alongside grid.cuh (tools/regen_grid.py / gato.build); do not edit",
         "// by hand. Included by gato/dynamics/plant.cuh only (needs JOINT_LIMIT_MARGIN).",
+        *(["// An infinite entry is a side without a bound.", "#include <limits>"] if unbounded else []),
         "",
         "namespace gato {",
         "namespace plant {",
@@ -200,8 +219,7 @@ def _write_limits(robot, out_path, name, urdf_name):
                 f"        __device__ constexpr T {table}[{nq}][2] = {{"]
         for i, (lo, hi, jname) in enumerate(entries):
             comma = "," if i < nq - 1 else ""
-            out.append(f"            {{{_fmt(lo)} - JOINT_LIMIT_MARGIN<T>(), "
-                       f"{_fmt(hi)} + JOINT_LIMIT_MARGIN<T>()}}{comma}  // {jname}")
+            out.append(f"            {{{_bound(lo, '-')}, {_bound(hi, '+')}}}{comma}  // {jname}")
         out.append("        };")
     out += ["", "}  // namespace plant", "}  // namespace gato", ""]
     Path(out_path).write_text("\n".join(out))
@@ -262,11 +280,11 @@ def _armature_option(joint_armature, nv=None):
     return float(raw) if raw.ndim == 0 else tuple(float(v) for v in raw)
 
 
-def _urdf_nv(urdf_path, floating_base):
+def _urdf_nv(urdf_path, floating_base, planar_base=False):
     """The velocity dimension GRiD's parser gives the URDF."""
     _grid.require()
     from URDFParser import URDFParser
-    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base))
+    robot = URDFParser().parse(str(urdf_path), floating_base=bool(floating_base), **_planar(planar_base))
     if robot is None:
         raise ValueError(f"URDFParser could not parse {urdf_path}")
     return robot.get_num_vel()
@@ -291,7 +309,7 @@ def _armature_vector(robot, joint_armature):
 
 
 def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics=False, friction_width=0.03,
-                 cost_frames=None, com=False, joint_armature=None):
+                 cost_frames=None, com=False, joint_armature=None, planar_base=False):
     """Cache key of the URDF
     bytes, the pinned grid-rbd release (the emitter: its version and bundled
     source/peer provenance), the consumed algorithm set and the codegen options.
@@ -311,16 +329,18 @@ def _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_ba
     if cost_frames:             # extra named cost frames beyond the end-effector target (frame 0)
         h.update(repr(("cost_frames", tuple(cost_frames))).encode())
     # a vector is checked against the URDF's nv here, the one point build and register_robot share
-    armature = _armature_option(joint_armature, lambda: _urdf_nv(urdf_path, floating_base))
+    armature = _armature_option(joint_armature, lambda: _urdf_nv(urdf_path, floating_base, planar_base))
     if armature is not None:    # folded in only when nonzero, so the keys of existing robots are unchanged
         h.update(repr(("joint_armature", armature)).encode())
+    if planar_base:             # folded in only when on, so the keys of existing robots are unchanged
+        h.update(b"planar_base")
     return h.hexdigest()[:16]
 
 
 def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
             register=True, collision_res=0.15, contact_frames=None,
             floating_base=False, joint_dynamics=False, friction_width=0.03,
-            cost_frames=None, com=False, joint_armature=None):
+            cost_frames=None, com=False, joint_armature=None, planar_base=False):
     """Generate gato/dynamics/<name>/{grid.cuh, limits.cuh} + register the robot.
 
     Returns the registry metadata dict. This is the single codegen path — both
@@ -349,6 +369,14 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     run the grid_plant SE(3) step/linearization path (SI-EULER integrator,
     tangent state cost). ee_frame is then the base-pose target frame (go2:
     imu_joint).
+
+    planar_base: attach the root link to the world through a planar joint
+    (grid-rbd 0.7.2), so the state begins with the base coordinates
+    [px, py, theta]: two translations along the world axes and the yaw about
+    +Z, with velocities [vx, vy, theta_dot] in the world frame. The three
+    coordinates are unbounded, directly actuated joints, which models a
+    holonomic base; there is no wheel or rolling constraint. theta is a plain
+    angle and does not wrap. It cannot be combined with floating_base.
 
     joint_dynamics: bake the URDF's <dynamics damping> and <dynamics friction>
     into the dynamics and its derivatives (GRiD's USE_JOINT_DYNAMICS):
@@ -379,12 +407,14 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     out_dir = Path(out_dir) if out_dir else root / "gato" / "dynamics" / name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    robot = _parse_urdf(urdf_path, ee_frame, floating_base=floating_base)
+    if floating_base and planar_base:
+        raise ValueError("floating_base and planar_base are separate base models; choose one")
+    robot = _parse_urdf(urdf_path, ee_frame, floating_base=floating_base, planar_base=planar_base)
     if joint_dynamics and not float(friction_width) > 0.0:
         raise ValueError(f"friction_width must be positive (rad/s), got {friction_width!r}")
     cost_frames = [str(f) for f in (cost_frames or [])]
-    # Limits first: it validates every joint has bounded <limit> tags (cheap),
-    # so an unsupported robot fails before the expensive grid.cuh generation.
+    # Limits first: they are cheap, so a robot with inconsistent <limit> tags
+    # fails before the expensive grid.cuh generation.
     _write_limits(robot, out_dir / "limits.cuh", name, urdf_path.name)
     from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
 
@@ -452,6 +482,8 @@ def codegen(urdf_path, name, ee_frame="EE", algorithm_list=None, out_dir=None,
     meta = {"nq": robot.get_num_pos(), "nv": robot.get_num_vel(),
             "ee_frame": ee_frame, "urdf": urdf_rel,
             "floating_base": bool(floating_base)}
+    if planar_base:
+        meta["planar_base"] = True
     if joint_dynamics:
         meta["joint_dynamics"] = True
         meta["friction_model"] = "tanh"
@@ -474,7 +506,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
           build_dir=None, collision_res=0.15, contact_frames=None,
           floating_base=False, contact_forces=False, exact_hessian=False,
           joint_dynamics=False, friction_width=0.03, merit_threads=None,
-          cost_frames=None, integrator=None, com=False, joint_armature=None):
+          cost_frames=None, integrator=None, com=False, joint_armature=None, planar_base=False):
     """Codegen + compile the bsqpN{N}_<name> solver modules for a URDF.
 
     Args:
@@ -502,6 +534,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
             part of the codegen key.
         joint_armature: reflected rotor inertia per velocity slot, a scalar or
             a vector of length nv (see codegen()); baked, part of the codegen key.
+        planar_base: a holonomic planar base, the coordinates [px, py, theta]
+            ahead of the joints (see codegen()); part of the codegen key.
         merit_threads: the merit kernel's block size (a multiple of 32); None
             reads GATO_MERIT_THREADS from the environment, and unset means the
             measured default: 64, or 32 on the Jetson family (sm_72, sm_87),
@@ -525,6 +559,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         raise ValueError("contact_forces, exact_hessian and integrator= are separate module variants — build one at a time")
     if integrator not in (None, "rk4"):
         raise ValueError(f"integrator must be None (the base's default step) or 'rk4', got {integrator!r}")
+    if floating_base and planar_base:
+        raise ValueError("floating_base and planar_base are separate base models; choose one")
     if exact_hessian and floating_base:
         raise ValueError("exact_hessian runs the fixed-base single-stage step only: the second-order contraction "
                          "is neither manifold-aware nor multi-stage (a floating-base module compiles without it)")
@@ -540,7 +576,7 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
 
     root = repo_root()
     key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
-                       cost_frames, com, joint_armature)
+                       cost_frames, com, joint_armature, planar_base)
     have = load_registry().get(name, {})
     headers = [root / "gato" / "dynamics" / name / f for f in ("grid.cuh", "limits.cuh")]
     if have.get("codegen_key") == key and all(h.exists() for h in headers):
@@ -549,7 +585,8 @@ def build(urdf_path, name=None, N=(32,), ee_frame="EE", arch=None, jobs=4,
         meta = codegen(urdf_path, name, ee_frame=ee_frame, collision_res=collision_res,
                        contact_frames=contact_frames, floating_base=floating_base,
                        joint_dynamics=joint_dynamics, friction_width=friction_width,
-                       cost_frames=cost_frames, com=com, joint_armature=joint_armature)
+                       cost_frames=cost_frames, com=com, joint_armature=joint_armature,
+                       planar_base=planar_base)
         _update_registry(name, {**meta, "codegen_key": key})
 
     try:

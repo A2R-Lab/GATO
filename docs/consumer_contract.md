@@ -48,6 +48,11 @@ model from the URDF, so set `env.model.armature` there.
   A reference that is "in-limit" by the URDF can still sit past the barrier's
   effective limit. Provenance: this explained an entire experiment matrix of
   "barrier-on always diverges" (PDDP round-2).
+- A side without a bound holds an infinity in the tables and is skipped by the
+  barrier and by every limit row mechanism: a continuous joint, the three
+  coordinates of a planar base, and a missing `lower`, `upper`, `velocity` or
+  `effort` attribute. A continuous joint is one angle in the state and does
+  not wrap; `gato.pinocchio_model` gives Pinocchio the same coordinates.
 - Barrier weights (`q_lim_cost`, `vel_lim_cost`, `ctrl_lim_cost`) default to
   {0.01, 0, 0} (`gato.SolverParams`): **torque limits are NOT enforced by
   default**: either enable

@@ -93,8 +93,10 @@ class MPCController:
             bdsv_threshold (re-seeding is the bigger hammer).
         hold_control: the control written into a cold start (reset without
             ``xu_warm``) and into a reseed. "zero" (default) is the historic
-            seed. "gravity" writes the control that holds the measured state
-            (``BSQP.holding_control``; at rest, the gravity torque), for
+            seed. "gravity" writes the control that gives zero joint
+            acceleration at the measured state (``BSQP.holding_control``; at
+            rest, the gravity torque; in motion the velocity is kept, so the
+            position is not held), for
             robots with a joint under a large static load: from zero control
             such a joint falls before the plan builds the load up (measured
             on the TIAGo Pro lift column, 190 N, which left its limits in
@@ -259,7 +261,7 @@ class MPCController:
 
     def _hold_seed(self, x):
         """The hold-at-x seed, (B, xu_size) float32: zero control, or under
-        hold_control="gravity" each row's holding control at every knot (the
+        hold_control="gravity" each row's zero-acceleration control at every knot (the
         rows differ when a hypothesis batch has set per-row wrenches)."""
         if self.hold_control == "zero":
             row = initialize_warm_start(x, self.N, self.nx, self.nu).astype(np.float32)

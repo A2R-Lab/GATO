@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .common import _require_pin, _pin_available, initialize_warm_start
+from .common import _require_pin, _pin_available, initialize_warm_start, pinocchio_model
 from .rowkinds import MECHS, KIND_CONTACT_POS, is_vector_kind
 from .config import SolverParams, COST_FIELDS
 from .linsys_autotune import PCG_REFUSED, resolve_linsys
@@ -354,6 +354,9 @@ class BSQP:
         # FK helpers (ee_pos), the sim/estimator layers and the tests; when it
         # IS available the module/URDF dimension cross-check below runs.
         self.floating_base = bool(getattr(base, "FLOATING_BASE", False))
+        # a holonomic planar base: [px, py, theta] ahead of the joints, three
+        # unbounded actuated coordinates (gato.build(..., planar_base=True))
+        self.planar_base = bool(robot_info(plant_type).get("planar_base", False))
         self.model_path = model_path
         self._model = None
         self._data = None
@@ -364,7 +367,7 @@ class BSQP:
                 raise ValueError(
                     f"module {mod} has (nq, nv) = ({self.nq}, {self.nv}) but the "
                     f"pinocchio model from {model_path!r} has ({self.model.nq}, {self.model.nv}) — "
-                    f"wrong URDF or a fixed/floating mismatch")
+                    f"wrong URDF or a fixed/floating/planar base mismatch")
         # The solver/grid.cuh optimizes the EE-position cost in the frame the module
         # was codegen'd with (fixed_target_name; recorded in the registry, "EE" for
         # the vendored robots). The frame id is resolved lazily with the model.
@@ -1455,26 +1458,11 @@ spherizer), so margin is extra safety on top.
         It carries the robot's baked ``joint_armature`` as ``model.armature``, so
         it is the same dynamics the module solves with."""
         if self._model is None:
-            pin = _require_pin()
-            if self.floating_base:
-                # floating-base modules: the stored state carries the
-                # free-flyer q [p; quat xyzw] — mirror it in the pin model so
-                # nq/nv/nx and every oracle computation match the module.
-                model = pin.buildModelFromUrdf(self.model_path, pin.JointModelFreeFlyer())
-            elif "<mimic" in Path(self.model_path).read_text(errors="replace"):
-                # a mimic follower has no coordinate in the module; pinocchio
-                # mirrors that only when asked (the follower is otherwise an
-                # independent joint and nq/nv exceed the module's)
-                try:
-                    model = pin.buildModelFromUrdf(self.model_path, mimic=True)
-                except (TypeError, Exception) as e:
-                    if "mimic" not in str(e):
-                        raise
-                    raise RuntimeError(f"{self.model_path!r} has mimic joints and this pinocchio ({pin.__version__}) "
-                                       f"cannot build them as followers; the solver runs without the pinocchio "
-                                       f"model, the FK helpers, simulators and estimators need a newer pinocchio") from e
-            else:
-                model = pin.buildModelFromUrdf(self.model_path)
+            # the module's coordinates: the free-flyer or planar base ahead of
+            # the joints, one angle per continuous joint, no coordinate for a
+            # mimic follower, so nq/nv/nx and every oracle computation match
+            model = pinocchio_model(self.model_path, floating_base=self.floating_base,
+                                    planar_base=self.planar_base)
             armature = robot_info(self.plant_type).get("armature")
             if armature:
                 if len(armature) != model.nv:
@@ -1540,10 +1528,13 @@ spherizer), so margin is extra safety on top.
         return self.solver.sim_forward(xk, uk, sim_dt)
 
     def holding_control(self, x):
-        """The control that holds state ``x``: zero joint acceleration on the
+        """The control that gives zero joint acceleration at state ``x`` on the
         device model, the knot-0 external wrench of each batch row included. At
-        rest it is the gravity torque. ``x`` is (nx,); returns (B, nu) float32,
-        one row per batch entry (the rows differ only through the wrench).
+        rest it is the gravity torque and the robot holds its position. In
+        motion it keeps the velocity, so it does not hold the position, and it
+        is not checked against the effort limits. ``x`` is (nx,); returns
+        (B, nu) float32, one row per batch entry (the rows differ only through
+        the wrench).
 
         A cold start seeds every control with zero, so a joint that carries a
         large static load (a lift column, a heavy arm) falls before the plan
@@ -1552,7 +1543,8 @@ spherizer), so margin is extra safety on top.
         ``initialize_warm_start(x, N, nx, nu, u=...)`` for a raw solve).
 
         Fixed-base modules without contact-force controls only: a floating
-        base cannot hold an arbitrary state with joint torques. The value is
+        base cannot cancel an arbitrary acceleration with joint torques. A
+        planar base is directly actuated and is covered. The value is
         solved from device steps: nu + 1 give the acceleration as an affine
         function of the control, and one correction step per distinct row
         covers an integrator that is not exactly affine (the RK4 variant).

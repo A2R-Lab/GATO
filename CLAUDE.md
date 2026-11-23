@@ -169,7 +169,8 @@ from other repos' venvs. The optional `pysqpcpu` comparison baseline has a separ
 New robots: `gato.build("robot.urdf", name=..., N=[32], ee_frame="EE", floating_base=False,
 contact_frames=None, contact_forces=False, exact_hessian=False, integrator=None, com=False, joint_armature=None)` runs codegen (grid.cuh +
 limits.cuh + registry; skipped when the inputs are unchanged) and compiles the modules in one
-call (serial chains, fixed OR floating base, bounded `<limit>` tags; `ee_frame` must be a URDF
+call (serial chains, fixed, floating or `planar_base=True` base; a joint side without a bound is
+unbounded in the limit tables; `ee_frame` must be a URDF
 fixed joint, addressed by its original URDF name, including hyphens; rotated inertial origins
 are supported by the pinned GRiD parser. `gato.builder.canonicalize_inertials(urdf, out)`
 optionally expresses tensors in the link frame without changing the model). NOTE: it reconfigures the `build/` tree for its own MODULES request — re-run your

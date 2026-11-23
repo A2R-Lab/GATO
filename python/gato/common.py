@@ -3,6 +3,8 @@ Common utilities for GATO trajectory optimization.
 Shared functions used by both benchmark scripts and notebooks.
 """
 
+from pathlib import Path
+
 import numpy as np
 
 
@@ -138,6 +140,94 @@ def world_wrench_to_joint_local(model, data, q, w_world, frame_id):
     F0 = pin.Force(f, tau + np.cross(p, f))          # about the world origin
     jid = model.frames[frame_id].parentJoint
     return jid, data.oMi[jid].actInv(F0)
+
+
+def pinocchio_model(urdf_path, floating_base=False, planar_base=False):
+    """The pinocchio Model of a URDF in the coordinates of the solver module.
+
+    pinocchio and the generated dynamics read three joint types differently, so
+    the plain ``pin.buildModelFromUrdf`` does not line up with the module's
+    state for them. This builder makes the two agree coordinate by coordinate:
+
+    - A continuous joint is one angle here. pinocchio reads it as
+      ``(cos, sin)``, so it is built as a revolute joint without position
+      limits, which has the same dynamics.
+    - ``planar_base=True`` builds the root as three joints, a translation
+      along world x, a translation along world y and a rotation about z:
+      ``q = [px, py, theta]`` and ``v = [vx, vy, theta_dot]`` with the linear
+      velocity in the world frame. pinocchio's own ``JointModelPlanar`` uses
+      ``[x, y, cos, sin]`` and a body-frame velocity, ``v_body = Rz(theta)^T
+      [vx, vy]``; map a state estimate in that convention before passing it in.
+    - A mimic follower has no coordinate of its own.
+
+    The position, velocity and effort limits of the model are infinite wherever
+    the URDF gives no bound, as in the module's limit tables. ``floating_base``
+    gives the free-flyer root, ``q = [p; quat xyzw; joints]``.
+    """
+    import xml.etree.ElementTree as ET
+    pin = _require_pin()
+    if floating_base and planar_base:
+        raise ValueError("floating_base and planar_base are separate base models; choose one")
+    text = Path(urdf_path).read_text(errors="replace")
+    tree = ET.fromstring(text)
+    wide, open_sides = "1e30", {}
+    for joint in tree.iter("joint"):
+        jtype = joint.get("type")
+        if jtype not in ("revolute", "prismatic", "continuous") or joint.find("mimic") is not None:
+            continue
+        limit = joint.find("limit")
+        if limit is None:
+            limit = ET.SubElement(joint, "limit")
+        missing = [key for key in ("lower", "upper", "velocity", "effort")
+                   if jtype == "continuous" and key in ("lower", "upper") or limit.get(key) is None]
+        if not missing:
+            continue
+        open_sides[joint.get("name")] = missing
+        for key in missing:
+            limit.set(key, "-" + wide if key == "lower" else wide)
+        if jtype == "continuous":
+            joint.set("type", "revolute")
+    args = [ET.tostring(tree, encoding="unicode")] if open_sides else []
+    build = pin.buildModelFromXML if open_sides else pin.buildModelFromUrdf
+    args = args or [str(urdf_path)]
+    kwargs = {"mimic": True} if "<mimic" in text else {}
+    if floating_base:
+        args.append(pin.JointModelFreeFlyer())
+    try:
+        model = build(*args, **kwargs)
+        if planar_base:
+            # Three one-coordinate joints. pinocchio's JointModelComposite has the same
+            # dynamics, and its analytic derivatives are wrong (4.1.0, against differences).
+            base, parent = pin.Model(), 0
+            for i, joint in enumerate((pin.JointModelPX(), pin.JointModelPY(), pin.JointModelRZ())):
+                parent = base.addJoint(parent, joint, pin.SE3.Identity(), f"planar_base_joint__sub{i}")
+            frame = base.addFrame(pin.Frame("planar_base", parent, pin.SE3.Identity(), pin.FrameType.OP_FRAME))
+            name, gravity = model.name, model.gravity
+            model = pin.appendModel(base, model, frame, pin.SE3.Identity())
+            model.name, model.gravity = name, gravity
+    except Exception as e:
+        if not kwargs or "mimic" not in str(e):
+            raise
+        raise RuntimeError(f"{str(urdf_path)!r} has mimic joints and this pinocchio ({pin.__version__}) cannot "
+                           f"build them as followers; the solver runs without the pinocchio model, the FK "
+                           f"helpers, simulators and estimators need a newer pinocchio") from e
+    lower, upper = model.lowerPositionLimit.copy(), model.upperPositionLimit.copy()
+    velocity, effort = model.velocityLimit.copy(), model.effortLimit.copy()
+    if planar_base:
+        lower[:3], upper[:3], velocity[:3], effort[:3] = -np.inf, np.inf, np.inf, np.inf
+    for name, missing in open_sides.items():
+        joint = model.joints[model.getJointId(name)]
+        if "lower" in missing:
+            lower[joint.idx_q] = -np.inf
+        if "upper" in missing:
+            upper[joint.idx_q] = np.inf
+        if "velocity" in missing:
+            velocity[joint.idx_v] = np.inf
+        if "effort" in missing:
+            effort[joint.idx_v] = np.inf
+    model.lowerPositionLimit, model.upperPositionLimit = lower, upper
+    model.velocityLimit, model.effortLimit = velocity, effort
+    return model
 
 
 def initialize_warm_start(x_start, N, nx, nu, u=None):

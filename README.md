@@ -402,8 +402,12 @@ solver = gato.BSQP("path/to/robot.urdf", N=32, plant_type="myrobot", ...)   # co
 ```
 
 `ee_frame` must be a **fixed joint** in the URDF (the EE target frame the cost
-tracks; on a floating base, the base-pose target frame); every actuated joint
-needs bounded `<limit>` tags (the barrier cost uses them). `joint_dynamics=True`
+tracks; on a floating base, the base-pose target frame). A joint side without
+a bound in its `<limit>` tag, and every continuous joint, is unbounded: the
+limit barrier and the limit rows skip it. `planar_base=True` puts a holonomic
+planar base `[px, py, theta]` ahead of the joints, with the linear velocity in
+the world frame and no wheel constraint; `gato.pinocchio_model` builds the
+Pinocchio model in the same coordinates. `joint_dynamics=True`
 bakes the URDF's `<dynamics damping>` and `friction` into the dynamics and
 its derivatives, the friction as GRiD's smooth `tanh` model with
 `friction_width` (rad/s, default 0.03; match it to the plan step). `joint_armature=`

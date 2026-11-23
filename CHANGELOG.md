@@ -4,9 +4,31 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
 
 ## Unreleased
 
+- Requires `grid-rbd` 0.7.2. Its generated device code evaluates in the kernel
+  precision with a fixed operation order, so fp32 results differ from 0.7.1 in
+  the last bits. All 54 parity goldens were re-baselined: every comparison with
+  Pinocchio and every gate of the suite passes on the new build, and a one-ulp
+  change of one start coordinate moves the ten-iteration trajectories as far
+  as the version change does.
+- Joints without bounds build. A continuous joint, a revolute or prismatic
+  joint with a missing `lower` or `upper`, and a missing `velocity` or `effort`
+  limit give an infinite entry in the limit tables, and the limit barrier and
+  every limit row mechanism skip that side. 0.2.2 refused such a URDF. The
+  state holds one angle per continuous joint, which does not wrap.
+- `planar_base=True` on `gato.build`, `gato.register_robot` and
+  `gato.codegen` puts a holonomic planar base ahead of the joints: the
+  coordinates `[px, py, theta]` with the velocities `[vx, vy, theta_dot]` in
+  the world frame, three unbounded and directly actuated coordinates. There is
+  no wheel or rolling constraint, so a differential drive is not modeled.
+- `gato.pinocchio_model(urdf, floating_base=, planar_base=)` builds the
+  Pinocchio model in the module's coordinates, and `BSQP.model` uses it.
+  Pinocchio's own loader reads a continuous joint as `(cos, sin)` and its
+  planar joint as `[x, y, cos, sin]` with a body-frame velocity, which do not
+  line up with the solver state. The docstring gives the mapping.
 - `MPCController(hold_control="gravity")` seeds a cold start and a reseed
-  with the control that holds the measured state, where the default seed has
-  zero control. `BSQP.holding_control(x)` returns that control per batch row,
+  with the control that gives zero joint acceleration at the measured state,
+  where the default seed has zero control. `BSQP.holding_control(x)` returns
+  that control per batch row,
   the knot-0 external wrench included; at rest it is the gravity torque, and
   it matches Pinocchio's inverse dynamics on the iiwa14. From zero control a
   joint under a large static load falls before the plan builds the load up:

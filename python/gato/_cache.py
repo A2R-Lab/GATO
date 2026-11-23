@@ -222,7 +222,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                    collision_res=0.15, contact_frames=None, variant="default",
                    build=False, cache_dir_override=None, arch=None, jobs=2, force=False,
                    joint_dynamics=False, friction_width=0.03, cost_frames=None, com=False,
-                   joint_armature=None) -> dict:
+                   joint_armature=None, planar_base=False) -> dict:
     """Generate a robot's dynamics headers into the per-host cache and record it
     in the manifest. Compiles the solver modules now only with ``build=True``;
     otherwise the first ``gato.BSQP(..., plant_type=name)`` compiles (once).
@@ -232,7 +232,8 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     rotor inertia per velocity slot (a scalar for every actuated slot, or a
     vector of length nv), as Pinocchio's ``model.armature``. ``cost_frames`` names extra joints
     baked as cost frames for the cost menu's frame terms (fixed base; the
-    end-effector target is always frame 0)."""
+    end-effector target is always frame 0). ``planar_base=True`` puts a holonomic
+    planar base ``[px, py, theta]`` ahead of the joints (see gato.builder.codegen)."""
     from .builder import _armature_option, _codegen_key, codegen
 
     if not str(name).isidentifier():
@@ -245,7 +246,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
     cache = Path(cache_dir_override) if cache_dir_override else cache_dir()
     cost_frames = [str(f) for f in (cost_frames or [])]
     key = _codegen_key(urdf_path, ee_frame, collision_res, contact_frames, floating_base, joint_dynamics, friction_width,
-                       cost_frames, com, joint_armature)
+                       cost_frames, com, joint_armature, planar_base)
     dyn = cache / "robots" / key / name
     with _locked(cache):
         if force or not (dyn / "grid.cuh").exists() or not (dyn / "limits.cuh").exists():
@@ -254,7 +255,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
                                collision_res=collision_res, contact_frames=contact_frames,
                                floating_base=floating_base, joint_dynamics=joint_dynamics,
                                friction_width=friction_width, cost_frames=cost_frames, com=com,
-                               joint_armature=joint_armature)
+                               joint_armature=joint_armature, planar_base=planar_base)
             except ValueError as e:
                 if "could not be resolved" in str(e):
                     raise ValueError(
@@ -269,6 +270,7 @@ def register_robot(name, urdf_path, *, N=(32,), ee_frame="EE", floating_base=Fal
         entry = {"name": name, "codegen_key": key, "urdf": str(urdf_path),
                  "urdf_sha256": hashlib.sha256(urdf_path.read_bytes()).hexdigest(),
                  "options": {"ee_frame": ee_frame, "floating_base": bool(floating_base),
+                             "planar_base": bool(planar_base),
                              "collision_res": collision_res,
                              "contact_frames": list(contact_frames) if contact_frames else None,
                              "joint_dynamics": bool(joint_dynamics),
@@ -331,7 +333,8 @@ def _codegen_request(robot: dict) -> dict:
     cost_frames = list(opts.get("cost_frames") or (meta.get("cost_frames") or [ee])[1:])
     contact = opts.get("contact_frames") or meta.get("contact_frames") or [ee]
     com = bool(opts.get("com", meta.get("com", False)))
-    req = dict(floating_base=floating, ee_joint_names=[ee], contact_frames=list(contact), cost_frames=cost_frames,
+    planar = bool(opts.get("planar_base", meta.get("planar_base", False)))
+    req = dict(floating_base=floating, **({"planar_base": True} if planar else {}), ee_joint_names=[ee], contact_frames=list(contact), cost_frames=cost_frames,
                algorithm_list=list(algorithms_for(floating, cost_frames, com)), launch_config_profile="host",
                strict_collision=True)
     res = opts.get("collision_res", (meta.get("collision") or {}).get("res"))
@@ -399,7 +402,8 @@ def ensure_module(name: str, N: int, variant: str = "default", *, cache: Path | 
         if threads:
             defines.append(f"GATO_MERIT_THREADS={int(threads)}")
         req = _codegen_request(robot)
-        model = grid_rbd.describe_model(urdf, floating_base=req["floating_base"])
+        model = grid_rbd.describe_model(urdf, floating_base=req["floating_base"],
+                                        planar_base=req.get("planar_base", False))
         t0 = time.time()
         try:
             art = grid_rbd.build_artifact(
