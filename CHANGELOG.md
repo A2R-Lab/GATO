@@ -2,7 +2,7 @@
 
 Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__version__`.
 
-## Unreleased
+## 0.2.3 — 2026-11-23: joints without bounds, planar base, robots past the shared-memory limit
 
 - Requires `grid-rbd` 0.7.2. Its generated device code evaluates in the kernel
   precision with a fixed operation order, so fp32 results differ from 0.7.1 in
