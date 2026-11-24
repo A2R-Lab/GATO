@@ -29,8 +29,9 @@ Released on PyPI as `gato-mpc` (import name `gato`); the version is `gato.__vers
   for 117,648 bytes and was refused; it now asks for 53,364. The values are
   bit-identical either way. `GATO_ID_GRAD_SPILL=0` or `1` forces the choice
   on `register_robot` and first-use compiles. Fixed-base modules without
-  contact forces only. The solve time with the pool in global memory is not
-  measured yet.
+  contact forces only. On the Indy7 the solve time with the pool in global
+  memory is within 3 percent of the default placement on the RTX 5090. It is
+  not measured on a robot that needs the pool there.
 - `gato.pinocchio_model(urdf, floating_base=, planar_base=)` builds the
   Pinocchio model in the module's coordinates, and `BSQP.model` uses it.
   Pinocchio's own loader reads a continuous joint as `(cos, sin)` and its
